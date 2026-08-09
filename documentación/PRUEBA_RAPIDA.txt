@@ -1,0 +1,189 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║                        🧪 PRUEBA RÁPIDA - 30 SEGUNDOS                       ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+Sigue estos pasos para verificar que TODO funciona:
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PASO 1: Abre el juego
+═══════════════════════════════════════════════════════════════════════════════
+
+    Haz doble click en → JUGAR.bat
+
+    ⏱️  Espera 2-3 segundos mientras cargan los chunks
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PASO 2: Prueba la cámara (cursor capturado)
+═══════════════════════════════════════════════════════════════════════════════
+
+    Mueve el ratón → IZQUIERDA ⬅️
+
+    ✅ DEBERÍA PASAR:
+       - La cámara gira a la izquierda
+       - Ves diferentes bloques
+       - La cruz sigue en el centro
+
+    ❌ SI NO PASA:
+       - Presiona ESC dos veces
+       - Intenta de nuevo
+
+
+    Mueve el ratón → DERECHA ➡️
+
+    ✅ DEBERÍA PASAR:
+       - La cámara gira a la derecha
+       - La cruz apunta a otros bloques
+
+
+    Mueve el ratón → ARRIBA ⬆️
+
+    ✅ DEBERÍA PASAR:
+       - La cámara mira hacia arriba
+       - Ves el cielo azul
+
+
+    Mueve el ratón → ABAJO ⬇️
+
+    ✅ DEBERÍA PASAR:
+       - La cámara mira hacia abajo
+       - Ves la plataforma de bloques
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PASO 3: Prueba ESC (liberar cursor)
+═══════════════════════════════════════════════════════════════════════════════
+
+    Presiona → ESC (1 vez)
+
+    ✅ DEBERÍA PASAR:
+       - Aparece el cursor del sistema (→)
+       - Puedes mover el cursor libremente
+       - La cámara YA NO se mueve con el ratón
+
+
+    Mueve el ratón
+
+    ✅ DEBERÍA PASAR:
+       - Solo se mueve el cursor del sistema
+       - La cámara NO se mueve
+       - La cruz sigue en el centro pero inmóvil
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PASO 4: Vuelve a capturar el cursor
+═══════════════════════════════════════════════════════════════════════════════
+
+    Presiona → ESC (otra vez)
+
+    ✅ DEBERÍA PASAR:
+       - El cursor del sistema desaparece
+       - Ya no ves la flecha del cursor
+
+
+    Mueve el ratón
+
+    ✅ DEBERÍA PASAR:
+       - La cámara vuelve a moverse
+       - Puedes controlar la vista de nuevo
+       - Todo vuelve a funcionar
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PASO 5: Prueba el movimiento
+═══════════════════════════════════════════════════════════════════════════════
+
+    Presiona → W (adelante)
+
+    ✅ DEBERÍA PASAR:
+       - Te mueves hacia donde apunta la cámara
+
+
+    Presiona → A (izquierda)
+
+    ✅ DEBERÍA PASAR:
+       - Te mueves a la izquierda
+
+
+    Presiona → Space (subir)
+
+    ✅ DEBERÍA PASAR:
+       - Vuelas hacia arriba
+
+
+    Presiona → Shift + W (correr)
+
+    ✅ DEBERÍA PASAR:
+       - Te mueves 3 veces más rápido
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PASO 6: Prueba romper bloques
+═══════════════════════════════════════════════════════════════════════════════
+
+    1. Apunta a un bloque con la cruz
+    2. Mantén click izquierdo 0.3 segundos
+
+    ✅ DEBERÍA PASAR:
+       - El bloque desaparece
+       - Ves un hueco en la plataforma
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PASO 7: Prueba colocar bloques
+═══════════════════════════════════════════════════════════════════════════════
+
+    1. Presiona tecla → 1 (seleccionar césped)
+    2. Apunta a un bloque con la cruz
+    3. Click derecho 1 vez
+
+    ✅ DEBERÍA PASAR:
+       - Aparece un bloque verde nuevo
+       - Se coloca al lado del bloque apuntado
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ✅ RESULTADO ESPERADO
+═══════════════════════════════════════════════════════════════════════════════
+
+  Si TODO lo anterior funciona correctamente:
+
+  ✓ La cámara se puede mover con el ratón
+  ✓ ESC libera y captura el cursor correctamente
+  ✓ El movimiento WASD funciona
+  ✓ Puedes romper bloques
+  ✓ Puedes colocar bloques
+  ✓ La cruz es visible
+
+  🎉 ¡TU JUEGO ESTÁ 100% FUNCIONAL!
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ❌ SI ALGO NO FUNCIONA
+═══════════════════════════════════════════════════════════════════════════════
+
+  PROBLEMA: No puedo mover la cámara
+  SOLUCIÓN: Presiona ESC dos veces
+
+  PROBLEMA: El cursor no desaparece
+  SOLUCIÓN: Presiona ESC
+
+  PROBLEMA: No veo los bloques
+  SOLUCIÓN: Espera 2-3 segundos para que carguen los chunks
+
+  PROBLEMA: FPS muy bajo
+  SOLUCIÓN: Cierra otras aplicaciones
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                        ⏱️ PRUEBA COMPLETA: ~30 SEGUNDOS
+
+                         Ejecuta JUGAR.bat ahora
+
+═══════════════════════════════════════════════════════════════════════════════

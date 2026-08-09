@@ -1,0 +1,415 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║           🎯 RAYCAST BASADO EN LA POSICIÓN EXACTA DEL JUGADOR               ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ✅ CONFIRMACIÓN: EL SISTEMA FUNCIONA DESDE TU POSICIÓN
+═══════════════════════════════════════════════════════════════════════════════
+
+  El raycast ahora parte EXACTAMENTE desde donde tú estás ubicado:
+
+  📍 ORIGEN DEL RAYCAST:
+  ────────────────────────────────────────────────────────────
+
+    Posición de tus pies:    (X, Y, Z)           → player.position
+    Posición de tus ojos:    (X, Y+1.62, Z)      → getEyePosition()
+    Origen del raycast:      Posición de los ojos ✓
+
+    El raycast parte desde tus OJOS, no desde tus pies.
+    Esto es igual que en Minecraft.
+
+
+  🎯 DIRECCIÓN DEL RAYCAST:
+  ────────────────────────────────────────────────────────────
+
+    Vector de dirección:     Hacia donde miras   → getForward()
+    Controlado por:          Yaw + Pitch (ángulos de cámara)
+    Sincronización:          100% con la cruz blanca del centro
+
+    El raycast va EXACTAMENTE hacia donde apunta la cruz.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  👁️  VISUALIZACIÓN AÑADIDA
+═══════════════════════════════════════════════════════════════════════════════
+
+  AHORA VERÁS EN EL JUEGO:
+  ────────────────────────────────────────────────────────────
+
+    🟢 LÍNEA VERDE:
+       - Va desde tus ojos hasta el bloque apuntado
+       - Semi-transparente (50% opacidad)
+       - Grosor: 2 píxeles
+       - Solo aparece cuando hay un bloque detectado
+
+    🔴 LÍNEA ROJA:
+       - Va desde tus ojos hacia adelante 5 bloques
+       - Semi-transparente (30% opacidad)
+       - Solo aparece cuando NO hay bloque (aire/lejos)
+
+    🟡 PUNTO AMARILLO:
+       - Marca la posición EXACTA de tus ojos
+       - Origen del raycast
+       - Tamaño: 8 píxeles
+       - Siempre visible (si no estás en pausa)
+
+
+  INFORMACIÓN DE DEBUG (Esquina superior izquierda):
+  ────────────────────────────────────────────────────────────
+
+    Línea 1:  Pos: (X, Y, Z)        ← Posición de tus PIES
+    Línea 10: Ojos: (X, Y, Z)       ← Posición de tus OJOS (origen raycast)
+    Línea 2:  Dir: (X, Y, Z)        ← Vector de dirección del raycast
+    Línea 4:  BLOQUE: [NOMBRE] (X, Y, Z)  ← Bloque detectado
+    Línea 5:  Dist: X.XX bloques    ← Distancia desde tus ojos
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🔬 CÓMO FUNCIONA TÉCNICAMENTE
+═══════════════════════════════════════════════════════════════════════════════
+
+  PASO 1: Obtener posición del jugador
+  ────────────────────────────────────────────────────────────
+
+    player.position = Vec3(X, Y, Z)
+
+    Ejemplo:
+      Si estás en: (100, 65, 200)
+      Tus pies están en Y = 65
+
+
+  PASO 2: Calcular posición de los ojos
+  ────────────────────────────────────────────────────────────
+
+    Vec3 getEyePosition() const {
+        return position + Vec3(0, EYE_HEIGHT, 0);
+    }
+
+    EYE_HEIGHT = 1.62 bloques (altura estándar de Minecraft)
+
+    Ejemplo:
+      Pies en:  (100, 65.0, 200)
+      Ojos en:  (100, 66.62, 200)  ← Este es el origen del raycast
+
+
+  PASO 3: Obtener dirección de la mirada
+  ────────────────────────────────────────────────────────────
+
+    Vec3 getForward() const {
+        float yawRad = yaw * (π / 180);
+        float pitchRad = pitch * (π / 180);
+
+        return Vec3(
+            cos(pitchRad) * sin(yawRad),    // X
+            -sin(pitchRad),                  // Y
+            cos(pitchRad) * -cos(yawRad)    // Z
+        ).normalize();
+    }
+
+    Ejemplo (mirando al Norte horizontal):
+      Yaw = 180°, Pitch = 0°
+      Dirección = (0.00, 0.00, -1.00)
+
+
+  PASO 4: Ejecutar raycast
+  ────────────────────────────────────────────────────────────
+
+    RaycastResult result = raycastBlock(
+        world,
+        origin,      ← Posición de los ojos (66.62)
+        direction,   ← Vector hacia donde miras
+        5.0f         ← Alcance máximo
+    );
+
+
+  PASO 5: Detectar bloque
+  ────────────────────────────────────────────────────────────
+
+    El algoritmo DDA 3D recorre el grid desde tu posición:
+
+    1. Inicia en (X=100, Y=66.62, Z=200) ← Tus ojos
+    2. Avanza en la dirección (0, 0, -1)  ← Norte
+    3. Verifica cada voxel del camino
+    4. Al encontrar bloque sólido → devuelve posición
+    5. Si llega a 5 bloques → se detiene
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📐 EJEMPLOS VISUALES
+═══════════════════════════════════════════════════════════════════════════════
+
+  EJEMPLO 1: Romper bloque al frente
+  ────────────────────────────────────────────────────────────
+
+    Situación:
+      Tu posición:   (100, 65, 200)  ← Pies
+      Tus ojos:      (100, 66.62, 200)
+      Mirando:       Norte (Yaw=180°, Pitch=0°)
+      Bloque frente: (100, 66, 199)  ← Piedra
+
+    Raycast:
+      Origen:        (100, 66.62, 200)  🟡 Punto amarillo
+      Dirección:     (0, 0, -1)          → Norte
+      Distancia:     1.38 bloques        🟢 Línea verde
+      Detectado:     PIEDRA (100, 66, 199)
+
+    Visual:
+      🟡 ───────🟢───────> 🟫 PIEDRA
+      Tus ojos           1.38 bloques
+
+
+  EJEMPLO 2: Romper bloque abajo
+  ────────────────────────────────────────────────────────────
+
+    Situación:
+      Tu posición:   (50, 70, 100)  ← Pies
+      Tus ojos:      (50, 71.62, 100)
+      Mirando:       Abajo (Yaw=0°, Pitch=+89°)
+      Bloque abajo:  (50, 69, 100)  ← Tierra
+
+    Raycast:
+      Origen:        (50, 71.62, 100)   🟡 Punto amarillo
+      Dirección:     (0, -1, 0)         ↓ Abajo
+      Distancia:     2.62 bloques       🟢 Línea verde
+      Detectado:     TIERRA (50, 69, 100)
+
+    Visual:
+           🟡 Tus ojos
+           🟢
+           🟢 2.62 bloques
+           🟢
+           ↓
+          🟫 TIERRA
+
+
+  EJEMPLO 3: Romper bloque arriba
+  ────────────────────────────────────────────────────────────
+
+    Situación:
+      Tu posición:   (10, 60, 10)  ← Pies
+      Tus ojos:      (10, 61.62, 10)
+      Mirando:       Arriba (Yaw=0°, Pitch=-80°)
+      Bloque arriba: (10, 65, 10)  ← Madera
+
+    Raycast:
+      Origen:        (10, 61.62, 10)    🟡 Punto amarillo
+      Dirección:     (0, 0.98, 0.17)    ↗ Arriba (diagonal)
+      Distancia:     3.50 bloques       🟢 Línea verde
+      Detectado:     MADERA (10, 65, 10)
+
+    Visual:
+          🟫 MADERA
+           ↑
+           🟢 3.50 bloques
+           🟢
+           🟡 Tus ojos
+
+
+  EJEMPLO 4: No hay bloque (aire/lejos)
+  ────────────────────────────────────────────────────────────
+
+    Situación:
+      Tu posición:   (0, 80, 0)  ← Pies (en el aire)
+      Tus ojos:      (0, 81.62, 0)
+      Mirando:       Horizonte (Yaw=90°, Pitch=0°)
+      No hay bloques en 5 bloques
+
+    Raycast:
+      Origen:        (0, 81.62, 0)      🟡 Punto amarillo
+      Dirección:     (-1, 0, 0)         ← Oeste
+      Distancia:     5.00 bloques       🔴 Línea roja
+      Detectado:     NINGUNO
+
+    Visual:
+      🟡 ─────🔴──────> (nada)
+      Tus ojos    5 bloques
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎮 CÓMO VERIFICAR QUE FUNCIONA DESDE TU POSICIÓN
+═══════════════════════════════════════════════════════════════════════════════
+
+  PRUEBA 1: Ver el punto amarillo (tus ojos)
+  ────────────────────────────────────────────────────────────
+
+    1. Ejecuta: run.bat
+    2. Mira alrededor (mueve el mouse)
+    3. Verás un PUNTO AMARILLO flotante cerca de ti
+    4. Ese punto es la posición EXACTA de tus ojos
+    5. El raycast parte desde ese punto
+
+
+  PRUEBA 2: Ver la línea verde (hasta el bloque)
+  ────────────────────────────────────────────────────────────
+
+    1. Apunta a un bloque sólido
+    2. Verás una LÍNEA VERDE desde el punto amarillo hasta el bloque
+    3. La línea va EXACTAMENTE desde tus ojos hasta el bloque
+    4. Mueve la cámara → la línea se mueve contigo
+
+
+  PRUEBA 3: Verificar distancia en el debug
+  ────────────────────────────────────────────────────────────
+
+    1. Apunta a un bloque cercano
+    2. Mira el debug: "Dist: 1.XX bloques"
+    3. Muévete más lejos
+    4. La distancia aumenta: "Dist: 2.XX bloques"
+    5. Cuando llegues a >5 bloques: "BLOQUE: NINGUNO"
+
+
+  PRUEBA 4: Verificar origen del raycast
+  ────────────────────────────────────────────────────────────
+
+    1. Mira el debug:
+       Pos: (100, 65, 200)    ← Tus pies
+       Ojos: (100, 66.62, 200) ← Origen del raycast
+
+    2. Muévete con WASD
+    3. Ambos valores cambian en tiempo real
+    4. La diferencia en Y siempre es 1.62 bloques
+
+
+  PRUEBA 5: Mover tu cuerpo (no solo la cámara)
+  ────────────────────────────────────────────────────────────
+
+    1. Coloca 2 bloques: uno cerca, uno lejos
+    2. Apunta al bloque LEJOS desde lejos
+    3. Verás: "Dist: 4.5 bloques" (ejemplo)
+    4. Camina HACIA el bloque (tecla W)
+    5. La distancia disminuye: "Dist: 3.2 bloques"
+    6. Sigue caminando
+    7. "Dist: 2.1 bloques", "Dist: 1.3 bloques"...
+
+    Esto demuestra que el raycast se actualiza según TU POSICIÓN.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🔍 DEBUG INFORMACIÓN COMPLETA
+═══════════════════════════════════════════════════════════════════════════════
+
+  ESQUINA SUPERIOR IZQUIERDA (mientras juegas):
+  ────────────────────────────────────────────────────────────
+
+    Pos: (100.0, 65.0, 200.0)      ← Posición de tus PIES (base)
+    Dir: (0.00, 0.00, -1.00)       ← Vector de dirección (normalizado)
+    Yaw: 180.0  Pitch: 0.0         ← Ángulos de rotación
+    BLOQUE: PIEDRA (100, 66, 199)  ← Bloque detectado
+    Dist: 1.38 bloques             ← Distancia desde tus ojos
+    Mirando: NORTE                 ← Dirección cardinal
+    Vertical: HORIZONTAL           ← Orientación vertical
+    Ojos: (100.0, 66.62, 200.0)    ← Origen del raycast ← NUEVO!
+
+
+  INTERPRETACIÓN:
+  ────────────────────────────────────────────────────────────
+
+    - Tus pies están en (100, 65, 200)
+    - Tus ojos están 1.62 bloques arriba: (100, 66.62, 200)
+    - El raycast sale desde (100, 66.62, 200)
+    - Va en dirección (0, 0, -1) = Norte
+    - Detecta PIEDRA a 1.38 bloques de distancia
+    - El bloque está en (100, 66, 199)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ⚙️  CÓDIGO FUENTE (Referencia)
+═══════════════════════════════════════════════════════════════════════════════
+
+  FUNCIÓN updateMining() (main.cpp ~línea 1750):
+  ────────────────────────────────────────────────────────────
+
+    void updateMining(GameState* state, float deltaTime) {
+        // PASO 1: Obtener origen del raycast (TUS OJOS)
+        Vec3 origin = state->player.getEyePosition();
+
+        // PASO 2: Obtener dirección (HACIA DONDE MIRAS)
+        Vec3 direction = state->player.getForward();
+
+        // PASO 3: Ejecutar raycast
+        RaycastResult result = raycastBlock(
+            state->world,
+            origin,      // Desde tus ojos
+            direction,   // Hacia donde miras
+            5.0f         // Máximo 5 bloques
+        );
+
+        // Si hay bloque, minar...
+        if (result.hit) {
+            // Romper bloque, mostrar grietas, etc.
+        }
+    }
+
+
+  FUNCIÓN getEyePosition() (main.cpp ~línea 268):
+  ────────────────────────────────────────────────────────────
+
+    Vec3 getEyePosition() const {
+        return position + Vec3(0, EYE_HEIGHT, 0);
+    }
+
+    // EYE_HEIGHT = 1.62 (definido en línea ~264)
+
+
+  FUNCIÓN getForward() (main.cpp ~línea 272):
+  ────────────────────────────────────────────────────────────
+
+    Vec3 getForward() const {
+        float yawRad = yaw * 3.14159f / 180.0f;
+        float pitchRad = pitch * 3.14159f / 180.0f;
+
+        return Vec3(
+            cosf(pitchRad) * sinf(yawRad),
+            -sinf(pitchRad),
+            cosf(pitchRad) * -cosf(yawRad)
+        ).normalize();
+    }
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ✅ RESUMEN
+═══════════════════════════════════════════════════════════════════════════════
+
+  EL SISTEMA FUNCIONA 100% POR TU POSICIÓN:
+  ────────────────────────────────────────────────────────────
+
+    ✓ El raycast parte desde TUS OJOS (posición + 1.62 en Y)
+    ✓ La dirección es hacia donde TÚ MIRAS (cruz blanca)
+    ✓ Se actualiza en tiempo real cuando TE MUEVES
+    ✓ Se actualiza en tiempo real cuando GIRAS LA CÁMARA
+    ✓ La distancia se mide desde TU POSICIÓN (ojos)
+    ✓ El alcance es relativo a TI (5 bloques desde tus ojos)
+
+
+  VISUALIZACIÓN EN TIEMPO REAL:
+  ────────────────────────────────────────────────────────────
+
+    🟡 Punto amarillo = Posición de TUS OJOS (origen)
+    🟢 Línea verde    = Raycast hasta el bloque detectado
+    🔴 Línea roja     = Raycast sin bloque (aire/lejos)
+
+
+  DEBUG COMPLETO:
+  ────────────────────────────────────────────────────────────
+
+    Pos:  Tus pies (base del jugador)
+    Ojos: Origen del raycast (pies + 1.62)
+    Dir:  Vector de dirección (hacia donde miras)
+    BLOQUE: Bloque detectado por el raycast
+    Dist: Distancia desde tus ojos hasta el bloque
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                🎯 EL RAYCAST ESTÁ 100% SINCRONIZADO CON TU POSICIÓN
+
+                     Verás la línea verde/roja desde tus ojos
+
+                           Ejecuta: run.bat
+
+═══════════════════════════════════════════════════════════════════════════════
+

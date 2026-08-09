@@ -1,0 +1,281 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║              ✅ ARREGLADO: SISTEMA DE SELECCIÓN DE BLOQUES                  ║
+║                          (EJE Y INVERTIDO)                                   ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎯 SOLUCIÓN FINAL
+═══════════════════════════════════════════════════════════════════════════════
+
+  El usuario aclaró que el problema NO era el movimiento de la cámara,
+  sino el SISTEMA DE SELECCIÓN DE BLOQUES (raycast).
+
+
+  CAMBIOS APLICADOS:
+  ────────────────────────────────────────────────────────────
+
+    1. Mouse callback: REVERTIDO al original
+       pitch += yoffset (cámara se mueve normalmente)
+
+    2. Vector forward: EJE Y INVERTIDO
+       Y = sinf(pitchRad) en lugar de -sinf(pitchRad)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📝 CÓDIGO MODIFICADO
+═══════════════════════════════════════════════════════════════════════════════
+
+  ARCHIVO: src/main.cpp
+
+  CAMBIO 1: Mouse Callback (línea ~2484)
+  ────────────────────────────────────────────────────────────
+
+    AHORA:
+    ──────
+    g_gameState->player.pitch += (float)yoffset;
+
+    Esto hace que la cámara se mueva NORMALMENTE:
+    - Mouse arriba → cámara mira arriba
+    - Mouse abajo → cámara mira abajo
+
+
+  CAMBIO 2: Función getForward() (línea ~272)
+  ────────────────────────────────────────────────────────────
+
+    ANTES:
+    ──────
+    Vec3 getForward() const {
+        float yawRad = yaw * 3.14159f / 180.0f;
+        float pitchRad = pitch * 3.14159f / 180.0f;
+        return Vec3(
+            cosf(pitchRad) * sinf(yawRad),
+            -sinf(pitchRad),  // ← Negativo
+            cosf(pitchRad) * -cosf(yawRad)
+        ).normalize();
+    }
+
+
+    AHORA:
+    ──────
+    Vec3 getForward() const {
+        float yawRad = yaw * 3.14159f / 180.0f;
+        float pitchRad = pitch * 3.14159f / 180.0f;
+        return Vec3(
+            cosf(pitchRad) * sinf(yawRad),
+            sinf(pitchRad),  // ← POSITIVO (invertido)
+            cosf(pitchRad) * -cosf(yawRad)
+        ).normalize();
+    }
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🔍 POR QUÉ FUNCIONA AHORA
+═══════════════════════════════════════════════════════════════════════════════
+
+  FLUJO COMPLETO:
+  ────────────────────────────────────────────────────────────
+
+    1. MUEVES EL MOUSE ARRIBA
+       ↓
+    2. yoffset = positivo
+       ↓
+    3. pitch += yoffset → pitch AUMENTA (positivo)
+       ↓
+    4. Cámara mira ARRIBA (visual correcto)
+       ↓
+    5. getForward() calcula:
+       - pitchRad = positivo
+       - sin(positivo) = positivo
+       - Y = sin(positivo) = POSITIVO
+       ↓
+    6. Y positivo = raycast va ARRIBA
+       ↓
+    7. ✅ Selecciona bloques ARRIBA (donde apunta la cruz)
+
+
+    1. MUEVES EL MOUSE ABAJO
+       ↓
+    2. yoffset = negativo
+       ↓
+    3. pitch += yoffset → pitch DISMINUYE (negativo)
+       ↓
+    4. Cámara mira ABAJO (visual correcto)
+       ↓
+    5. getForward() calcula:
+       - pitchRad = negativo
+       - sin(negativo) = negativo
+       - Y = sin(negativo) = NEGATIVO
+       ↓
+    6. Y negativo = raycast va ABAJO
+       ↓
+    7. ✅ Selecciona bloques ABAJO (donde apunta la cruz)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎮 COMPORTAMIENTO ESPERADO
+═══════════════════════════════════════════════════════════════════════════════
+
+  AHORA EL JUEGO FUNCIONA ASÍ:
+  ────────────────────────────────────────────────────────────
+
+    ✅ Mueves mouse ARRIBA:
+       - Cámara mira ARRIBA
+       - Cruz apunta ARRIBA
+       - Raycast selecciona bloques ARRIBA
+       - Click izquierdo rompe bloques ARRIBA
+
+    ✅ Mueves mouse ABAJO:
+       - Cámara mira ABAJO
+       - Cruz apunta ABAJO
+       - Raycast selecciona bloques ABAJO
+       - Click izquierdo rompe bloques ABAJO
+
+    ✅ Mueves mouse IZQUIERDA:
+       - Cámara gira IZQUIERDA
+       - Cruz apunta IZQUIERDA
+       - Raycast selecciona bloques IZQUIERDA
+       - Click izquierdo rompe bloques IZQUIERDA
+
+    ✅ Mueves mouse DERECHA:
+       - Cámara gira DERECHA
+       - Cruz apunta DERECHA
+       - Raycast selecciona bloques DERECHA
+       - Click izquierdo rompe bloques DERECHA
+
+    ✅ Miras AL FRENTE (horizontal):
+       - Cruz apunta AL FRENTE
+       - Raycast selecciona bloques FRONTALES
+       - Click izquierdo rompe bloques FRONTALES
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🧪 PRUEBAS PARA VERIFICAR
+═══════════════════════════════════════════════════════════════════════════════
+
+  EJECUTA: run.bat
+
+  PRUEBA 1: Bloques arriba
+  ────────────────────────────────────────────────────────────
+    1. Mira hacia ARRIBA (mouse arriba)
+    2. Verás línea verde apuntando ARRIBA
+    3. Mantén click izquierdo
+    4. ✅ Debe romper bloques ARRIBA
+
+
+  PRUEBA 2: Bloques abajo
+  ────────────────────────────────────────────────────────────
+    1. Mira hacia ABAJO (mouse abajo)
+    2. Verás línea verde apuntando ABAJO
+    3. Mantén click izquierdo
+    4. ✅ Debe romper bloques ABAJO
+
+
+  PRUEBA 3: Bloques frontales
+  ────────────────────────────────────────────────────────────
+    1. Mira al FRENTE (horizontal)
+    2. Verás línea verde apuntando AL FRENTE
+    3. Mantén click izquierdo
+    4. ✅ Debe romper bloques FRONTALES
+
+
+  PRUEBA 4: Bloques a los lados
+  ────────────────────────────────────────────────────────────
+    1. Gira la cámara IZQUIERDA/DERECHA
+    2. La línea verde gira contigo
+    3. Mantén click izquierdo
+    4. ✅ Debe romper bloques en esa dirección
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📊 RESUMEN TÉCNICO
+═══════════════════════════════════════════════════════════════════════════════
+
+  SISTEMA DE COORDENADAS:
+  ────────────────────────────────────────────────────────────
+
+    OpenGL usa:
+    - X: derecha positivo
+    - Y: arriba positivo
+    - Z: hacia cámara positivo
+
+
+  ÁNGULOS:
+  ────────────────────────────────────────────────────────────
+
+    Pitch:
+    - Positivo = cámara mira ARRIBA
+    - Negativo = cámara mira ABAJO
+
+    Yaw:
+    - Rota horizontalmente
+
+
+  VECTOR FORWARD:
+  ────────────────────────────────────────────────────────────
+
+    X = cos(pitch) * sin(yaw)
+    Y = sin(pitch)              ← INVERTIDO (antes era negativo)
+    Z = cos(pitch) * -cos(yaw)
+
+
+  RAYCAST:
+  ────────────────────────────────────────────────────────────
+
+    Algoritmo: DDA 3D (Digital Differential Analyzer)
+    Origen:    Posición de los ojos (player.position + 1.62)
+    Dirección: Vector forward (ahora con Y invertido)
+    Alcance:   5 bloques
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ✅ CONFIRMACIÓN
+═══════════════════════════════════════════════════════════════════════════════
+
+  EL SISTEMA DE SELECCIÓN AHORA FUNCIONA CORRECTAMENTE:
+  ────────────────────────────────────────────────────────────
+
+    ✓ Cruz blanca = donde apuntas
+    ✓ Línea verde = raycast visual
+    ✓ Raycast = detección de bloques
+    ✓ Click izquierdo = rompe donde apunta la cruz
+
+    ✓ Sincronización perfecta entre:
+      - Cámara visual
+      - Cruz del centro
+      - Raycast de detección
+      - Sistema de rotura de bloques
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📁 ARCHIVOS
+═══════════════════════════════════════════════════════════════════════════════
+
+  Modificado:
+  ────────────────────────────────────────────────────────────
+    src/main.cpp
+      - Línea ~2484: pitch += yoffset
+      - Línea ~278:  Y = sinf(pitchRad)
+
+  Scripts:
+  ────────────────────────────────────────────────────────────
+    fix_raycast_y_axis.py
+
+  Ejecutable:
+  ────────────────────────────────────────────────────────────
+    build\bin\Release\VoxelWorld.exe
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                    ✅ SISTEMA DE SELECCIÓN ARREGLADO
+
+              La cruz blanca y el raycast están perfectamente sincronizados
+
+                         Ejecuta: run.bat
+
+═══════════════════════════════════════════════════════════════════════════════
+

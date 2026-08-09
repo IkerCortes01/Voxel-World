@@ -1,0 +1,260 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║              ⛰️  NUEVA VERSIÓN: MÁS MONTAÑAS, CUEVAS Y RÍOS ⛰️             ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ✨ CAMBIOS PRINCIPALES
+═══════════════════════════════════════════════════════════════════════════════
+
+  1️⃣  PUEDES ROMPER TODO (excepto agua)
+      ✓ Antes: Solo podías romper algunos bloques
+      ✓ Ahora: Puedes romper TODOS los bloques excepto agua
+      ✓ Bedrock: Sigue siendo irrompible (999 segundos)
+
+  2️⃣  TERRENO MÁS MONTAÑOSO
+      ✓ Antes: Alturas de 20-100 bloques
+      ✓ Ahora: Alturas de 15-135 bloques (35% más alto)
+      ✓ Montañas más altas y dramáticas
+
+  3️⃣  CUEVAS NATURALES
+      ✓ Nuevo: Cuevas generadas con Perlin Noise 3D
+      ✓ Ubicación: Entre Y=10 y Y=(altura del terreno - 10)
+      ✓ Tamaño: Variables, algunas muy grandes
+      ✓ Frecuencia: Moderada (noise > 0.55)
+
+  4️⃣  RÍOS EN LUGAR DE OCÉANOS
+      ✓ Antes: Nivel del mar en Y=62 (océanos grandes)
+      ✓ Ahora: Nivel del mar en Y=45 (solo ríos)
+      ✓ Menos agua, más tierra para explorar
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎮 CÓMO SE SIENTE EL JUEGO AHORA
+═══════════════════════════════════════════════════════════════════════════════
+
+  ANTES:
+  ────────────────────────────────────────────────────────────
+
+    - Terreno plano con algunas colinas
+    - Mucha agua (océanos)
+    - No podías romper todos los bloques
+    - Sin cuevas naturales
+
+
+  AHORA:
+  ────────────────────────────────────────────────────────────
+
+    - Montañas altas y pronunciadas ⛰️
+    - Solo ríos (poca agua) 💧
+    - Puedes romper casi todo 🔨
+    - Cuevas para explorar bajo tierra 🕳️
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🔨 ROMPER BLOQUES - DETALLES
+═══════════════════════════════════════════════════════════════════════════════
+
+  BLOQUES QUE PUEDES ROMPER:
+  ────────────────────────────────────────────────────────────
+
+    ✓ Tierra (Dirt)         - 0.5 segundos
+    ✓ Césped (Grass)        - 0.6 segundos
+    ✓ Arena (Sand)          - 0.5 segundos
+    ✓ Hojas (Leaves)        - 0.2 segundos
+    ✓ Madera (Wood)         - 2.0 segundos
+    ✓ Piedra (Stone)        - 1.5 segundos
+    ✓ Pasto alto (Tallgrass)- Instantáneo
+
+
+  BLOQUES QUE NO PUEDES ROMPER:
+  ────────────────────────────────────────────────────────────
+
+    ✗ Agua (Water)          - No se puede romper
+    ✗ Bedrock               - Irrompible (999 segundos)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ⛰️  MONTAÑAS - DETALLES
+═══════════════════════════════════════════════════════════════════════════════
+
+  RANGO DE ALTURA:
+  ────────────────────────────────────────────────────────────
+
+    Mínima:  Y = 15  (nivel bajo)
+    Máxima:  Y = 135 (muy alto)
+    Promedio: Y = 75
+
+
+  COMPARACIÓN:
+  ────────────────────────────────────────────────────────────
+
+    ANTES (versión plana):
+    - Mínima: Y = 60
+    - Máxima: Y = 63
+    - Altura fija de 4 bloques
+
+    ANTIGUA (versión previa):
+    - Mínima: Y = 20
+    - Máxima: Y = 100
+    - Diferencia: 80 bloques
+
+    AHORA (versión nueva):
+    - Mínima: Y = 15
+    - Máxima: Y = 135
+    - Diferencia: 120 bloques ⬆️ +50%
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🕳️  CUEVAS - DETALLES
+═══════════════════════════════════════════════════════════════════════════════
+
+  CARACTERÍSTICAS:
+  ────────────────────────────────────────────────────────────
+
+    Generación:    Perlin Noise 3D (octaves=3)
+    Escala:        0.05 (cuevas medianas)
+    Umbral:        > 0.55 (frecuencia moderada)
+    Altura mínima: Y = 10
+    Altura máxima: Y = (altura terreno - 10)
+
+
+  CÓMO ENCONTRAR CUEVAS:
+  ────────────────────────────────────────────────────────────
+
+    1. Busca montañas o colinas altas
+    2. Excava hacia abajo desde Y=80-100
+    3. O busca entradas naturales en acantilados
+    4. Las cuevas conectan entre sí
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  💧 RÍOS - DETALLES
+═══════════════════════════════════════════════════════════════════════════════
+
+  NIVEL DEL MAR:
+  ────────────────────────────────────────────────────────────
+
+    Anterior: Y = 62
+    Ahora:    Y = 45
+    Reducción: 17 bloques más bajo ⬇️
+
+
+  QUÉ SIGNIFICA:
+  ────────────────────────────────────────────────────────────
+
+    - Solo terrenos bajo Y=45 tienen agua
+    - La mayoría del terreno está SOBRE el nivel del mar
+    - El agua forma ríos estrechos en valles
+    - Menos natación, más exploración terrestre
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📊 CAMBIOS TÉCNICOS
+═══════════════════════════════════════════════════════════════════════════════
+
+  ARCHIVO MODIFICADO:
+  ────────────────────────────────────────────────────────────
+
+    src/main.cpp
+
+
+  LÍNEAS CAMBIADAS:
+  ────────────────────────────────────────────────────────────
+
+    Línea 514:  SEA_LEVEL = 45 (antes 62)
+    Línea 529:  peaks * 0.3f (antes 0.1f) - más influencia
+    Línea 532:  Rango 15-135 (antes 20-100)
+    Línea 554:  Añadido: Generación de cuevas con noise 3D
+    Línea 1640: Cambiado: Permite romper todo excepto agua
+    Línea 1702: Añadido: Función breakBlock()
+
+
+  ALGORITMO DE CUEVAS:
+  ────────────────────────────────────────────────────────────
+
+    if (y > 10 && y < terrainHeight - 10 && caveNoise > 0.55f) {
+        blockType = BLOCK_AIR; // Cueva
+    }
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎮 CÓMO JUGAR CON LOS NUEVOS CAMBIOS
+═══════════════════════════════════════════════════════════════════════════════
+
+  EXPLORACIÓN:
+  ────────────────────────────────────────────────────────────
+
+    1. Genera un mundo nuevo (los cambios solo afectan chunks nuevos)
+    2. Explora para encontrar montañas altas
+    3. Busca cuevas en acantilados o excava
+    4. Los ríos ahora son más realistas
+
+
+  MINERÍA:
+  ────────────────────────────────────────────────────────────
+
+    1. Ahora puedes romper piedra, tierra, madera, etc.
+    2. Mantén click izquierdo hasta romper el bloque
+    3. El agua NO se puede romper (sigue siendo líquida)
+    4. Bedrock sigue siendo irrompible
+
+
+  CONSTRUCCIÓN:
+  ────────────────────────────────────────────────────────────
+
+    1. Más materiales disponibles al romper bloques
+    2. Puedes terraformar montañas
+    3. Puedes cavar túneles y hacer cuevas personalizadas
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ⚠️  IMPORTANTE - MUNDOS EXISTENTES
+═══════════════════════════════════════════════════════════════════════════════
+
+  CHUNKS YA GENERADOS:
+  ────────────────────────────────────────────────────────────
+
+    ✗ NO cambiarán automáticamente
+    ✓ Mantienen el terreno anterior (plano)
+
+
+  CHUNKS NUEVOS:
+  ────────────────────────────────────────────────────────────
+
+    ✓ Tendrán el nuevo terreno montañoso
+    ✓ Tendrán cuevas
+    ✓ Tendrán ríos en lugar de océanos
+
+
+  RECOMENDACIÓN:
+  ────────────────────────────────────────────────────────────
+
+    Para ver todos los cambios, es mejor:
+    1. Crear un mundo NUEVO
+    2. O explorar áreas no visitadas de tu mundo actual
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📝 RESUMEN DE CAMBIOS
+═══════════════════════════════════════════════════════════════════════════════
+
+  ✅ Puedes romper todos los bloques (excepto agua y bedrock)
+  ✅ Montañas 50% más altas (hasta Y=135)
+  ✅ Cuevas naturales con Perlin Noise 3D
+  ✅ Ríos en lugar de océanos (nivel del mar Y=45)
+  ✅ Terreno más interesante y variado
+  ✅ Más tierra para construir y explorar
+  ✅ Sistema de minado mejorado
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                          ¡DISFRUTA EL NUEVO MUNDO! 🎮⛰️
+
+                     Ejecuta run.bat para empezar a jugar
+
+═══════════════════════════════════════════════════════════════════════════════

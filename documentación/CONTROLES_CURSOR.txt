@@ -1,0 +1,311 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║                 🖱️ GUÍA COMPLETA: CURSOR Y CÁMARA 🎥                        ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ✅ EL SISTEMA YA ESTÁ FUNCIONANDO CORRECTAMENTE
+═══════════════════════════════════════════════════════════════════════════════
+
+  Tu juego tiene dos modos de cursor:
+
+  1️⃣  MODO CAPTURADO (cursor bloqueado)
+      → Puedes mover la cámara con el ratón
+      → El cursor es invisible
+      → La cruz (crosshair) está visible
+      → Puedes jugar normalmente
+
+  2️⃣  MODO LIBRE (cursor liberado)
+      → El cursor del sistema aparece
+      → NO puedes mover la cámara
+      → Útil para cerrar la ventana o pausar
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎮 CÓMO FUNCIONA
+═══════════════════════════════════════════════════════════════════════════════
+
+  AL INICIAR EL JUEGO:
+  ────────────────────────────────────────────────────────────
+
+    ✓ El cursor se captura AUTOMÁTICAMENTE
+    ✓ Ya puedes mover la cámara con el ratón
+    ✓ El cursor del sistema es invisible
+    ✓ La cruz (crosshair) aparece en el centro
+
+
+  PRESIONAR ESC (1ra vez):
+  ────────────────────────────────────────────────────────────
+
+    ✓ El cursor se LIBERA
+    ✓ Aparece el cursor normal del sistema (→)
+    ✓ NO puedes mover la cámara
+    ✓ Puedes mover el cursor fuera de la ventana
+    ✓ La cruz sigue visible pero no se mueve
+
+
+  PRESIONAR ESC (2da vez):
+  ────────────────────────────────────────────────────────────
+
+    ✓ El cursor se CAPTURA de nuevo
+    ✓ El cursor del sistema desaparece
+    ✓ Puedes mover la cámara otra vez
+    ✓ La cruz vuelve a funcionar
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📋 PASO A PASO
+═══════════════════════════════════════════════════════════════════════════════
+
+  PASO 1: Inicia el juego
+  ────────────────────────────────────────────────────────────
+
+    Ejecuta: JUGAR.bat
+
+    RESULTADO:
+    → Ventana abierta
+    → Cursor capturado automáticamente
+    → Ya puedes mover el ratón para mirar
+
+
+  PASO 2: Mueve la cámara
+  ────────────────────────────────────────────────────────────
+
+    Mueve el ratón: Izquierda ⬅️  Derecha ➡️  Arriba ⬆️  Abajo ⬇️
+
+    RESULTADO:
+    → La cámara gira en primera persona
+    → La cruz se mueve con tu vista
+    → Es como en Minecraft
+
+
+  PASO 3: Libera el cursor (si necesitas)
+  ────────────────────────────────────────────────────────────
+
+    Presiona: ESC
+
+    RESULTADO:
+    → Aparece el cursor del sistema (→)
+    → NO puedes mover la cámara
+    → Puedes hacer click en la X para cerrar
+
+
+  PASO 4: Vuelve a capturar el cursor
+  ────────────────────────────────────────────────────────────
+
+    Presiona: ESC otra vez
+
+    RESULTADO:
+    → El cursor desaparece
+    → Vuelves a controlar la cámara
+    → Puedes seguir jugando
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎯 DIFERENCIAS VISUALES
+═══════════════════════════════════════════════════════════════════════════════
+
+  CURSOR CAPTURADO (Jugando):
+  ────────────────────────────────────────────────────────────
+
+    ┌─────────────────────────────────────────────┐
+    │                                             │
+    │                                             │
+    │                                             │
+    │                    ┼                        │  ← Cruz visible
+    │                                             │     (se mueve con ratón)
+    │                                             │
+    │                                             │
+    └─────────────────────────────────────────────┘
+
+    ✓ SIN cursor del sistema
+    ✓ Cruz visible en el centro
+    ✓ Ratón controla la cámara
+
+
+  CURSOR LIBRE (Pausado):
+  ────────────────────────────────────────────────────────────
+
+    ┌─────────────────────────────────────────────┐
+    │                                             │
+    │        →                                    │  ← Cursor del sistema
+    │                                             │
+    │                    ┼                        │  ← Cruz visible pero fija
+    │                                             │
+    │                                             │
+    │                                             │
+    └─────────────────────────────────────────────┘
+
+    ✓ CON cursor del sistema (→)
+    ✓ Cruz visible pero inmóvil
+    ✓ Ratón NO controla la cámara
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🎮 TODOS LOS CONTROLES
+═══════════════════════════════════════════════════════════════════════════════
+
+  CÁMARA Y CURSOR:
+  ────────────────────────────────────────────────────────────
+
+    Ratón (capturado)   = Mover cámara 360° ✅
+    ESC                 = Liberar/Capturar cursor ✅
+
+
+  MOVIMIENTO:
+  ────────────────────────────────────────────────────────────
+
+    W                   = Adelante ✅
+    S                   = Atrás ✅
+    A                   = Izquierda ✅
+    D                   = Derecha ✅
+    Space               = Subir ✅
+    Ctrl                = Bajar ✅
+    Shift               = Correr rápido (3x) ✅
+
+
+  BLOQUES:
+  ────────────────────────────────────────────────────────────
+
+    Click Izq           = Romper bloque ✅
+    Click Der           = Colocar bloque ✅
+    1-9                 = Tipo de bloque ✅
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  💡 CONSEJOS
+═══════════════════════════════════════════════════════════════════════════════
+
+  1. PRIMERA VEZ JUGANDO:
+     → Al abrir el juego, mueve el ratón inmediatamente
+     → Verás que la cámara se mueve
+     → Esto confirma que el cursor está capturado
+
+  2. SI NO PUEDES MOVER LA CÁMARA:
+     → Presiona ESC dos veces
+     → Primera vez: libera el cursor
+     → Segunda vez: lo captura de nuevo
+     → Ahora deberías poder mover la cámara
+
+  3. PARA CERRAR EL JUEGO:
+     → Presiona ESC para liberar el cursor
+     → Haz click en la X de la ventana
+     → O simplemente cierra la consola
+
+  4. SENSIBILIDAD DEL RATÓN:
+     → Sensibilidad actual: 0.1 (normal)
+     → Si es muy rápida o lenta, se puede ajustar en Camera.cpp
+     → Línea 9: m_mouseSensitivity(0.1f)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  🔧 DETALLES TÉCNICOS
+═══════════════════════════════════════════════════════════════════════════════
+
+  IMPLEMENTACIÓN:
+  ────────────────────────────────────────────────────────────
+
+    Archivo: src/core/Application.cpp
+
+    Variable: m_cursorLocked
+    - true  = Cursor capturado (JUGANDO)
+    - false = Cursor libre (PAUSADO)
+
+    Al iniciar: m_cursorLocked = true (línea 16)
+    Al presionar ESC: m_cursorLocked = !m_cursorLocked (línea 150)
+
+
+  SISTEMA DE INPUT:
+  ────────────────────────────────────────────────────────────
+
+    Archivo: src/graphics/Camera.cpp
+
+    Función: handleInput(float deltaTime, bool captureMouse)
+
+    if (captureMouse) {
+        // Lee el movimiento del ratón
+        // Actualiza yaw y pitch
+        // Mueve la cámara
+    }
+
+    Si captureMouse = false, el ratón NO afecta la cámara
+
+
+  MODO DE CURSOR EN GLFW:
+  ────────────────────────────────────────────────────────────
+
+    Capturado: GLFW_CURSOR_DISABLED
+    - Oculta el cursor
+    - Permite movimiento infinito
+    - Ideal para FPS
+
+    Libre: GLFW_CURSOR_NORMAL
+    - Muestra el cursor
+    - Movimiento limitado a la ventana
+    - Ideal para pausar
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ❓ PREGUNTAS FRECUENTES
+═══════════════════════════════════════════════════════════════════════════════
+
+  P: ¿El cursor funciona al iniciar el juego?
+  R: SÍ. Al abrir VoxelWorld.exe, el cursor se captura automáticamente
+     y puedes mover la cámara inmediatamente.
+
+
+  P: ¿Cuántas veces tengo que presionar ESC?
+  R: UNA VEZ para liberar el cursor.
+     OTRA VEZ para volver a capturarlo.
+     Es un toggle (alternado).
+
+
+  P: ¿Puedo mover la cámara con el cursor libre?
+  R: NO. Solo puedes mover la cámara cuando el cursor está CAPTURADO.
+     Esto es intencional, igual que en Minecraft.
+
+
+  P: ¿La cruz se mueve con el ratón?
+  R: La cruz está FIJA en el centro de la pantalla.
+     Cuando mueves el ratón (con cursor capturado), la cámara gira
+     y parece que la cruz apunta a diferentes bloques.
+
+
+  P: ¿Puedo ajustar la sensibilidad del ratón?
+  R: SÍ. Edita src/graphics/Camera.cpp línea 9:
+     m_mouseSensitivity(0.1f) → cambia el 0.1 por otro valor
+     Menor = más lento | Mayor = más rápido
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  📊 RESUMEN RÁPIDO
+═══════════════════════════════════════════════════════════════════════════════
+
+  ESTADO INICIAL:
+  ✓ Cursor CAPTURADO
+  ✓ Cámara FUNCIONAL
+  ✓ Cruz VISIBLE
+
+  PRESIONAR ESC → 1 VEZ:
+  ✓ Cursor LIBRE
+  ✓ Cámara BLOQUEADA
+  ✓ Cruz VISIBLE (pero fija)
+
+  PRESIONAR ESC → 2 VECES:
+  ✓ Cursor CAPTURADO
+  ✓ Cámara FUNCIONAL
+  ✓ Cruz VISIBLE y ACTIVA
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                    ✅ TODO FUNCIONA CORRECTAMENTE
+
+              Inicia el juego y mueve el ratón para comprobarlo
+
+                         Ejecuta: JUGAR.bat
+
+═══════════════════════════════════════════════════════════════════════════════

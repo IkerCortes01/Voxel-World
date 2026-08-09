@@ -1,0 +1,50 @@
+# ============================================================================
+# Build
+# ============================================================================
+build/
+out/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.idb
+*.lib
+*.exp
+*.dll
+*.tlog
+*.log
+*.suo
+*.user
+.vs/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# ============================================================================
+# Mundos guardados (datos del jugador, no del proyecto)
+# ============================================================================
+saves/
+projects/
+
+# ============================================================================
+# Copias de seguridad y temporales
+# ============================================================================
+*.bak
+*.backup
+*.tmp
+*~
+nul
+
+# ============================================================================
+# Salida del grafo de conocimiento (generado, muy pesado)
+# ============================================================================
+graphify-out/
+
+# ============================================================================
+# Dependencias externas
+# ============================================================================
+# NOTA: external/glfw SÍ se versiona (7.6 MB de código fuente).
+# CMakeLists.txt hace add_subdirectory(external/glfw), así que sin él el
+# proyecto no compila desde un clon limpio. Solo se excluye su build.
+external/glfw/build/
+external/glfw/docs/html/

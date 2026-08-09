@@ -1,0 +1,96 @@
+========================================
+CÓDIGO PARA COPIAR Y PEGAR
+========================================
+
+===========================================
+SOLUCIÓN 1: TEXTURAS HOTBAR (5 MINUTOS)
+===========================================
+
+// 1. Agregar en main() DESPUÉS de g_textureManager->initialize();
+
+std::cout << "Pre-cargando texturas de items..." << std::endl;
+for (int i = 1; i < 16; i++) {
+    GLuint tex = g_textureManager->getItemTexture((BlockType)i);
+    if (tex == 0) {
+        std::cerr << "WARNING: Textura " << i << " no cargó" << std::endl;
+    }
+}
+
+// 2. Agregar ANTES del game loop:
+
+if (g_textureManager == nullptr) {
+    std::cerr << "ERROR: TextureManager nullptr!" << std::endl;
+    g_textureManager = new TextureManager();
+    g_textureManager->initialize();
+}
+
+========================================
+SOLUCIÓN 2: BIOMAS SUAVES (15 MINUTOS)
+========================================
+
+// BUSCAR en generateChunk() donde dice:
+// BiomeData biomeData = generator.getBiomeData(worldX, worldZ, 64);
+
+// REEMPLAZAR CON:
+
+// Sample biomas vecinos para transición suave
+BiomeData biomeCenter = generator.getBiomeData(worldX, worldZ, 64);
+BiomeData biomeN = generator.getBiomeData(worldX, worldZ + 8, 64);
+BiomeData biomeS = generator.getBiomeData(worldX, worldZ - 8, 64);
+BiomeData biomeE = generator.getBiomeData(worldX + 8, worldZ, 64);
+BiomeData biomeW = generator.getBiomeData(worldX - 8, worldZ, 64);
+
+// Promediar parámetros (transición suave)
+BiomeData biomeData = biomeCenter;
+biomeData.continentalness = (biomeCenter.continentalness * 0.5f +
+                             (biomeN.continentalness + biomeS.continentalness +
+                              biomeE.continentalness + biomeW.continentalness) * 0.125f);
+
+biomeData.temperature = (biomeCenter.temperature * 0.5f +
+                        (biomeN.temperature + biomeS.temperature +
+                         biomeE.temperature + biomeW.temperature) * 0.125f);
+
+biomeData.humidity = (biomeCenter.humidity * 0.5f +
+                     (biomeN.humidity + biomeS.humidity +
+                      biomeE.humidity + biomeW.humidity) * 0.125f);
+
+biomeData.peaks = (biomeCenter.peaks * 0.5f +
+                  (biomeN.peaks + biomeS.peaks +
+                   biomeE.peaks + biomeW.peaks) * 0.125f);
+
+// Mantener el bioma dominante del centro
+biomeData.biomeType = biomeCenter.biomeType;
+
+========================================
+TESTING RÁPIDO
+========================================
+
+1. COMPILAR:
+   cmake --build build --config Release
+
+2. EJECUTAR:
+   build\bin\Release\VoxelWorld.exe
+
+3. VERIFICAR TEXTURAS:
+   - Llenar hotbar con items
+   - Cambiar entre slots (1-9)
+   - Texturas deben aparecer siempre
+
+4. VERIFICAR BIOMAS:
+   - Volar en línea recta
+   - NO debe haber cortes abruptos
+   - Transiciones deben ser graduales
+
+========================================
+SI ALGO NO FUNCIONA
+========================================
+
+TEXTURAS:
+- Verificar console para "WARNING: Textura X no cargó"
+- Si aparece: revisar que texturas existen en assets/
+
+BIOMAS:
+- Si aún hay cortes: aumentar radio de sampling
+- Cambiar "8" a "16" en líneas de biomeN, biomeS, etc.
+
+========================================

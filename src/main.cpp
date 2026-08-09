@@ -59,6 +59,11 @@ PFNGLBUFFERDATAPROC glBufferData = NULL;
 #include <chrono>
 #include <cstdlib>
 #include <csignal>
+// _open/_write/_commit: las únicas primitivas de E/S que el manejador de
+// señales puede usar sin riesgo (ver emergencySaveHandler).
+#include <io.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 // ============================================================================
 // AAA SAVE SYSTEM
@@ -6994,7 +6999,7 @@ public:
                 g_textureManager->bindOptimized(batch->texture);
 
                 // ⭐ PROTECCIÓN: Verificar funciones VBO antes de usar
-                if (!glBindBuffer || !glVertexPointer) continue;
+                if (!glBindBuffer) continue;  // glVertexPointer es estática (GL 1.1), no necesita chequeo
 
                 // Bind VBOs para este batch
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
@@ -7050,7 +7055,8 @@ public:
                 glMatrixMode(GL_MODELVIEW);
 
                 // ⭐ PROTECCIÓN: Verificar funciones VBO antes de usar
-                if (!glBindBuffer || !glVertexPointer) {
+                // (glVertexPointer es estática de GL 1.1, no necesita chequeo)
+                if (!glBindBuffer) {
                     glMatrixMode(GL_TEXTURE);
                     glPopMatrix();
                     glMatrixMode(GL_MODELVIEW);
@@ -14352,6 +14358,12 @@ bool loadLevelDat(const std::string& worldPath, WorldInfo& worldInfo) {
         std::string key = line.substr(0, pos);
         std::string value = line.substr(pos + 1);
 
+        // std::sto* lanza con valores vacíos o no numéricos: un level.dat
+        // corrupto NO debe tirar la aplicación. Esto se llama desde el menú de
+        // selección de mundos, fuera del try/catch que cubre el bucle de juego,
+        // así que un solo mundo dañado impedía abrir el menú entero. El campo
+        // ilegible se ignora y se conserva el valor por defecto.
+        try {
         // Parsear cada campo
         if (key == "LevelName") {
             worldInfo.name = value;
@@ -14377,6 +14389,10 @@ bool loadLevelDat(const std::string& worldPath, WorldInfo& worldInfo) {
             worldInfo.versionCreated = value;
         } else if (key == "Checksum") {
             validChecksum = (value == "0xVOXELWORLD");
+        }
+        } catch (const std::exception&) {
+            std::cerr << "level.dat: campo ilegible '" << key << "=" << value
+                      << "' en " << worldPath << " (ignorado)" << std::endl;
         }
     }
 
@@ -14618,9 +14634,14 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
             std::string line;
             while (std::getline(cfgFile, line)) {
                 if (line.find("seed=") == 0) {
-                    int savedSeed = std::stoi(line.substr(5));
-                    state->world.setSeed(savedSeed);
-                    std::cout << "   ✅ Semilla cargada desde world.cfg: " << savedSeed << std::endl;
+                    try {
+                        int savedSeed = std::stoi(line.substr(5));
+                        state->world.setSeed(savedSeed);
+                        std::cout << "   ✅ Semilla cargada desde world.cfg: " << savedSeed << std::endl;
+                    } catch (const std::exception&) {
+                        std::cerr << "   world.cfg: semilla ilegible, se usa la actual: "
+                                  << line << std::endl;
+                    }
                     break;
                 }
             }
@@ -14635,12 +14656,16 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
         std::ifstream cfgFile(worldCfgPath);
         std::string line;
         while (std::getline(cfgFile, line)) {
-            if (line.find("render_distance=") == 0) {
-                state->renderDistance = std::stoi(line.substr(16));
-            }
-            else if (line.find("last_save=") == 0) {
-                time_t lastSave = std::stoll(line.substr(10));
-                std::cout << "   Último guardado: " << ctime(&lastSave);
+            try {
+                if (line.find("render_distance=") == 0) {
+                    state->renderDistance = std::stoi(line.substr(16));
+                }
+                else if (line.find("last_save=") == 0) {
+                    time_t lastSave = std::stoll(line.substr(10));
+                    std::cout << "   Último guardado: " << ctime(&lastSave);
+                }
+            } catch (const std::exception&) {
+                std::cerr << "   world.cfg: línea ilegible ignorada: " << line << std::endl;
             }
         }
         cfgFile.close();
@@ -14778,85 +14803,71 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
 // SIGNAL HANDLERS PARA GUARDADO DE EMERGENCIA
 // ============================================================================
 
+// Marcador de crash: descriptor abierto al arrancar para que el manejador solo
+// necesite _write() (async-signal-safe).
+//
+// El manejador anterior llamaba a saveWorld() completo -- filesystem, ofstream,
+// cerr, mutexes y heap -- desde SIGSEGV. Nada de eso se puede usar dentro de un
+// manejador de senal: desde un proceso ya corrupto podia bloquearse esperando un
+// mutex que nunca se libera o, peor, sobrescribir un save bueno con memoria
+// basura. Ahora solo deja una marca en disco y re-lanza la senal; el aviso al
+// jugador se da en el siguiente arranque, ya en contexto normal.
+//
+// No se pierde cobertura de guardado: cerrar por la X o salir al menu pasan por
+// el guardado normal del final de main(), y el autosave cubre el resto.
+static int g_crashMarkerFd = -1;
+static std::string g_crashMarkerPath;
+
 void emergencySaveHandler(int signal) {
-    std::cerr << "\n╔════════════════════════════════════════╗" << std::endl;
-    std::cerr << "║  ⚠️ SEÑAL DE CRASH DETECTADA (";
-
-    switch(signal) {
-        case SIGSEGV: std::cerr << "SIGSEGV"; break;
-        case SIGABRT: std::cerr << "SIGABRT"; break;
-        case SIGILL:  std::cerr << "SIGILL";  break;
-        case SIGFPE:  std::cerr << "SIGFPE";  break;
-        case SIGINT:  std::cerr << "SIGINT";  break;
-        case SIGTERM: std::cerr << "SIGTERM"; break;
-        default:      std::cerr << "SIGNAL " << signal; break;
+    // Contexto de senal: SOLO operaciones async-signal-safe.
+    if (g_crashMarkerFd >= 0) {
+        _write(g_crashMarkerFd, "CRASH\n", 6);
+        _commit(g_crashMarkerFd);
     }
-
-    std::cerr << ")    ║" << std::endl;
-    std::cerr << "╚════════════════════════════════════════╝" << std::endl;
-
-    // ⭐⭐⭐ GUARDADO DE EMERGENCIA — CONDICIONES ESTRICTAS
-    //
-    // BUG QUE ESTO CORRIGE (mundos borrados que "resucitan"):
-    // Antes bastaba con que currentWorldName no estuviera vacío. Pero ese
-    // nombre sobrevive al volver al menú principal, así que:
-    //   1. Juegas "Mundo 1" -> currentWorldName = "Mundo 1"
-    //   2. Sales al menú y BORRAS "Mundo 1" (la carpeta se elimina de verdad)
-    //   3. Cierras la ventana -> SIGTERM -> este handler
-    //   4. saveWorld() hacía create_directories() y RECREABA la carpeta
-    //      con level.dat y regions/
-    //   5. Al reabrir el juego, scanSavedWorlds() encontraba esa carpeta y
-    //      el mundo borrado aparecía de nuevo.
-    //
-    // Ahora se exige, además, estar realmente DENTRO del mundo
-    // (screenState == SCREEN_IN_GAME) y que su carpeta AÚN EXISTA. Con eso,
-    // un mundo eliminado no puede recrearse por un guardado tardío.
-    bool canEmergencySave = false;
-    if (g_gameState && !g_gameState->currentWorldName.empty()) {
-        if (g_gameState->screenState == SCREEN_IN_GAME) {
-            std::error_code ec;
-            const std::filesystem::path wp =
-                std::filesystem::path("saves") / g_gameState->currentWorldName;
-            // exists() con error_code no lanza: seguro dentro de un handler.
-            canEmergencySave = std::filesystem::exists(wp, ec) && !ec;
-            if (!canEmergencySave) {
-                std::cerr << "⚠️ El mundo ya no existe en disco: no se recrea." << std::endl;
-            }
-        } else {
-            std::cerr << "⚠️ No se está dentro de un mundo: no se guarda." << std::endl;
-        }
-    }
-
-    if (canEmergencySave) {
-        std::cerr << "\n💾 Intentando guardado de emergencia..." << std::endl;
-        try {
-            saveWorld(g_gameState);
-            std::cerr << "✅ Mundo guardado exitosamente antes del crash!" << std::endl;
-        } catch (...) {
-            std::cerr << "❌ No se pudo guardar el mundo" << std::endl;
-        }
-    } else {
-        std::cerr << "⚠️ No hay mundo activo para guardar" << std::endl;
-    }
-
-    std::cerr << "\n🔴 El programa se cerrará ahora..." << std::endl;
-
-    // Restaurar el handler por defecto y re-raise la señal
+    // Restaurar el manejador por defecto y re-lanzar la senal para que el
+    // sistema genere el volcado y el codigo de salida correctos.
     std::signal(signal, SIG_DFL);
     std::raise(signal);
 }
 
 void setupSignalHandlers() {
-    std::cout << "🛡️ Instalando signal handlers para guardado de emergencia..." << std::endl;
+    namespace fs = std::filesystem;
 
+    const char* localAppData = getenv("LOCALAPPDATA");
+    fs::path dir = (localAppData && *localAppData)
+        ? fs::path(localAppData) / "VoxelWorld"
+        : fs::path(getGameRootPath()) / "logs";
+
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path markerPath = dir / "crash.marker";
+
+    // El marcador se abre truncado en cada arranque, asi que queda en 0 bytes
+    // durante el juego normal y solo crece si el manejador llega a escribir.
+    // Por tanto, encontrarlo con contenido significa que la sesion anterior
+    // termino en crash.
+    if (fs::exists(markerPath, ec) && fs::file_size(markerPath, ec) > 0) {
+        std::cerr << "Se detecto un cierre inesperado en la sesion anterior" << std::endl;
+        MessageBoxA(nullptr,
+                    "Voxel World se cerro inesperadamente la ultima vez.\n\n"
+                    "El progreso desde el ultimo autoguardado podria haberse perdido.\n"
+                    "Hay copias de seguridad en saves\\<mundo>\\backups\\.",
+                    "Voxel World - Aviso", MB_OK | MB_ICONWARNING);
+    }
+
+    g_crashMarkerPath = markerPath.string();
+    g_crashMarkerFd = _open(g_crashMarkerPath.c_str(),
+                            _O_CREAT | _O_WRONLY | _O_TRUNC,
+                            _S_IREAD | _S_IWRITE);
+
+    // Solo senales de crash real. SIGINT/SIGTERM se dejan con el comportamiento
+    // por defecto: su caso lo cubren el cierre limpio y el autoguardado.
     std::signal(SIGSEGV, emergencySaveHandler);  // Segmentation fault
     std::signal(SIGABRT, emergencySaveHandler);  // Abort
     std::signal(SIGILL,  emergencySaveHandler);  // Illegal instruction
     std::signal(SIGFPE,  emergencySaveHandler);  // Floating point exception
-    std::signal(SIGINT,  emergencySaveHandler);  // Interrupt (Ctrl+C)
-    std::signal(SIGTERM, emergencySaveHandler);  // Termination request
 
-    std::cout << "✅ Signal handlers instalados correctamente" << std::endl;
+    std::cout << "Detector de crashes instalado (marcador: " << g_crashMarkerPath << ")" << std::endl;
 }
 
 // ============================================================================
@@ -15352,7 +15363,12 @@ int main() {
                     std::string line;
                     while (std::getline(file, line)) {
                         if (line.find("GameMode=") == 0) {
-                            gameMode = std::stoi(line.substr(9));
+                            try {
+                                gameMode = std::stoi(line.substr(9));
+                            } catch (const std::exception&) {
+                                std::cerr << "level.dat: GameMode ilegible, se usa Survival: "
+                                          << line << std::endl;
+                            }
                             break;
                         }
                     }

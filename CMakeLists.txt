@@ -4,6 +4,21 @@ project(VoxelWorld VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ============================================================================
+# RUNTIME DE C++ ENLAZADO ESTÁTICAMENTE
+# ============================================================================
+# Sin esto, el .exe depende de MSVCP140.dll, VCRUNTIME140.dll y
+# VCRUNTIME140_1.dll, que solo están presentes si el usuario tiene instalado
+# el "Visual C++ Redistributable". En un PC limpio el juego no arranca: se
+# cierra al instante y sin mensaje de error.
+#
+# Enlazando el runtime dentro del ejecutable, la carpeta del juego funciona
+# tal cual en cualquier Windows 10/11 x64, sin instalar nada.
+#
+# Coste: el .exe crece unos 100-200 KB. A cambio, la distribución es
+# autocontenida.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)

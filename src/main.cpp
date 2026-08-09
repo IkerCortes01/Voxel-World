@@ -123,6 +123,51 @@ using namespace VoxelWorld::SaveSystem;
 // ============================================================================
 // VBO FUNCTION LOADER
 // ============================================================================
+// ============================================================================
+// RUTAS PORTABLES (relativas al ejecutable)
+// ============================================================================
+// El motor tenía 9 rutas absolutas a "D:/Respaldo/Voxel World/...", así que
+// solo funcionaba en la máquina de desarrollo: al copiar el juego a otro PC
+// no encontraba ni texturas ni sonidos.
+//
+// Ahora todo se resuelve desde la carpeta donde está el .exe, de modo que la
+// carpeta del juego se puede mover, renombrar o copiar a otro equipo.
+//
+// Se busca en dos sitios, en este orden:
+//   1. junto al .exe            -> distribución (juego empaquetado)
+//   2. una carpeta más arriba   -> desarrollo (build/bin/Release/VoxelWorld.exe)
+// Así el mismo binario sirve para ambos casos sin recompilar.
+static std::string getGameRootPath() {
+    static std::string cached;
+    if (!cached.empty()) return cached;
+
+    char exePath[MAX_PATH] = {0};
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+
+    std::filesystem::path dir = std::filesystem::path(exePath).parent_path();
+
+    // Subir hasta encontrar la carpeta de recursos (máx. 4 niveles).
+    std::filesystem::path probe = dir;
+    for (int i = 0; i < 4; ++i) {
+        std::error_code ec;
+        if (std::filesystem::exists(probe / "resourcepacks", ec)) {
+            cached = probe.string() + "/";
+            return cached;
+        }
+        if (!probe.has_parent_path()) break;
+        probe = probe.parent_path();
+    }
+
+    // Si no se encuentra, usar la carpeta del .exe.
+    cached = dir.string() + "/";
+    return cached;
+}
+
+// Ruta absoluta a un recurso, a partir de una ruta relativa a la raíz.
+static std::string gamePath(const std::string& relative) {
+    return getGameRootPath() + relative;
+}
+
 void loadVBOFunctions() {
     glGenBuffers = (PFNGLGENBUFFERSPROC)wglGetProcAddress("glGenBuffers");
     glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)wglGetProcAddress("glDeleteBuffers");
@@ -481,8 +526,8 @@ private:
     double lastPlaceTime;
 
 public:
-    SoundManager(const std::string& path = "D:/Respaldo/Voxel World/sounds/")
-        : soundPath(path), masterVolume(0.5f), enabled(true),
+    SoundManager(const std::string& path = "")
+        : soundPath(path.empty() ? gamePath("sounds/") : path), masterVolume(0.5f), enabled(true),
           lastFootstepTime(0), lastBreakTime(0), lastPlaceTime(0) {
 
         // ⭐ MEJORADO: Registrar archivos de sonido completos
@@ -2028,8 +2073,8 @@ private:
     std::vector<GLuint> destroyStageTextures;
 
 public:
-    TextureManager(const std::string& resPath = "D:/Respaldo/Voxel World/resourcepacks/Textures/Blocks/")
-        : resourcePath(resPath), lastBoundTexture(0), currentWaterFrame(0), waterAnimTimer(0.0) {}
+    TextureManager(const std::string& resPath = "")
+        : resourcePath(resPath.empty() ? gamePath("resourcepacks/Textures/Blocks/") : resPath), lastBoundTexture(0), currentWaterFrame(0), waterAnimTimer(0.0) {}
 
     ~TextureManager() {
         // Liberar todas las texturas de OpenGL
@@ -2224,7 +2269,7 @@ public:
 
         std::cout << "=== Cargando texturas de destrucción de bloques ===" << std::endl;
 
-        std::string animPath = "D:/Respaldo/Voxel World/resourcepacks/Textures/Blocks/Animaciones/";
+        std::string animPath = gamePath("resourcepacks/Textures/Blocks/Animaciones/");
 
         // Defensa adicional: si alguna vez se fuerza una recarga real,
         // liberar los handles antiguos antes de perder sus IDs.
@@ -2471,19 +2516,19 @@ public:
         // Mapeo de items a texturas en la carpeta Items/
         switch (type) {
             case BLOCK_DIRT_POWDER:
-                return loadTextureFromPath("D:/Respaldo/Voxel World/resourcepacks/Textures/Items/polvo de tierra.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/polvo de tierra.png"));
 
             case BLOCK_STICK:
-                return loadTextureFromPath("D:/Respaldo/Voxel World/resourcepacks/Textures/Items/palo.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/palo.png"));
 
             case BLOCK_COAL_ITEM:
-                return loadTextureFromPath("D:/Respaldo/Voxel World/resourcepacks/Textures/Items/carbon.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/carbon.png"));
 
             case BLOCK_RAW_ZINC:
-                return loadTextureFromPath("D:/Respaldo/Voxel World/resourcepacks/Textures/Items/zinc crudo.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/zinc crudo.png"));
 
             case BLOCK_RAW_COPPER:
-                return loadTextureFromPath("D:/Respaldo/Voxel World/resourcepacks/Textures/Items/cobre crudo.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/cobre crudo.png"));
 
             default:
                 // Si no hay textura de item, usar la textura de bloque (cara superior)
@@ -8928,7 +8973,7 @@ void prewarmItemTextures() {
         g_itemTextures.init(g_textureManager, uiLoadTextureCB, uiCreateTextureCB);
     }
 
-    const std::string itemsDir = "D:/Respaldo/Voxel World/resourcepacks/Textures/Items/";
+    const std::string itemsDir = gamePath("resourcepacks/Textures/Items/");
 
     // ---- Items con textura propia en Items/ ----
     struct ItemTex { BlockType id; const char* file; };

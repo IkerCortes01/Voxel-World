@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <array>
 
 namespace fs = std::filesystem;
 
@@ -15,12 +16,13 @@ namespace SaveSystem {
 // COMPRESSION SYSTEM IMPLEMENTATION
 // ============================================================================
 
-// Simple LZ4-style compression (lightweight implementation)
-// For production, link against real LZ4 library
+// RLE con byte de escape.
+// Formato v2: [0xFF][count>=1][value] = run; [0xFF][0x00] = literal 0xFF.
+// El formato v1 emitía el literal 0xFF sin escapar, corrompiendo el chunk al
+// descomprimir; se conserva un decodificador legacy para leer saves v1.
 class SimpleLZ4 {
 public:
     static std::vector<uint8_t> compress(const uint8_t* src, size_t srcSize) {
-        // Simplified compression: RLE + dictionary
         std::vector<uint8_t> compressed;
         compressed.reserve(srcSize / 2);
 
@@ -28,7 +30,6 @@ public:
             uint8_t value = src[i];
             size_t runLength = 1;
 
-            // Count run length
             while (i + runLength < srcSize && src[i + runLength] == value && runLength < 255) {
                 runLength++;
             }
@@ -39,8 +40,14 @@ public:
                 compressed.push_back((uint8_t)runLength);
                 compressed.push_back(value);
                 i += runLength;
+            } else if (value == 0xFF) {
+                // Literal 0xFF: debe escaparse para no confundirse con el marcador
+                for (size_t j = 0; j < runLength; j++) {
+                    compressed.push_back(0xFF);
+                    compressed.push_back(0x00);
+                }
+                i += runLength;
             } else {
-                // Literal
                 compressed.push_back(value);
                 i++;
             }
@@ -49,21 +56,52 @@ public:
         return compressed;
     }
 
+    // Devuelve vector vacío si los datos están malformados o exceden dstSize.
     static std::vector<uint8_t> decompress(const uint8_t* src, size_t srcSize, size_t dstSize) {
         std::vector<uint8_t> decompressed;
         decompressed.reserve(dstSize);
 
         for (size_t i = 0; i < srcSize; ) {
+            if (src[i] == 0xFF) {
+                if (i + 1 >= srcSize) return {};  // marcador truncado
+                uint8_t count = src[i + 1];
+                if (count == 0) {
+                    // Escape: literal 0xFF
+                    if (decompressed.size() + 1 > dstSize) return {};
+                    decompressed.push_back(0xFF);
+                    i += 2;
+                } else {
+                    if (i + 2 >= srcSize) return {};  // run truncado
+                    uint8_t value = src[i + 2];
+                    if (decompressed.size() + count > dstSize) return {};
+                    decompressed.insert(decompressed.end(), count, value);
+                    i += 3;
+                }
+            } else {
+                if (decompressed.size() + 1 > dstSize) return {};
+                decompressed.push_back(src[i]);
+                i++;
+            }
+        }
+
+        return decompressed;
+    }
+
+    // Decodificador del formato v1 (sin escape), solo para migrar saves viejos.
+    // Acotado a dstSize para que un archivo corrupto no agote la memoria.
+    static std::vector<uint8_t> decompressLegacyV1(const uint8_t* src, size_t srcSize, size_t dstSize) {
+        std::vector<uint8_t> decompressed;
+        decompressed.reserve(dstSize);
+
+        for (size_t i = 0; i < srcSize; ) {
             if (src[i] == 0xFF && i + 2 < srcSize) {
-                // RLE sequence
                 uint8_t count = src[i + 1];
                 uint8_t value = src[i + 2];
-                for (int j = 0; j < count; j++) {
-                    decompressed.push_back(value);
-                }
+                if (decompressed.size() + count > dstSize) return {};
+                decompressed.insert(decompressed.end(), count, value);
                 i += 3;
             } else {
-                // Literal
+                if (decompressed.size() + 1 > dstSize) return {};
                 decompressed.push_back(src[i]);
                 i++;
             }
@@ -96,16 +134,35 @@ std::vector<uint8_t> CompressionSystem::decompress(const uint8_t* data, size_t c
     }
 }
 
-// CRC32 implementation
+// CRC32 estándar (polinomio 0xEDB88320, tabla generada una sola vez)
 uint32_t CompressionSystem::calculateCRC32(const uint8_t* data, size_t size) {
-    uint32_t crc = 0xFFFFFFFF;
-    static const uint32_t table[256] = { /* CRC32 table - simplified for brevity */ };
+    static const std::array<uint32_t, 256> table = []() {
+        std::array<uint32_t, 256> t{};
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; k++) {
+                c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            }
+            t[i] = c;
+        }
+        return t;
+    }();
 
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < size; i++) {
+        crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    }
+    return ~crc;
+}
+
+// Réplica exacta del "CRC" defectuoso de la versión 1 (tabla vacía, algoritmo
+// degenerado). Solo se usa para verificar saves v1 existentes.
+static uint32_t legacyCRC32v1(const uint8_t* data, size_t size) {
+    uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < size; i++) {
         uint8_t byte = data[i];
         crc = (crc >> 8) ^ ((crc ^ byte) & 0xFF);
     }
-
     return ~crc;
 }
 
@@ -220,10 +277,20 @@ bool RegionFile::open() {
 
         // Read header
         file.read((char*)&header, sizeof(RegionHeader));
+        if (!file.good()) {
+            std::cerr << "[RegionFile] Header truncado en " << filePath << std::endl;
+            return false;
+        }
 
         // Verify magic
         if (memcmp(header.magic, "VXRF", 4) != 0) {
             std::cerr << "[RegionFile] Invalid magic number in " << filePath << std::endl;
+            return false;
+        }
+
+        if (header.version == 0 || header.version > (uint32_t)SAVE_VERSION) {
+            std::cerr << "[RegionFile] Version no soportada (" << header.version
+                      << ") en " << filePath << std::endl;
             return false;
         }
 
@@ -235,6 +302,11 @@ bool RegionFile::open() {
         // Read size table
         for (int i = 0; i < 1024; i++) {
             file.read((char*)&chunkSizes[i], sizeof(uint32_t));
+        }
+
+        if (!file.good()) {
+            std::cerr << "[RegionFile] Tablas truncadas en " << filePath << std::endl;
+            return false;
         }
 
     } else {
@@ -266,7 +338,7 @@ bool RegionFile::open() {
 void RegionFile::close() {
     std::lock_guard<std::mutex> lock(fileMutex);
     if (file.is_open()) {
-        flush();
+        flushLocked();
         file.close();
     }
 }
@@ -278,6 +350,11 @@ bool RegionFile::saveChunk(int localX, int localZ, const std::vector<uint8_t>& d
 
     int index = getChunkIndex(localX, localZ);
     uint32_t dataSize = (uint32_t)data.size();
+
+    if (dataSize == 0 || dataSize > (uint32_t)MAX_CHUNK_SIZE) {
+        std::cerr << "[RegionFile] saveChunk rechazado: tamano invalido " << dataSize << std::endl;
+        return false;
+    }
 
     // Calculate sector count needed
     uint32_t sectorCount = (dataSize + SECTOR_SIZE - 1) / SECTOR_SIZE;
@@ -294,15 +371,31 @@ bool RegionFile::saveChunk(int localX, int localZ, const std::vector<uint8_t>& d
     std::vector<uint8_t> paddingData(padding, 0);
     file.write((const char*)paddingData.data(), padding);
 
-    // Update tables
+    if (!file.good()) {
+        // Escritura fallida: NO actualizar tablas — la entrada anterior (si
+        // existía) sigue apuntando a datos completos y válidos.
+        std::cerr << "[RegionFile] Error de escritura en " << filePath << std::endl;
+        file.clear();
+        return false;
+    }
+
+    // Update tables (los datos ya están completos en disco: si crasheamos
+    // antes del flush, la tabla vieja sigue apuntando al chunk anterior íntegro)
+    bool wasNew = (chunkOffsets[index] == 0);
     chunkOffsets[index] = offset;
     chunkSizes[index] = dataSize;
 
-    // Update header
-    header.chunkCount++;
+    // Solo contar chunks nuevos, no sobreescrituras
+    if (wasNew) {
+        header.chunkCount++;
+    }
     header.timestamp = (uint32_t)time(nullptr);
 
     isDirty = true;
+
+    // ⭐ Persistir tablas inmediatamente: reduce la ventana en la que un crash
+    // deja datos escritos pero no referenciados por la tabla.
+    flushLocked();
     return true;
 }
 
@@ -317,20 +410,47 @@ std::vector<uint8_t> RegionFile::loadChunk(int localX, int localZ) {
 
     if (offset == 0 || size == 0) return {};
 
+    // ⭐ Validar contra valores corruptos del archivo: sin esto, un size
+    // arbitrario provoca una allocación no acotada (hasta 4 GiB)
+    if (size > (uint32_t)MAX_CHUNK_SIZE) {
+        std::cerr << "[RegionFile] Chunk (" << localX << "," << localZ
+                  << ") con tamano corrupto: " << size << std::endl;
+        return {};
+    }
+    constexpr uint32_t dataStart = sizeof(RegionHeader) + 2 * 1024 * sizeof(uint32_t);
+    if (offset < dataStart) {
+        std::cerr << "[RegionFile] Chunk (" << localX << "," << localZ
+                  << ") con offset corrupto: " << offset << std::endl;
+        return {};
+    }
+
     // Read chunk data
     std::vector<uint8_t> data(size);
     file.seekg(offset);
     file.read((char*)data.data(), size);
 
+    if (!file.good() || (size_t)file.gcount() != size) {
+        std::cerr << "[RegionFile] Lectura truncada del chunk (" << localX
+                  << "," << localZ << ")" << std::endl;
+        file.clear();
+        return {};
+    }
+
     return data;
 }
 
 bool RegionFile::hasChunk(int localX, int localZ) const {
+    std::lock_guard<std::mutex> lock(fileMutex);
     int index = getChunkIndex(localX, localZ);
     return chunkOffsets[index] != 0;
 }
 
 void RegionFile::flush() {
+    std::lock_guard<std::mutex> lock(fileMutex);
+    flushLocked();
+}
+
+void RegionFile::flushLocked() {
     if (!isDirty) return;
 
     // Write header
@@ -406,20 +526,41 @@ bool ChunkSerializer::deserialize(
     // Verify magic
     if (memcmp(header.magic, "CHNK", 4) != 0) return false;
 
-    // Verify CRC
+    // ⭐ Validar campos del header ANTES de usarlos como longitudes:
+    // un archivo corrupto/truncado no debe provocar lecturas fuera del buffer
+    // ni allocaciones gigantes.
+    if (header.version == 0 || header.version > (uint32_t)SAVE_VERSION) {
+        std::cerr << "[ChunkSerializer] Version no soportada: " << header.version << std::endl;
+        return false;
+    }
+    if (header.compressedSize == 0 ||
+        header.compressedSize > (uint32_t)MAX_CHUNK_SIZE ||
+        data.size() < sizeof(ChunkSaveHeader) + header.compressedSize) {
+        std::cerr << "[ChunkSerializer] compressedSize invalido: " << header.compressedSize
+                  << " (buffer: " << data.size() << ")" << std::endl;
+        return false;
+    }
+    if (header.uncompressedSize != blockDataSize) {
+        std::cerr << "[ChunkSerializer] uncompressedSize no coincide: "
+                  << header.uncompressedSize << " vs " << blockDataSize << std::endl;
+        return false;
+    }
+
     const uint8_t* compressedData = data.data() + sizeof(ChunkSaveHeader);
-    uint32_t calculatedCRC = CompressionSystem::calculateCRC32(compressedData, header.compressedSize);
+
+    // Verify CRC (algoritmo según versión del archivo)
+    uint32_t calculatedCRC = (header.version >= 2)
+        ? CompressionSystem::calculateCRC32(compressedData, header.compressedSize)
+        : legacyCRC32v1(compressedData, header.compressedSize);
     if (calculatedCRC != header.crc32) {
         std::cerr << "[ChunkSerializer] CRC mismatch!" << std::endl;
         return false;
     }
 
-    // Decompress
-    std::vector<uint8_t> decompressed = compression.decompress(
-        compressedData,
-        header.compressedSize,
-        header.uncompressedSize
-    );
+    // Decompress (decodificador según versión del archivo)
+    std::vector<uint8_t> decompressed = (header.version >= 2)
+        ? SimpleLZ4::decompress(compressedData, header.compressedSize, header.uncompressedSize)
+        : SimpleLZ4::decompressLegacyV1(compressedData, header.compressedSize, header.uncompressedSize);
 
     if (decompressed.size() != blockDataSize) {
         std::cerr << "[ChunkSerializer] Size mismatch!" << std::endl;
@@ -444,8 +585,18 @@ bool ChunkSerializer::validate(const std::vector<uint8_t>& data) {
 
     if (memcmp(header.magic, "CHNK", 4) != 0) return false;
 
+    // Mismas validaciones de límites que deserialize
+    if (header.version == 0 || header.version > (uint32_t)SAVE_VERSION) return false;
+    if (header.compressedSize == 0 ||
+        header.compressedSize > (uint32_t)MAX_CHUNK_SIZE ||
+        data.size() < sizeof(ChunkSaveHeader) + header.compressedSize) {
+        return false;
+    }
+
     const uint8_t* compressedData = data.data() + sizeof(ChunkSaveHeader);
-    uint32_t calculatedCRC = CompressionSystem::calculateCRC32(compressedData, header.compressedSize);
+    uint32_t calculatedCRC = (header.version >= 2)
+        ? CompressionSystem::calculateCRC32(compressedData, header.compressedSize)
+        : legacyCRC32v1(compressedData, header.compressedSize);
 
     return calculatedCRC == header.crc32;
 }
@@ -507,8 +658,13 @@ void BackupManager::createBackup(const std::string& backupName) {
     fs::create_directories(backupPath);
 
     try {
-        fs::copy(worldPath, backupPath,
-                 fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        // ⭐ Copiar hijo por hijo EXCLUYENDO backups/: copiar worldPath entero
+        // metía los backups anteriores dentro del nuevo (crecimiento exponencial)
+        for (const auto& entry : fs::directory_iterator(worldPath)) {
+            if (entry.path().filename() == "backups") continue;
+            fs::copy(entry.path(), backupPath / entry.path().filename(),
+                     fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        }
         std::cout << "[BackupManager] Created backup: " << name << std::endl;
     } catch (const fs::filesystem_error& e) {
         std::cerr << "[BackupManager] Backup failed: " << e.what() << std::endl;
@@ -567,21 +723,38 @@ void BackupManager::restoreBackup(const std::string& backupName) {
         return;
     }
 
+    // ⭐ Restaurar en 3 pasos para no destruir el mundo si la copia falla:
+    // 1) copiar el backup a un staging temporal, 2) recién entonces borrar los
+    // datos actuales, 3) mover el staging a su lugar (renames, casi atómico).
+    fs::path stagingPath = fs::path(worldPath) / "_restore_staging";
     try {
-        // Delete current world data (except backups)
+        // Paso 1: copiar backup a staging (si falla, el mundo queda intacto)
+        fs::remove_all(stagingPath);
+        fs::create_directories(stagingPath);
+        for (const auto& entry : fs::directory_iterator(backupPath)) {
+            fs::copy(entry.path(), stagingPath / entry.path().filename(),
+                     fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        }
+
+        // Paso 2: borrar datos actuales (excepto backups y el staging)
         for (const auto& entry : fs::directory_iterator(worldPath)) {
-            if (entry.path().filename() != "backups") {
+            const auto name = entry.path().filename();
+            if (name != "backups" && name != "_restore_staging") {
                 fs::remove_all(entry.path());
             }
         }
 
-        // Restore from backup
-        fs::copy(backupPath, worldPath,
-                 fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        // Paso 3: mover contenido del staging al mundo (renames rápidos)
+        for (const auto& entry : fs::directory_iterator(stagingPath)) {
+            fs::rename(entry.path(), fs::path(worldPath) / entry.path().filename());
+        }
+        fs::remove_all(stagingPath);
 
         std::cout << "[BackupManager] Restored backup: " << backupName << std::endl;
     } catch (const fs::filesystem_error& e) {
         std::cerr << "[BackupManager] Restore failed: " << e.what() << std::endl;
+        std::error_code ec;
+        fs::remove_all(stagingPath, ec);
     }
 }
 
@@ -680,30 +853,37 @@ void WorldSaveManager::saveThreadWorker() {
         SaveTask task(0, 0, std::vector<uint8_t>(), ChunkMetadata());
 
         if (saveQueue.pop(task, 100)) {
-            // Get region coordinates
-            auto [regionX, regionZ] = getRegionCoords(task.chunkX, task.chunkZ);
-            int localX = task.chunkX & 31;
-            int localZ = task.chunkZ & 31;
+            // ⭐ Una excepción aquí (bad_alloc, filesystem_error) mataría el
+            // proceso entero via std::terminate: capturar y seguir.
+            try {
+                // Get region coordinates
+                auto [regionX, regionZ] = getRegionCoords(task.chunkX, task.chunkZ);
+                int localX = task.chunkX & 31;
+                int localZ = task.chunkZ & 31;
 
-            // Get or create region
-            RegionFile* region = getOrCreateRegion(regionX, regionZ);
-            if (!region) continue;
+                // Get or create region
+                RegionFile* region = getOrCreateRegion(regionX, regionZ);
+                if (!region) continue;
 
-            // Journal transaction
-            std::stringstream ss;
-            ss << "SAVE_CHUNK " << task.chunkX << " " << task.chunkZ;
-            journal.beginTransaction(ss.str());
+                // Journal transaction
+                std::stringstream ss;
+                ss << "SAVE_CHUNK " << task.chunkX << " " << task.chunkZ;
+                journal.beginTransaction(ss.str());
 
-            // Save chunk
-            bool success = region->saveChunk(localX, localZ, task.data);
+                // Save chunk
+                bool success = region->saveChunk(localX, localZ, task.data);
 
-            if (success) {
-                totalChunksSaved.fetch_add(1);
-                totalBytesSaved.fetch_add(task.data.size());
-                markChunkClean(task.chunkX, task.chunkZ);
+                if (success) {
+                    totalChunksSaved.fetch_add(1);
+                    totalBytesSaved.fetch_add(task.data.size());
+                    markChunkClean(task.chunkX, task.chunkZ);
+                }
+
+                journal.endTransaction();
+            } catch (const std::exception& e) {
+                std::cerr << "[SaveThread] Error guardando chunk (" << task.chunkX
+                          << "," << task.chunkZ << "): " << e.what() << std::endl;
             }
-
-            journal.endTransaction();
         }
     }
 }
@@ -855,8 +1035,14 @@ WorldSaveManager::Statistics WorldSaveManager::getStatistics() const {
     stats.chunksLoaded = totalChunksLoaded.load();
     stats.bytesSaved = totalBytesSaved.load();
     stats.bytesLoaded = 0; // TODO: track
-    stats.dirtyChunkCount = dirtyChunks.size();
-    stats.regionCount = regionCache.size();
+    {
+        std::lock_guard<std::mutex> lock(dirtyMutex);
+        stats.dirtyChunkCount = dirtyChunks.size();
+    }
+    {
+        std::lock_guard<std::mutex> lock(regionCacheMutex);
+        stats.regionCount = regionCache.size();
+    }
     stats.queuedSaves = saveQueue.size();
     return stats;
 }

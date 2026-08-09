@@ -35,7 +35,9 @@ namespace SaveSystem {
 // CONSTANTS & CONFIGURATION
 // ============================================================================
 
-constexpr int SAVE_VERSION = 1;                    // Current save format version
+// Version 1: RLE sin escape (corrompe datos con bytes 0xFF) + CRC32 defectuoso.
+// Version 2: RLE con escape de 0xFF + CRC32 estándar. Lectura compatible con v1.
+constexpr int SAVE_VERSION = 2;                    // Current save format version
 constexpr int REGION_SIZE = 32;                    // 32x32 chunks per region file
 constexpr int CHUNK_HEADER_SIZE = 8;               // Chunk header: 4 bytes offset + 4 bytes size
 constexpr int SECTOR_SIZE = 4096;                  // 4KB sectors (standard disk block)
@@ -161,8 +163,10 @@ private:
     RegionHeader header;
     std::vector<uint32_t> chunkOffsets;     // Offset table (1024 entries)
     std::vector<uint32_t> chunkSizes;       // Size table (1024 entries)
-    std::mutex fileMutex;
+    mutable std::mutex fileMutex;
     bool isDirty;
+
+    void flushLocked();                     // flush interno (requiere fileMutex tomado)
 
     int getChunkIndex(int localX, int localZ) const {
         return (localX & 31) + (localZ & 31) * 32;
@@ -274,7 +278,7 @@ private:
 
     // Region file cache
     std::map<std::pair<int, int>, std::unique_ptr<RegionFile>> regionCache;
-    std::mutex regionCacheMutex;
+    mutable std::mutex regionCacheMutex;
 
     // Chunk metadata
     std::map<std::pair<int, int>, ChunkMetadata> chunkMetadata;
@@ -282,7 +286,7 @@ private:
 
     // Dirty chunks (need saving)
     std::unordered_set<uint64_t> dirtyChunks;
-    std::mutex dirtyMutex;
+    mutable std::mutex dirtyMutex;
 
     // Async save system
     std::vector<std::thread> saveThreads;

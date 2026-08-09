@@ -173,6 +173,52 @@ static std::string gamePath(const std::string& relative) {
     return getGameRootPath() + relative;
 }
 
+// ============================================================================
+// LOG A ARCHIVO
+// ============================================================================
+// El binario se enlaza con /SUBSYSTEM:WINDOWS, es decir, sin consola. Los
+// cientos de cout/cerr repartidos por el motor no iban a ninguna parte: se
+// escribían sobre descriptores cerrados y se perdían. En la práctica, cualquier
+// fallo era invisible — un mundo corrupto simplemente "no cargaba", sin
+// explicación ni rastro que revisar después.
+//
+// Redirigir stdout/stderr a un archivo recupera todos esos mensajes sin tocar
+// ni una sola de las llamadas existentes.
+static std::string g_logFilePath;
+
+static void initLogging() {
+    namespace fs = std::filesystem;
+
+    const char* localAppData = getenv("LOCALAPPDATA");
+    fs::path logDir = (localAppData && *localAppData)
+        ? fs::path(localAppData) / "VoxelWorld"
+        : fs::path(getGameRootPath()) / "logs";
+
+    std::error_code ec;
+    fs::create_directories(logDir, ec);
+    const fs::path logFile = logDir / "log.txt";
+
+    if (freopen(logFile.string().c_str(), "w", stdout)) {
+        _dup2(_fileno(stdout), _fileno(stderr));
+    }
+
+    // Sin buffer: si el juego se cierra de golpe, el log ya está completo en
+    // disco en lugar de perderse lo último, que es justo lo que interesa.
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+
+    g_logFilePath = logFile.string();
+    std::cout << "=== Voxel World log: " << g_logFilePath << " ===" << std::endl;
+}
+
+// Error del que no se puede continuar: al no haber consola, sin esto el juego
+// se cerraba en silencio y el jugador no tenía forma de saber por qué.
+static void fatalError(const std::string& titulo, const std::string& mensaje) {
+    std::cerr << "FATAL: " << titulo << " - " << mensaje << std::endl;
+    const std::string texto = mensaje + "\n\nDetalles en:\n" + g_logFilePath;
+    MessageBoxA(nullptr, texto.c_str(), titulo.c_str(), MB_OK | MB_ICONERROR);
+}
+
 void loadVBOFunctions() {
     glGenBuffers = (PFNGLGENBUFFERSPROC)wglGetProcAddress("glGenBuffers");
     glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)wglGetProcAddress("glDeleteBuffers");
@@ -180,7 +226,11 @@ void loadVBOFunctions() {
     glBufferData = (PFNGLBUFFERDATAPROC)wglGetProcAddress("glBufferData");
 
     if (!glGenBuffers || !glDeleteBuffers || !glBindBuffer || !glBufferData) {
-        std::cerr << "ERROR: No se pudieron cargar funciones VBO. GPU muy antigua." << std::endl;
+        // Este exit(1) era el peor de los cierres silenciosos: sin consola, el
+        // juego simplemente desaparecía al arrancar y no quedaba ni un mensaje.
+        fatalError("Voxel World - GPU no compatible",
+                   "La tarjeta grafica no soporta VBOs (OpenGL 1.5+).\n"
+                   "El motor los necesita para dibujar el mundo.");
         exit(1);
     }
     std::cout << "VBO Extensions cargadas correctamente!" << std::endl;
@@ -14875,11 +14925,16 @@ void setupSignalHandlers() {
 // ============================================================================
 
 int main() {
+    // Lo primero: sin consola, hasta los errores del arranque se perderían.
+    initLogging();
+
     // ⭐ INSTALAR SIGNAL HANDLERS PARA GUARDADO DE EMERGENCIA
     setupSignalHandlers();
 
     if (!glfwInit()) {
-        std::cerr << "Error al inicializar GLFW" << std::endl;
+        fatalError("Voxel World - Error al iniciar",
+                   "No se pudo inicializar GLFW.\n"
+                   "Comprueba que los controladores de la tarjeta grafica esten instalados.");
         return -1;
     }
 
@@ -14889,7 +14944,9 @@ int main() {
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "Voxel World - Sandbox Infinito", NULL, NULL);
     if (!window) {
-        std::cerr << "Error al crear ventana GLFW" << std::endl;
+        fatalError("Voxel World - Error al iniciar",
+                   "No se pudo crear la ventana de OpenGL.\n"
+                   "El equipo necesita soporte de OpenGL 2.1 o superior.");
         glfwTerminate();
         return -1;
     }
@@ -14935,9 +14992,10 @@ int main() {
         std::cout << "Guarda esta semilla para regenerar este mundo!" << std::endl;
         std::cout << "======================================" << std::endl;
     } catch (const std::exception& e) {
-        std::cerr << "❌ ERROR CRÍTICO creando GameState: " << e.what() << std::endl;
-        std::cerr << "El juego no puede continuar. Presiona Enter para cerrar..." << std::endl;
-        std::cin.get();
+        // El "Presiona Enter" no servía de nada: sin consola, cin.get() vuelve
+        // por EOF al instante y la ventana se cerraba sola.
+        fatalError("Voxel World - Error al iniciar",
+                   std::string("No se pudo crear el estado del juego:\n") + e.what());
         return -1;
     }
 
@@ -15050,9 +15108,9 @@ int main() {
             g_gameState->world.finishInitialGeneration();
             std::cout << "✅ Mundo mínimo generado - El juego puede continuar" << std::endl;
         } catch (...) {
-            std::cerr << "❌ Recuperación falló - El juego no puede continuar" << std::endl;
-            std::cerr << "\nPresiona Enter para cerrar..." << std::endl;
-            std::cin.get();
+            fatalError("Voxel World - Error al generar el mundo",
+                       "Fallo la generacion del terreno y tambien el intento de\n"
+                       "recuperacion con un mundo minimo.");
             return -1;
         }
     }
@@ -17088,10 +17146,11 @@ int main() {
             }
         }
 
-        std::cerr << "\n💡 Por favor reporta este error en GitHub:" << std::endl;
-        std::cerr << "   https://github.com/tu-repositorio/voxel-world/issues" << std::endl;
-        std::cerr << "\nPresiona Enter para cerrar..." << std::endl;
-        std::cin.get();
+        std::cerr << "Reporta este error en:" << std::endl;
+        std::cerr << "   https://github.com/IkerCortes01/Voxel-World/issues" << std::endl;
+        fatalError("Voxel World - Error critico",
+                   std::string("El juego se detuvo por un error inesperado:\n") + e.what()
+                   + "\n\nSe intento guardar el mundo antes de cerrar.");
     } catch (...) {
         std::cerr << "\n╔════════════════════════════════════════╗" << std::endl;
         std::cerr << "║  ❌ ERROR DESCONOCIDO CRÍTICO          ║" << std::endl;
@@ -17107,8 +17166,9 @@ int main() {
             }
         }
 
-        std::cerr << "\nPresiona Enter para cerrar..." << std::endl;
-        std::cin.get();
+        fatalError("Voxel World - Error critico",
+                   "El juego se detuvo por un error desconocido.\n"
+                   "Se intento guardar el mundo antes de cerrar.");
     }
 
     // ⭐ GUARDAR MUNDO ANTES DE CERRAR (guardado normal)

@@ -5750,15 +5750,20 @@ public:
             return; // Ya se está procesando este chunk
         }
 
-        // ⭐ OPTIMIZACIÓN: Early exit si el chunk está vacío
+        // ⭐ OPTIMIZACIÓN: Early exit si el chunk está vacío.
+        //
+        // La paleta ya sabe la respuesta: basta mirar los 16 subchunks en vez
+        // de recorrer los 65.536 bloques con getBlock(), que en cada uno hace
+        // división, módulo e indirección de paleta. Y esto corría en CADA
+        // reconstrucción de malla, no solo una vez.
+        //
+        // Es equivalente exacto: un subchunk no uniforme tiene por definición
+        // entradas distintas en su paleta, así que al menos una no es aire.
         bool hasBlocks = false;
-        for (int x = 0; x < CHUNK_SIZE && !hasBlocks; x++) {
-            for (int z = 0; z < CHUNK_SIZE && !hasBlocks; z++) {
-                for (int y = 0; y < CHUNK_HEIGHT && !hasBlocks; y++) {
-                    if (chunk->getBlock(x, y, z) != BLOCK_AIR) {
-                        hasBlocks = true;
-                    }
-                }
+        for (const PalettedSubChunk& sub : chunk->subchunks) {
+            if (!sub.isUniform() || sub.getUniformBlock() != BLOCK_AIR) {
+                hasBlocks = true;
+                break;
             }
         }
 
@@ -15266,6 +15271,15 @@ int main() {
         // En cualquier otro caso (menú, ya guardando) se permite el cierre.
     });
 
+    // Tiempos por fase del frame. Viven FUERA del bucle a proposito: el titulo
+    // de la ventana se actualiza una vez por segundo, en un punto del bucle
+    // ANTERIOR a donde se calculan estos valores. Declarados dentro, se
+    // reiniciaban a 0 en cada frame y el titulo mostraba siempre
+    // "Phys:0.0ms Chunks:0.0ms Render:0.0ms" — metricas que parecian reales y
+    // no lo eran. Fuera del bucle conservan la medida del frame anterior, que
+    // es justo lo que un indicador por segundo necesita.
+    double physics_ms = 0, chunks_ms = 0, render_ms = 0;
+
     // ⭐ PROTECCIÓN CONTRA CRASHES: Try-catch en el game loop
     try {
         while (!glfwWindowShouldClose(window)) {
@@ -15285,7 +15299,6 @@ int main() {
 
             auto frame_start = std::chrono::high_resolution_clock::now();
             auto t1 = frame_start, t2 = frame_start;
-            double physics_ms = 0, chunks_ms = 0, render_ms = 0;
             double currentTime = glfwGetTime();
             float deltaTime = (float)(currentTime - lastTime);
             lastTime = currentTime;

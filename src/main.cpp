@@ -4129,6 +4129,7 @@ public:
     };
 
     void generateChunk(Chunk* chunk) {
+        PROFILE_SCOPE("World::generateChunk");
         if (chunk == nullptr || worldGen == nullptr) return;
         if (chunk->isGenerated) return;
 
@@ -5176,6 +5177,7 @@ public:
 
     // ⭐⭐⭐ Actualizar flujo de agua mejorado (procesarcola)
     void updateWaterFlow() {
+        PROFILE_SCOPE("World::updateWaterFlow");
         try {
             int updatesProcessed = 0;
 
@@ -5736,6 +5738,7 @@ public:
     }
 
     void buildChunkMesh(Chunk* chunk) {
+        PROFILE_SCOPE("World::buildChunkMesh");
         // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Validar chunk antes de procesar
         if (!chunk) return;
         if (!chunk->needsRebuild) return;
@@ -6468,6 +6471,7 @@ public:
     }
 
     void updateChunks(const Vec3& playerPos, const Vec3& previousPos, float deltaTime = 0.016f) {
+        PROFILE_SCOPE("World::updateChunks");
         // ⭐⭐⭐ Actualizar tiempo de frame para cache LRU
         currentFrameTime++;
 
@@ -6894,6 +6898,7 @@ public:
     }
 
     void render(const Vec3& playerPos = Vec3(0, 0, 0)) {
+        PROFILE_SCOPE("World::render");
         // ⭐ Invalidar el caché de bind al empezar el frame.
         //
         // El caché es una optimización válida DENTRO de un pase de render,
@@ -10750,6 +10755,16 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     // F4: solo la hitbox (menos intrusivo que el HUD completo)
     if (key == GLFW_KEY_F4 && action == GLFW_PRESS) {
         g_playerDebug.showHitbox = !g_playerDebug.showHitbox;
+    }
+
+    // F7: overlay de rendimiento (FPS, ms por fase, chunks, memoria).
+    // El Profiler ya estaba compilado y enlazado, pero no tenia ni un solo
+    // punto de uso: no habia forma de saber en que se iba el tiempo. Va en F7
+    // porque F3/F4 son el debug del jugador y F6 el de la hotbar.
+    if (key == GLFW_KEY_F7 && action == GLFW_PRESS) {
+        Profiler::toggle();
+        std::cout << "Overlay de rendimiento: "
+                  << (Profiler::isVisible() ? "ACTIVADO" : "desactivado") << std::endl;
     }
 
     // F6: DEBUG_HOTBAR — diagnóstico del renderizado de items.
@@ -15324,7 +15339,10 @@ int main() {
         fpsTimer += deltaTime;
         if (fpsTimer >= 1.0) {
             char title[256];
-            sprintf(title, "VoxelWorld [60FPS] | FPS:%d | Phys:%.1fms Chunks:%.1fms Render:%.1fms | Pos:%.0f,%.0f,%.0f",
+            // El literal fijo "[60FPS]" se mostraba aunque el juego fuera a 15
+            // FPS: no era una medida, solo texto. El contador real ya va
+            // justo detras.
+            sprintf(title, "Voxel World | FPS:%d | Phys:%.1fms Chunks:%.1fms Render:%.1fms | Pos:%.0f,%.0f,%.0f",
                     frameCount, physics_ms, chunks_ms, render_ms,
                     g_gameState->player.position.x,
                     g_gameState->player.position.y,
@@ -17124,6 +17142,25 @@ int main() {
         glEnable(GL_DEPTH_TEST);
 
         } // Fin de SCREEN_IN_GAME
+
+            // Profiler (F7): alimentar las metricas del frame y dibujar el
+            // overlay. Sin esto el Profiler se compilaba pero no medía nada.
+            {
+                Profiler::FrameStats stats;
+                stats.fps = (deltaTime > 0.0f) ? (float)(1.0 / deltaTime) : 0.0f;
+                stats.frameTimeMs = (float)(deltaTime * 1000.0);
+                stats.cpuTimeMs = (float)(physics_ms + chunks_ms + render_ms);
+                if (g_gameState) {
+                    stats.totalChunks = (int)g_gameState->world.getChunkCount();
+                }
+                Profiler::updateStats(stats);
+                Profiler::endFrame();
+                if (Profiler::isVisible()) {
+                    int fbW = 0, fbH = 0;
+                    glfwGetFramebufferSize(window, &fbW, &fbH);
+                    Profiler::ProfilerManager::getInstance()->renderOverlay(fbW, fbH);
+                }
+            }
 
             glfwSwapBuffers(window);
             glfwPollEvents();

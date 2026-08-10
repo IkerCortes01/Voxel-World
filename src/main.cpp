@@ -17266,6 +17266,23 @@ int main() {
 
             glDisable(GL_BLEND);
             glEnable(GL_CULL_FACE);
+
+            // ⭐⭐⭐ RESTAURAR GL_ALPHA_TEST
+            //
+            // BUG QUE ESTO CORRIGE (cuadrados negros en la hierba corta al
+            // abrir el inventario):
+            // Arriba se hace glDisable(GL_ALPHA_TEST) para que el alpha test
+            // no recorte los iconos del inventario. Pero NO se volvía a
+            // activar, y este bloque se ejecuta DESPUÉS del render del mundo.
+            //
+            // En el frame siguiente el terreno se dibujaba sin alpha test, así
+            // que los píxeles transparentes de los sprites en cruz (hierba
+            // corta) dejaban de descartarse y el blending los mezclaba como
+            // NEGRO: de ahí los cuadrados negros alrededor de cada mata.
+            //
+            // Se restauran los mismos valores que fija el arranque del motor.
+            glEnable(GL_ALPHA_TEST);
+            glAlphaFunc(GL_GREATER, 0.1f);
         }
 
         glEnable(GL_DEPTH_TEST);

@@ -67,6 +67,8 @@ PFNGLBUFFERDATAPROC glBufferData = NULL;
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#include "Version.h"   // generado por CMake en cada build (versión desde git)
+
 // ============================================================================
 // AAA SAVE SYSTEM
 // ============================================================================
@@ -210,7 +212,9 @@ static void initLogging() {
     setvbuf(stderr, nullptr, _IONBF, 0);
 
     g_logFilePath = logFile.string();
-    std::cout << "=== Voxel World log: " << g_logFilePath << " ===" << std::endl;
+    std::cout << "=== Voxel World " << GAME_VERSION_STRING
+              << " (build " << GAME_BUILD_DATE << ") ===" << std::endl;
+    std::cout << "=== Log: " << g_logFilePath << " ===" << std::endl;
 }
 
 // Error del que no se puede continuar: al no haber consola, sin esto el juego
@@ -12290,9 +12294,11 @@ void renderMainMenu(GameState* state, int screenWidth, int screenHeight, GLFWwin
     glColor3f(1.0f, 1.0f, 1.0f);
     renderText("SALIR", state->btnSalir.x + 100, state->btnSalir.y + 15, 20);
 
-    // Versión del juego en la esquina inferior derecha (mejorada)
+    // Versión del juego en la esquina inferior derecha. Sale de git vía
+    // Version.h (generado en cada build): antes era un literal fijo "v1.0.0"
+    // y no había forma de saber qué binario estaba corriendo.
     glColor4f(0.5f, 0.5f, 0.5f, 0.9f);
-    renderText("v1.0.0 - Alpha", screenWidth - 120, screenHeight - 30, screenWidth, screenHeight);
+    renderText(GAME_VERSION_STRING, screenWidth - 220, screenHeight - 30, screenWidth, screenHeight);
 
     // Restaurar matrices
     glMatrixMode(GL_PROJECTION);

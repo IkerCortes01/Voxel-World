@@ -52,6 +52,26 @@ set(SOURCES
 # Executable (WIN32 elimina la ventana de consola en Windows)
 add_executable(VoxelWorld WIN32 ${SOURCES})
 
+# ============================================================================
+# VERSIÓN DESDE GIT (regenerada en cada build)
+# ============================================================================
+# La versión que se ve en pantalla sale de git (v1.0.0-r<commits>.<hash>), así
+# que cada commit produce un número distinto y se sabe exactamente qué binario
+# está corriendo. Un custom target la regenera ANTES de compilar en cada build,
+# no solo al configurar; copy_if_different evita recompilaciones inútiles.
+set(VERSION_HEADER_DIR ${CMAKE_BINARY_DIR}/generated)
+file(MAKE_DIRECTORY ${VERSION_HEADER_DIR})
+add_custom_target(gen_version
+    COMMAND ${CMAKE_COMMAND}
+        -DSRC_DIR=${PROJECT_SOURCE_DIR}
+        -DOUT_DIR=${VERSION_HEADER_DIR}
+        -P ${PROJECT_SOURCE_DIR}/cmake/GenerateVersionHeader.cmake
+    COMMENT "Generando Version.h desde git"
+    VERBATIM
+)
+add_dependencies(VoxelWorld gen_version)
+target_include_directories(VoxelWorld PRIVATE ${VERSION_HEADER_DIR})
+
 # Link libraries
 target_link_libraries(VoxelWorld PRIVATE
     glfw

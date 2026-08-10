@@ -2900,13 +2900,55 @@ struct Chunk {
         return getSunlight(x, y, z);
     }
 
-    // ¿Deja pasar la luz del cielo? Aire y agua sí; también la decoración de
-    // 1 bloque (hierba alta, flores), que de contar como sólida dejaría un
-    // parche oscuro bajo cada planta. Las hojas SÍ cortan: esa es la sombra
-    // de los árboles.
+    // ¿Deja pasar la luz del cielo SIN atenuar? Aire y agua sí; también la
+    // decoración de 1 bloque (hierba alta, flores), que de contar como sólida
+    // dejaría un parche oscuro bajo cada planta.
+    //
+    // Las hojas NO están aquí: son un caso intermedio y se tratan aparte en
+    // lightCost(), porque filtran la luz en vez de dejarla pasar o cortarla.
     static bool skyTransparent(BlockType b) {
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER;
+    }
+
+    // ========================================================================
+    // FOLLAJE: TRANSMISIÓN PARCIAL DE LUZ
+    // ========================================================================
+    // Las hojas no son ni opacas ni transparentes: filtran la luz.
+    //
+    // La luz atraviesa una capa de hojas perdiendo LEAF_ATTENUATION niveles.
+    // Como la pérdida es POR CAPA y se acumula, el resultado es exactamente
+    // el efecto pedido:
+    //
+    //   1 capa de hojas  -> 18-3 = 15  (sombra tenue, casi claro)
+    //   2 capas          -> 12         (visiblemente más oscuro)
+    //   3 capas          -> 9          (penumbra)
+    //   4 capas          ->  6         (oscuro)
+    //   6 capas          ->  0         (opaco: el centro de una copa densa)
+    //
+    // Es decir: la luz sigue pasando siempre, pero cuantas más hojas haya
+    // apiladas, más difuminada llega, hasta apagarse en el corazón de una
+    // copa muy densa. Esa gradación es lo que produce la luz moteada bajo un
+    // árbol en vez de una sombra plana.
+    //
+    // El valor 3 está elegido para que una copa normal (2-3 capas) quede en
+    // penumbra agradable y solo las masas realmente densas lleguen a negro.
+    // Con atenuación 1 (como el aire) las hojas no darían sombra apreciable;
+    // con 6 o más, una sola capa ya oscurecería demasiado.
+    static const uint8_t LEAF_ATTENUATION = 3;
+
+    static bool isFoliage(BlockType b) {
+        return b == BLOCK_LEAVES ||
+               b == BLOCK_LEAVES_ENCINO ||
+               b == BLOCK_LEAVES_OYAMEL;
+    }
+
+    // Coste de atravesar este bloque, en niveles de luz.
+    // 0 = no atraviesa (bloque sólido); 1 = aire; LEAF_ATTENUATION = hojas.
+    static uint8_t lightCost(BlockType b) {
+        if (isFoliage(b)) return LEAF_ATTENUATION;
+        if (skyTransparent(b)) return 1;
+        return 0;   // opaco
     }
 
     // Skylight del chunk completo, en dos pasadas:
@@ -2935,20 +2977,42 @@ struct Chunk {
         // veces y getBlock() resuelve paleta cada vez. 32 KB en pila.
         static_assert(CHUNK_SIZE == 16 && CHUNK_HEIGHT == 128,
                       "computeSkylight asume el empaquetado de índices 16x128x16");
-        uint8_t transp[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE];
+        // Coste de paso por celda: 0 = opaco, 1 = aire/agua, 3 = hojas.
+        // Sustituye al antiguo flag binario de transparencia para que el
+        // follaje pueda ATENUAR sin bloquear del todo.
+        uint8_t cost[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE];
 
-        // Pasada 1: vertical + cache de transparencia
+        // Pasada 1: vertical, acumulando la atenuación del follaje.
+        //
+        // La luz baja desde el cielo con 18 y va perdiendo niveles: 1 por
+        // cada bloque de aire y LEAF_ATTENUATION por cada capa de hojas.
+        // Así una copa de 3 capas deja pasar luz, pero mucho más tenue que
+        // una de 1 capa, que es justo el efecto buscado.
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int z = 0; z < CHUNK_SIZE; z++) {
-                uint8_t currentLight = 18;
+                int currentLight = 18;
                 for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
-                    const bool t = skyTransparent(getBlock(x, y, z));
-                    transp[x][y][z] = t ? 1 : 0;
-                    if (t) {
-                        lightData[x][y][z].sunlight = currentLight;
-                    } else {
+                    const BlockType b = getBlock(x, y, z);
+                    const uint8_t c = lightCost(b);
+                    cost[x][y][z] = c;
+
+                    if (c == 0) {
+                        // Bloque opaco: se corta la columna.
                         lightData[x][y][z].sunlight = 0;
-                        currentLight = 0;   // debajo de un sólido: oscuro
+                        currentLight = 0;
+                    } else if (isFoliage(b)) {
+                        // La celda de hojas RECIBE la luz que le llega desde
+                        // arriba (se ve iluminada), y atenúa lo que deja pasar
+                        // hacia abajo. Sin esto, la propia copa se vería negra
+                        // en vez de translúcida.
+                        lightData[x][y][z].sunlight = (uint8_t)currentLight;
+                        currentLight -= LEAF_ATTENUATION;
+                        if (currentLight < 0) currentLight = 0;
+                    } else {
+                        // Aire o líquido: la luz vertical no se atenúa.
+                        // (Mantiene el comportamiento anterior: una columna
+                        // despejada llega al suelo con 18.)
+                        lightData[x][y][z].sunlight = (uint8_t)currentLight;
                     }
                 }
             }
@@ -2964,10 +3028,14 @@ struct Chunk {
             return (uint32_t)((x << 11) | (z << 7) | y);
         };
 
+        // Se siembra TODA celda con luz, no solo las que están a 18: la luz
+        // que ya atravesó una copa (por ejemplo 15) también debe derramarse
+        // lateralmente, o el interior del árbol quedaría a oscuras salvo
+        // justo bajo los huecos.
         for (int x = 0; x < CHUNK_SIZE; x++)
             for (int z = 0; z < CHUNK_SIZE; z++)
                 for (int y = 0; y < CHUNK_HEIGHT; y++)
-                    if (transp[x][y][z] && lightData[x][y][z].sunlight == 18)
+                    if (cost[x][y][z] != 0 && lightData[x][y][z].sunlight > 1)
                         stack.push_back(pack(x, y, z));
 
         while (!stack.empty()) {
@@ -2977,7 +3045,6 @@ struct Chunk {
 
             const uint8_t L = lightData[cx][cy][cz].sunlight;
             if (L <= 1) continue;
-            const uint8_t next = (uint8_t)(L - 1);
 
             static const int D[6][3] = {
                 {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
@@ -2987,7 +3054,16 @@ struct Chunk {
                 if (nx < 0 || nx >= CHUNK_SIZE) continue;
                 if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
                 if (nz < 0 || nz >= CHUNK_SIZE) continue;
-                if (!transp[nx][ny][nz]) continue;
+
+                // ⭐ El coste depende del bloque DESTINO: entrar en una celda
+                // de hojas cuesta LEAF_ATTENUATION niveles, entrar en aire
+                // cuesta 1. Así la luz se apaga rápido dentro del follaje y
+                // despacio en el aire, que es el comportamiento físico.
+                const uint8_t stepCost = cost[nx][ny][nz];
+                if (stepCost == 0) continue;              // opaco
+                if (L <= stepCost) continue;              // no queda luz
+
+                const uint8_t next = (uint8_t)(L - stepCost);
                 if (lightData[nx][ny][nz].sunlight >= next) continue;
                 lightData[nx][ny][nz].sunlight = next;
                 stack.push_back(pack(nx, ny, nz));

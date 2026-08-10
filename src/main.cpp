@@ -7412,15 +7412,26 @@ public:
         pendingSaveChunks.clear();
     }
 
-    void saveWorld(const std::string& worldPath) {
+    // asyncOnlyModified = modo autosave: guarda SOLO los chunks modificados y
+    // NO espera a que la cola de guardado se vacíe. Antes el autosave
+    // serializaba y encolaba los ~170 chunks cargados (256 KB cada uno) y
+    // luego bloqueaba el hilo de render con un sleep-poll hasta terminar el
+    // I/O: un microparón periódico cada 2 minutos. Los hilos de guardado del
+    // WorldSaveManager ya existían; lo que faltaba era no esperarlos.
+    //
+    // El guardado al cerrar o al salir al menú sigue siendo completo y
+    // bloqueante (asyncOnlyModified=false): ahí esperar es lo correcto.
+    void saveWorld(const std::string& worldPath, bool asyncOnlyModified = false) {
         auto saveStart = std::chrono::high_resolution_clock::now();
 
-        // ⭐⭐⭐ GUARDADO COMPLETO: Recopilar TODOS los chunks en memoria (modificados o no)
-        // Esto asegura que TODO el área circular alrededor del jugador se guarde
+        // Recopilar los chunks a guardar. En el guardado completo van TODOS
+        // los generados (asegura persistencia del área alrededor del
+        // jugador); en el autosave, solo los que cambiaron desde el último
+        // guardado — serializar los demás es trabajo idéntico al ya escrito.
         std::vector<Chunk*> chunksToSave;
         for (auto& pair : chunks) {
-            // Guardar TODOS los chunks cargados para asegurar persistencia completa
             if (pair.second && pair.second->isGenerated) {
+                if (asyncOnlyModified && !pair.second->isModified) continue;
                 chunksToSave.push_back(pair.second);
             }
         }
@@ -7462,14 +7473,21 @@ public:
                 totalChunksSaved++;
             }
 
-            saveManager->saveAllDirtyChunks();
+            // saveAllDirtyChunks() BLOQUEA (sleep-poll hasta vaciar la cola).
+            // En el autosave no se espera: los hilos de guardado escriben en
+            // segundo plano, y cada tarea lleva su propia copia serializada,
+            // así que da igual lo que le pase al chunk mientras tanto.
+            if (!asyncOnlyModified) {
+                saveManager->saveAllDirtyChunks();
+            }
 
             auto saveEnd = std::chrono::high_resolution_clock::now();
             float saveTimeMs = std::chrono::duration<float, std::milli>(saveEnd - saveStart).count();
 
             // Silencioso - solo log si hay chunks modificados
             if (modifiedCount > 0) {
-                std::cout << "💾 Guardados " << modifiedCount << " chunks modificados ("
+                std::cout << "💾 " << (asyncOnlyModified ? "Encolados" : "Guardados") << " "
+                          << modifiedCount << " chunks modificados ("
                           << chunksToSave.size() << " total) en " << saveTimeMs << " ms" << std::endl;
             }
         }
@@ -10615,7 +10633,9 @@ void renderText(const char* text, float x, float y, float size) {
 
 // Forward declarations
 bool renameWorld(GameState* state, int worldIndex, const std::string& newName);
-void saveWorld(GameState* state);
+// isAutoSave: solo chunks modificados, sin bloquear el frame (el default vive
+// aquí; las demás declaraciones deben ir sin él para no duplicarlo).
+void saveWorld(GameState* state, bool isAutoSave = false);
 
 // Callback para entrada de caracteres (para el campo de texto)
 void charCallback(GLFWwindow* window, unsigned int codepoint) {
@@ -11016,7 +11036,7 @@ void handleMainMenuClick(GameState* state, float mouseX, float mouseY, int scree
 void handleWorldSelectClick(GameState* state, float mouseX, float mouseY, int screenWidth, int screenHeight, float currentTime);
 void handleWorldCreateClick(GameState* state, float mouseX, float mouseY, int screenWidth, int screenHeight, float currentTime);  // ⭐ NUEVO
 bool loadWorldData(GameState* state, const std::string& worldName);
-void saveWorld(GameState* state);
+void saveWorld(GameState* state, bool isAutoSave);
 
 // ⭐ Forward declarations para sistema level.dat
 long long calculateWorldSize(const std::string& worldPath);
@@ -14572,7 +14592,11 @@ bool loadLevelDat(const std::string& worldPath, WorldInfo& worldInfo) {
 }
 
 // ⭐⭐⭐ GUARDAR MUNDO COMPLETO A DISCO (MEJORADO AAA) ⭐⭐⭐
-void saveWorld(GameState* state) {
+// isAutoSave: guardado periódico en mitad de la partida — los chunks van solo
+// si están modificados y se encolan sin esperar el I/O (ver World::saveWorld).
+// Los archivos pequeños (player.dat, world.cfg, level.dat) se escriben igual
+// en ambos modos: son unos KB y no merecen un camino aparte.
+void saveWorld(GameState* state, bool isAutoSave) {
     // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Prevenir guardado concurrente
     static std::atomic<bool> isSaving(false);
     if (isSaving.exchange(true)) {
@@ -14700,7 +14724,7 @@ void saveWorld(GameState* state) {
 
     // ⭐ PASO 3: Guardar chunks modificados del mundo
     std::cout << "🗺️ Guardando chunks..." << std::endl;
-    state->world.saveWorld(worldPath.string());
+    state->world.saveWorld(worldPath.string(), isAutoSave);
 
     // ⭐ PASO 4: Crear archivo de lock para prevenir corrupción
     std::filesystem::path lockPath = worldPath / "save.lock";
@@ -15689,7 +15713,9 @@ int main() {
                 // Auto-guardar cada 2 minutos (120 segundos)
                 if (g_gameState->autoSaveTimer >= g_gameState->autoSaveInterval) {
                     std::cout << "\n⏰ Auto-guardado activado..." << std::endl;
-                    saveWorld(g_gameState);
+                    // true = modo autosave: solo chunks modificados, encolados
+                    // a los hilos de guardado sin bloquear el frame.
+                    saveWorld(g_gameState, true);
                     g_gameState->autoSaveTimer = 0.0f;  // Reset timer
 
                     // Activar indicador visual

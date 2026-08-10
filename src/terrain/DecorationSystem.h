@@ -171,35 +171,38 @@ public:
     TreeType GetTreeType(int worldX, int worldZ, BiomeType biome, float temperature) const {
         const float r = Noise::valueAt2D(seedTree() + 777, worldX, worldZ);
 
-        // Reparto por TEMPERATURA, siguiendo la ecologia real de cada especie:
-        //   - OYAMEL: conifera de alta montana y clima frio.
-        //   - ENCINO: bosque templado, la especie dominante en zonas medias.
-        //   - PINO: amplio rango, aparece en frio y templado.
+        // ⭐ EL OYAMEL ES LA ESPECIE DOMINANTE DEL MUNDO.
+        // Antes estaba restringido al bosque frio y a la montana, asi que en
+        // bosque templado y llanura —donde esta la mayoria de los arboles— no
+        // salia ni uno. Ahora domina en TODOS los biomas con arbolado; las
+        // demas especies siguen apareciendo para que el bosque no sea
+        // monoespecifico, pero en minoria.
         switch (biome) {
             case BIOME_FOREST:
                 if (temperature < 0.35f) {
-                    // Bosque frio: coniferas. El oyamel domina.
-                    if (r < 0.45f) return TREE_OYAMEL;
-                    if (r < 0.75f) return TREE_PINE;
+                    // Bosque frio: practicamente un oyametal.
+                    if (r < 0.85f) return TREE_OYAMEL;
+                    if (r < 0.94f) return TREE_PINE;
                     return TREE_BIRCH;
                 }
-                // Bosque templado: el encino es la especie principal.
-                if (r < 0.40f) return TREE_ENCINO;
-                if (r < 0.60f) return TREE_OAK;
-                if (r < 0.75f) return TREE_BIRCH;
-                if (r < 0.88f) return TREE_SMALL_OAK;
-                return TREE_PINE;
+                // Bosque templado: el oyamel pasa a ser la especie principal.
+                if (r < 0.72f) return TREE_OYAMEL;
+                if (r < 0.83f) return TREE_ENCINO;
+                if (r < 0.90f) return TREE_OAK;
+                if (r < 0.96f) return TREE_BIRCH;
+                return TREE_SMALL_OAK;
 
             case BIOME_PLAINS:
-                // Arboles dispersos: algun encino aislado entre robles.
-                if (r < 0.50f) return TREE_SMALL_OAK;
-                if (r < 0.80f) return TREE_OAK;
+                // Incluso en llanura el oyamel es ya el arbol mas frecuente.
+                if (r < 0.65f) return TREE_OYAMEL;
+                if (r < 0.82f) return TREE_SMALL_OAK;
+                if (r < 0.93f) return TREE_OAK;
                 return TREE_ENCINO;
 
             case BIOME_MOUNTAINS:
-                // Alta montana: oyamel, la conifera de altura por excelencia.
-                if (r < 0.40f) return TREE_OYAMEL;
-                if (r < 0.75f) return TREE_MOUNTAIN;
+                // Alta montana: su habitat por excelencia, casi exclusivo.
+                if (r < 0.88f) return TREE_OYAMEL;
+                if (r < 0.95f) return TREE_MOUNTAIN;
                 return TREE_PINE;
 
             default:

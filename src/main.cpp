@@ -387,7 +387,7 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_SAND:      return 0.5f;   // Arena - rápido
         case BLOCK_TALLGRASS: return 0.0f;   // Pasto alto - instantáneo
         case BLOCK_LEAVES:    return 0.2f;   // Hojas - muy rápido
-        case BLOCK_WOOD:      return 2.0f;   // Madera - medio
+        case BLOCK_WOOD:      return 2.0f;   // Madera - medio (ver nota abajo)
         case BLOCK_STONE:     return 1.5f;   // Piedra - medio-lento
         case BLOCK_BEDROCK:   return 999.0f; // Bedrock - irrompible
         case BLOCK_WATER:     return 0.0f;   // Agua - no se puede romper
@@ -405,6 +405,33 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_LAVA:      return 0.0f;   // Lava - no se puede romper
         default:              return 1.0f;   // Por defecto
     }
+}
+
+// ============================================================================
+// TIEMPO DE ROTURA SEGÚN EL MODO DE JUEGO
+// ============================================================================
+// En SUPERVIVENCIA, el tronco tarda 8 minutos (480 s) en romperse a mano.
+// Es un coste deliberado de diseño: talar sin herramienta debe ser inviable,
+// de modo que conseguir madera exija fabricar un hacha primero.
+//
+// En CREATIVO se conserva el tiempo normal de la tabla: ahí el objetivo es
+// construir, no sobrevivir, y esperar 8 minutos por bloque no tendría sentido.
+//
+// Se declara aparte en vez de tocar getBlockBreakTime porque esa función es
+// una tabla PURA de propiedades del bloque, sin contexto de partida. Meterle
+// el modo de juego la volvería dependiente del estado global y rompería su
+// uso en otros sitios (por ejemplo, los tests o el cálculo de si un bloque
+// es irrompible).
+constexpr float SURVIVAL_WOOD_BREAK_TIME = 480.0f;   // 8 minutos
+
+float getBlockBreakTimeForMode(BlockType type, int gameMode) {
+    // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
+    const bool isSurvival = (gameMode != 1);
+
+    if (isSurvival && type == BLOCK_WOOD) {
+        return SURVIVAL_WOOD_BREAK_TIME;
+    }
+    return getBlockBreakTime(type);
 }
 
 bool shouldRenderFace(BlockType currentBlock, BlockType neighborBlock) {
@@ -9001,8 +9028,10 @@ void updateMining(GameState* state, float deltaTime) {
         state->miningProgress = 0.0f;
     }
 
-    // Incrementar progreso según el tiempo de rotura del bloque
-    float breakTime = getBlockBreakTime(blockType);
+    // Incrementar progreso según el tiempo de rotura del bloque.
+    // ⭐ Depende del MODO DE JUEGO: en supervivencia el tronco tarda 8 min
+    // (romper madera a mano debe ser inviable); en creativo, lo normal.
+    float breakTime = getBlockBreakTimeForMode(blockType, state->currentGameMode);
 
     // Si el bloque es instantáneo (TALLGRASS) o muy rápido
     if (breakTime < 0.1f) {

@@ -4900,37 +4900,63 @@ public:
             int asymX = (variant >= 3) ? ((seed + y * 3) % 3) - 1 : 0; // -1, 0, 1
             int asymZ = (variant >= 3) ? ((seed * 2 + y * 5) % 3) - 1 : 0;
 
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
+            // ⭐ RADIO CONTINUO (no entero).
+            // Antes el radio era un int y el test era
+            //     dist <= radius*radius + radius
+            // El "+radius" hinchaba el circulo justo hasta caer ENTRE dos
+            // radios enteros, asi que al subir de capa el contorno saltaba de
+            // golpe: la copa se cortaba en escalones planos. Con un radio en
+            // coma flotante el perfil avanza de forma continua y la silueta
+            // queda curva.
+            const float rF = (float)radius +
+                             0.45f * (1.0f - progress);   // afina hacia la punta
+
+            for (int dx = -radius - 1; dx <= radius + 1; dx++) {
+                for (int dz = -radius - 1; dz <= radius + 1; dz++) {
                     int actualDx = dx + asymX;
                     int actualDz = dz + asymZ;
-                    int dist = actualDx * actualDx + actualDz * actualDz;
+                    const float dist = sqrtf((float)(actualDx * actualDx +
+                                                     actualDz * actualDz));
 
-                    // Forma más cuadrada para pinos (no circular)
-                    if (dist <= radius * radius + radius) {
-                        // No cubrir tronco
-                        if (dx == 0 && dz == 0 && y < copaAltura - 3) continue;
-                        if (thickTrunk && y < copaAltura / 2) {
-                            if ((dx == 0 || dx == 1) && (dz == 0 || dz == 1)) continue;
-                        }
+                    if (dist > rF) continue;
 
-                        // ⭐ MEJORADO: Huecos ocasionales para aspecto más natural
-                        if (variant == 3 && (dx + dz + y + seed) % 7 == 0 && dist > radius * radius / 2) {
-                            continue;
-                        }
+                    // No cubrir tronco
+                    if (dx == 0 && dz == 0 && y < copaAltura - 3) continue;
+                    if (thickTrunk && y < copaAltura / 2) {
+                        if ((dx == 0 || dx == 1) && (dz == 0 || dz == 1)) continue;
+                    }
 
-                        if (getBlock(worldX + actualDx, leafY, worldZ + actualDz) == BLOCK_AIR) {
-                            setBlock(worldX + actualDx, leafY, worldZ + actualDz, BLOCK_LEAVES);
-                        }
+                    // ⭐ BORDE DIFUSO: en el anillo exterior la hoja aparece
+                    // solo a veces, y la probabilidad cae segun se acerca al
+                    // contorno. Esto evita el corte recto tipo "sierra" y da
+                    // el perfil desigual de una conifera real.
+                    if (dist > rF - 1.0f && rF > 1.5f) {
+                        const float borde = (dist - (rF - 1.0f));   // 0..1
+                        const float r = TerrainGen::Noise::valueAt3D(
+                            seed + 5501, worldX + actualDx, leafY, worldZ + actualDz);
+                        if (r < borde * 0.75f) continue;
+                    }
+
+                    // Huecos ocasionales para aspecto más natural
+                    if (variant == 3 && (dx + dz + y + seed) % 7 == 0 &&
+                        dist > rF * 0.5f) {
+                        continue;
+                    }
+
+                    if (getBlock(worldX + actualDx, leafY, worldZ + actualDz) == BLOCK_AIR) {
+                        setBlock(worldX + actualDx, leafY, worldZ + actualDz, BLOCK_LEAVES);
                     }
                 }
             }
         }
 
         // ⭐ MEJORADO: Punta del pino variable
+        // La punta ARRANCA donde termina la copa, no un bloque más arriba:
+        // antes quedaba un nivel de tronco pelado entre ambas y la copa
+        // parecía cortada justo bajo el ápice.
         int tipHeight = (variant == 4) ? 6 : 5;
         for (int dy = 0; dy < tipHeight; dy++) {
-            int tipY = baseY + altura + dy;
+            int tipY = baseY + altura - 1 + dy;
 
             if (dy < 3) {
                 // Base de la punta (cruz)
@@ -5062,45 +5088,95 @@ public:
     //
     // El ruido de posición rompe la simetría perfecta: sin él, todos los
     // encinos tendrían el mismo contorno exacto y se notaría la repetición.
+    // ========================================================================
+    // ENCINO: copa ancha y redondeada, con ramas
+    // ========================================================================
+    // Un encino real no es un tronco recto con una bola encima: el tronco se
+    // ramifica cerca de la copa y las ramas SOSTIENEN la masa de hojas. Por
+    // eso aquí se generan primero las ramas y luego se envuelven en follaje,
+    // en vez de dibujar un elipsoide suelto en el aire.
+    //
+    // El tamaño de la copa se deriva de la altura: antes los radios eran
+    // constantes (3 y 2), asi que un encino bajo y uno alto tenian EXACTAMENTE
+    // la misma copa y todos parecian clonados.
     void generarEncino(int worldX, int baseY, int worldZ, int altura) {
-        if (altura < 4) altura = 4;
-        if (altura > 9) altura = 9;
+        if (altura < 5)  altura = 5;
+        if (altura > 12) altura = 12;
 
-        // Tronco
+        const int seedE = worldX * 7919 + worldZ * 6271 + 4441;
+        auto rnd = [&](int salt, int mod) {
+            int v = (seedE ^ (salt * 2654435761u)) & 0x7fffffff;
+            return mod > 0 ? (v % mod) : 0;
+        };
+
+        // El tronco se bifurca a partir de aquí.
+        const int forkY = baseY + (altura * 3) / 5;
+        const int topY  = baseY + altura - 1;
+
+        // --- Tronco ---
         for (int i = 0; i < altura; ++i) {
             setBlock(worldX, baseY + i, worldZ, BLOCK_WOOD_ENCINO);
         }
 
-        const int topY = baseY + altura - 1;
+        // --- Ramas principales: suben en diagonal desde la bifurcación ---
+        // Guardamos sus extremos: cada uno será el centro de un lóbulo de hojas.
+        struct Punta { int x, y, z; };
+        Punta puntas[5];
+        int nPuntas = 0;
 
-        // Copa: elipsoide achatado (más ancho que alto)
-        const int rXZ = 3;   // radio horizontal
-        const int rY  = 2;   // radio vertical
+        const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        const int largoBase = 2 + altura / 5;          // ramas más largas si es alto
 
-        for (int dy = -rY; dy <= rY; ++dy) {
-            for (int dx = -rXZ; dx <= rXZ; ++dx) {
-                for (int dz = -rXZ; dz <= rXZ; ++dz) {
-                    // Ecuación del elipsoide normalizada.
-                    const float nx = (float)dx / (float)rXZ;
-                    const float ny = (float)dy / (float)rY;
-                    const float nz = (float)dz / (float)rXZ;
-                    const float d = nx*nx + ny*ny + nz*nz;
-                    if (d > 1.0f) continue;
+        for (int d = 0; d < 4; ++d) {
+            const int largo = largoBase + rnd(d * 31 + 5, 2);   // 2-3 de variación
+            int rx = worldX, rz = worldZ, ry = forkY;
+            for (int s = 1; s <= largo; ++s) {
+                rx += dirs[d][0];
+                rz += dirs[d][1];
+                // La rama sube ~2 de cada 3 pasos: diagonal, no escalera recta.
+                if (s % 3 != 0) ry += 1;
+                if (ry > topY) ry = topY;
+                setBlock(rx, ry, rz, BLOCK_WOOD_ENCINO);
+            }
+            if (nPuntas < 5) puntas[nPuntas++] = { rx, ry, rz };
+        }
+        // El ápice del tronco también sostiene follaje.
+        if (nPuntas < 5) puntas[nPuntas++] = { worldX, topY, worldZ };
 
-                    // Borde irregular: las hojas del contorno aparecen solo a
-                    // veces, así la silueta no es una esfera perfecta.
-                    if (d > 0.62f) {
-                        const float r = TerrainGen::Noise::valueAt3D(
-                            seed + 8123, worldX + dx, topY + dy, worldZ + dz);
-                        if (r < 0.42f) continue;
-                    }
+        // --- Follaje: un lóbulo redondeado alrededor de cada punta de rama ---
+        // La union de varios lobulos da la copa irregular y mullida del encino,
+        // en lugar de una esfera unica y perfecta.
+        const int rLob = 2 + altura / 6;               // radio del lóbulo
 
-                    const int y = topY + dy;
-                    if (y <= baseY) continue;              // no tapar el tronco bajo
-                    if (dx == 0 && dz == 0 && dy < 0) continue;  // hueco del tronco
+        for (int i = 0; i < nPuntas; ++i) {
+            const Punta& p = puntas[i];
+            for (int dy = -rLob; dy <= rLob; ++dy) {
+                for (int dx = -rLob; dx <= rLob; ++dx) {
+                    for (int dz = -rLob; dz <= rLob; ++dz) {
+                        // Elipsoide achatado: más ancho que alto.
+                        const float nx = (float)dx / (float)rLob;
+                        const float ny = (float)dy / (float)(rLob * 0.72f);
+                        const float nz = (float)dz / (float)rLob;
+                        const float d2 = nx*nx + ny*ny + nz*nz;
+                        if (d2 > 1.0f) continue;
 
-                    if (getBlock(worldX + dx, y, worldZ + dz) == BLOCK_AIR) {
-                        setBlock(worldX + dx, y, worldZ + dz, BLOCK_LEAVES_ENCINO);
+                        // Borde difuso: cuanto más cerca del contorno, más
+                        // probable es que la hoja falte. Así la silueta se
+                        // deshilacha de forma gradual en vez de CORTARSE en
+                        // seco, que es lo que delata una forma matemática.
+                        if (d2 > 0.45f) {
+                            const float r = TerrainGen::Noise::valueAt3D(
+                                seed + 8123, p.x + dx, p.y + dy, p.z + dz);
+                            // Umbral proporcional: 0 en el nucleo -> 0.62 al borde
+                            const float umbral = (d2 - 0.45f) / 0.55f * 0.62f;
+                            if (r < umbral) continue;
+                        }
+
+                        const int y = p.y + dy;
+                        if (y <= baseY + 1) continue;        // no tapar la base
+                        if (getBlock(p.x + dx, y, p.z + dz) == BLOCK_AIR) {
+                            setBlock(p.x + dx, y, p.z + dz, BLOCK_LEAVES_ENCINO);
+                        }
                     }
                 }
             }
@@ -5257,8 +5333,11 @@ public:
             generarArbolMontana(worldX, baseY, worldZ);
 
         } else if (tipoArbol == 7) {
-            // ⭐ ENCINO: copa ancha y redondeada
-            int altura = 5 + (seed % 4);   // 5-8 bloques
+            // ⭐ ENCINO: copa ancha y redondeada.
+            // Rango amplio (5-12) para que convivan encinos jóvenes bajos con
+            // ejemplares maduros y grandes, como en un bosque real. Antes era
+            // 5-8 y todos parecían del mismo tamaño.
+            int altura = 5 + (seed % 8);   // 5-12 bloques
             generarEncino(worldX, baseY, worldZ, altura);
 
         } else if (tipoArbol == 8) {

@@ -49,30 +49,40 @@
 > un puntero colgante a un elemento de vector. La generación corre ahora en 2
 > hilos de trabajo; el hilo principal solo integra resultados y construye VBOs.
 >
-> ### Lo que queda pendiente
+> ### Plan de acción original: COMPLETADO (2026-08-10)
 >
-> Por orden de retorno esperado:
+> Los siete puntos que quedaban se cerraron, cada uno verificado en vivo:
 >
-> 1. **Guardado asíncrono.** El autosave escribe todos los chunks, no solo los
->    modificados, y de forma síncrona en el hilo de render: con la generación
->    ya en hilos, es el mayor tirón de frame que queda (microparón periódico
->    cada 120 s).
-> 2. **Reactivar la iluminación**, desactivada en un intento previo de subir
->    FPS (`getLightLevel()` devuelve constante). Ahora el hilo principal tiene
->    margen de sobra.
-> 3. **Integrar greedy meshing** (elegir una de las implementaciones existentes
->    y borrar las demás).
-> 4. **Eliminar el almacenamiento triplicado por chunk** (paleta + array crudo
->    de 256 KB + `lightData` de 128 KB inútil mientras la luz sea constante).
-> 5. **Desmonte del monolito.** `main.cpp` sigue por encima de las 14.000
->    líneas; de aquí solo se han extraído `BlockType.h` y `WorldName.h`.
-> 6. **Test del inventario.** El de la auditoría original no aplica: este motor
->    tiene stacks infinitos en creativo, `add()` que devuelve `void` y
->    `MAX_STACK_SIZE` de 187. Hay que escribir el equivalente para esta
->    semántica.
-> 7. **Limpieza menor:** borrar `src/TerrainGeneration/` (código muerto de un
->    generador anterior) y los warnings `/W4` que el build de tests saca de
->    `SaveSystem.cpp` (C4100) y `PalettedStorage.h` (C4267).
+> 1. ✅ **Guardado asíncrono** — el autosave encola solo chunks `isModified`
+>    a los dos hilos de guardado sin bloquear el frame; el guardado al salir
+>    sigue completo y bloqueante.
+> 2. ✅ **Iluminación reactivada** — skylight por chunk (vertical + flood-fill
+>    con gradiente), luz muestreada por cara, calculada en los workers.
+>    Torchlight y luz con color quedan como evolución futura.
+> 3. ✅ **Greedy meshing** — integrado en el mesher real fusionando por
+>    textura + luz + brillo direccional; borradas las 3 copias muertas
+>    (~1.100 líneas).
+> 4. ✅ **Almacenamiento por chunk** — eliminado el array espejo
+>    `blocks[][][]` (128 KB/chunk); la paleta es la única fuente de verdad y
+>    el formato en disco no cambió. `lightData` se queda: ahora se usa.
+> 5. ✅ **Desmonte del monolito (primera tanda)** — extraídos `BlockType.h`,
+>    `WorldName.h` e `Inventory.h`. Sigue siendo trabajo continuo:
+>    `main.cpp` ronda las 14.500 líneas.
+> 6. ✅ **Test del inventario** — 14 casos que fijan la semántica real de
+>    este motor (stacks infinitos, tope 187, add que recorta).
+> 7. ✅ **Limpieza** — `src/TerrainGeneration/` borrado y el build de tests
+>    sin warnings.
+>
+> ### Lo que queda (mejora continua, sin urgencia)
+>
+> - Seguir extrayendo clases de `main.cpp` (SoundManager, TextureManager,
+>   UI/menús, y `World` al final).
+> - Torchlight y luz con color (la infraestructura de `LightVoxel` ya lo
+>   contempla).
+> - Propagación de luz entre chunks (hoy el gradiente se corta en la
+>   frontera).
+> - Sombreado suave por vértice (smooth lighting) y oclusión ambiental.
+> - Shaders básicos y HUD con VBOs, si algún día se moderniza el render.
 >
 > ---
 >

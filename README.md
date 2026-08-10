@@ -143,18 +143,32 @@ se resuelven contra él mismo y no contra el mapa global, así que la generació
 no toca estructuras compartidas y el hilo de render no se detiene al explorar.
 Los chunks ya guardados se cargan de disco en el hilo principal (es rápido).
 
-**Sistemas presentes pero desactivados:**
-- Iluminación por voxel: implementada (~550 líneas) pero desactivada en
-  runtime. Mientras tanto el color de luz es blanco fijo.
-- Greedy meshing: implementado pero desactivado.
+**Iluminación.** Skylight real por chunk con sombras suaves: pasada vertical
+más flood-fill estilo Minecraft (la luz pierde 1 nivel por bloque al doblar
+esquinas, así los bordes de las sombras se difuminan en gradiente). Cada cara
+muestrea la luz del bloque de aire que la toca — tapar un bloque oscurece su
+cara superior, no sus laterales. La luz se calcula en los hilos de generación
+y se recalcula al modificar bloques. Torchlight y luz con color quedan como
+evolución futura.
+
+**Greedy meshing.** Las caras coplanares contiguas con la misma textura y la
+misma luz se fusionan en un solo quad, respetando el gradiente de sombras (los
+quads se parten donde cambia el nivel de luz). Agua, lava y vegetación
+conservan su render propio.
+
+**Autoguardado.** Cada 2 minutos, solo los chunks modificados, encolados a dos
+hilos de guardado sin bloquear el frame. El guardado al salir sigue siendo
+completo y bloqueante.
+
+**Memoria.** Los bloques viven únicamente en los subchunks con paleta; el
+volcado crudo solo existe de forma transitoria al guardar/cargar (el formato
+en disco no cambió).
 
 **Limitaciones conocidas:**
 - Altura del mundo limitada a 128 bloques.
 - OpenGL 2.1 fixed-function, sin shaders.
-- El autoguardado es síncrono y escribe todos los chunks, no solo los
-  modificados.
-- `src/TerrainGeneration/` es código muerto de una versión anterior del
-  generador; el activo es `src/terrain/`.
+- La propagación de luz no cruza fronteras de chunk (un gradiente que caiga
+  justo en el borde se corta ahí).
 
 **Formato de guardado.** Versión 2. Los mundos creados con la versión 1 se
 siguen leyendo (hay un decodificador legacy y un test que lo cubre); los

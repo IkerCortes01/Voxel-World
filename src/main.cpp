@@ -2697,14 +2697,20 @@ const int SUBCHUNKS_PER_CHUNK = CHUNK_HEIGHT / SUBCHUNK_HEIGHT; // 128 / 16 = 8 
 struct Chunk {
     Vec3i position;
 
-    // ⭐⭐⭐ SISTEMA DE PALETAS: SubChunks con compresión de paleta
+    // ⭐⭐⭐ SISTEMA DE PALETAS: SubChunks con compresión de paleta.
+    // ÚNICA fuente de verdad de los bloques. Antes convivía con un array
+    // crudo blocks[16][128][16] (128 KB por chunk) que solo era un espejo de
+    // escritura y el buffer del guardado: getBlock() ya leía únicamente de
+    // aquí. El guardado/carga usa ahora exportBlocks/importBlocks, que
+    // producen exactamente el mismo layout que tenía el array, así que el
+    // formato en disco no cambia y los mundos existentes siguen cargando.
     std::vector<PalettedSubChunk> subchunks; // 16 subchunks de 16x16x16
 
-    // ⭐ TRANSICIÓN: Mantener arreglo antiguo temporalmente para compatibilidad
-    // TODO: Eventualmente eliminar esto y usar solo subchunks
-    BlockType blocks[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE];
-
     LightVoxel lightData[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE]; // NEXT-GEN LIGHTING
+
+    // Bytes del volcado crudo de bloques (el formato de guardado de siempre)
+    static constexpr size_t BLOCKS_BYTES =
+        sizeof(BlockType) * CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
 
     // VBO OPTIMIZATION: Múltiples VBOs por textura para renderizado correcto
     struct TextureBatch {
@@ -2744,12 +2750,11 @@ struct Chunk {
             subchunks.emplace_back(static_cast<BlockType>(BLOCK_AIR)); // Subchunk optimizado: paleta de 1 elemento = 0 bits!
         }
 
-        // ⭐ INICIALIZAR ARREGLO ANTIGUO (compatibilidad temporal)
+        // Luz a cero (computeSkylight la sobrescribe entera al generar/cargar)
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 for (int z = 0; z < CHUNK_SIZE; z++) {
-                    blocks[x][y][z] = BLOCK_AIR;
-                    lightData[x][y][z] = LightVoxel(); // Inicializar luz en 0
+                    lightData[x][y][z] = LightVoxel();
                 }
             }
         }
@@ -2791,10 +2796,28 @@ struct Chunk {
         // Actualizar en el subchunk con paleta
         subchunks[subchunkIndex].setBlock(x, localY, z, type);
 
-        // ⭐ SINCRONIZAR con arreglo antiguo (compatibilidad temporal)
-        blocks[x][y][z] = type;
-
         needsRebuild = true;  // Rebuild porque cambió
+    }
+
+    // ⭐ VOLCADO CRUDO PARA GUARDAR/CARGAR
+    // Mismo layout [x][y][z] que tenía el antiguo array blocks[][][], para
+    // que el formato en disco no cambie: un save escrito con el array se lee
+    // con esto y viceversa. El buffer debe medir BLOCKS_BYTES.
+    void exportBlocks(BlockType* out) const {
+        size_t i = 0;
+        for (int x = 0; x < CHUNK_SIZE; x++)
+            for (int y = 0; y < CHUNK_HEIGHT; y++)
+                for (int z = 0; z < CHUNK_SIZE; z++)
+                    out[i++] = getBlock(x, y, z);
+    }
+
+    void importBlocks(const BlockType* in) {
+        size_t i = 0;
+        for (int x = 0; x < CHUNK_SIZE; x++)
+            for (int y = 0; y < CHUNK_HEIGHT; y++)
+                for (int z = 0; z < CHUNK_SIZE; z++) {
+                    subchunks[y / SUBCHUNK_HEIGHT].setBlock(x, y % SUBCHUNK_HEIGHT, z, in[i++]);
+                }
         // needsLightUpdate = true;  // DESHABILITADO PARA 60 FPS
     }
 
@@ -3860,16 +3883,7 @@ private:
             chunk->isGenerated = false;
             chunk->isModified = false;
 
-            // Limpiar datos anteriores (array legacy)
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                    for (int z = 0; z < CHUNK_SIZE; z++) {
-                        chunk->blocks[x][y][z] = BLOCK_AIR;
-                    }
-                }
-            }
-
-            // ⭐ CRÍTICO: limpiar también los SUBCHUNKS PALETIZADOS.
+            // ⭐ CRÍTICO: limpiar los SUBCHUNKS PALETIZADOS.
             //
             // Antes solo se limpiaba blocks[], pero el mesher lee los
             // subchunks. Un chunk reciclado del pool conservaba los bloques
@@ -4173,18 +4187,11 @@ public:
             chunk = allocateChunk(chunkPos);
             ChunkMetadata metadata;
 
-            if (saveManager->loadChunk(chunkPos.x, chunkPos.z, chunk->blocks, sizeof(chunk->blocks), metadata)) {
-                // ⭐ CRÍTICO: Sincronizar subchunks con el array blocks cargado
-                for (int x = 0; x < CHUNK_SIZE; x++) {
-                    for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                        for (int z = 0; z < CHUNK_SIZE; z++) {
-                            BlockType blockType = chunk->blocks[x][y][z];
-                            int subchunkIndex = y / SUBCHUNK_HEIGHT;
-                            int localY = y % SUBCHUNK_HEIGHT;
-                            chunk->subchunks[subchunkIndex].setBlock(x, localY, z, blockType);
-                        }
-                    }
-                }
+            // Buffer temporal para el volcado crudo del save (mismo layout de
+            // siempre); de ahí pasa a la paleta, la única fuente de verdad.
+            std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+            if (saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata)) {
+                chunk->importBlocks(raw.data());
 
                 chunk->isGenerated = true;
                 chunk->isModified = false;
@@ -4252,11 +4259,9 @@ public:
     // ========================================================================
     // Adapta el sistema de generación al layout real del Chunk.
     //
-    // CRÍTICO: escribe a través de Chunk::setBlock(), NO directamente sobre
-    // chunk->blocks[]. Esto es obligatorio porque setBlock() sincroniza los
-    // subchunks paletizados (que son los que el mesher lee realmente) con el
-    // array legacy. Escribir solo el array dejaría los subchunks vacíos y el
-    // terreno sería invisible.
+    // Escribe a través de Chunk::setBlock(), que actualiza los subchunks
+    // paletizados: la única fuente de verdad de los bloques (el antiguo
+    // array espejo blocks[][][] ya no existe).
     //
     // Las guardas de rango viven aquí y en setBlock(), de modo que es
     // imposible que el generador escriba fuera del chunk.
@@ -7389,8 +7394,10 @@ public:
             // Guardar posición del chunk
             file.write((char*)&chunk->position, sizeof(Vec3i));
 
-            // ⭐ IMPORTANTE: Guardar TODOS los bloques del chunk
-            file.write((char*)chunk->blocks, sizeof(BlockType) * CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+            // ⭐ Volcado crudo desde la paleta (mismo layout del formato de siempre)
+            std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+            chunk->exportBlocks(raw.data());
+            file.write((const char*)raw.data(), Chunk::BLOCKS_BYTES);
 
             file.close();
         } catch (const std::exception& e) {
@@ -7422,7 +7429,8 @@ public:
             }
 
             Chunk* chunk = new Chunk(pos);
-            file.read((char*)chunk->blocks, sizeof(BlockType) * CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+            std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+            file.read((char*)raw.data(), Chunk::BLOCKS_BYTES);
 
             // ⭐ PROTECCIÓN: Verificar que la lectura fue exitosa
             if (!file.good()) {
@@ -7431,17 +7439,7 @@ public:
                 return false;
             }
 
-            // ⭐ CRÍTICO: Sincronizar subchunks con el array blocks cargado
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                    for (int z = 0; z < CHUNK_SIZE; z++) {
-                        BlockType blockType = chunk->blocks[x][y][z];
-                        int subchunkIndex = y / SUBCHUNK_HEIGHT;
-                        int localY = y % SUBCHUNK_HEIGHT;
-                        chunk->subchunks[subchunkIndex].setBlock(x, localY, z, blockType);
-                    }
-                }
-            }
+            chunk->importBlocks(raw.data());
 
             chunk->isGenerated = true;
             chunk->isModified = false;  // Ya está guardado
@@ -7499,8 +7497,10 @@ public:
                     metadata.blockChanges = 0;
                     metadata.uuid = 0;
 
+                    std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+                    chunk->exportBlocks(raw.data());
                     saveManager->saveChunkAsync(pos.x, pos.z,
-                        chunk->blocks, sizeof(chunk->blocks), metadata);
+                        raw.data(), Chunk::BLOCKS_BYTES, metadata);
                     savedCount++;
                 } else if (!currentWorldPath.empty()) {
                     saveChunk(chunk, currentWorldPath);
@@ -7577,11 +7577,13 @@ public:
                 metadata.blockChanges = 0;
                 metadata.uuid = 0;
 
+                std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+                chunk->exportBlocks(raw.data());
                 saveManager->saveChunkAsync(
                     chunk->position.x,
                     chunk->position.z,
-                    chunk->blocks,
-                    sizeof(chunk->blocks),
+                    raw.data(),
+                    Chunk::BLOCKS_BYTES,
                     metadata
                 );
 

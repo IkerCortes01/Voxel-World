@@ -17,8 +17,18 @@ cmake --build build --config Release
 
 El ejecutable queda en `build\bin\Release\VoxelWorld.exe`.
 
-GLFW viene incluido como código fuente en `external/glfw`, así que no hay
-que instalar dependencias externas.
+GLFW y doctest vienen incluidos como código fuente en `external/`, así que no
+hay que instalar dependencias externas ni tener red.
+
+### Tests
+
+```batch
+ctest --test-dir build -C Release --output-on-failure
+```
+
+Cubren la lógica que protege los datos del jugador —compresión de chunks,
+CRC32, validación al deserializar, paletas, nombres de mundo y determinismo del
+generador por semilla— sin necesidad de arrancar OpenGL.
 
 ---
 
@@ -34,7 +44,11 @@ src/
   ChunkSystem.cpp     Sistema de chunks
   SaveSystem.cpp      Persistencia de mundos
   PalettedStorage.h   Almacenamiento comprimido por paletas
+  BlockType.h         Enum de bloques (compartido con tests y paletas)
+  WorldName.h         Validación de nombres de mundo
 include/              Cabeceras compartidas
+tests/                Tests unitarios (doctest)
+external/             GLFW, stb, doctest (vendorizados)
 resourcepacks/        Texturas
 documentación/        Notas técnicas
 ```
@@ -61,8 +75,9 @@ Arquitectura multicapa, no un único Perlin:
 | `DecorationSystem.h` | Árboles (Poisson Disk), dunas y minerales |
 | `ChunkGenerator.h` | Voxelización |
 
-Determinista: la misma seed produce siempre el mismo mundo, incluso
-generando chunks desde varios hilos.
+Determinista: la misma seed produce siempre el mismo mundo. El generador está
+escrito para ser seguro entre hilos, aunque hoy la generación corre en el hilo
+principal (ver *Estado*).
 
 ### Character controller (`src/player/`)
 
@@ -103,6 +118,7 @@ cubos isométricos 3D.
 | Q | Tirar item |
 | F3 | Depuración del controlador |
 | F6 | Depuración de la hotbar |
+| F7 | Overlay de rendimiento (FPS, ms por fase, chunks) |
 | F11 | Pantalla completa |
 | ESC | Pausa |
 
@@ -116,16 +132,33 @@ Alpha. El juego compila, arranca y es jugable.
 inventario y crafteo, guardado, audio, niebla volumétrica, fluidos (agua y
 lava), vegetación.
 
+**Diagnóstico.** El juego escribe un log completo en
+`%LOCALAPPDATA%\VoxelWorld\log.txt`, y los errores de los que no se puede
+continuar se muestran en un cuadro de diálogo en vez de cerrar la ventana en
+silencio. Si una sesión termina en crash, la siguiente lo avisa al arrancar.
+
 **Sistemas presentes pero desactivados:**
 - Iluminación por voxel: implementada (~550 líneas) pero desactivada en
   runtime. Mientras tanto el color de luz es blanco fijo.
 - Greedy meshing: implementado pero desactivado.
+- Generación de chunks en hilos de trabajo: existen `workerThreads`,
+  `generationQueue` y `chunkGenerationWorker()`, pero **nadie encola nada** —
+  es andamiaje inerte, no un sistema al que solo le falte arrancar los hilos.
+  Activarlo requiere escribir el productor y la integración de resultados.
 
 **Limitaciones conocidas:**
 - Altura del mundo limitada a 128 bloques.
 - OpenGL 2.1 fixed-function, sin shaders.
+- La generación de terreno corre en el hilo principal, así que explorar
+  territorio nuevo baja los FPS.
+- El autoguardado es síncrono y escribe todos los chunks, no solo los
+  modificados.
 - `src/TerrainGeneration/` es código muerto de una versión anterior del
   generador; el activo es `src/terrain/`.
+
+**Formato de guardado.** Versión 2. Los mundos creados con la versión 1 se
+siguen leyendo (hay un decodificador legacy y un test que lo cubre); los
+guardados nuevos ya usan el RLE con escape y CRC32 real.
 
 ---
 

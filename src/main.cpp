@@ -2240,6 +2240,14 @@ public:
 
         stbi_image_free(data);
 
+        // ⭐ Acabamos de dejar `textureID` bindeada. El cache de bind seguia
+        // apuntando a otra textura, asi que estaba MINTIENDO: el siguiente
+        // bindOptimized() de esa otra textura no haria nada y el terreno se
+        // dibujaria con ESTA. Como getTexture() se llama desde el mesher, el
+        // fallo aparecia justo al cargar chunks: montones de chunks sin su
+        // textura. Se sincroniza el cache con la realidad de GL.
+        lastBoundTexture = textureID;
+
         textures[filename] = textureID;
         return textureID;
     }
@@ -2412,6 +2420,12 @@ public:
         }
 
         std::cout << "=== " << destroyStageTextures.size() << " texturas de destrucción cargadas ===" << std::endl;
+
+        // El bucle de arriba dejo bindeada la ultima etapa sin avisar al
+        // cache. Sincronizarlo (ver loadTexture).
+        if (!destroyStageTextures.empty() && destroyStageTextures.back() != 0) {
+            lastBoundTexture = destroyStageTextures.back();
+        }
     }
 
     // Obtener textura de destrucción según nivel (0-100%)
@@ -2699,6 +2713,10 @@ private:
 
         stbi_image_free(data);
 
+        // Sincronizar el cache de bind (ver loadTexture): esta textura queda
+        // activa en GL y el cache debe reflejarlo.
+        lastBoundTexture = textureID;
+
         textures[fullPath] = textureID;
         return textureID;
     }
@@ -2728,13 +2746,25 @@ static UI::TextureHandle uiLoadTextureCB(void* ctx, const char* path) {
     return (UI::TextureHandle)tm->loadItemTextureAbsolute(path);
 }
 
-static UI::TextureHandle uiCreateTextureCB(void* /*ctx*/, const unsigned char* rgba,
+static UI::TextureHandle uiCreateTextureCB(void* ctx, const unsigned char* rgba,
                                            int w, int h) {
     if (!rgba || w <= 0 || h <= 0) return 0;
 
     GLuint id = 0;
     glGenTextures(1, &id);
     if (id == 0) return 0;
+
+    // ⭐ Esta funcion hace glBindTexture A PELO (dos veces: la textura nueva y
+    // luego 0). El TextureManager cachea cual es la textura activa para
+    // ahorrarse binds, y ese cache NO se entera de estos cambios: se queda
+    // creyendo que sigue activa la ultima textura del MUNDO cuando en realidad
+    // el bind real es 0.
+    //
+    // Consecuencia: en el frame siguiente el terreno pide esa textura,
+    // bindOptimized() responde "ya esta activa" y no hace nada, asi que MUCHOS
+    // CHUNKS SE DIBUJAN SIN TEXTURA. Por eso hay que invalidar el cache al
+    // terminar.
+    TextureManager* tm = reinterpret_cast<TextureManager*>(ctx);
 
     glBindTexture(GL_TEXTURE_2D, id);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
@@ -2746,6 +2776,11 @@ static UI::TextureHandle uiCreateTextureCB(void* /*ctx*/, const unsigned char* r
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    // El bind real quedo en 0: sincronizar el cache o el mundo se quedara sin
+    // texturas (ver comentario de arriba).
+    if (tm) tm->invalidateBindCache();
+
     return (UI::TextureHandle)id;
 }
 

@@ -49,3 +49,6 @@ graphify-out/
 # proyecto no compila desde un clon limpio. Solo se excluye su build.
 external/glfw/build/
 external/glfw/docs/html/
+
+# Configuracion local de Claude Code (especifica de cada maquina)
+.claude/settings.local.json

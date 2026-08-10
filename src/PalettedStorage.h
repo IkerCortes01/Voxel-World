@@ -71,8 +71,9 @@ private:
             return (uint16_t)((indices[arrayIndex] >> bitPosition) & mask);
         } else {
             // Caso complejo: el índice está dividido entre dos uint64_t
-            uint8_t bitsInFirst = 64 - bitPosition;
-            uint8_t bitsInSecond = bitsPerIndex - bitsInFirst;
+            // (bitPosition < 64, así que la resta cabe de sobra en 8 bits)
+            uint8_t bitsInFirst = (uint8_t)(64 - bitPosition);
+            uint8_t bitsInSecond = (uint8_t)(bitsPerIndex - bitsInFirst);
 
             uint64_t lowBits = (indices[arrayIndex] >> bitPosition) & ((1ULL << bitsInFirst) - 1);
             uint64_t highBits = (indices[arrayIndex + 1] & ((1ULL << bitsInSecond) - 1));
@@ -100,8 +101,9 @@ private:
             indices[arrayIndex] = (indices[arrayIndex] & ~(mask << bitPosition)) | (value << bitPosition);
         } else {
             // Caso complejo: dividido entre dos uint64_t
-            uint8_t bitsInFirst = 64 - bitPosition;
-            uint8_t bitsInSecond = bitsPerIndex - bitsInFirst;
+            // (bitPosition < 64, así que la resta cabe de sobra en 8 bits)
+            uint8_t bitsInFirst = (uint8_t)(64 - bitPosition);
+            uint8_t bitsInSecond = (uint8_t)(bitsPerIndex - bitsInFirst);
 
             uint64_t maskFirst = ((1ULL << bitsInFirst) - 1) << bitPosition;
             uint64_t maskSecond = (1ULL << bitsInSecond) - 1;

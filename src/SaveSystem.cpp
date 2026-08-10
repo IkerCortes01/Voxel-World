@@ -481,7 +481,7 @@ std::vector<uint8_t> ChunkSerializer::serialize(
     int chunkX, int chunkZ,
     const void* blockData, size_t blockDataSize,
     const ChunkMetadata& metadata,
-    bool useDeltaCompression)
+    bool /*useDeltaCompression*/)   // reservado en la firma; sin implementar
 {
     std::vector<uint8_t> result;
 

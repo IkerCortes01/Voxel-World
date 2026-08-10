@@ -2798,9 +2798,113 @@ struct Chunk {
         // needsLightUpdate = true;  // DESHABILITADO PARA 60 FPS
     }
 
-    // Obtener luz total (max de sun y torch)
+    // ⭐ ILUMINACIÓN REACTIVADA (skylight por chunk)
+    //
+    // Esto devolvía la constante 18 ("LUZ FIJA MAXIMA") desde un intento
+    // antiguo de subir FPS. La luz vuelve a ser real, pero solo el SUNLIGHT:
+    // el torchlight nunca se calcula todavía, y su lightData contiene basura
+    // de pool, así que leerlo (el max original) pintaría valores arbitrarios.
+    //
+    // El skylight se calcula por columna DENTRO del chunk (computeSkylight):
+    // no toca ningún otro chunk, así que es seguro llamarlo desde los hilos
+    // de generación.
     uint8_t getLightLevel(int x, int y, int z) const {
-        return 18;  // LUZ FIJA MAXIMA (sin iluminacion)
+        return getSunlight(x, y, z);
+    }
+
+    // ¿Deja pasar la luz del cielo? Aire y agua sí; también la decoración de
+    // 1 bloque (hierba alta, flores), que de contar como sólida dejaría un
+    // parche oscuro bajo cada planta. Las hojas SÍ cortan: esa es la sombra
+    // de los árboles.
+    static bool skyTransparent(BlockType b) {
+        return b == BLOCK_AIR || b == BLOCK_WATER ||
+               b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER;
+    }
+
+    // Skylight del chunk completo, en dos pasadas:
+    //
+    //  1) VERTICAL: cada columna recibe 18 desde el cielo hasta chocar con un
+    //     sólido; debajo, 0. Esto da sombras duras (todo-o-nada).
+    //
+    //  2) PROPAGACIÓN (flood-fill, estilo Minecraft): la luz se derrama a las
+    //     celdas transparentes vecinas perdiendo 1 nivel por bloque. Es lo
+    //     que difumina los BORDES de las sombras: bajo un voladizo o la copa
+    //     de un árbol la luz entra desde los lados en gradiente (17, 16,
+    //     15…) en vez de cortarse en negro de golpe.
+    //
+    // Todo es LOCAL al chunk (no lee ni escribe vecinos), así que es seguro
+    // desde los hilos de generación. El precio: la luz no se derrama a través
+    // del borde entre chunks — un gradiente que naciera justo en la frontera
+    // se corta ahí. Es la misma concesión que ya hace la generación (leer
+    // fuera del chunk = aire) y en la práctica casi no se nota.
+    //
+    // Sobrescribe TODO el sunlight, así que la basura que un chunk reciclado
+    // del pool traiga en lightData da igual. Se llama al final de la
+    // generación (en el worker), tras cargar de disco y al modificar un
+    // bloque, siempre con los bloques ya definitivos.
+    void computeSkylight() {
+        // Transparencia cacheada: el flood-fill consulta cada celda varias
+        // veces y getBlock() resuelve paleta cada vez. 32 KB en pila.
+        static_assert(CHUNK_SIZE == 16 && CHUNK_HEIGHT == 128,
+                      "computeSkylight asume el empaquetado de índices 16x128x16");
+        uint8_t transp[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE];
+
+        // Pasada 1: vertical + cache de transparencia
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int z = 0; z < CHUNK_SIZE; z++) {
+                uint8_t currentLight = 18;
+                for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
+                    const bool t = skyTransparent(getBlock(x, y, z));
+                    transp[x][y][z] = t ? 1 : 0;
+                    if (t) {
+                        lightData[x][y][z].sunlight = currentLight;
+                    } else {
+                        lightData[x][y][z].sunlight = 0;
+                        currentLight = 0;   // debajo de un sólido: oscuro
+                    }
+                }
+            }
+        }
+
+        // Pasada 2: flood-fill. Se siembran las celdas a plena luz (18) y la
+        // luz se relaja hacia los vecinos transparentes con atenuación 1.
+        // Una celda solo puede SUBIR de luz, así que el proceso converge; el
+        // orden de proceso no afecta al resultado final.
+        std::vector<uint32_t> stack;
+        stack.reserve(4096);
+        auto pack = [](int x, int y, int z) -> uint32_t {
+            return (uint32_t)((x << 11) | (z << 7) | y);
+        };
+
+        for (int x = 0; x < CHUNK_SIZE; x++)
+            for (int z = 0; z < CHUNK_SIZE; z++)
+                for (int y = 0; y < CHUNK_HEIGHT; y++)
+                    if (transp[x][y][z] && lightData[x][y][z].sunlight == 18)
+                        stack.push_back(pack(x, y, z));
+
+        while (!stack.empty()) {
+            const uint32_t c = stack.back();
+            stack.pop_back();
+            const int cx = (c >> 11) & 15, cz = (c >> 7) & 15, cy = c & 127;
+
+            const uint8_t L = lightData[cx][cy][cz].sunlight;
+            if (L <= 1) continue;
+            const uint8_t next = (uint8_t)(L - 1);
+
+            static const int D[6][3] = {
+                {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+            };
+            for (const auto& d : D) {
+                const int nx = cx + d[0], ny = cy + d[1], nz = cz + d[2];
+                if (nx < 0 || nx >= CHUNK_SIZE) continue;
+                if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
+                if (nz < 0 || nz >= CHUNK_SIZE) continue;
+                if (!transp[nx][ny][nz]) continue;
+                if (lightData[nx][ny][nz].sunlight >= next) continue;
+                lightData[nx][ny][nz].sunlight = next;
+                stack.push_back(pack(nx, ny, nz));
+            }
+        }
     }
 
     // Obtener sunlight
@@ -4084,6 +4188,8 @@ public:
 
                 chunk->isGenerated = true;
                 chunk->isModified = false;
+                // El save no guarda la luz: recalcularla al cargar.
+                chunk->computeSkylight();
                 chunks[chunkPos] = chunk;
                 loaded = true;
                 totalChunksLoaded++;
@@ -4103,6 +4209,7 @@ public:
             loaded = loadChunk(chunkPos, currentWorldPath);
             if (loaded) {
                 chunk = getChunk(chunkPos);
+                if (chunk) chunk->computeSkylight();  // la luz no se guarda
                 totalChunksLoaded++;
             }
         }
@@ -4337,6 +4444,11 @@ public:
                 pendingBlocks.erase(it);
             }
         }
+
+        // ⭐ Skylight del chunk, con los bloques ya definitivos (terreno,
+        // decoración y pendientes de vecinos incluidos). Solo escribe en el
+        // propio chunk: seguro también en los hilos de generación.
+        chunk->computeSkylight();
 
         // isGenerated ya se marcó antes de la fase de decoración (ver arriba).
     }
@@ -5091,6 +5203,13 @@ public:
         }
 
         chunk->setBlock(localX, y, localZ, type);
+
+        // ⭐ Recalcular la luz del chunk: la pasada vertical de la columna
+        // afectada más el re-derrame del gradiente alrededor (con propagación
+        // horizontal, tapar o abrir un hueco cambia la luz de las celdas
+        // vecinas, no solo de la columna). ~1 ms — despreciable frente al
+        // rebuild de mesh que este mismo cambio ya dispara.
+        chunk->computeSkylight();
 
         // ⭐ Marcar chunk como modificado (para guardarlo después)
         chunk->isModified = true;
@@ -5948,6 +6067,47 @@ public:
             return BLOCK_STONE;
         };
 
+        // ⭐ LUZ POR CARA: cada cara toma el skylight del bloque ADYACENTE a
+        // ella (el aire que la toca), no un valor único por bloque.
+        //
+        // Con un único muestreo por bloque, tapar un bloque por arriba
+        // apagaba TODAS sus caras: los laterales de un bloque recién cubierto
+        // se veían negros aunque estuvieran a plena luz. Con muestreo por
+        // cara, la cara superior tapada queda en sombra (correcto: no le
+        // llega el cielo) y los laterales se iluminan por el aire de al lado,
+        // que es como se comportan las sombras reales.
+        //
+        // Devuelve el factor ya con curva gamma y luz ambiental mínima.
+        auto faceLightFactor = [&](int bx, int by, int bz, int dx, int dy, int dz) -> float {
+            int nx = bx + dx, ny = by + dy, nz = bz + dz;
+
+            uint8_t light;
+            if (ny >= CHUNK_HEIGHT) {
+                light = 18;                       // por encima del mundo: cielo
+            } else if (ny < 0) {
+                light = 0;                        // fondo del mundo
+            } else if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
+                light = chunk->getLightLevel(nx, ny, nz);
+            } else if (nz >= CHUNK_SIZE && northChunk && nx >= 0 && nx < CHUNK_SIZE) {
+                light = northChunk->getLightLevel(nx, ny, nz - CHUNK_SIZE);
+            } else if (nz < 0 && southChunk && nx >= 0 && nx < CHUNK_SIZE) {
+                light = southChunk->getLightLevel(nx, ny, nz + CHUNK_SIZE);
+            } else if (nx >= CHUNK_SIZE && eastChunk && nz >= 0 && nz < CHUNK_SIZE) {
+                light = eastChunk->getLightLevel(nx - CHUNK_SIZE, ny, nz);
+            } else if (nx < 0 && westChunk && nz >= 0 && nz < CHUNK_SIZE) {
+                light = westChunk->getLightLevel(nx + CHUNK_SIZE, ny, nz);
+            } else {
+                // Vecino aún no cargado: iluminar de más antes que pintar
+                // negro un borde; el rebuild al integrarse el vecino corrige.
+                light = 18;
+            }
+
+            float raw = (float)light / 18.0f;
+            float f = pow(raw, 1.2f);             // gamma para oscuridad no lineal
+            if (f < 0.15f) f = 0.15f;             // ambiente mínimo: nunca negro puro
+            return f;
+        };
+
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int z = 0; z < CHUNK_SIZE; z++) {
                 for (int y = 0; y < CHUNK_HEIGHT; y++) {
@@ -5995,21 +6155,11 @@ public:
                     float wy = (float)worldY;
                     float wz = (float)worldZ;
 
-                    // NEXT-GEN LIGHTING CALCULATION
-                    uint8_t lightLevel = chunk->getLightLevel(x, y, z);
-
-                    // GAMMA CURVE para oscuridad realista (no lineal)
-                    float rawLight = (float)lightLevel / 18.0f;
-
-                    // Si NO hay luz calculada, usar luz ambiental temporal
-                    if (rawLight == 0.0f) {
-                        rawLight = 0.8f;  // 80% luz temporal mientras se calcula
-                    }
-
-                    float lightFactor = pow(rawLight, 1.2f); // Gamma 1.2 (menos agresivo)
-
-                    // LUZ AMBIENTAL MÍNIMA (nunca negro absoluto)
-                    if (lightFactor < 0.15f) lightFactor = 0.15f;  // 15% ambient light
+                    // ⭐ La luz ya NO se muestrea una vez por bloque: cada
+                    // cara la toma de su bloque adyacente (faceLightFactor).
+                    // Para la vegetación en cruz se usa la celda de la propia
+                    // planta, que al ser transparente al cielo tiene la luz
+                    // correcta del punto donde vive.
 
                     // COLORED LIGHTING - Obtener color de luz
                     float lightColorR, lightColorG, lightColorB;
@@ -6060,6 +6210,9 @@ public:
                     //    recorta el fondo transparente del PNG.
                     if (isCrossSprite(block)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 0);
+
+                        // Luz de la celda de la planta (transparente al cielo).
+                        const float lightFactor = faceLightFactor(x, y, z, 0, 0, 0);
 
                         // Sin sombreado direccional: una cruz no tiene caras
                         // con orientación fija, así que un brillo uniforme
@@ -6159,6 +6312,7 @@ public:
                     if (shouldRenderFace(block, topNeighbor)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 0);
                         float faceBrightness = 1.0f; // Top = más brillante
+                        const float lightFactor = faceLightFactor(x, y, z, 0, 1, 0);
                         float alpha = isTransparent ? 0.6f : 1.0f; // Agua/Lava semi-transparente
                         float r = lightFactor * lightColorR * faceBrightness;
                         float g = lightFactor * lightColorG * faceBrightness;
@@ -6194,6 +6348,7 @@ public:
                     if (shouldRenderFace(block, bottomNeighbor)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 1);
                         faceBrightness = 0.5f; // Bottom = más oscuro
+                        const float lightFactor = faceLightFactor(x, y, z, 0, -1, 0);
                         float alpha = isWater ? 0.6f : 1.0f;
                         float r = lightFactor * lightColorR * faceBrightness;
                         float g = lightFactor * lightColorG * faceBrightness;
@@ -6228,6 +6383,7 @@ public:
                     if (shouldRenderFace(block, northNeighbor)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 2);
                         faceBrightness = 0.8f; // N/S faces
+                        const float lightFactor = faceLightFactor(x, y, z, 0, 0, 1);
                         float alpha = isWater ? 0.6f : 1.0f;
                         float r = lightFactor * lightColorR * faceBrightness;
                         float g = lightFactor * lightColorG * faceBrightness;
@@ -6262,6 +6418,7 @@ public:
                     if (shouldRenderFace(block, southNeighbor)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 3);
                         faceBrightness = 0.8f; // N/S faces
+                        const float lightFactor = faceLightFactor(x, y, z, 0, 0, -1);
                         float alpha = isWater ? 0.6f : 1.0f;
                         float r = lightFactor * lightColorR * faceBrightness;
                         float g = lightFactor * lightColorG * faceBrightness;
@@ -6296,6 +6453,7 @@ public:
                     if (shouldRenderFace(block, eastNeighbor)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 4);
                         faceBrightness = 0.6f; // E/W faces = más oscuro
+                        const float lightFactor = faceLightFactor(x, y, z, 1, 0, 0);
                         float alpha = isWater ? 0.6f : 1.0f;
                         float r = lightFactor * lightColorR * faceBrightness;
                         float g = lightFactor * lightColorG * faceBrightness;
@@ -6330,6 +6488,7 @@ public:
                     if (shouldRenderFace(block, westNeighbor)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 5);
                         faceBrightness = 0.6f; // E/W faces = más oscuro
+                        const float lightFactor = faceLightFactor(x, y, z, -1, 0, 0);
                         float alpha = isWater ? 0.6f : 1.0f;
                         float r = lightFactor * lightColorR * faceBrightness;
                         float g = lightFactor * lightColorG * faceBrightness;

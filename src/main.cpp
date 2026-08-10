@@ -2163,27 +2163,49 @@ public:
         unsigned char* data = stbi_load(fullPath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
 
         if (!data) {
+            // ⭐ CACHÉ NEGATIVA *SOLO* SI EL ARCHIVO NO EXISTE.
+            //
+            // Distinguir el fallo PERMANENTE del TRANSITORIO es crítico: un
+            // PNG que no está en disco no va a aparecer solo, así que
+            // cachearlo evita reintentar I/O en cada frame. Pero un fallo
+            // transitorio (archivo bloqueado por el antivirus/indexador de
+            // Windows, disco ocupado, memoria momentáneamente agotada al
+            // generar chunks) SÍ se recupera solo — y grabar un 0 en el caché
+            // lo convertía en permanente para toda la partida.
+            //
+            // Ese era el bug de "chunks que pierden la textura de la nada":
+            // bastaba un stbi_load fallido en el pico de I/O de la generación
+            // para que ESE bloque quedara sin textura hasta reiniciar.
+            std::error_code ec;
+            const bool falta = !std::filesystem::exists(fullPath, ec);
+
             std::cerr << "ERROR: No se pudo cargar textura: " << fullPath << std::endl;
-            std::cerr << "  Motivo: " << stbi_failure_reason() << std::endl;
-            // ⭐ CACHÉ NEGATIVA: recordar el fallo.
-            // Sin esto, cada llamada reintentaba stbi_load() (I/O de disco
-            // síncrono) y escribía dos líneas a cerr. Con la textura pedida
-            // desde el bucle de render, eso eran decenas de accesos a disco
-            // por frame. Ahora el early-return de arriba corta en seco.
-            textures[filename] = 0;
-            return 0;
+            std::cerr << "  Motivo: " << stbi_failure_reason()
+                      << (falta ? " [archivo ausente: no se reintentará]"
+                                : " [fallo transitorio: se reintentará]") << std::endl;
+
+            if (falta) textures[filename] = 0;   // permanente -> cachear
+            return 0;                            // transitorio -> NO cachear
         }
 
         std::cout << "Textura cargada: " << filename << " (" << width << "x" << height << ", " << channels << " canales)" << std::endl;
+
+        // Limpiar cualquier error de GL previo: glGetError() devuelve errores
+        // ACUMULADOS, así que un error ajeno pendiente (de la UI, del mesher)
+        // se atribuiría a esta carga y descartaría una textura perfectamente
+        // válida. Vaciar la cola antes deja la comprobación de abajo limpia.
+        while (glGetError() != GL_NO_ERROR) { /* descartar errores ajenos */ }
 
         GLuint textureID = 0;
         glGenTextures(1, &textureID);
 
         // ⭐ PROTECCIÓN: Verificar que se generó la textura correctamente
         if (textureID == 0) {
-            std::cerr << "❌ ERROR: No se pudo generar textura OpenGL para " << filename << std::endl;
+            // Quedarse sin handles/VRAM es TRANSITORIO (se libera al descargar
+            // chunks), así que aquí NO se cachea: se reintenta más adelante.
+            std::cerr << "❌ ERROR: No se pudo generar textura OpenGL para "
+                      << filename << " [transitorio: se reintentará]" << std::endl;
             stbi_image_free(data);
-            textures[filename] = 0;   // caché negativa también aquí
             return 0;
         }
 
@@ -2196,10 +2218,16 @@ public:
         // ⭐ PROTECCIÓN: Verificar errores de OpenGL
         GLenum error = glGetError();
         if (error != GL_NO_ERROR) {
-            std::cerr << "❌ ERROR OpenGL al cargar textura " << filename << ": " << error << std::endl;
+            std::cerr << "❌ ERROR OpenGL al cargar textura " << filename << ": "
+                      << error << " [transitorio: se reintentará]" << std::endl;
             glDeleteTextures(1, &textureID);
+            // El handle recién borrado sigue siendo el bind activo de GL y el
+            // caché de bind lo daría por válido, así que hay que invalidarlo:
+            // si no, el siguiente bindOptimized() de ESE id se omitiría y el
+            // terreno se dibujaría con la textura que hubiera quedado activa.
+            invalidateBindCache(textureID);
             stbi_image_free(data);
-            return 0;
+            return 0;   // sin caché negativa: el fallo puede ser puntual
         }
 
         // Filtros para estilo pixelado (como Minecraft) - NEAREST = mejor performance que LINEAR
@@ -2232,6 +2260,14 @@ public:
             glBindTexture(GL_TEXTURE_2D, textureID);
             lastBoundTexture = textureID;
         }
+    }
+
+    // Olvidar el bind cacheado cuando el id deja de ser válido (textura
+    // borrada) o cuando algo externo pudo cambiar el bind real de GL.
+    // Sin esto, el caché afirma que una textura ya está activa cuando en
+    // realidad se borró, y el mesh se dibuja con la textura equivocada.
+    void invalidateBindCache(GLuint textureID = 0) {
+        if (textureID == 0 || textureID == lastBoundTexture) lastBoundTexture = 0;
     }
 
     // ⭐⭐⭐ BIND DIRECTO QUE MANTIENE EL CACHÉ SINCRONIZADO
@@ -2436,12 +2472,10 @@ public:
         loadTexture("nieve.png");              // BLOCK_SNOW
         loadTexture("Piedra Labrada.png");     // BLOCK_COBBLESTONE (textura mejorada)
         loadTexture("Tablones de Madera de Pino.png");   // BLOCK_PLANKS
-        loadTexture("Polvo de Tierra.png");    // BLOCK_DIRT_POWDER (item crafteable)
-        loadTexture("palo.png");               // BLOCK_STICK (item crafteable)
-        loadTexture("palo.png");               // BLOCK_HOE (herramienta - usa textura de palo)
-        loadTexture("carbon.png");             // BLOCK_COAL_ITEM (dropea de carbón mineral)
-        loadTexture("zinc crudo.png");         // BLOCK_RAW_ZINC (dropea de desecho de metales)
-        loadTexture("cobre crudo.png");        // BLOCK_RAW_COPPER (dropea de desecho de metales)
+        // Los ITEMS (polvo de tierra, palo, hoz, carbón, zinc, cobre) NO se
+        // precargan aquí: sus PNG viven en Textures/Items/, no en Blocks/, así
+        // que estas llamadas fallaban siempre y sólo ensuciaban el log. Quien
+        // los carga —desde la carpeta correcta— es getItemTexture().
 
         // Minerales - Sistema de Rareza
         // COMUNES
@@ -2466,7 +2500,7 @@ public:
         loadDestroyStageTextures();
 
         // Cargar animación de carga
-        loadTexture("../Animaciones/Animacion de Carga.gif");
+        loadTexture("Animaciones/Animacion de Carga.gif");
         std::cout << "=== Animación de carga inicializada ===" << std::endl;
     }
 
@@ -5821,6 +5855,10 @@ public:
             return; // Ya se está procesando este chunk
         }
 
+        // ¿Alguna cara se quedó sin textura durante ESTA construcción? Si es
+        // así el mesh está incompleto y hay que rehacerlo (ver más abajo).
+        bool texturasFaltantes = false;
+
         // ⭐ OPTIMIZACIÓN: Early exit si el chunk está vacío.
         //
         // La paleta ya sabe la respuesta: basta mirar los 16 subchunks en vez
@@ -6570,6 +6608,12 @@ public:
                             if (!shouldRenderFace(b, nb)) continue;
 
                             cell.tex = g_textureManager->getBlockTexture(b, dir);
+                            // Si la textura no resolvió, el mesh NO debe
+                            // hornear ese 0: el batch quedaría descartado en
+                            // el render ("textura nula") y el chunk perdería
+                            // esas caras hasta reiniciar el juego. Se anota
+                            // para reconstruirlo cuando la textura ya esté.
+                            if (cell.tex == 0) { texturasFaltantes = true; continue; }
                             cell.light = faceLightLevel(bx, by, bz, dx, dy, dz);
                             cell.visible = true;
                         }
@@ -6768,6 +6812,26 @@ public:
         // siguiente frame lo reintente. Es una condición de reintento, no un
         // parche visual: si el mesh se construyó bien, no cambia nada.
         {
+            // ⭐ CARAS SIN TEXTURA: el mesh se construyó, pero incompleto.
+            // Es el caso de "el chunk pierde SUS TEXTURAS de la nada": la
+            // geometría está, y sin embargo parte del terreno salía sin
+            // textura (o directamente descartada) de forma permanente.
+            // Reintentar es barato y en cuanto la textura carga, se arregla.
+            if (texturasFaltantes) {
+                chunk->buildRetries++;
+                if (chunk->buildRetries < 8) {
+                    std::cerr << "AVISO: chunk (" << chunk->position.x << ","
+                              << chunk->position.z << ") con caras sin textura. "
+                                 "Reintentando (" << chunk->buildRetries
+                              << "/8)." << std::endl;
+                    chunk->needsRebuild = true;   // rehacer el próximo frame
+                    return;
+                }
+                std::cerr << "ERROR: chunk (" << chunk->position.x << ","
+                          << chunk->position.z << ") sigue sin texturas tras 8 "
+                             "intentos." << std::endl;
+            }
+
             bool hasSolidBlocks = false;
             for (int x = 0; x < CHUNK_SIZE && !hasSolidBlocks; ++x)
                 for (int z = 0; z < CHUNK_SIZE && !hasSolidBlocks; ++z)
@@ -14079,7 +14143,7 @@ void renderLoadingScreen(GameState* state, int screenWidth, int screenHeight, fl
 
     // Renderizar GIF de animación de carga centrado
     glEnable(GL_TEXTURE_2D);
-    GLuint loadingTexture = g_textureManager->getTexture("../Animaciones/Animacion de Carga.gif");
+    GLuint loadingTexture = g_textureManager->getTexture("Animaciones/Animacion de Carga.gif");
 
     if (loadingTexture != 0) {
         if (g_textureManager) g_textureManager->bindForUI(loadingTexture);

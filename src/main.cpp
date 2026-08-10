@@ -5116,43 +5116,87 @@ public:
     //
     // Contrasta a propósito con el encino: uno es ancho y redondo, el otro
     // alto y puntiagudo, así se distinguen de un vistazo en el terreno.
+    // ========================================================================
+    // OYAMEL: conífera de PISOS SEPARADOS
+    // ========================================================================
+    // Su silueta NO es un cono continuo, sino discos de hojas horizontales
+    // separados por tramos de TRONCO DESNUDO: entre piso y piso se ve el
+    // cielo. Ese hueco es justo lo que define la especie, y por eso la copa
+    // se construye piso a piso en vez de rellenar todas las alturas.
+    //
+    // Los pisos tampoco se estrechan de forma uniforme hacia arriba: el más
+    // ancho está en la zona media-baja, con pisos más cortos por encima y
+    // por debajo. Abajo del primer piso el tronco va limpio.
     void generarOyamel(int worldX, int baseY, int worldZ, int altura) {
-        if (altura < 7) altura = 7;
-        if (altura > 16) altura = 16;
+        if (altura < 9)  altura = 9;
+        if (altura > 18) altura = 18;
 
-        // Tronco
+        const int topY = baseY + altura - 1;
+
+        // --- Tronco completo ---
         for (int i = 0; i < altura; ++i) {
             setBlock(worldX, baseY + i, worldZ, BLOCK_WOOD_OYAMEL);
         }
 
-        // La copa arranca a un tercio de la altura: por debajo queda el
-        // tronco desnudo, como en las coníferas reales.
-        const int crownStart = baseY + altura / 3;
-        const int topY = baseY + altura - 1;
-
-        for (int y = crownStart; y <= topY; ++y) {
-            // Radio decreciente hacia la punta.
-            const float t = (float)(y - crownStart) / (float)(topY - crownStart + 1);
-            int radius = (int)((1.0f - t) * 3.0f + 0.5f);
-
-            // Anillos alternos más estrechos -> aspecto escalonado.
-            if (((y - crownStart) % 2) == 1 && radius > 1) radius -= 1;
-            if (radius < 0) radius = 0;
-
+        // Coloca un disco de hojas de radio `radius` en la altura `y`.
+        // `plano`: el disco es de 1 bloque de grosor (placa fina y ancha).
+        auto disco = [&](int y, int radius, bool recorte) {
+            if (radius <= 0 || y <= baseY || y > topY) return;
             for (int dx = -radius; dx <= radius; ++dx) {
                 for (int dz = -radius; dz <= radius; ++dz) {
-                    if (dx == 0 && dz == 0) continue;      // el tronco
-                    // Recortar esquinas del cuadrado -> planta redondeada.
-                    if (abs(dx) + abs(dz) > radius + 1) continue;
-
+                    if (dx == 0 && dz == 0) continue;          // el tronco
+                    // Recortar las esquinas -> planta redondeada, no cuadrada.
+                    if (recorte && abs(dx) + abs(dz) > radius + 1) continue;
                     if (getBlock(worldX + dx, y, worldZ + dz) == BLOCK_AIR) {
                         setBlock(worldX + dx, y, worldZ + dz, BLOCK_LEAVES_OYAMEL);
                     }
                 }
             }
+        };
+
+        // --- Reparto vertical de los pisos ---
+        // La copa ocupa los 2/3 superiores: el tercio inferior es tronco
+        // limpio, como en las capturas.
+        const int crownStart = baseY + altura / 3;
+        const int crownSpan  = topY - crownStart;      // alto util de copa
+        if (crownSpan < 3) { disco(topY, 1, true); return; }
+
+        // Separación de 2 en 2 (piso, hueco, piso...) para que el tronco
+        // desnudo quede VISIBLE entre discos.
+        const int STEP = 2;
+        const int nPisos = crownSpan / STEP;
+
+        for (int i = 0; i < nPisos; ++i) {
+            const int y = crownStart + i * STEP;
+
+            // Perfil de anchura: estrecho abajo, MÁXIMO en la zona media-baja
+            // y decreciente hacia la punta. `p` recorre 0..1 de abajo arriba.
+            const float p = (nPisos > 1) ? (float)i / (float)(nPisos - 1) : 0.0f;
+
+            int radius;
+            if (p < 0.18f)      radius = 3;   // piso bajo: ancho
+            else if (p < 0.42f) radius = 4;   // MÁS ANCHO (placa central)
+            else if (p < 0.62f) radius = 3;
+            else if (p < 0.80f) radius = 2;
+            else                radius = 1;   // cerca de la punta
+
+            // Un piso de cada tres se alarga un bloque: rompe la simetría
+            // perfecta y da el perfil irregular de las capturas.
+            if (i % 3 == 1 && radius > 1) radius += 1;
+
+            disco(y, radius, true);
+
+            // Bajo los discos anchos, un reborde más corto: engrosa la placa
+            // por su centro sin perder el aspecto de plato fino.
+            if (radius >= 4 && y - 1 > crownStart) disco(y - 1, radius - 2, true);
         }
 
-        // Punta: un bloque de hojas coronando el tronco.
+        // --- Punta cónica: cierra el árbol en pico ---
+        // Los dos últimos niveles llevan hojas SIEMPRE (aunque el reparto de
+        // pisos haya dejado ahí un hueco), para que el árbol no acabe en un
+        // tronco pelado asomando por encima de la copa.
+        disco(topY,     1, false);
+        disco(topY - 1, 1, false);
         if (getBlock(worldX, topY + 1, worldZ) == BLOCK_AIR) {
             setBlock(worldX, topY + 1, worldZ, BLOCK_LEAVES_OYAMEL);
         }

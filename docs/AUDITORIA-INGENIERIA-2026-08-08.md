@@ -24,7 +24,7 @@
 > | C6 | Sin control de versiones | ✅ El proyecto está en git |
 > | C7 | Build no reproducible | ✅ `CMakeLists.txt` en la raíz, GLFW vendorizado |
 > | C8 | Todos los fallos invisibles | ✅ Corregido (log a archivo + diálogos) |
-> | C9 | Cero threading en la generación | ⬜ **Pendiente** (ver abajo) |
+> | C9 | Cero threading en la generación | ✅ Corregido (port del `GenContext` de Voxel-Genesis, 2 workers) |
 > | C10 | Cero tests | ✅ Suite doctest: 37 casos, 2830 aserciones |
 >
 > Además se corrigieron, fuera de la lista original:
@@ -42,34 +42,37 @@
 > - La dependencia de orden invisible de `PalettedStorage.h` (Hallazgo
 >   Importante #12), resuelta extrayendo `src/BlockType.h`.
 >
+> Sobre C9: se portó la solución de la fase 5h de Voxel-Genesis
+> (`World::GenContext`, contexto de generación por hilo) y se **eliminó** el
+> andamiaje inerte que había en este árbol (`workerThreads`, `generationQueue`,
+> `chunkGenerationWorker()`) — nadie encolaba nada en él y su worker guardaba
+> un puntero colgante a un elemento de vector. La generación corre ahora en 2
+> hilos de trabajo; el hilo principal solo integra resultados y construye VBOs.
+>
 > ### Lo que queda pendiente
 >
 > Por orden de retorno esperado:
 >
-> 1. **Generación de chunks en hilos (C9).** Es el mayor problema de
->    rendimiento que queda: explorar territorio nuevo baja los FPS porque
->    `generateChunk` corre en el hilo de render. Ojo con el diagnóstico fácil:
->    el motor *parece* tener la infraestructura lista (`workerThreads`,
->    `generationQueue`, `chunkGenerationWorker()`), pero **nadie hace push a
->    `generationQueue` en todo el árbol** — solo se limpia. Y el worker guarda
->    un puntero a un elemento del vector (`task = &t`), que quedaría colgando en
->    cuanto el vector se reasignara. No es "arrancar dos hilos": hay que
->    escribir el productor y la integración de resultados en el hilo principal,
->    donde se construyen los VBOs.
-> 2. **Guardado asíncrono.** El autosave escribe todos los chunks, no solo los
->    modificados, y de forma síncrona en el hilo de render.
-> 3. **Reactivar la iluminación**, desactivada en un intento previo de subir
->    FPS.
-> 4. **Integrar greedy meshing** (elegir una de las implementaciones existentes
+> 1. **Guardado asíncrono.** El autosave escribe todos los chunks, no solo los
+>    modificados, y de forma síncrona en el hilo de render: con la generación
+>    ya en hilos, es el mayor tirón de frame que queda (microparón periódico
+>    cada 120 s).
+> 2. **Reactivar la iluminación**, desactivada en un intento previo de subir
+>    FPS (`getLightLevel()` devuelve constante). Ahora el hilo principal tiene
+>    margen de sobra.
+> 3. **Integrar greedy meshing** (elegir una de las implementaciones existentes
 >    y borrar las demás).
-> 5. **Eliminar el almacenamiento triplicado por chunk** (paleta + array crudo
+> 4. **Eliminar el almacenamiento triplicado por chunk** (paleta + array crudo
 >    de 256 KB + `lightData` de 128 KB inútil mientras la luz sea constante).
-> 6. **Desmonte del monolito.** `main.cpp` sigue por encima de las 14.000
+> 5. **Desmonte del monolito.** `main.cpp` sigue por encima de las 14.000
 >    líneas; de aquí solo se han extraído `BlockType.h` y `WorldName.h`.
-> 7. **Test del inventario.** El de la auditoría original no aplica: este motor
+> 6. **Test del inventario.** El de la auditoría original no aplica: este motor
 >    tiene stacks infinitos en creativo, `add()` que devuelve `void` y
 >    `MAX_STACK_SIZE` de 187. Hay que escribir el equivalente para esta
 >    semántica.
+> 7. **Limpieza menor:** borrar `src/TerrainGeneration/` (código muerto de un
+>    generador anterior) y los warnings `/W4` que el build de tests saca de
+>    `SaveSystem.cpp` (C4100) y `PalettedStorage.h` (C4267).
 >
 > ---
 >

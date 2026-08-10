@@ -137,20 +137,20 @@ lava), vegetación.
 continuar se muestran en un cuadro de diálogo en vez de cerrar la ventana en
 silencio. Si una sesión termina en crash, la siguiente lo avisa al arrancar.
 
+**Generación asíncrona.** Los chunks nuevos se generan en 2 hilos de trabajo
+(`World::GenContext`): mientras un chunk se genera, sus lecturas y escrituras
+se resuelven contra él mismo y no contra el mapa global, así que la generación
+no toca estructuras compartidas y el hilo de render no se detiene al explorar.
+Los chunks ya guardados se cargan de disco en el hilo principal (es rápido).
+
 **Sistemas presentes pero desactivados:**
 - Iluminación por voxel: implementada (~550 líneas) pero desactivada en
   runtime. Mientras tanto el color de luz es blanco fijo.
 - Greedy meshing: implementado pero desactivado.
-- Generación de chunks en hilos de trabajo: existen `workerThreads`,
-  `generationQueue` y `chunkGenerationWorker()`, pero **nadie encola nada** —
-  es andamiaje inerte, no un sistema al que solo le falte arrancar los hilos.
-  Activarlo requiere escribir el productor y la integración de resultados.
 
 **Limitaciones conocidas:**
 - Altura del mundo limitada a 128 bloques.
 - OpenGL 2.1 fixed-function, sin shaders.
-- La generación de terreno corre en el hilo principal, así que explorar
-  territorio nuevo baja los FPS.
 - El autoguardado es síncrono y escribe todos los chunks, no solo los
   modificados.
 - `src/TerrainGeneration/` es código muerto de una versión anterior del

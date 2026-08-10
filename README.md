@@ -170,6 +170,9 @@ en disco no cambió).
 - La propagación de luz no cruza fronteras de chunk (un gradiente que caiga
   justo en el borde se corta ahí).
 
+El inventario completo de deuda técnica y evolución pendiente está en
+[`docs/PENDIENTES.md`](docs/PENDIENTES.md).
+
 **Formato de guardado.** Versión 2. Los mundos creados con la versión 1 se
 siguen leyendo (hay un decodificador legacy y un test que lo cubre); los
 guardados nuevos ya usan el RLE con escape y CRC32 real.

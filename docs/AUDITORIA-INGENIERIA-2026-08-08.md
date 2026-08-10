@@ -73,16 +73,16 @@
 > 7. ✅ **Limpieza** — `src/TerrainGeneration/` borrado y el build de tests
 >    sin warnings.
 >
-> ### Lo que queda (mejora continua, sin urgencia)
+> ### Lo que queda
 >
-> - Seguir extrayendo clases de `main.cpp` (SoundManager, TextureManager,
->   UI/menús, y `World` al final).
-> - Torchlight y luz con color (la infraestructura de `LightVoxel` ya lo
->   contempla).
-> - Propagación de luz entre chunks (hoy el gradiente se corta en la
->   frontera).
-> - Sombreado suave por vértice (smooth lighting) y oclusión ambiental.
-> - Shaders básicos y HUD con VBOs, si algún día se moderniza el render.
+> El inventario completo y verificado de pendientes —incluido lo que este
+> documento listaba como "hallazgos importantes" y "recomendaciones", con su
+> estado real contra el código actual— vive en **[PENDIENTES.md](PENDIENTES.md)**,
+> que es el documento vivo a mantener a partir de ahora. Resumen: el frente
+> grande es el desmonte del monolito; el resto es código muerto por barrer,
+> restos menores de robustez (`system()` en deleteWorld, `saves/` relativo al
+> CWD, `sprintf`), proceso (CI, `/W4` en el juego, ASAN) y evolución del motor
+> (torchlight, luz entre chunks, smooth lighting, shaders).
 >
 > ---
 >

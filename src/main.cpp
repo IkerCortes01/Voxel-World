@@ -2405,7 +2405,7 @@ public:
         // "Roble" a "Pino", pero el codigo seguia pidiendo el nombre viejo
         // y la textura no cargaba (aparecia el bloque sin textura).
         loadTexture("Tronco de Pino.png");            // BLOCK_WOOD sides
-        loadTexture("Tronco de Roble a dentro.png");  // BLOCK_WOOD top/bottom
+        loadTexture("Tronco de Pino por dentro.png"); // BLOCK_WOOD top/bottom
 
         // ---- ESPECIES NUEVAS ----
         loadTexture("Tronco de Encino.png");
@@ -2420,7 +2420,7 @@ public:
         loadTexture("Bloque de pasto.png");    // BLOCK_GRASS side
 
         // Texturas de hojas
-        loadTexture("Hojas de Roble.png");     // BLOCK_LEAVES
+        loadTexture("Hojas de Pino.png");      // BLOCK_LEAVES
 
         // Texturas de vegetación
         loadTexture("Pasto corto.png");        // BLOCK_TALLGRASS
@@ -2491,7 +2491,7 @@ public:
 
             case BLOCK_WOOD:
                 // Tronco: anillos en top/bottom, corteza en sides
-                if (face == 0 || face == 1) return getTexture("Tronco de Roble a dentro.png"); // Top/Bottom
+                if (face == 0 || face == 1) return getTexture("Tronco de Pino por dentro.png"); // Top/Bottom
                 else return getTexture("Tronco de Pino.png");                                   // Sides
 
             case BLOCK_WOOD_ENCINO:
@@ -2509,7 +2509,7 @@ public:
                 return getTexture("Hojas de Oyame.png");
 
             case BLOCK_LEAVES:
-                return getTexture("Hojas de Roble.png");
+                return getTexture("Hojas de Pino.png");
 
             case BLOCK_WATER:
                 // AGUA ANIMADA: Retornar frame actual

@@ -5666,259 +5666,6 @@ public:
         }
     }
 
-    // ========================================================================
-    // GREEDY MESHING - Reduce ~96% de caras combinando quads adyacentes
-    // ========================================================================
-
-    struct QuadMesh {
-        int x, y, z;        // Posición inicial
-        int width, height;  // Tamaño del quad combinado
-        BlockType type;     // Tipo de bloque
-        int face;           // Índice de cara (0-5)
-    };
-
-    void buildChunkMeshGreedy(Chunk* chunk) {
-        if (!chunk->needsRebuild) return;
-
-        // VBO BATCHING: Liberar batches anteriores (greedy meshing desactivado temporalmente)
-        for (auto batch : chunk->batches) {
-            delete batch;
-        }
-        chunk->batches.clear();
-
-        // GREEDY MESHING DESACTIVADO: esta función está aquí por si se arregla en el futuro
-        std::vector<float> vertices;
-        std::vector<float> colors;
-        std::vector<float> uvs;
-
-        int facesRendered = 0;
-
-        // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Verificar g_textureManager antes de usar
-        if (!g_textureManager) {
-            std::cerr << "❌ ERROR CRÍTICO: g_textureManager es nullptr en renderChunk!" << std::endl;
-            return;
-        }
-
-        g_textureManager->resetBindCache();
-
-        // Cache de chunks vecinos
-        Vec3i northChunkPos(chunk->position.x, 0, chunk->position.z + 1);
-        Vec3i southChunkPos(chunk->position.x, 0, chunk->position.z - 1);
-        Vec3i eastChunkPos(chunk->position.x + 1, 0, chunk->position.z);
-        Vec3i westChunkPos(chunk->position.x - 1, 0, chunk->position.z);
-
-        Chunk* northChunk = getChunk(northChunkPos);
-        Chunk* southChunk = getChunk(southChunkPos);
-        Chunk* eastChunk = getChunk(eastChunkPos);
-        Chunk* westChunk = getChunk(westChunkPos);
-
-        // VALIDACIÓN CRÍTICA: Solo usar chunks que estén COMPLETAMENTE generados
-        // Esto previene corrupción de geometría por leer datos parciales
-        if (northChunk && !northChunk->isGenerated) northChunk = nullptr;
-        if (southChunk && !southChunk->isGenerated) southChunk = nullptr;
-        if (eastChunk && !eastChunk->isGenerated) eastChunk = nullptr;
-        if (westChunk && !westChunk->isGenerated) westChunk = nullptr;
-
-        auto getNeighborBlockCached = [&](int x, int y, int z, int dx, int dy, int dz) -> BlockType {
-            int nx = x + dx, ny = y + dy, nz = z + dz;
-            if (ny < 0 || ny >= CHUNK_HEIGHT) return BLOCK_AIR;
-            if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
-                return chunk->getBlock(nx, ny, nz);
-            }
-            if (nz >= CHUNK_SIZE && northChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                return northChunk->getBlock(nx, ny, nz - CHUNK_SIZE);
-            }
-            if (nz < 0 && southChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                return southChunk->getBlock(nx, ny, nz + CHUNK_SIZE);
-            }
-            if (nx >= CHUNK_SIZE && eastChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                return eastChunk->getBlock(nx - CHUNK_SIZE, ny, nz);
-            }
-            if (nx < 0 && westChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                return westChunk->getBlock(nx + CHUNK_SIZE, ny, nz);
-            }
-            return BLOCK_AIR;
-        };
-
-        // GREEDY MESHING: Procesar cada dirección
-        std::vector<QuadMesh> quads;
-
-        // Máscara temporal para greedy meshing
-        bool mask[CHUNK_SIZE][CHUNK_SIZE];
-        BlockType maskType[CHUNK_SIZE][CHUNK_SIZE];
-
-        // Para cada dirección (6 caras)
-        for (int dir = 0; dir < 6; dir++) {
-            int dx = 0, dy = 0, dz = 0;
-            int u_axis = 0, v_axis = 0; // Ejes perpendiculares a la dirección
-            int max_u = CHUNK_SIZE, max_v = CHUNK_SIZE, max_layer = CHUNK_SIZE;
-
-            // Configurar dirección
-            if (dir == 0) { dy = 1; u_axis = 0; v_axis = 2; max_layer = CHUNK_HEIGHT; }      // Top (+Y)
-            else if (dir == 1) { dy = -1; u_axis = 0; v_axis = 2; max_layer = CHUNK_HEIGHT; } // Bottom (-Y)
-            else if (dir == 2) { dz = 1; u_axis = 0; v_axis = 1; max_v = CHUNK_HEIGHT; }      // North (+Z)
-            else if (dir == 3) { dz = -1; u_axis = 0; v_axis = 1; max_v = CHUNK_HEIGHT; }     // South (-Z)
-            else if (dir == 4) { dx = 1; u_axis = 2; v_axis = 1; max_v = CHUNK_HEIGHT; }      // East (+X)
-            else if (dir == 5) { dx = -1; u_axis = 2; v_axis = 1; max_v = CHUNK_HEIGHT; }     // West (-X)
-
-            // Recorrer capas perpendiculares a esta dirección
-            for (int layer = 0; layer < max_layer; layer++) {
-                // Limpiar máscara
-                for (int i = 0; i < CHUNK_SIZE; i++) {
-                    for (int j = 0; j < CHUNK_SIZE; j++) {
-                        mask[i][j] = false;
-                        maskType[i][j] = BLOCK_AIR;
-                    }
-                }
-
-                // Llenar máscara para esta capa
-                for (int u = 0; u < max_u; u++) {
-                    for (int v = 0; v < max_v; v++) {
-                        int x, y, z;
-                        if (dir <= 1) { x = u; y = layer; z = v; }       // Top/Bottom
-                        else if (dir <= 3) { x = u; y = v; z = layer; }  // North/South
-                        else { x = layer; y = v; z = u; }                // East/West
-
-                        if (x >= CHUNK_SIZE || y >= CHUNK_HEIGHT || z >= CHUNK_SIZE) continue;
-
-                        BlockType block = chunk->getBlock(x, y, z);
-                        if (block == BLOCK_AIR) continue;
-
-                        BlockType neighbor = getNeighborBlockCached(x, y, z, dx, dy, dz);
-                        if (shouldRenderFace(block, neighbor)) {
-                            mask[u][v] = true;
-                            maskType[u][v] = block;
-                        }
-                    }
-                }
-
-                // GREEDY MESHING: Combinar quads adyacentes
-                for (int u = 0; u < max_u; u++) {
-                    for (int v = 0; v < max_v; v++) {
-                        if (!mask[u][v]) continue;
-
-                        BlockType type = maskType[u][v];
-                        int width = 1, height = 1;
-
-                        // Expandir en U (ancho)
-                        while (u + width < max_u && mask[u + width][v] && maskType[u + width][v] == type) {
-                            width++;
-                        }
-
-                        // Expandir en V (alto)
-                        bool canExpandHeight = true;
-                        while (v + height < max_v && canExpandHeight) {
-                            for (int w = 0; w < width; w++) {
-                                if (!mask[u + w][v + height] || maskType[u + w][v + height] != type) {
-                                    canExpandHeight = false;
-                                    break;
-                                }
-                            }
-                            if (canExpandHeight) height++;
-                        }
-
-                        // Crear quad combinado
-                        QuadMesh quad;
-                        if (dir <= 1) { quad.x = u; quad.y = layer; quad.z = v; }
-                        else if (dir <= 3) { quad.x = u; quad.y = v; quad.z = layer; }
-                        else { quad.x = layer; quad.y = v; quad.z = u; }
-
-                        quad.width = width;
-                        quad.height = height;
-                        quad.type = type;
-                        quad.face = dir;
-                        quads.push_back(quad);
-
-                        // Marcar área como procesada
-                        for (int w = 0; w < width; w++) {
-                            for (int h = 0; h < height; h++) {
-                                mask[u + w][v + h] = false;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Renderizar todos los quads combinados
-        for (const auto& quad : quads) {
-            GLuint texture = g_textureManager->getBlockTexture(quad.type, quad.face);
-            g_textureManager->bindOptimized(texture);
-
-            bool isWater = (quad.type == BLOCK_WATER);
-            float alpha = isWater ? 0.6f : 1.0f;
-            float uvAnimOffset = 0.0f;
-
-            if (isWater) {
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDepthMask(GL_FALSE);
-                uvAnimOffset = sin((float)quad.x * 0.5f + (float)quad.z * 0.3f + glfwGetTime() * 2.0f) * 0.02f;
-            }
-
-            float wx = (float)(chunk->position.x * CHUNK_SIZE + quad.x);
-            float wy = (float)quad.y;
-            float wz = (float)(chunk->position.z * CHUNK_SIZE + quad.z);
-            float w = (float)quad.width;
-            float h = (float)quad.height;
-
-            float brightness = (quad.face == 0) ? 1.0f : (quad.face == 1) ? 0.5f : (quad.face <= 3) ? 0.8f : 0.6f;
-
-            glColor4f(brightness, brightness, brightness, alpha);
-            glBegin(GL_QUADS);
-
-            // Generar vértices según la dirección
-            if (quad.face == 0) { // Top (+Y)
-                glTexCoord2f(0 + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx, wy + 1, wz);
-                glTexCoord2f(0 + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx, wy + 1, wz + h);
-                glTexCoord2f(w + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx + w, wy + 1, wz + h);
-                glTexCoord2f(w + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx + w, wy + 1, wz);
-            } else if (quad.face == 1) { // Bottom (-Y)
-                glTexCoord2f(0 + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx, wy, wz);
-                glTexCoord2f(w + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx + w, wy, wz);
-                glTexCoord2f(w + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx + w, wy, wz + h);
-                glTexCoord2f(0 + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx, wy, wz + h);
-            } else if (quad.face == 2) { // North (+Z)
-                glTexCoord2f(0 + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx, wy, wz + 1);
-                glTexCoord2f(w + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx + w, wy, wz + 1);
-                glTexCoord2f(w + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx + w, wy + h, wz + 1);
-                glTexCoord2f(0 + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx, wy + h, wz + 1);
-            } else if (quad.face == 3) { // South (-Z)
-                glTexCoord2f(0 + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx + w, wy, wz);
-                glTexCoord2f(w + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx, wy, wz);
-                glTexCoord2f(w + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx, wy + h, wz);
-                glTexCoord2f(0 + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx + w, wy + h, wz);
-            } else if (quad.face == 4) { // East (+X)
-                glTexCoord2f(0 + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx + 1, wy, wz + w);
-                glTexCoord2f(w + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx + 1, wy, wz);
-                glTexCoord2f(w + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx + 1, wy + h, wz);
-                glTexCoord2f(0 + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx + 1, wy + h, wz + w);
-            } else if (quad.face == 5) { // West (-X)
-                glTexCoord2f(0 + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx, wy, wz);
-                glTexCoord2f(w + uvAnimOffset, 0 + uvAnimOffset); glVertex3f(wx, wy, wz + w);
-                glTexCoord2f(w + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx, wy + h, wz + w);
-                glTexCoord2f(0 + uvAnimOffset, h + uvAnimOffset); glVertex3f(wx, wy + h, wz);
-            }
-
-            glEnd();
-            facesRendered++;
-
-            if (isWater) {
-                glDepthMask(GL_TRUE);
-                glDisable(GL_BLEND);
-            }
-        }
-
-        glEndList();
-        chunk->needsRebuild = false;
-
-        // Debug: mostrar reducción de caras
-        static bool firstTime = true;
-        if (firstTime) {
-            std::cout << "[GREEDY MESHING] Quads generados: " << quads.size() << " (vs ~" << (CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE * 3) << " sin greedy)" << std::endl;
-            firstTime = false;
-        }
-    }
 
     void buildChunkMesh(Chunk* chunk) {
         PROFILE_SCOPE("World::buildChunkMesh");
@@ -6077,35 +5824,45 @@ public:
         // llega el cielo) y los laterales se iluminan por el aire de al lado,
         // que es como se comportan las sombras reales.
         //
-        // Devuelve el factor ya con curva gamma y luz ambiental mínima.
-        auto faceLightFactor = [&](int bx, int by, int bz, int dx, int dy, int dz) -> float {
+        // Nivel crudo (0-18) del bloque adyacente. Separado del factor porque
+        // el greedy meshing fusiona caras comparando este nivel: dos caras
+        // solo se unen en un quad si tienen la misma luz, o el gradiente de
+        // las sombras se aplanaría al fusionar.
+        auto faceLightLevel = [&](int bx, int by, int bz, int dx, int dy, int dz) -> uint8_t {
             int nx = bx + dx, ny = by + dy, nz = bz + dz;
 
-            uint8_t light;
-            if (ny >= CHUNK_HEIGHT) {
-                light = 18;                       // por encima del mundo: cielo
-            } else if (ny < 0) {
-                light = 0;                        // fondo del mundo
-            } else if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
-                light = chunk->getLightLevel(nx, ny, nz);
-            } else if (nz >= CHUNK_SIZE && northChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                light = northChunk->getLightLevel(nx, ny, nz - CHUNK_SIZE);
-            } else if (nz < 0 && southChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                light = southChunk->getLightLevel(nx, ny, nz + CHUNK_SIZE);
-            } else if (nx >= CHUNK_SIZE && eastChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                light = eastChunk->getLightLevel(nx - CHUNK_SIZE, ny, nz);
-            } else if (nx < 0 && westChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                light = westChunk->getLightLevel(nx + CHUNK_SIZE, ny, nz);
-            } else {
-                // Vecino aún no cargado: iluminar de más antes que pintar
-                // negro un borde; el rebuild al integrarse el vecino corrige.
-                light = 18;
+            if (ny >= CHUNK_HEIGHT) return 18;    // por encima del mundo: cielo
+            if (ny < 0) return 0;                 // fondo del mundo
+            if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
+                return chunk->getLightLevel(nx, ny, nz);
             }
+            if (nz >= CHUNK_SIZE && northChunk && nx >= 0 && nx < CHUNK_SIZE) {
+                return northChunk->getLightLevel(nx, ny, nz - CHUNK_SIZE);
+            }
+            if (nz < 0 && southChunk && nx >= 0 && nx < CHUNK_SIZE) {
+                return southChunk->getLightLevel(nx, ny, nz + CHUNK_SIZE);
+            }
+            if (nx >= CHUNK_SIZE && eastChunk && nz >= 0 && nz < CHUNK_SIZE) {
+                return eastChunk->getLightLevel(nx - CHUNK_SIZE, ny, nz);
+            }
+            if (nx < 0 && westChunk && nz >= 0 && nz < CHUNK_SIZE) {
+                return westChunk->getLightLevel(nx + CHUNK_SIZE, ny, nz);
+            }
+            // Vecino aún no cargado: iluminar de más antes que pintar negro
+            // un borde; el rebuild al integrarse el vecino lo corrige.
+            return 18;
+        };
 
+        // Curva de luz: gamma para oscuridad no lineal + ambiente mínimo.
+        auto lightToFactor = [](uint8_t light) -> float {
             float raw = (float)light / 18.0f;
-            float f = pow(raw, 1.2f);             // gamma para oscuridad no lineal
-            if (f < 0.15f) f = 0.15f;             // ambiente mínimo: nunca negro puro
+            float f = pow(raw, 1.2f);
+            if (f < 0.15f) f = 0.15f;             // nunca negro puro
             return f;
+        };
+
+        auto faceLightFactor = [&](int bx, int by, int bz, int dx, int dy, int dz) -> float {
+            return lightToFactor(faceLightLevel(bx, by, bz, dx, dy, dz));
         };
 
         for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -6296,13 +6053,20 @@ public:
                             uvCoords.push_back(U0); uvCoords.push_back(U0);
                         };
 
-                        // Diagonal 1: esquina (lo,lo) -> (hi,hi)
+                    // Diagonal 1: esquina (lo,lo) -> (hi,hi)
                         pushQuad(lo, lo, hi, hi);
                         // Diagonal 2: esquina (lo,hi) -> (hi,lo)
                         pushQuad(lo, hi, hi, lo);
 
                         continue;  // no emitir las 6 caras del cubo
                     }
+
+                    // ⭐ GREEDY MESHING: los bloques normales se emiten en la
+                    // pasada greedy de más abajo, que fusiona caras contiguas
+                    // con la misma textura y luz en un solo quad. Por este
+                    // bucle solo siguen agua y lava, que tienen transparencia,
+                    // animación y color propios y no se fusionan.
+                    if (!isWater && !isLava) continue;
 
                     // Variable para multiplicador de brillo por cara
                     float faceBrightness;
@@ -6516,6 +6280,199 @@ public:
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
                         facesRendered++;
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // ⭐ GREEDY MESHING (bloques opacos)
+        // ====================================================================
+        // Fusiona caras coplanares contiguas con la misma textura, la misma
+        // luz y el mismo brillo direccional en un único quad. En terreno
+        // llano esto colapsa cientos de caras en unas pocas: menos vértices,
+        // menos memoria de VBO y menos trabajo por frame.
+        //
+        // La LUZ forma parte de la clave de fusión a propósito: fusionar
+        // caras con luz distinta aplanaría el gradiente de las sombras
+        // (recién validado en vivo). En zonas de luz uniforme —la mayoría—
+        // los quads siguen siendo grandes; en un borde de sombra los quads se
+        // parten justo donde cambia el nivel, que es exactamente lo visible.
+        //
+        // Las UV del quad van de 0..w / 0..h: las texturas de bloque usan
+        // GL_REPEAT, así que la textura se tesela una vez por bloque, igual
+        // que con caras individuales.
+        {
+            struct FaceCell {
+                GLuint tex = 0;
+                uint8_t light = 0;
+                bool visible = false;
+            };
+
+            // Órdenes de vértice y UV idénticos a las caras individuales de
+            // arriba (mismo winding, mismo espejado de textura por cara).
+            const float DIR_BRIGHT[6] = { 1.0f, 0.5f, 0.8f, 0.8f, 0.6f, 0.6f };
+            const int DIR_VEC[6][3] = {
+                { 0, 1, 0}, { 0,-1, 0},   // top, bottom
+                { 0, 0, 1}, { 0, 0,-1},   // north, south
+                { 1, 0, 0}, {-1, 0, 0}    // east, west
+            };
+
+            const float baseWX = (float)(chunk->position.x * CHUNK_SIZE);
+            const float baseWZ = (float)(chunk->position.z * CHUNK_SIZE);
+
+            auto esGreedyBlock = [&](BlockType b) {
+                return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
+                       !isCrossSprite(b);
+            };
+
+            auto emitQuad = [&](int dir, GLuint tex, uint8_t light,
+                                int layer, int u0, int v0, int w, int h) {
+                const float f = lightToFactor(light) * DIR_BRIGHT[dir];
+                auto& verts = verticesByTexture[tex];
+                auto& cols  = colorsByTexture[tex];
+                auto& uvs   = uvsByTexture[tex];
+
+                auto pushV = [&](float px, float py, float pz, float tu, float tv) {
+                    verts.push_back(px); verts.push_back(py); verts.push_back(pz);
+                    cols.push_back(f); cols.push_back(f); cols.push_back(f); cols.push_back(1.0f);
+                    uvs.push_back(tu); uvs.push_back(tv);
+                };
+
+                const float fw = (float)w, fh = (float)h;
+                switch (dir) {
+                    case 0: {   // Top (+Y): u=x, v=z
+                        const float yy = (float)(layer + 1);
+                        const float xa = baseWX + u0, za = baseWZ + v0;
+                        pushV(xa,      yy, za,      0,  0);
+                        pushV(xa,      yy, za + fh, 0,  fh);
+                        pushV(xa + fw, yy, za + fh, fw, fh);
+                        pushV(xa + fw, yy, za,      fw, 0);
+                        break;
+                    }
+                    case 1: {   // Bottom (-Y): u=x, v=z
+                        const float yy = (float)layer;
+                        const float xa = baseWX + u0, za = baseWZ + v0;
+                        pushV(xa,      yy, za,      0,  0);
+                        pushV(xa + fw, yy, za,      fw, 0);
+                        pushV(xa + fw, yy, za + fh, fw, fh);
+                        pushV(xa,      yy, za + fh, 0,  fh);
+                        break;
+                    }
+                    case 2: {   // North (+Z): u=x, v=y
+                        const float zz = baseWZ + layer + 1;
+                        const float xa = baseWX + u0, ya = (float)v0;
+                        pushV(xa,      ya,      zz, 0,  0);
+                        pushV(xa + fw, ya,      zz, fw, 0);
+                        pushV(xa + fw, ya + fh, zz, fw, fh);
+                        pushV(xa,      ya + fh, zz, 0,  fh);
+                        break;
+                    }
+                    case 3: {   // South (-Z): u=x (espejado en U), v=y
+                        const float zz = baseWZ + layer;
+                        const float xa = baseWX + u0, ya = (float)v0;
+                        pushV(xa + fw, ya,      zz, 0,  0);
+                        pushV(xa,      ya,      zz, fw, 0);
+                        pushV(xa,      ya + fh, zz, fw, fh);
+                        pushV(xa + fw, ya + fh, zz, 0,  fh);
+                        break;
+                    }
+                    case 4: {   // East (+X): u=z (espejado en U), v=y
+                        const float xx = baseWX + layer + 1;
+                        const float za = baseWZ + u0, ya = (float)v0;
+                        pushV(xx, ya,      za + fw, 0,  0);
+                        pushV(xx, ya,      za,      fw, 0);
+                        pushV(xx, ya + fh, za,      fw, fh);
+                        pushV(xx, ya + fh, za + fw, 0,  fh);
+                        break;
+                    }
+                    default: {  // 5 West (-X): u=z, v=y
+                        const float xx = baseWX + layer;
+                        const float za = baseWZ + u0, ya = (float)v0;
+                        pushV(xx, ya,      za,      0,  0);
+                        pushV(xx, ya,      za + fw, fw, 0);
+                        pushV(xx, ya + fh, za + fw, fw, fh);
+                        pushV(xx, ya + fh, za,      0,  fh);
+                        break;
+                    }
+                }
+                facesRendered++;
+            };
+
+            // La máscara más grande es 16 (u) x 128 (v); se reutiliza.
+            static thread_local FaceCell mask[CHUNK_SIZE][CHUNK_HEIGHT];
+
+            for (int dir = 0; dir < 6; dir++) {
+                const int dx = DIR_VEC[dir][0], dy = DIR_VEC[dir][1], dz = DIR_VEC[dir][2];
+                const bool vertical = (dir < 2);
+
+                // Capas perpendiculares a la normal; ejes (u,v) en el plano.
+                const int layerCount = vertical ? CHUNK_HEIGHT : CHUNK_SIZE;
+                const int maxU = CHUNK_SIZE;                       // x (o z en E/W)
+                const int maxV = vertical ? CHUNK_SIZE : CHUNK_HEIGHT;
+
+                for (int layer = 0; layer < layerCount; layer++) {
+                    // 1) Construir la máscara de caras visibles de esta capa
+                    for (int u = 0; u < maxU; u++) {
+                        for (int v = 0; v < maxV; v++) {
+                            int bx, by, bz;
+                            if (vertical)      { bx = u; by = layer; bz = v; }
+                            else if (dir < 4)  { bx = u; by = v;     bz = layer; }
+                            else               { bz = u; by = v;     bx = layer; }
+
+                            FaceCell& cell = mask[u][v];
+                            cell.visible = false;
+
+                            const BlockType b = chunk->getBlock(bx, by, bz);
+                            if (!esGreedyBlock(b)) continue;
+                            const BlockType nb = getNeighborBlockCached(bx, by, bz, dx, dy, dz);
+                            if (!shouldRenderFace(b, nb)) continue;
+
+                            cell.tex = g_textureManager->getBlockTexture(b, dir);
+                            cell.light = faceLightLevel(bx, by, bz, dx, dy, dz);
+                            cell.visible = true;
+                        }
+                    }
+
+                    // 2) Fusión greedy: rectángulos máximos de celdas iguales
+                    for (int u = 0; u < maxU; u++) {
+                        for (int v = 0; v < maxV; ) {
+                            const FaceCell& c = mask[u][v];
+                            if (!c.visible) { v++; continue; }
+
+                            // Extender a lo alto (v) mientras la celda sea igual
+                            int h = 1;
+                            while (v + h < maxV) {
+                                const FaceCell& n = mask[u][v + h];
+                                if (!n.visible || n.tex != c.tex || n.light != c.light) break;
+                                h++;
+                            }
+
+                            // Extender a lo ancho (u): la columna entera debe coincidir
+                            int w = 1;
+                            bool grow = true;
+                            while (grow && u + w < maxU) {
+                                for (int k = 0; k < h; k++) {
+                                    const FaceCell& n = mask[u + w][v + k];
+                                    if (!n.visible || n.tex != c.tex || n.light != c.light) {
+                                        grow = false;
+                                        break;
+                                    }
+                                }
+                                if (grow) w++;
+                            }
+
+                            // El quad usa (u,v) como (ancho, alto) según el eje:
+                            // en caras verticales u=x/v=z; en laterales u=x|z, v=y.
+                            emitQuad(dir, c.tex, c.light, layer, u, v, w, h);
+
+                            // Consumir el rectángulo
+                            for (int du = 0; du < w; du++)
+                                for (int dv = 0; dv < h; dv++)
+                                    mask[u + du][v + dv].visible = false;
+
+                            v += h;
+                        }
                     }
                 }
             }

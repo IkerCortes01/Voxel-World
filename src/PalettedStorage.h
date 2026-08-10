@@ -12,8 +12,7 @@
 // Reduce el uso de memoria de ~260KB por chunk a ~20-100KB dependiendo de la variedad de bloques
 // ============================================================================
 
-// NOTA: BlockType debe estar definido ANTES de incluir este header
-// En main.cpp se define como: enum BlockType { BLOCK_AIR = 0, ... };
+#include "BlockType.h"
 
 
 // ============================================================================

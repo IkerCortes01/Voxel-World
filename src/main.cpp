@@ -272,44 +272,8 @@ struct Vec3i {
 // TIPOS DE BLOQUES
 // ============================================================================
 
-enum BlockType {
-    BLOCK_AIR = 0,
-    BLOCK_GRASS,
-    BLOCK_DIRT,
-    BLOCK_STONE,
-    BLOCK_WOOD,
-    BLOCK_LEAVES,
-    BLOCK_SAND,
-    BLOCK_WATER,
-    BLOCK_TALLGRASS,
-    BLOCK_BEDROCK,
-    BLOCK_COBBLESTONE,
-    BLOCK_PLANKS,
-    BLOCK_BRICKS,
-    BLOCK_GLASS,
-    BLOCK_COAL_ORE,
-    BLOCK_DIAMOND_ORE,
-    BLOCK_GRAVEL,         // Grava - genera en ríos y bajo tierra
-    BLOCK_ORANGE_FLOWER,  // Flor naranja - genera en praderas
-    BLOCK_SNOW,           // Nieve - genera en biomas fríos
-    BLOCK_SCRAP_METAL,    // Desecho de metales
-    BLOCK_LAVA,           // Lava - genera en cuevas profundas
-    // Nuevos minerales agregados al final para no romper mundos existentes
-    BLOCK_IRON_ORE,       // Hierro - poco común
-    BLOCK_GOLD_ORE,       // Oro - poco común en ríos y océanos
-    BLOCK_SILVER_ORE,     // Plata - poco común en ríos y océanos
-    // Nuevos items crafteables
-    BLOCK_DIRT_POWDER,    // Polvo de tierra - crafteable desde tierra
-    BLOCK_STICK,          // Palo - crafteable desde tablones
-    BLOCK_HOE,            // Hoz - herramienta crafteable
-    // Nuevos items que dropean los minerales
-    BLOCK_COAL_ITEM,      // Carbón (item) - dropea del mineral de carbón
-    BLOCK_RAW_ZINC,       // Zinc crudo - dropea del desecho de metales
-    BLOCK_RAW_COPPER,     // Cobre crudo - dropea del desecho de metales
-    // ⭐ Añadido AL FINAL a propósito: insertarlo en medio desplazaría los IDs
-    // de todos los bloques posteriores y corrompería los mundos guardados.
-    BLOCK_CLAY            // Arcilla - genera en lechos de ríos y lagos
-};
+#include "BlockType.h"
+#include "WorldName.h"
 
 // ============================================================================
 // SISTEMA DE RAREZA DE MINERALES
@@ -10533,8 +10497,9 @@ void charCallback(GLFWwindow* window, unsigned int codepoint) {
         if (g_gameState->editingWorldNewName.length() < 50) {
             // Añadir el carácter al nombre
             char c = (char)codepoint;
-            // Solo permitir caracteres alfanuméricos, espacios, guiones y guiones bajos
-            if (isalnum(c) || c == ' ' || c == '-' || c == '_') {
+            // Mismo criterio que la validación final (WorldName), en vez de un
+            // isalnum(char) suelto que es UB para bytes >127.
+            if (WorldName::isAllowedChar(c)) {
                 g_gameState->editingWorldNewName += c;
             }
         }
@@ -10544,7 +10509,7 @@ void charCallback(GLFWwindow* window, unsigned int codepoint) {
     if (g_gameState->isEditingNewWorldName && g_gameState->screenState == SCREEN_WORLD_CREATE) {
         if (g_gameState->newWorldName.length() < 50) {
             char c = (char)codepoint;
-            if (isalnum(c) || c == ' ' || c == '-' || c == '_') {
+            if (WorldName::isAllowedChar(c)) {
                 g_gameState->newWorldName += c;
             }
         }
@@ -12870,19 +12835,17 @@ bool renameWorld(GameState* state, int worldIndex, const std::string& newName) {
         return false;
     }
 
-    // Validar nombre nuevo
-    if (newName.empty()) {
-        std::cerr << "Error: El nombre no puede estar vacio" << std::endl;
+    // Validar nombre nuevo.
+    //
+    // El bucle anterior llamaba a std::isalnum(char) directamente, que es
+    // comportamiento indefinido para bytes >127 (char tiene signo, así que una
+    // 'ñ' o cualquier acento llega como valor negativo). Tampoco rechazaba los
+    // nombres de dispositivo reservados de Windows: crear "saves/CON" falla de
+    // formas confusas. WorldName cubre ambos casos y está cubierto por tests.
+    const WorldName::Validity v = WorldName::validate(newName);
+    if (v != WorldName::Validity::Ok) {
+        std::cerr << "Error: " << WorldName::describe(v) << std::endl;
         return false;
-    }
-
-    // Validar caracteres del nombre (no permitir caracteres especiales)
-    for (char c : newName) {
-        if (!std::isalnum(c) && c != '_' && c != ' ' && c != '-') {
-            std::cerr << "Error: El nombre contiene caracteres no permitidos" << std::endl;
-            std::cerr << "Solo se permiten letras, numeros, espacios, guiones y guiones bajos" << std::endl;
-            return false;
-        }
     }
 
     std::string oldPath = state->savedWorlds[worldIndex].folderPath;

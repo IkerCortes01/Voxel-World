@@ -58,6 +58,15 @@ target_link_libraries(VoxelWorld PRIVATE
     ${OPENGL_LIBRARIES}
 )
 
+# ============================================================================
+# TESTS
+# ============================================================================
+# La logica que protege los datos del jugador (compresion, paletas, nombres de
+# mundo) se puede probar sin arrancar OpenGL. doctest va vendorizado en
+# external/doctest para que el build siga funcionando sin red.
+enable_testing()
+add_subdirectory(tests)
+
 # Windows specific
 if(WIN32)
     target_compile_definitions(VoxelWorld PRIVATE _CRT_SECURE_NO_WARNINGS)

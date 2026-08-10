@@ -17,6 +17,8 @@
 #include <thread>
 #include <mutex>
 #include <queue>
+#include <deque>
+#include <set>
 #include <atomic>
 #include <condition_variable>
 
@@ -3519,11 +3521,159 @@ private:
     // se perdían. Aquí no se pierde nada y la generación es determinista.
     struct PendingBlock { int localX, y, localZ; BlockType type; };
     std::map<Vec3i, std::vector<PendingBlock>> pendingBlocks;
-    int generationDepth = 0;   // >0 mientras se ejecuta generateChunk
+    std::mutex pendingMutex;
 
     // Tope de seguridad: en un mundo infinito, los bloques pendientes de
     // chunks que el jugador nunca visite no deben crecer sin límite.
     static const size_t MAX_PENDING_CHUNKS = 4096;
+
+public:
+    // ⭐ CONTEXTO DE GENERACIÓN
+    // Mientras se genera un chunk, setBlock/getBlock con coordenadas de mundo
+    // se resuelven contra ese chunk en vez de contra el mapa global. Esto
+    // (a) hace la generación autocontenida y determinista y (b) es lo que
+    // permite ejecutarla fuera del hilo principal, porque deja de tocar
+    // estructuras compartidas.
+    //
+    // Las lecturas fuera del chunk devuelven aire. Antes consultaban el mundo
+    // vivo, así que el resultado dependía de si el vecino estaba cargado en ese
+    // momento: era una fuente de indeterminismo, no una funcionalidad.
+    struct GenContext {
+        Chunk* chunk = nullptr;
+        int baseX = 0, baseZ = 0;
+        bool onMainThread = true;   // false en los hilos de generación
+        std::map<Vec3i, std::vector<PendingBlock>> crossChunk;
+    };
+
+private:
+    static thread_local GenContext* t_gen;
+    static thread_local bool inWorkerThread;
+
+    // ⭐ GENERACIÓN ASÍNCRONA
+    // Generar un chunk es lo más caro del frame; hacerlo en el hilo de render
+    // hunde los FPS mientras el jugador explora. Los hilos de trabajo producen
+    // chunks desconectados del mundo (gracias a GenContext no tocan nada
+    // compartido) y el hilo principal los integra en el mapa, que es donde
+    // además hay que crear los VBOs porque OpenGL no es multihilo.
+    struct GenResult { Vec3i pos; Chunk* chunk; };
+
+    std::deque<Vec3i> genQueue;              // hilo principal -> workers
+    std::mutex genQueueMutex;
+    std::condition_variable genQueueCV;
+
+    std::vector<GenResult> genDone;          // workers -> hilo principal
+    std::mutex genDoneMutex;
+
+    std::set<Vec3i> genInFlight;             // solo hilo principal
+    std::vector<std::thread> genThreads;
+    std::atomic<bool> genRunning{false};
+
+    // Cuántos chunks puede haber encolados a la vez: más allá de esto solo se
+    // acumula latencia, y al alejarse el jugador el trabajo ya no sirve.
+    static const size_t MAX_GEN_QUEUE = 24;
+
+    void generationWorker() {
+        while (genRunning.load()) {
+            Vec3i pos;
+            {
+                std::unique_lock<std::mutex> lock(genQueueMutex);
+                genQueueCV.wait_for(lock, std::chrono::milliseconds(50),
+                                    [this] { return !genQueue.empty() || !genRunning.load(); });
+                if (!genRunning.load()) return;
+                if (genQueue.empty()) continue;
+                pos = genQueue.front();
+                genQueue.pop_front();
+            }
+
+            Chunk* chunk = nullptr;
+            try {
+                chunk = allocateChunk(pos);   // usa poolMutex, no toca OpenGL
+                inWorkerThread = true;
+                generateChunk(chunk);
+                inWorkerThread = false;
+            } catch (const std::exception& e) {
+                inWorkerThread = false;
+                std::cerr << "[GenWorker] Error generando chunk (" << pos.x << "," << pos.z
+                          << "): " << e.what() << std::endl;
+            }
+
+            std::lock_guard<std::mutex> lock(genDoneMutex);
+            genDone.push_back({pos, chunk});
+        }
+    }
+
+public:
+    void startGenerationWorkers() {
+        if (genRunning.load()) return;
+        unsigned hw = std::thread::hardware_concurrency();
+        int count = (hw >= 4) ? 2 : 1;   // dejar núcleos libres para render y audio
+        genRunning.store(true);
+        for (int i = 0; i < count; i++) {
+            genThreads.emplace_back(&World::generationWorker, this);
+        }
+        std::cout << "⚡ Generacion asincrona: " << count << " hilos" << std::endl;
+    }
+
+    void stopGenerationWorkers() {
+        if (!genRunning.load()) return;
+        genRunning.store(false);
+        genQueueCV.notify_all();
+        for (auto& t : genThreads) {
+            if (t.joinable()) t.join();
+        }
+        genThreads.clear();
+
+        // Descartar lo que quedara a medias
+        {
+            std::lock_guard<std::mutex> lock(genQueueMutex);
+            genQueue.clear();
+        }
+        std::lock_guard<std::mutex> lock(genDoneMutex);
+        for (auto& r : genDone) {
+            if (r.chunk) deallocateChunk(r.chunk);
+        }
+        genDone.clear();
+        genInFlight.clear();
+    }
+
+private:
+    // Integra en el mundo los chunks que los workers hayan terminado.
+    // Solo se llama desde el hilo principal: aquí sí se puede tocar el mapa y
+    // marcar meshes para reconstruir.
+    void integrateGeneratedChunks() {
+        std::vector<GenResult> done;
+        {
+            std::lock_guard<std::mutex> lock(genDoneMutex);
+            if (genDone.empty()) return;
+            done.swap(genDone);
+        }
+
+        for (GenResult& r : done) {
+            genInFlight.erase(r.pos);
+            if (!r.chunk) continue;
+
+            // Si mientras tanto el chunk apareció por otra vía, descartar el nuestro
+            if (chunks.find(r.pos) != chunks.end()) {
+                deallocateChunk(r.chunk);
+                continue;
+            }
+
+            chunks[r.pos] = r.chunk;
+            addToCache(r.pos, r.chunk, true);
+            r.chunk->needsRebuild = true;
+
+            // Los vecinos deben rehacer su mesh: sus caras hacia este chunk
+            // dejan de estar contra el vacío.
+            const Vec3i neighbors[] = {
+                Vec3i(r.pos.x + 1, 0, r.pos.z), Vec3i(r.pos.x - 1, 0, r.pos.z),
+                Vec3i(r.pos.x, 0, r.pos.z + 1), Vec3i(r.pos.x, 0, r.pos.z - 1)
+            };
+            for (const Vec3i& n : neighbors) {
+                Chunk* nc = getChunk(n);
+                if (nc && nc->isGenerated) nc->needsRebuild = true;
+            }
+        }
+    }
     TerrainGen::WorldGeneratorAAA* worldGen;  // Nuevo generador AAA
     int seed;
     const int RENDER_DISTANCE = 6;  // VBO OPTIMIZED: 13x13 = 169 chunks - VBOs son 10x más rápidos
@@ -3568,29 +3718,6 @@ private:
         float avgMeshBuildTimeMs = 0.0f;
     };
     PerformanceMetrics perfMetrics;
-
-    // ⭐⭐⭐ ASYNC CHUNK GENERATION SYSTEM ⭐⭐⭐
-    struct ChunkGenerationTask {
-        Vec3i position;
-        float priority;
-        Chunk* chunk;  // Pre-allocated chunk
-        bool isComplete;
-        bool isProcessing;  // Protegido por generationMutex, no necesita ser atomic
-
-        ChunkGenerationTask() : position(0,0,0), priority(0), chunk(nullptr), isComplete(false), isProcessing(false) {}
-        ChunkGenerationTask(const Vec3i& pos, float prio, Chunk* c)
-            : position(pos), priority(prio), chunk(c), isComplete(false), isProcessing(false) {}
-    };
-
-    std::vector<ChunkGenerationTask> generationQueue;
-    std::mutex generationMutex;
-    std::vector<std::thread> workerThreads;
-    std::atomic<bool> shutdownWorkers{false};
-    const int NUM_WORKER_THREADS = 2;  // 2 threads para generación
-
-    // ⭐⭐⭐ MESH BUILD QUEUE (Main thread only) ⭐⭐⭐
-    std::vector<Chunk*> meshBuildQueue;
-    std::mutex meshMutex;
 
     // ⭐⭐⭐ TIME BUDGET SYSTEM ⭐⭐⭐
     const float MAX_GENERATION_TIME_MS = 4.0f;   // Máximo 4ms para generación por frame
@@ -3786,74 +3913,6 @@ private:
         }
     }
 
-    // ⭐⭐⭐ WORKER THREAD FUNCTION ⭐⭐⭐
-    void chunkGenerationWorker() {
-        while (!shutdownWorkers.load()) {
-            ChunkGenerationTask* task = nullptr;
-
-            // Buscar una tarea pendiente
-            {
-                std::lock_guard<std::mutex> lock(generationMutex);
-                for (auto& t : generationQueue) {
-                    if (!t.isComplete && !t.isProcessing) {
-                        t.isProcessing = true;
-                        task = &t;
-                        break;
-                    }
-                }
-            }
-
-            if (task) {
-                try {
-                    // ⭐ PROTECCIÓN: Verificar que el chunk es válido
-                    if (!task->chunk) {
-                        task->isComplete = true;
-                        continue;
-                    }
-
-                    // Generar el chunk en este worker thread
-                    auto startTime = std::chrono::high_resolution_clock::now();
-
-                    generateChunk(task->chunk);
-                    poblacion(task->chunk);
-
-                    auto endTime = std::chrono::high_resolution_clock::now();
-                    float genTimeMs = std::chrono::duration<float, std::milli>(endTime - startTime).count();
-
-                    // Actualizar métricas
-                    perfMetrics.avgGenerationTimeMs = (perfMetrics.avgGenerationTimeMs * 0.9f) + (genTimeMs * 0.1f);
-
-                    // ⭐ Desmarcar flag - generación completa
-                    task->chunk->isBeingGenerated.store(false);
-
-                    // Marcar como completo y agregar a la cola de mesh building
-                    task->isComplete = true;
-
-                    {
-                        std::lock_guard<std::mutex> lock(meshMutex);
-                        meshBuildQueue.push_back(task->chunk);
-                    }
-                } catch (const std::exception& e) {
-                    std::cerr << "⚠️ Error en worker thread de generación: " << e.what() << std::endl;
-                    if (task && task->chunk) {
-                        task->chunk->isBeingGenerated.store(false);
-                    }
-                    task->isComplete = true;
-                } catch (...) {
-                    std::cerr << "⚠️ Error desconocido en worker thread de generación" << std::endl;
-                    if (task && task->chunk) {
-                        task->chunk->isBeingGenerated.store(false);
-                    }
-                    task->isComplete = true;
-                }
-            } else {
-                // ⭐⭐⭐ OPTIMIZACIÓN: Dormir más tiempo cuando no hay trabajo
-                // Reduce CPU usage y previene race conditions
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-        }
-    }
-
 public:
     World(int worldSeed = -1) : seed(calcularSemilla(worldSeed)), isGeneratingInitialWorld(true), useAAASystem(true) {
         worldGen = new TerrainGen::WorldGeneratorAAA(seed);
@@ -3871,6 +3930,11 @@ public:
 
     // ⭐⭐⭐ NUEVO: Establecer semilla del mundo (para cargar mundos guardados)
     void setSeed(int newSeed) {
+        // ⭐ Parar los workers antes de tocar worldGen: están usándolo, y
+        // cualquier chunk a medias correspondería a la semilla anterior.
+        bool wasRunning = genRunning.load();
+        if (wasRunning) stopGenerationWorkers();
+
         seed = newSeed;
         // ⭐ CRÍTICO: Regenerar el generador de terreno con la nueva semilla
         if (worldGen) {
@@ -3878,6 +3942,8 @@ public:
         }
         worldGen = new TerrainGen::WorldGeneratorAAA(seed);
         std::cout << "✅ Semilla del mundo establecida: " << seed << std::endl;
+
+        if (wasRunning) startGenerationWorkers();
     }
 
     // Establecer la ruta del mundo actual para guardar/cargar chunks
@@ -3902,10 +3968,17 @@ public:
     void finishInitialGeneration() {
         isGeneratingInitialWorld = false;
         std::cout << "Generacion inicial completada - rebuilds inmediatos activados" << std::endl;
+
+        // A partir de aquí los chunks se generan en hilos de trabajo. La
+        // generación inicial se hace sincrónica a propósito: el jugador no
+        // puede entrar al mundo hasta que esté lista.
+        startGenerationWorkers();
     }
 
     ~World() {
-        // ⭐ ASYNC DESHABILITADO - no hay worker threads que detener
+        // ⭐ Parar los hilos de generación ANTES de tocar nada más: siguen
+        // usando worldGen, el pool de chunks y el mapa de pendientes.
+        stopGenerationWorkers();
 
         // ⭐ Guardar chunks pendientes antes de cerrar
         std::cout << "\n⚡ Guardando chunks pendientes..." << std::endl;
@@ -3925,10 +3998,6 @@ public:
             }
             delete lightingThread;
         }
-
-        // Limpiar generation queue
-        generationQueue.clear();
-        meshBuildQueue.clear();
 
         // Limpiar chunks activos
         for (auto& pair : chunks) {
@@ -4097,15 +4166,21 @@ public:
         if (chunk == nullptr || worldGen == nullptr) return;
         if (chunk->isGenerated) return;
 
-        // ⭐ Marca que estamos generando: mientras dure, World::setBlock
-        // DIFIERE las escrituras a chunks inexistentes en vez de crearlos
-        // (ver pendingBlocks). RAII para que se decremente aunque haya
-        // una excepción a mitad de la generación.
-        struct DepthGuard {
-            int& d;
-            explicit DepthGuard(int& depth) : d(depth) { ++d; }
-            ~DepthGuard() { --d; }
-        } _depth(generationDepth);
+        // Instala el contexto de generación en este hilo: a partir de aquí,
+        // setBlock/getBlock con coordenadas de mundo no tocan el mapa global
+        // (ver GenContext). RAII para que se retire aunque haya una excepción
+        // a mitad de la generación.
+        GenContext ctx;
+        ctx.chunk = chunk;
+        ctx.baseX = chunk->position.x * CHUNK_SIZE;
+        ctx.baseZ = chunk->position.z * CHUNK_SIZE;
+        ctx.onMainThread = !inWorkerThread;
+
+        struct CtxGuard {
+            GenContext* prev;
+            explicit CtxGuard(GenContext* c) : prev(t_gen) { t_gen = c; }
+            ~CtxGuard() { t_gen = prev; }
+        } _ctxGuard(&ctx);
 
         ChunkVoxelWriter writer(chunk);
 
@@ -4233,13 +4308,23 @@ public:
                 }
             }
         }
-        // ⭐ APLICAR LOS BLOQUES QUE OTROS CHUNKS DEJARON PENDIENTES PARA ÉSTE
-        // Son troncos y hojas de árboles nacidos en un chunk vecino cuya copa
-        // cruza el borde. Se aplican DESPUÉS del terreno, exactamente en el
-        // mismo orden en que se habrían escrito si el chunk hubiera existido,
-        // de modo que el resultado es idéntico e independiente del orden de
-        // generación.
+        // ⭐ PUBLICAR los bloques que este chunk dejó para sus vecinos y
+        // RECOGER los que otros dejaron para él. Son troncos y hojas de
+        // árboles cuya copa cruza el borde. Se aplican DESPUÉS del terreno,
+        // en el mismo orden en que se habrían escrito si el chunk hubiera
+        // existido, de modo que el resultado es idéntico e independiente del
+        // orden de generación. Bajo mutex: varios workers publican a la vez.
         {
+            std::lock_guard<std::mutex> lock(pendingMutex);
+
+            for (auto& entry : ctx.crossChunk) {
+                if (pendingBlocks.size() >= MAX_PENDING_CHUNKS && !pendingBlocks.count(entry.first)) {
+                    continue;   // tope de seguridad para mundos infinitos
+                }
+                auto& dst = pendingBlocks[entry.first];
+                dst.insert(dst.end(), entry.second.begin(), entry.second.end());
+            }
+
             auto it = pendingBlocks.find(chunk->position);
             if (it != pendingBlocks.end()) {
                 for (const PendingBlock& pb : it->second) {
@@ -4941,6 +5026,16 @@ public:
             (int)floor((float)z / CHUNK_SIZE)
         );
 
+        // ⭐ Durante la generación solo es visible el chunk en curso: fuera de
+        // él se devuelve aire (ver GenContext). Consultar el mundo vivo desde
+        // aquí haría el resultado dependiente de qué vecinos estén cargados.
+        if (t_gen) {
+            if (chunkPos != t_gen->chunk->position) return BLOCK_AIR;
+            int lx = x - t_gen->baseX;
+            int lz = z - t_gen->baseZ;
+            return t_gen->chunk->getBlock(lx, y, lz);
+        }
+
         Chunk* chunk = getChunk(chunkPos);
         if (!chunk) return BLOCK_AIR;
 
@@ -4969,16 +5064,17 @@ public:
         if (localZ < 0) localZ += CHUNK_SIZE;
 
         // ⭐⭐⭐ CORTE DE LA CASCADA DE GENERACIÓN
-        // Mientras se está generando un chunk, NO se crea el chunk vecino:
-        // eso es lo que provocaba la generación recursiva (8,6 s por chunk y
-        // 1,7 FPS medidos en el repo de origen), y además hacía el mundo
-        // dependiente del orden de exploración.
-        //
-        // El bloque se guarda y se aplica cuando ese chunk se genere por su
-        // cuenta, así que el árbol del borde NO se pierde.
-        if (generationDepth > 0 && !getChunk(chunkPos)) {
-            if (pendingBlocks.size() < MAX_PENDING_CHUNKS || pendingBlocks.count(chunkPos)) {
-                pendingBlocks[chunkPos].push_back({localX, y, localZ, type});
+        // Durante la generación todo se resuelve contra el chunk en curso
+        // (ver GenContext): dentro se escribe directo, fuera se acumula en el
+        // contexto y se publica a pendingBlocks al terminar. Nunca se crea el
+        // chunk vecino, que era lo que provocaba generación recursiva en
+        // cascada (8,6 s por chunk y 1,7 FPS medidos en el repo de origen) y
+        // hacía el mundo dependiente del orden de exploración.
+        if (t_gen) {
+            if (chunkPos == t_gen->chunk->position) {
+                t_gen->chunk->setBlock(localX, y, localZ, type);
+            } else {
+                t_gen->crossChunk[chunkPos].push_back({localX, y, localZ, type});
             }
             return;
         }
@@ -6439,8 +6535,25 @@ public:
         chunk->needsRebuild = false;
     }
 
+    // ¿Existe ya este chunk guardado? Si sí conviene cargarlo (rápido) en vez
+    // de encolarlo para regenerarlo (lento) — y además el disco manda.
+    bool chunkExistsOnDisk(const Vec3i& pos) {
+        if (useAAASystem && saveManager) {
+            return saveManager->chunkExists(pos.x, pos.z);
+        }
+        if (currentWorldPath.empty()) return false;
+        std::filesystem::path p = std::filesystem::path(currentWorldPath) / "chunks" /
+            ("chunk_" + std::to_string(pos.x) + "_" + std::to_string(pos.z) + ".dat");
+        std::error_code ec;
+        return std::filesystem::exists(p, ec);
+    }
+
     void updateChunks(const Vec3& playerPos, const Vec3& previousPos, float deltaTime = 0.016f) {
         PROFILE_SCOPE("World::updateChunks");
+
+        // Incorporar lo que los hilos de trabajo hayan terminado
+        integrateGeneratedChunks();
+
         // ⭐⭐⭐ Actualizar tiempo de frame para cache LRU
         currentFrameTime++;
 
@@ -6547,16 +6660,26 @@ public:
                 return a.priority < b.priority;  // Menor prioridad = se carga primero
             });
 
-        // ⭐⭐⭐ GENERACIÓN SINCRÓNICA SIMPLE (sin async - más estable)
+        // ⭐⭐⭐ GENERACIÓN: los chunks que ya existen en disco se cargan aquí
+        // (es rápido: descomprimir unas decenas de KB); los que hay que
+        // generar de cero (lo caro) se encolan para los hilos de trabajo.
         for (const auto& cp : chunksToGenerate) {
-            if (chunksGeneratedThisFrame >= MAX_CHUNKS_PER_FRAME) break;
+            if (chunks.find(cp.pos) != chunks.end()) continue;
+            if (genInFlight.count(cp.pos)) continue;
 
-            // Verificar que no exista ya
-            if (chunks.find(cp.pos) != chunks.end()) {
+            if (genRunning.load() && !chunkExistsOnDisk(cp.pos)) {
+                {
+                    std::lock_guard<std::mutex> lock(genQueueMutex);
+                    if (genQueue.size() >= MAX_GEN_QUEUE) break;
+                    genQueue.push_back(cp.pos);
+                }
+                genInFlight.insert(cp.pos);
+                genQueueCV.notify_one();
                 continue;
             }
 
-            // Usar getOrCreateChunk que maneja todo correctamente
+            // Sin workers (o ya está en disco): ruta sincrónica de siempre
+            if (chunksGeneratedThisFrame >= MAX_CHUNKS_PER_FRAME) break;
             Chunk* chunk = getOrCreateChunk(cp.pos);
             if (chunk) {
                 chunksGeneratedThisFrame++;
@@ -7958,6 +8081,9 @@ public:
 // ============================================================================
 };
 
+// Contexto de generación por hilo (ver World::GenContext)
+thread_local World::GenContext* World::t_gen = nullptr;
+thread_local bool World::inWorkerThread = false;
 
 // ============================================================================
 // SISTEMA DE MOVIMIENTO - Instancias globales

@@ -110,6 +110,7 @@ void ProfilerManager::updateHistory() {
 void ProfilerManager::recordFunctionTiming(const std::string& name, float ms) {
     if (!enabled_) return;
 
+    std::lock_guard<std::mutex> lock(timingsMutex_);
     auto& timings = functionTimings_[name];
     timings.push_back(ms);
 
@@ -122,6 +123,7 @@ void ProfilerManager::recordFunctionTiming(const std::string& name, float ms) {
 std::vector<std::pair<std::string, float>> ProfilerManager::getTopFunctions(int count) {
     std::vector<std::pair<std::string, float>> result;
 
+    std::lock_guard<std::mutex> lock(timingsMutex_);
     for (const auto& [name, timings] : functionTimings_) {
         if (timings.empty()) continue;
 

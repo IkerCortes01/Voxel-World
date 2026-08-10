@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <mutex>
 
 // ============================================================================
 // IN-GAME PROFILER - Visual Performance Overlay
@@ -104,8 +105,10 @@ private:
     std::vector<float> fpsHistory_;
     std::vector<float> frameTimeHistory_;
 
-    // Timings de funciones
+    // Timings de funciones. Los chunks se generan en hilos de trabajo, así que
+    // recordFunctionTiming se llama desde varios hilos a la vez.
     std::map<std::string, std::vector<float>> functionTimings_;
+    std::mutex timingsMutex_;
 
     // Update timing
     std::chrono::high_resolution_clock::time_point lastUpdateTime_;

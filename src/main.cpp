@@ -324,8 +324,12 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_GRASS:     r = 0.3f; g = 0.8f; b = 0.2f; break;
         case BLOCK_DIRT:      r = 0.6f; g = 0.4f; b = 0.2f; break;
         case BLOCK_STONE:     r = 0.5f; g = 0.5f; b = 0.5f; break;
-        case BLOCK_WOOD:      r = 0.4f; g = 0.25f; b = 0.1f; break;
-        case BLOCK_LEAVES:    r = 0.2f; g = 0.6f; b = 0.2f; break;
+        case BLOCK_WOOD:      r = 0.4f; g = 0.25f; b = 0.1f; break;   // pino
+        case BLOCK_LEAVES:    r = 0.2f; g = 0.6f; b = 0.2f; break;    // pino
+        case BLOCK_WOOD_ENCINO:   r = 0.45f; g = 0.30f; b = 0.14f; break;
+        case BLOCK_LEAVES_ENCINO: r = 0.25f; g = 0.55f; b = 0.18f; break;
+        case BLOCK_WOOD_OYAMEL:   r = 0.35f; g = 0.22f; b = 0.12f; break;
+        case BLOCK_LEAVES_OYAMEL: r = 0.16f; g = 0.45f; b = 0.28f; break;
         case BLOCK_SAND:      r = 0.9f; g = 0.85f; b = 0.6f; break;
         case BLOCK_WATER:     r = 0.2f; g = 0.4f; b = 0.8f; break;
         case BLOCK_TALLGRASS: r = 0.4f; g = 0.9f; b = 0.3f; break;
@@ -376,7 +380,8 @@ bool isBlockSolid(BlockType type) {
 }
 
 bool isBlockOpaque(BlockType type) {
-    return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS && type != BLOCK_LEAVES;
+    return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
+        && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
 
 // Obtener tiempo de rotura de un bloque en segundos (como Minecraft)
@@ -387,7 +392,11 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_SAND:      return 0.5f;   // Arena - rápido
         case BLOCK_TALLGRASS: return 0.0f;   // Pasto alto - instantáneo
         case BLOCK_LEAVES:    return 0.2f;   // Hojas - muy rápido
+        case BLOCK_LEAVES_ENCINO: return 0.2f;
+        case BLOCK_LEAVES_OYAMEL: return 0.2f;
         case BLOCK_WOOD:      return 2.0f;   // Madera - medio (ver nota abajo)
+        case BLOCK_WOOD_ENCINO:   return 2.0f;
+        case BLOCK_WOOD_OYAMEL:   return 2.0f;
         case BLOCK_STONE:     return 1.5f;   // Piedra - medio-lento
         case BLOCK_BEDROCK:   return 999.0f; // Bedrock - irrompible
         case BLOCK_WATER:     return 0.0f;   // Agua - no se puede romper
@@ -428,7 +437,11 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode) {
     // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
     const bool isSurvival = (gameMode != 1);
 
-    if (isSurvival && type == BLOCK_WOOD) {
+    // Los TRES troncos (pino, encino, oyamel) comparten el coste: talar a
+    // mano debe ser inviable con cualquier especie.
+    if (isSurvival && (type == BLOCK_WOOD ||
+                       type == BLOCK_WOOD_ENCINO ||
+                       type == BLOCK_WOOD_OYAMEL)) {
         return SURVIVAL_WOOD_BREAK_TIME;
     }
     return getBlockBreakTime(type);
@@ -2388,8 +2401,19 @@ public:
         loadTexture("Arena.png");           // BLOCK_SAND
 
         // Texturas de madera/tronco
-        loadTexture("Tronco de Roble.png");          // BLOCK_WOOD sides
-        loadTexture("Tronco de Roble a dentro.png"); // BLOCK_WOOD top/bottom
+        // ⭐ El tronco original es PINO: los archivos se renombraron de
+        // "Roble" a "Pino", pero el codigo seguia pidiendo el nombre viejo
+        // y la textura no cargaba (aparecia el bloque sin textura).
+        loadTexture("Tronco de Pino.png");            // BLOCK_WOOD sides
+        loadTexture("Tronco de Roble a dentro.png");  // BLOCK_WOOD top/bottom
+
+        // ---- ESPECIES NUEVAS ----
+        loadTexture("Tronco de Encino.png");
+        loadTexture("Tronco de Encino por dentro.png");
+        loadTexture("Hojas de Encino.png");
+        loadTexture("Tronco de Oyame.png");
+        loadTexture("Tronco de Oyame por dentro.png");
+        loadTexture("Hojas de Oyame.png");
 
         // Texturas de pasto (múltiples)
         loadTexture("Bloque de pasto up.png"); // BLOCK_GRASS top
@@ -2411,7 +2435,7 @@ public:
         // BLOCK_ORANGE_FLOWER usa Lava.gif (ya cargada arriba)
         loadTexture("nieve.png");              // BLOCK_SNOW
         loadTexture("Piedra Labrada.png");     // BLOCK_COBBLESTONE (textura mejorada)
-        loadTexture("Tablones de Madera de Roble.png");  // BLOCK_PLANKS
+        loadTexture("Tablones de Madera de Pino.png");   // BLOCK_PLANKS
         loadTexture("Polvo de Tierra.png");    // BLOCK_DIRT_POWDER (item crafteable)
         loadTexture("palo.png");               // BLOCK_STICK (item crafteable)
         loadTexture("palo.png");               // BLOCK_HOE (herramienta - usa textura de palo)
@@ -2468,7 +2492,21 @@ public:
             case BLOCK_WOOD:
                 // Tronco: anillos en top/bottom, corteza en sides
                 if (face == 0 || face == 1) return getTexture("Tronco de Roble a dentro.png"); // Top/Bottom
-                else return getTexture("Tronco de Roble.png");                                  // Sides
+                else return getTexture("Tronco de Pino.png");                                   // Sides
+
+            case BLOCK_WOOD_ENCINO:
+                if (face == 0 || face == 1) return getTexture("Tronco de Encino por dentro.png");
+                else return getTexture("Tronco de Encino.png");
+
+            case BLOCK_WOOD_OYAMEL:
+                if (face == 0 || face == 1) return getTexture("Tronco de Oyame por dentro.png");
+                else return getTexture("Tronco de Oyame.png");
+
+            case BLOCK_LEAVES_ENCINO:
+                return getTexture("Hojas de Encino.png");
+
+            case BLOCK_LEAVES_OYAMEL:
+                return getTexture("Hojas de Oyame.png");
 
             case BLOCK_LEAVES:
                 return getTexture("Hojas de Roble.png");
@@ -2498,7 +2536,7 @@ public:
                 return getTexture("Piedra Labrada.png");
 
             case BLOCK_PLANKS:
-                return getTexture("Tablones de Madera de Roble.png");
+                return getTexture("Tablones de Madera de Pino.png");
 
             case BLOCK_DIRT_POWDER:
                 return getTexture("Polvo de Tierra.png");
@@ -4298,6 +4336,8 @@ public:
                         case TerrainGen::TREE_BIRCH:     tipoArbol = 4; break;
                         case TerrainGen::TREE_SMALL_OAK: tipoArbol = 0; break;
                         case TerrainGen::TREE_MOUNTAIN:  tipoArbol = 6; break;
+                        case TerrainGen::TREE_ENCINO:    tipoArbol = 7; break;
+                        case TerrainGen::TREE_OYAMEL:    tipoArbol = 8; break;
                         default: break;
                     }
 
@@ -4902,6 +4942,112 @@ public:
     }
 
     // Función principal mejorada de generación de árboles - VERSIÓN 2.0
+    // ========================================================================
+    // ENCINO — copa ancha y redondeada
+    // ========================================================================
+    // El encino real es un árbol de copa amplia y densa, más ancho que alto.
+    // Se construye como un elipsoide achatado: se recorren las posiciones
+    // dentro de un radio y se descartan las que caen fuera de la elipse, lo
+    // que da un contorno redondo en vez de un cubo con esquinas recortadas.
+    //
+    // El ruido de posición rompe la simetría perfecta: sin él, todos los
+    // encinos tendrían el mismo contorno exacto y se notaría la repetición.
+    void generarEncino(int worldX, int baseY, int worldZ, int altura) {
+        if (altura < 4) altura = 4;
+        if (altura > 9) altura = 9;
+
+        // Tronco
+        for (int i = 0; i < altura; ++i) {
+            setBlock(worldX, baseY + i, worldZ, BLOCK_WOOD_ENCINO);
+        }
+
+        const int topY = baseY + altura - 1;
+
+        // Copa: elipsoide achatado (más ancho que alto)
+        const int rXZ = 3;   // radio horizontal
+        const int rY  = 2;   // radio vertical
+
+        for (int dy = -rY; dy <= rY; ++dy) {
+            for (int dx = -rXZ; dx <= rXZ; ++dx) {
+                for (int dz = -rXZ; dz <= rXZ; ++dz) {
+                    // Ecuación del elipsoide normalizada.
+                    const float nx = (float)dx / (float)rXZ;
+                    const float ny = (float)dy / (float)rY;
+                    const float nz = (float)dz / (float)rXZ;
+                    const float d = nx*nx + ny*ny + nz*nz;
+                    if (d > 1.0f) continue;
+
+                    // Borde irregular: las hojas del contorno aparecen solo a
+                    // veces, así la silueta no es una esfera perfecta.
+                    if (d > 0.62f) {
+                        const float r = TerrainGen::Noise::valueAt3D(
+                            seed + 8123, worldX + dx, topY + dy, worldZ + dz);
+                        if (r < 0.42f) continue;
+                    }
+
+                    const int y = topY + dy;
+                    if (y <= baseY) continue;              // no tapar el tronco bajo
+                    if (dx == 0 && dz == 0 && dy < 0) continue;  // hueco del tronco
+
+                    if (getBlock(worldX + dx, y, worldZ + dz) == BLOCK_AIR) {
+                        setBlock(worldX + dx, y, worldZ + dz, BLOCK_LEAVES_ENCINO);
+                    }
+                }
+            }
+        }
+    }
+
+    // ========================================================================
+    // OYAMEL — conífera alta y cónica
+    // ========================================================================
+    // El oyamel (abeto mexicano) es alto y estrecho, con forma de cono. Se
+    // genera por capas cuyo radio decrece con la altura, alternando anillos
+    // anchos y estrechos para dar el aspecto escalonado de las ramas.
+    //
+    // Contrasta a propósito con el encino: uno es ancho y redondo, el otro
+    // alto y puntiagudo, así se distinguen de un vistazo en el terreno.
+    void generarOyamel(int worldX, int baseY, int worldZ, int altura) {
+        if (altura < 7) altura = 7;
+        if (altura > 16) altura = 16;
+
+        // Tronco
+        for (int i = 0; i < altura; ++i) {
+            setBlock(worldX, baseY + i, worldZ, BLOCK_WOOD_OYAMEL);
+        }
+
+        // La copa arranca a un tercio de la altura: por debajo queda el
+        // tronco desnudo, como en las coníferas reales.
+        const int crownStart = baseY + altura / 3;
+        const int topY = baseY + altura - 1;
+
+        for (int y = crownStart; y <= topY; ++y) {
+            // Radio decreciente hacia la punta.
+            const float t = (float)(y - crownStart) / (float)(topY - crownStart + 1);
+            int radius = (int)((1.0f - t) * 3.0f + 0.5f);
+
+            // Anillos alternos más estrechos -> aspecto escalonado.
+            if (((y - crownStart) % 2) == 1 && radius > 1) radius -= 1;
+            if (radius < 0) radius = 0;
+
+            for (int dx = -radius; dx <= radius; ++dx) {
+                for (int dz = -radius; dz <= radius; ++dz) {
+                    if (dx == 0 && dz == 0) continue;      // el tronco
+                    // Recortar esquinas del cuadrado -> planta redondeada.
+                    if (abs(dx) + abs(dz) > radius + 1) continue;
+
+                    if (getBlock(worldX + dx, y, worldZ + dz) == BLOCK_AIR) {
+                        setBlock(worldX + dx, y, worldZ + dz, BLOCK_LEAVES_OYAMEL);
+                    }
+                }
+            }
+        }
+
+        // Punta: un bloque de hojas coronando el tronco.
+        if (getBlock(worldX, topY + 1, worldZ) == BLOCK_AIR) {
+            setBlock(worldX, topY + 1, worldZ, BLOCK_LEAVES_OYAMEL);
+        }
+    }
+
     void generarArbol(int worldX, int baseY, int worldZ, int tipoArbol, int alturaVariante = 0) {
         // Tipos de árbol actualizados:
         // 0 = Roble pequeño (4-8 bloques)
@@ -4955,6 +5101,16 @@ public:
         } else if (tipoArbol == 6) {
             // Árbol de montaña (ya tiene variedad interna)
             generarArbolMontana(worldX, baseY, worldZ);
+
+        } else if (tipoArbol == 7) {
+            // ⭐ ENCINO: copa ancha y redondeada
+            int altura = 5 + (seed % 4);   // 5-8 bloques
+            generarEncino(worldX, baseY, worldZ, altura);
+
+        } else if (tipoArbol == 8) {
+            // ⭐ OYAMEL: conífera alta y cónica
+            int altura = 9 + (seed % 7);   // 9-15 bloques
+            generarOyamel(worldX, baseY, worldZ, altura);
         }
     }
 
@@ -9195,7 +9351,7 @@ void prewarmItemTextures() {
     // ---- El resto de bloques: se usa su textura de cara superior ----
     // Se registra el HANDLE ya resuelto (no una ruta), porque esas texturas
     // las gestiona TextureManager y así se comparte el mismo objeto GL.
-    for (int id = 0; id <= (int)BLOCK_CLAY; ++id) {
+    for (int id = 0; id <= (int)BLOCK_TYPE_MAX; ++id) {
         const BlockType bt = (BlockType)id;
         if (bt == BLOCK_AIR) continue;
         if (g_itemTextures.isResolved(id)) continue;  // ya tiene textura propia
@@ -15650,7 +15806,7 @@ int main() {
                     // centinela que el consumo reconoce para no decrementar
                     // nunca (ver Inventory::consumeSelected).
                     int creativeCount = 0;
-                    for (int id = 1; id <= (int)BLOCK_CLAY; ++id) {
+                    for (int id = 1; id <= (int)BLOCK_TYPE_MAX; ++id) {
                         const BlockType bt = (BlockType)id;
 
                         // La flor naranja se retiró del juego (usaba la

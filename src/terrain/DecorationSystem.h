@@ -45,7 +45,9 @@ enum TreeType : uint8_t {
     TREE_PINE,
     TREE_BIRCH,
     TREE_SMALL_OAK,
-    TREE_MOUNTAIN
+    TREE_MOUNTAIN,
+    TREE_ENCINO,     // Encino: copa ancha y redondeada
+    TREE_OYAMEL      // Oyamel: conifera alta y conica
 };
 
 class DecorationSystem {
@@ -169,24 +171,36 @@ public:
     TreeType GetTreeType(int worldX, int worldZ, BiomeType biome, float temperature) const {
         const float r = Noise::valueAt2D(seedTree() + 777, worldX, worldZ);
 
+        // Reparto por TEMPERATURA, siguiendo la ecologia real de cada especie:
+        //   - OYAMEL: conifera de alta montana y clima frio.
+        //   - ENCINO: bosque templado, la especie dominante en zonas medias.
+        //   - PINO: amplio rango, aparece en frio y templado.
         switch (biome) {
             case BIOME_FOREST:
-                // Bosque frio -> mas pinos; templado -> robles y abedules.
                 if (temperature < 0.35f) {
-                    return r < 0.70f ? TREE_PINE : TREE_BIRCH;
+                    // Bosque frio: coniferas. El oyamel domina.
+                    if (r < 0.45f) return TREE_OYAMEL;
+                    if (r < 0.75f) return TREE_PINE;
+                    return TREE_BIRCH;
                 }
-                if (r < 0.50f) return TREE_OAK;
+                // Bosque templado: el encino es la especie principal.
+                if (r < 0.40f) return TREE_ENCINO;
+                if (r < 0.60f) return TREE_OAK;
                 if (r < 0.75f) return TREE_BIRCH;
-                if (r < 0.90f) return TREE_SMALL_OAK;
+                if (r < 0.88f) return TREE_SMALL_OAK;
                 return TREE_PINE;
 
             case BIOME_PLAINS:
-                // Arboles dispersos, mayormente robles pequenos.
-                return r < 0.65f ? TREE_SMALL_OAK : TREE_OAK;
+                // Arboles dispersos: algun encino aislado entre robles.
+                if (r < 0.50f) return TREE_SMALL_OAK;
+                if (r < 0.80f) return TREE_OAK;
+                return TREE_ENCINO;
 
             case BIOME_MOUNTAINS:
-                // Coniferas resistentes.
-                return r < 0.75f ? TREE_MOUNTAIN : TREE_PINE;
+                // Alta montana: oyamel, la conifera de altura por excelencia.
+                if (r < 0.40f) return TREE_OYAMEL;
+                if (r < 0.75f) return TREE_MOUNTAIN;
+                return TREE_PINE;
 
             default:
                 return TREE_NONE;

@@ -46,10 +46,22 @@ enum BlockType {
     BLOCK_RAW_COPPER,     // Cobre crudo - dropea del desecho de metales
     // ⭐ Añadido AL FINAL a propósito: insertarlo en medio desplazaría los IDs
     // de todos los bloques posteriores y corrompería los mundos guardados.
-    BLOCK_CLAY            // Arcilla - genera en lechos de ríos y lagos
+    BLOCK_CLAY,           // Arcilla - genera en lechos de ríos y lagos
+
+    // ========================================================================
+    // ESPECIES DE ÁRBOL
+    // ========================================================================
+    // BLOCK_WOOD y BLOCK_LEAVES son el PINO (la especie original; sus texturas
+    // se renombraron de "Roble" a "Pino"). Encino y oyamel se añaden aquí, al
+    // final, por la misma razón que la arcilla: cualquier inserción en medio
+    // desplazaría los IDs y corrompería los mundos ya guardados.
+    BLOCK_WOOD_ENCINO,    // Tronco de encino
+    BLOCK_LEAVES_ENCINO,  // Hojas de encino
+    BLOCK_WOOD_OYAMEL,    // Tronco de oyamel
+    BLOCK_LEAVES_OYAMEL   // Hojas de oyamel
 };
 
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_CLAY;
+constexpr int BLOCK_TYPE_MAX = BLOCK_LEAVES_OYAMEL;

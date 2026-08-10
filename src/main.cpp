@@ -2572,23 +2572,25 @@ public:
             case BLOCK_PLANKS:
                 return getTexture("Tablones de Madera de Pino.png");
 
+            // ⭐ ITEMS: sus PNG viven en Textures/Items/, NO en Blocks/.
+            // Estas rutas apuntaban a Blocks/ y los archivos ya no estan ahi,
+            // asi que devolvian 0 y el item salia sin textura. Se cargan desde
+            // la carpeta correcta con rutas absolutas.
             case BLOCK_DIRT_POWDER:
-                return getTexture("Polvo de Tierra.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/polvo de tierra.png"));
 
             case BLOCK_STICK:
-                return getTexture("palo.png");
-
             case BLOCK_HOE:
-                return getTexture("palo.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/palo.png"));
 
             case BLOCK_COAL_ITEM:
-                return getTexture("carbon.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/carbon.png"));
 
             case BLOCK_RAW_ZINC:
-                return getTexture("zinc crudo.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/zinc crudo.png"));
 
             case BLOCK_RAW_COPPER:
-                return getTexture("cobre crudo.png");
+                return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/cobre crudo.png"));
 
             // Minerales - Sistema de Rareza
             case BLOCK_COAL_ORE:
@@ -4684,16 +4686,31 @@ public:
                     float dy3d = (float)dy - centerY;
                     float dist3D = sqrtf((float)(actualDx * actualDx + actualDz * actualDz) + dy3d * dy3d * 0.7f);
 
-                    // Copa ultra orgánica con forma esférica
-                    if (dist3D <= (float)maxRadius + 0.7f) {
-                        // ⭐ MEJORADO: Huecos más naturales y menos uniformes
-                        int holePattern = ((actualDx + dy * 3) * 31 + (actualDz + dy * 7) * 17 + seed) % 11;
+                    // ⭐ El limite es el radio de ESTA capa (que ya incluye el
+                    // ensanchado/estrechado de las variantes 6 y 7), no el
+                    // maxRadius global. Antes se recortaba siempre con
+                    // maxRadius: la copa ancha se quedaba sin su ensanchado y
+                    // la capa se cortaba recta justo en ese limite.
+                    const float limite = (float)radius + 0.7f;
+                    if (dist3D <= limite) {
+                        // ⭐ BORDE DIFUSO por RUIDO, con probabilidad creciente
+                        // hacia el contorno. El patron aritmetico anterior
+                        // (holePattern % 11) se repetia en diagonales y
+                        // recortaba el borde en lineas rectas visibles.
+                        if (dist3D > limite - 1.2f) {
+                            const float borde = (dist3D - (limite - 1.2f)) / 1.2f;
+                            const float r = TerrainGen::Noise::valueAt3D(
+                                seed + 4409, worldX + actualDx, leafY, worldZ + actualDz);
+                            if (r < borde * 0.80f) continue;
+                        }
 
-                        // Huecos en el borde exterior
-                        if (dist3D > maxRadius - 0.5f && holePattern < 4) continue;
-
-                        // Huecos interiores ocasionales para densidad variable
-                        if (variant >= 2 && holePattern == 0 && dist3D > maxRadius * 0.6f) continue;
+                        // Huecos interiores ocasionales: dejan pasar la luz y
+                        // dan densidad variable, como en una copa real.
+                        if (variant >= 2 && dist3D > limite * 0.55f) {
+                            const float r = TerrainGen::Noise::valueAt3D(
+                                seed + 7717, worldX + actualDx, leafY, worldZ + actualDz);
+                            if (r < 0.09f) continue;
+                        }
 
                         int finalX = worldX + actualDx + trunkOffsetX;
                         int finalZ = worldZ + actualDz + trunkOffsetZ;
@@ -4706,10 +4723,13 @@ public:
             }
         }
 
-        // Punta del árbol
+        // Punta del árbol: arranca en el ULTIMO nivel de copa (copaHeight-1),
+        // no uno por encima. Antes quedaba un nivel de aire entre la copa y la
+        // punta y el remate parecia flotar despegado.
         for (int dy = 0; dy < 3; dy++) {
-            if (getBlock(worldX + trunkOffsetX, copaBase + copaHeight + dy, worldZ + trunkOffsetZ) == BLOCK_AIR) {
-                setBlock(worldX + trunkOffsetX, copaBase + copaHeight + dy, worldZ + trunkOffsetZ, BLOCK_LEAVES);
+            const int puntaY = copaBase + copaHeight - 1 + dy;
+            if (getBlock(worldX + trunkOffsetX, puntaY, worldZ + trunkOffsetZ) == BLOCK_AIR) {
+                setBlock(worldX + trunkOffsetX, puntaY, worldZ + trunkOffsetZ, BLOCK_LEAVES);
             }
         }
 
@@ -4979,29 +4999,104 @@ public:
     }
 
     // Generar abedul (alto y delgado con copa pequeña)
+    // ========================================================================
+    // ABEDUL: alto, esbelto y de copa ovalada
+    // ========================================================================
+    // El abedul real es delgado y estilizado, con la copa ALARGADA en vertical
+    // (no una bolita achatada) y ramillas finas que salen del tercio superior.
+    //
+    // Antes la copa era de tamaño FIJO —4 niveles y radio 2— sin importar la
+    // altura del tronco: un abedul de 8 y otro de 14 tenían exactamente la
+    // misma copa, y ademas el contorno se cortaba en seco porque el radio
+    // saltaba de 2 a 1 de golpe.
     void generarAbedul(int worldX, int baseY, int worldZ, int altura) {
-        // Tronco delgado
+        if (altura < 6)  altura = 6;
+        if (altura > 16) altura = 16;
+
+        const int seedB = worldX * 3181 + worldZ * 5449 + 991;
+
+        // --- Tronco delgado ---
         for (int y = 0; y < altura; y++) {
             setBlock(worldX, baseY + y, worldZ, BLOCK_WOOD);
         }
 
-        // Copa pequeña solo en la parte superior
-        int copaBase = baseY + altura - 2;
+        const int topY = baseY + altura - 1;
 
-        for (int dy = 0; dy <= 3; dy++) {
-            int leafY = copaBase + dy;
-            int radius = (dy <= 1) ? 2 : 1;
+        // --- Copa ovalada, proporcional a la altura ---
+        // Ocupa poco más del tercio superior y es más alta que ancha, que es
+        // lo que da el porte esbelto del abedul.
+        const int copaAlto  = 3 + altura / 3;              // crece con el arbol
+        const int copaBase  = topY - copaAlto + 2;         // sobresale del apice
+        const float rMax    = 1.6f + altura * 0.11f;       // radio horizontal
 
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    if (dx == 0 && dz == 0 && dy < 2) continue; // No cubrir tronco
+        // El polo superior debe caer EXACTAMENTE en un nivel entero. Si cae a
+        // media altura (p.ej. 15.49), el ultimo nivel con hojas todavia tiene
+        // radio ~1.5 y el siguiente ya esta fuera del elipsoide: la copa se
+        // corta en plano por arriba en vez de cerrarse en punta.
+        const int   apiceY  = copaBase + copaAlto;
+        const float semiY   = copaAlto * 0.62f;            // semieje vertical
+        const float centroY = (float)apiceY - semiY;       // -> polo = apiceY
 
-                    int dist = dx * dx + dz * dz;
-                    if (dist <= radius * radius) {
-                        if (getBlock(worldX + dx, leafY, worldZ + dz) == BLOCK_AIR) {
-                            setBlock(worldX + dx, leafY, worldZ + dz, BLOCK_LEAVES);
-                        }
+        const int rEnt = (int)ceilf(rMax) + 1;
+
+        // El barrido vertical cubre el elipsoide COMPLETO (centro +- semieje).
+        // Antes se cortaba en copaBase+copaAlto, que caia por debajo del polo
+        // superior: la copa terminaba en un nivel todavia ancho y se veia
+        // rebanada en plano por arriba.
+        const int yIni = (int)floorf(centroY - semiY) - 1;
+        const int yFin = (int)ceilf (centroY + semiY) + 1;
+
+        for (int y = yIni; y <= yFin; ++y) {
+            for (int dx = -rEnt; dx <= rEnt; ++dx) {
+                for (int dz = -rEnt; dz <= rEnt; ++dz) {
+                    // Elipsoide alargado en vertical.
+                    const float ny = ((float)y - centroY) / semiY;
+                    const float rHor = sqrtf((float)(dx*dx + dz*dz));
+                    const float nh = rHor / rMax;
+                    const float d2 = nh*nh + ny*ny;
+                    if (d2 > 1.0f) continue;
+
+                    // Borde difuso proporcional: la hoja falta cada vez más
+                    // cerca del contorno, así la copa se deshilacha en vez de
+                    // CORTARSE en seco.
+                    if (d2 > 0.40f) {
+                        const float r = TerrainGen::Noise::valueAt3D(
+                            seedB + 3307, worldX + dx, y, worldZ + dz);
+                        const float umbral = (d2 - 0.40f) / 0.60f * 0.70f;
+                        if (r < umbral) continue;
                     }
+
+                    if (dx == 0 && dz == 0 && y < topY) continue;   // el tronco
+                    if (getBlock(worldX + dx, y, worldZ + dz) == BLOCK_AIR) {
+                        setBlock(worldX + dx, y, worldZ + dz, BLOCK_LEAVES);
+                    }
+                }
+            }
+        }
+
+        // Remate: una hoja en el ápice, para que la copa acabe en punta y no
+        // en una superficie plana.
+        if (getBlock(worldX, apiceY, worldZ) == BLOCK_AIR) {
+            setBlock(worldX, apiceY, worldZ, BLOCK_LEAVES);
+        }
+
+        // --- Ramillas finas del tercio superior ---
+        // Cortas y ascendentes: apenas asoman entre las hojas, pero evitan que
+        // la copa parezca pegada al tronco sin ninguna estructura.
+        const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        const int nRamas = 2 + (altura / 6);
+        for (int i = 0; i < nRamas; ++i) {
+            const int d = ((seedB >> (i * 3)) + i) & 3;
+            const int ry = copaBase + 1 + ((seedB >> (i * 2 + 1)) %
+                                           (copaAlto > 2 ? copaAlto - 1 : 1));
+            if (ry > topY) continue;
+            const int largo = 1 + (((seedB >> i) + i * 7) % 2);   // 1-2 bloques
+            for (int s = 1; s <= largo; ++s) {
+                const int bx = worldX + dirs[d][0] * s;
+                const int bz = worldZ + dirs[d][1] * s;
+                if (getBlock(bx, ry, bz) == BLOCK_LEAVES ||
+                    getBlock(bx, ry, bz) == BLOCK_AIR) {
+                    setBlock(bx, ry, bz, BLOCK_WOOD);
                 }
             }
         }
@@ -5319,8 +5414,9 @@ public:
             generarPino(worldX, baseY, worldZ, altura);
 
         } else if (tipoArbol == 4) {
-            // Abedul - MÁS VARIEDAD
-            int altura = 8 + (seed % 7); // 8-14 bloques
+            // ⭐ ABEDUL: esbelto. Rango amplio (6-16) para que se mezclen
+            // ejemplares jóvenes y adultos en el mismo bosque.
+            int altura = 6 + (seed % 11); // 6-16 bloques
             generarAbedul(worldX, baseY, worldZ, altura);
 
         } else if (tipoArbol == 5) {

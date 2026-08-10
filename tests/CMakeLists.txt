@@ -10,6 +10,7 @@ add_executable(voxel_tests
     test_paletted_storage.cpp
     test_world_name.cpp
     test_rng_compat.cpp
+    test_inventory.cpp
 )
 
 target_include_directories(voxel_tests PRIVATE

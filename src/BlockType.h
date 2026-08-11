@@ -74,18 +74,32 @@ enum BlockType {
     BLOCK_CLAY_DIRT,        // 27 Tierra arcillosa
     BLOCK_CLAY_SAND,        // 28 Arena arcillosa
 
+    // ------------------------------------------------------------------
+    // NOPAL DE CASTILLA
+    // ------------------------------------------------------------------
+    // Se guardan como bloques distintos porque cada parte usa su propia
+    // textura y su propia altura de sprite:
+    //   BASE     - el tallo que arranca del suelo. Tiene una variante por
+    //              tipo de terreno (pasto, tierra, arena...) para fundirse
+    //              con el bloque de abajo.
+    //   TALLO    - el tronco carnoso que crece sobre la base.
+    //   CLADODIO - las pencas ovaladas que salen a los lados.
+    BLOCK_NOPAL_BASE,       // 29 Tallo de nopal a ras de suelo
+    BLOCK_NOPAL_TALLO,      // 30 Tallo de nopal
+    BLOCK_NOPAL_CLADODIO,   // 31 Cladodio (penca)
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 29 Polvo de tierra
-    BLOCK_STICK,            // 30 Palo
-    BLOCK_HOE,              // 31 Hoz
-    BLOCK_COAL_ITEM,        // 32 Carbón (item)
-    BLOCK_RAW_ZINC,         // 33 Zinc crudo
-    BLOCK_RAW_COPPER,       // 34 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 32 Polvo de tierra
+    BLOCK_STICK,            // 33 Palo
+    BLOCK_HOE,              // 34 Hoz
+    BLOCK_COAL_ITEM,        // 35 Carbón (item)
+    BLOCK_RAW_ZINC,         // 36 Zinc crudo
+    BLOCK_RAW_COPPER,       // 37 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -94,18 +108,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 35 (sin implementar)
-    BLOCK_BRICKS,           // 36 (sin implementar)
-    BLOCK_GLASS,            // 37 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 38 (retirado del juego)
+    BLOCK_IRON_ORE,         // 38 (sin implementar)
+    BLOCK_BRICKS,           // 39 (sin implementar)
+    BLOCK_GLASS,            // 40 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 41 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 39 (ya no se genera)
+    BLOCK_BEDROCK           // 42 (ya no se genera)
 };
 
 // Último bloque COLOCABLE de la lista ordenada (arena arcillosa).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_CLAY_SAND;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_CLADODIO;
 
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.

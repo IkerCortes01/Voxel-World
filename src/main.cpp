@@ -278,6 +278,7 @@ struct Vec3i {
 // TIPOS DE BLOQUES
 // ============================================================================
 
+#include <functional>
 #include "BlockType.h"
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "WorldName.h"
@@ -346,6 +347,9 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_LIMESTONE: r = 0.85f; g = 0.83f; b = 0.75f; break;  // Caliza - crema
         case BLOCK_CLAY_DIRT: r = 0.52f; g = 0.40f; b = 0.28f; break;  // Tierra arcillosa
         case BLOCK_CLAY_SAND: r = 0.80f; g = 0.72f; b = 0.55f; break;  // Arena arcillosa
+        case BLOCK_NOPAL_BASE:
+        case BLOCK_NOPAL_TALLO:
+        case BLOCK_NOPAL_CLADODIO: r = 0.35f; g = 0.62f; b = 0.30f; break; // Verde nopal
         case BLOCK_COAL_ORE:  r = 0.3f; g = 0.3f; b = 0.3f; break;    // Gris muy oscuro (común)
         case BLOCK_IRON_ORE:  r = 0.8f; g = 0.7f; b = 0.6f; break;    // Beige rosado (poco común)
         case BLOCK_GOLD_ORE:  r = 1.0f; g = 0.84f; b = 0.0f; break;   // Dorado brillante (poco común)
@@ -369,11 +373,65 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
 // Bloques que NO se dibujan como cubo, sino como dos quads verticales
 // cruzados en X. Se define en un solo sitio para que el mesher, la colisión
 // y el resto del motor coincidan siempre.
+// El NOPAL tambien se dibuja como sprite, pero con GROSOR: en vez de dos
+// planos cruzados de espesor cero, sus quads se separan 5 pixeles (5/16 de
+// bloque), asi que la planta tiene volumen real al mirarla de lado.
+bool isNopal(BlockType type) {
+    return type == BLOCK_NOPAL_BASE ||
+           type == BLOCK_NOPAL_TALLO ||
+           type == BLOCK_NOPAL_CLADODIO;
+}
+
 bool isCrossSprite(BlockType type) {
-    // Solo la hierba corta. BLOCK_ORANGE_FLOWER se retiró del juego (usaba
+    // Hierba corta y nopal. BLOCK_ORANGE_FLOWER se retiró del juego (usaba
     // la textura de la lava); si aparece en un mundo antiguo se dibuja como
     // bloque normal en lugar de sprite.
-    return type == BLOCK_TALLGRASS;
+    return type == BLOCK_TALLGRASS || isNopal(type);
+}
+
+// Suelos en los que arraiga el NOPAL: cualquier terreno natural blando.
+// Se define por EXCLUSION (todo menos roca y minerales) para que un bloque
+// natural nuevo herede el comportamiento sin tener que acordarse de anadirlo.
+bool esSueloParaNopal(BlockType type) {
+    switch (type) {
+        // Roca y minerales: el nopal NO crece aqui.
+        case BLOCK_STONE:
+        case BLOCK_COBBLESTONE:
+        case BLOCK_LIMESTONE:
+        case BLOCK_BEDROCK:
+        case BLOCK_COAL_ORE:
+        case BLOCK_IRON_ORE:
+        case BLOCK_GOLD_ORE:
+        case BLOCK_SILVER_ORE:
+        case BLOCK_DIAMOND_ORE:
+        case BLOCK_SCRAP_METAL:
+        // Tampoco en lo que no es suelo.
+        case BLOCK_AIR:
+        case BLOCK_WATER:
+        case BLOCK_LAVA:
+        case BLOCK_SNOW:
+        case BLOCK_TALLGRASS:
+        case BLOCK_NOPAL_BASE:
+        case BLOCK_NOPAL_TALLO:
+        case BLOCK_NOPAL_CLADODIO:
+        // Ni sobre madera, hojas o construcciones.
+        case BLOCK_WOOD:
+        case BLOCK_WOOD_ENCINO:
+        case BLOCK_WOOD_OYAMEL:
+        case BLOCK_LEAVES:
+        case BLOCK_LEAVES_ENCINO:
+        case BLOCK_LEAVES_OYAMEL:
+        case BLOCK_PLANKS:
+        case BLOCK_PLANKS_ENCINO:
+        case BLOCK_PLANKS_OYAMEL:
+        case BLOCK_BRICKS:
+        case BLOCK_GLASS:
+            return false;
+
+        // Pasto, tierra, arena, grava, arcilla, tierra/arena arcillosa...
+        default:
+            return true;
+    }
 }
 
 bool isBlockSolid(BlockType type) {
@@ -386,6 +444,7 @@ bool isBlockSolid(BlockType type) {
 }
 
 bool isBlockOpaque(BlockType type) {
+    if (isNopal(type)) return false;   // sprite: no tapa las caras vecinas
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
@@ -397,6 +456,10 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_GRASS:     return 0.6f;   // Pasto - rápido
         case BLOCK_SAND:      return 0.5f;   // Arena - rápido
         case BLOCK_TALLGRASS: return 0.0f;   // Pasto alto - instantáneo
+        // El nopal es carnoso y espinoso: 3 segundos a mano.
+        case BLOCK_NOPAL_BASE:
+        case BLOCK_NOPAL_TALLO:
+        case BLOCK_NOPAL_CLADODIO: return 3.0f;
         case BLOCK_LEAVES:    return 0.2f;   // Hojas - muy rápido
         case BLOCK_LEAVES_ENCINO: return 0.2f;
         case BLOCK_LEAVES_OYAMEL: return 0.2f;
@@ -2506,6 +2569,15 @@ public:
         loadTexture("Tablones de Madera Encino.png");    // BLOCK_PLANKS_ENCINO
         loadTexture("Tablones de Madera de Oyame.png");  // BLOCK_PLANKS_OYAMEL
         loadTexture("Piedra caliza.png");                // BLOCK_LIMESTONE
+        // Nopal de Castilla (la base tiene una variante por tipo de suelo)
+        loadTexture("Tallo de Nopal de Castilla.png");
+        loadTexture("Cladodio de Nopal de Castilla.png");
+        loadTexture("Nopal de Castilla.png");
+        loadTexture("Tallo de Nopal de Castilla en pasto.png");
+        loadTexture("Tallo de nopal de Castilla en tierra.png");
+        loadTexture("Tallo de Nopal de castilla en arena.png");
+        loadTexture("Tallo de Nopal de Castilla en tierra arcillosa.png");
+        loadTexture("Tallo de Nopal de Castilla en arena arcillosa.png");
         loadTexture("Tierra arcillosa.png");             // BLOCK_CLAY_DIRT
         loadTexture("Arena arcillosa.png");              // BLOCK_CLAY_SAND
         loadTexture("Mineral de Oro.png");               // BLOCK_GOLD_ORE
@@ -2543,6 +2615,26 @@ public:
     }
 
     // Obtener textura para un tipo de bloque y cara (con soporte de animación y rotación)
+    // La BASE del nopal se funde con el bloque sobre el que crece: hay una
+    // textura por tipo de suelo. Si el suelo no tiene variante propia se usa
+    // la generica, asi que anadir terrenos nuevos nunca deja un hueco.
+    GLuint getNopalBaseTexture(BlockType suelo) {
+        switch (suelo) {
+            case BLOCK_GRASS:
+                return getTexture("Tallo de Nopal de Castilla en pasto.png");
+            case BLOCK_DIRT:
+                return getTexture("Tallo de nopal de Castilla en tierra.png");
+            case BLOCK_SAND:
+                return getTexture("Tallo de Nopal de castilla en arena.png");
+            case BLOCK_CLAY_DIRT:
+                return getTexture("Tallo de Nopal de Castilla en tierra arcillosa.png");
+            case BLOCK_CLAY_SAND:
+                return getTexture("Tallo de Nopal de Castilla en arena arcillosa.png");
+            default:
+                return getTexture("Tallo de Nopal de Castilla.png");
+        }
+    }
+
     GLuint getBlockTexture(BlockType type, int face) {
         // face: 0=top, 1=bottom, 2=north, 3=south, 4=east, 5=west
 
@@ -2616,6 +2708,19 @@ public:
 
             case BLOCK_PLANKS_OYAMEL:
                 return getTexture("Tablones de Madera de Oyame.png");
+
+            // --- NOPAL DE CASTILLA ---
+            // La BASE se elige segun el suelo en tiempo de render (ver
+            // getNopalBaseTexture); aqui va la variante generica, que es la
+            // que se usa como icono en el inventario.
+            case BLOCK_NOPAL_BASE:
+                return getTexture("Tallo de Nopal de Castilla.png");
+
+            case BLOCK_NOPAL_TALLO:
+                return getTexture("Tallo de Nopal de Castilla.png");
+
+            case BLOCK_NOPAL_CLADODIO:
+                return getTexture("Cladodio de Nopal de Castilla.png");
 
             // --- Bloques nuevos ---
             case BLOCK_LIMESTONE:
@@ -4752,6 +4857,24 @@ public:
                         chunk->setBlock(x, surfaceY + 1, z, BLOCK_TALLGRASS);
                     }
                 }
+
+                // ---- NOPAL DE CASTILLA ----
+                // Crece en CUALQUIER suelo natural blando: pasto, tierra,
+                // arena, grava, arcilla y sus variantes. NO en piedra, caliza
+                // ni minerales: un nopal no arraiga en roca desnuda.
+                //
+                // Es raro (1 de cada ~700 columnas validas) para que
+                // encontrarlo tenga valor, y se separa de los arboles para
+                // que no salga uno dentro de la copa.
+                if (esSueloParaNopal(ground) &&
+                    chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
+                    const int hn = worldX * 4517 + worldZ * 8291;
+                    unsigned v = (unsigned)(hn ^ 0x9E3779B9u);
+                    v ^= v >> 13; v *= 1274126177u; v ^= v >> 16;
+                    if ((v % 700u) == 0u) {
+                        generarNopal(worldX, surfaceY + 1, worldZ);
+                    }
+                }
             }
         }
         // ⭐ PUBLICAR los bloques que este chunk dejó para sus vecinos y
@@ -5661,6 +5784,106 @@ public:
         disco(topY - 1, 1, false);
         if (getBlock(worldX, topY + 1, worldZ) == BLOCK_AIR) {
             setBlock(worldX, topY + 1, worldZ, BLOCK_LEAVES_OYAMEL);
+        }
+    }
+
+    // ========================================================================
+    // NOPAL DE CASTILLA
+    // ========================================================================
+    // Estructura de la planta real:
+    //   - BASE: un bloque a ras de suelo, con la textura que se funde con el
+    //     terreno sobre el que crece.
+    //   - TALLO: 3 a 6 bloques de alto encima de la base.
+    //   - CLADODIOS: las pencas ovaladas. Brotan a los lados del tallo y
+    //     miden de 1 a 3 bloques. Cada cladodio puede a su vez sacar otro,
+    //     que es como se ramifica un nopal de verdad.
+    //
+    // Todo son sprites con grosor: la planta se atraviesa, pero se ve
+    // volumetrica.
+    void generarNopal(int worldX, int baseY, int worldZ) {
+        // Hash determinista: el mismo nopal en la misma posicion siempre.
+        const int h = worldX * 6421 + worldZ * 9187 + 3313;
+        auto rnd = [&](int salt, int mod) {
+            unsigned v = (unsigned)(h ^ (salt * 2654435761u));
+            v ^= v >> 13; v *= 1274126177u; v ^= v >> 16;
+            return mod > 0 ? (int)(v % (unsigned)mod) : 0;
+        };
+
+        // --- BASE ---
+        if (getBlock(worldX, baseY, worldZ) != BLOCK_AIR) return;
+        setBlock(worldX, baseY, worldZ, BLOCK_NOPAL_BASE);
+
+        // --- TALLO: 3 a 6 de alto ---
+        const int alturaTallo = 3 + rnd(1, 4);       // 3..6
+        int topeTallo = baseY;
+        for (int i = 1; i <= alturaTallo; ++i) {
+            const int y = baseY + i;
+            if (y >= CHUNK_HEIGHT - 1) break;
+            if (getBlock(worldX, y, worldZ) != BLOCK_AIR) break;
+            setBlock(worldX, y, worldZ, BLOCK_NOPAL_TALLO);
+            topeTallo = y;
+        }
+
+        // --- CLADODIOS ---
+        // Brotan del tercio superior del tallo, que es donde salen en la
+        // planta real: abajo el tallo va limpio y lenoso.
+        const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        const int primerBrote = baseY + 1 + alturaTallo / 3;
+
+        // Cladodio: crece hacia fuera y hacia arriba, de 1 a 3 bloques.
+        // `nivel` limita la ramificacion para que no se vuelva infinita.
+        // Devuelve cuantos bloques de cladodio ha colocado, para poder
+        // contarlos y acercarse al objetivo de 8-9 por planta.
+        std::function<int(int,int,int,int,int)> brotarCladodio =
+            [&](int cx, int cy, int cz, int dir, int nivel) -> int {
+                if (nivel > 2) return 0;
+                const int largo = 1 + rnd(cx * 31 + cz * 17 + nivel, 3);  // 1..3
+                int px = cx, py = cy, pz = cz;
+                int colocados = 0;
+                for (int i = 0; i < largo; ++i) {
+                    px += dirs[dir][0];
+                    pz += dirs[dir][1];
+                    // Las pencas se abren hacia arriba, no rectas.
+                    if (i % 2 == 0) ++py;
+                    if (py >= CHUNK_HEIGHT - 1) return colocados;
+                    if (getBlock(px, py, pz) != BLOCK_AIR) return colocados;
+                    setBlock(px, py, pz, BLOCK_NOPAL_CLADODIO);
+                    ++colocados;
+                }
+                // De la punta de un cladodio puede salir otro, girado.
+                if (nivel < 2 && rnd(px * 13 + pz * 7, 100) < 45) {
+                    const int nuevoDir = (dir + 1 + rnd(px + pz, 2)) % 4;
+                    colocados += brotarCladodio(px, py, pz, nuevoDir, nivel + 1);
+                }
+                return colocados;
+            };
+
+        // Se apunta a 8-9 cladodios por planta, que es lo que da la silueta
+        // reconocible del nopal. El bucle recorre las posiciones posibles
+        // (altura x lado) y ajusta la probabilidad para acercarse a ese
+        // objetivo sea cual sea la altura del tallo; ademas se garantiza un
+        // minimo, para que ningun ejemplar salga como un palo pelado.
+        const int objetivo = 8 + rnd(77, 2);          // 8 o 9
+        const int posiciones = (topeTallo - primerBrote + 1) * 4;
+        int puestos = 0;
+
+        for (int pasada = 0; pasada < 2 && puestos < objetivo; ++pasada) {
+            for (int y = primerBrote; y <= topeTallo && puestos < objetivo; ++y) {
+                for (int d = 0; d < 4 && puestos < objetivo; ++d) {
+                    // Probabilidad calculada para repartir `objetivo` brotes
+                    // entre las posiciones disponibles. En la segunda pasada
+                    // se rellenan los huecos que quedaron.
+                    const int prob = (posiciones > 0)
+                                   ? (objetivo * 100) / posiciones : 100;
+                    if (pasada == 0 &&
+                        rnd(y * 41 + d * 97, 100) >= prob) continue;
+
+                    const int antes = puestos;
+                    puestos += brotarCladodio(worldX, y, worldZ, d, 1);
+                    // Si el hueco estaba ocupado no cuenta como intento.
+                    if (puestos == antes && pasada == 1) continue;
+                }
+            }
         }
     }
 
@@ -6671,6 +6894,14 @@ public:
                     if (isCrossSprite(block)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 0);
 
+                        // La BASE del nopal se funde con el suelo: se elige la
+                        // variante correspondiente al bloque de debajo.
+                        if (block == BLOCK_NOPAL_BASE) {
+                            const BlockType suelo =
+                                getNeighborBlockCached(x, y, z, 0, -1, 0);
+                            texture = g_textureManager->getNopalBaseTexture(suelo);
+                        }
+
                         // Luz de la celda de la planta (transparente al cielo).
                         const float lightFactor = faceLightFactor(x, y, z, 0, 0, 0);
 
@@ -6756,10 +6987,35 @@ public:
                             uvCoords.push_back(U0); uvCoords.push_back(U0);
                         };
 
-                    // Diagonal 1: esquina (lo,lo) -> (hi,hi)
-                        pushQuad(lo, lo, hi, hi);
-                        // Diagonal 2: esquina (lo,hi) -> (hi,lo)
-                        pushQuad(lo, hi, hi, lo);
+                        if (isNopal(block)) {
+                            // ============================================
+                            // NOPAL: SPRITE CON GROSOR (5 pixeles)
+                            // ============================================
+                            // La hierba son dos planos de espesor CERO: de
+                            // canto desaparece. El nopal es una planta
+                            // carnosa, asi que cada diagonal se duplica
+                            // separandola 5/16 de bloque (5 pixeles de una
+                            // textura de 16). El resultado tiene volumen
+                            // real al mirarlo de lado, pero sigue siendo
+                            // atravesable y barato (8 quads).
+                            constexpr float GROSOR = 5.0f / 16.0f;
+                            const float d = GROSOR * 0.5f;   // a cada lado
+
+                            // Diagonal 1 y su gemela desplazada en
+                            // perpendicular (la normal de esa diagonal es
+                            // (1,-1)/raiz(2), aproximada aqui a (+d,-d)).
+                            pushQuad(lo + d, lo - d, hi + d, hi - d);
+                            pushQuad(lo - d, lo + d, hi - d, hi + d);
+
+                            // Diagonal 2 y su gemela (normal (1,1)).
+                            pushQuad(lo + d, hi + d, hi + d, lo + d);
+                            pushQuad(lo - d, hi - d, hi - d, lo - d);
+                        } else {
+                            // Diagonal 1: esquina (lo,lo) -> (hi,hi)
+                            pushQuad(lo, lo, hi, hi);
+                            // Diagonal 2: esquina (lo,hi) -> (hi,lo)
+                            pushQuad(lo, hi, hi, lo);
+                        }
 
                         continue;  // no emitir las 6 caras del cubo
                     }
@@ -9457,6 +9713,13 @@ struct GameState {
                 // Plantas/flores no sueltan nada (retornar AIR para no spawnear)
                 return BLOCK_AIR;
 
+            // El NOPAL si suelta item: cualquier parte da un nopal, que en el
+            // inventario se ve como textura plana 2D (ver isFlatItem).
+            case BLOCK_NOPAL_BASE:
+            case BLOCK_NOPAL_TALLO:
+            case BLOCK_NOPAL_CLADODIO:
+                return BLOCK_NOPAL_CLADODIO;
+
             case BLOCK_LEAVES:
                 // Las hojas pueden no soltar nada (20% de probabilidad de soltar)
                 if ((rand() % 100) < 20) {
@@ -10118,8 +10381,11 @@ void drawInfinitySymbol(float cx, float cy, float size) {
 void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
     if (blockType == BLOCK_AIR) return;
 
-    // ---- ITEMS PUROS: sprite plano ----
-    if (!isPlaceableItem(blockType)) {
+    // ---- ITEMS PUROS Y VEGETACION: sprite plano ----
+    // Un cubo isometrico con la textura de una planta se ve absurdo (seis
+    // caras de hierba/nopal). La vegetacion se dibuja con su textura tal
+    // cual, en 2D, aunque SI sea colocable.
+    if (!isPlaceableItem(blockType) || isCrossSprite(blockType)) {
         const GLuint tex = (GLuint)g_itemTextures.resolve((int)blockType);
 
         float v0 = 0.0f, v1 = 1.0f;

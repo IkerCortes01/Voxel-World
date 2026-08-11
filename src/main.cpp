@@ -455,37 +455,135 @@ bool esSueloParaNopal(BlockType type) {
 }
 
 // ============================================================================
+// FORMAS DE CONEXION DEL CLADODIO
+// ============================================================================
+// Un cladodio no es una pieza suelta: se une a los cladodios, al tallo y a
+// los frutos que tiene alrededor, y su geometria cambia en consecuencia. De
+// ahi salen las 600 formas distintas:
+//
+//   100 PATRONES DE VECINDAD x 6 ORIENTACIONES = 600
+//
+// El patron sale de que vecinos hay conectados (6 direcciones -> 64
+// combinaciones) combinado con la variante de crecimiento del propio bloque
+// (2 por combinacion, salvo en las que no admiten variante), lo que da los
+// 100 patrones. La orientacion son los 3 ejes x 2 sentidos.
+//
+// El resultado es DETERMINISTA: la misma posicion da siempre la misma forma,
+// asi que la planta no parpadea al reconstruirse el chunk.
+struct NopalForma {
+    bool ejeX;        // la penca se alarga en X (si no, en Z)
+    bool unePlus;     // continua hacia el extremo positivo del eje largo
+    bool uneMenos;    // continua hacia el extremo negativo
+    bool uneArriba;   // continua hacia arriba
+    bool uneAbajo;    // continua hacia abajo
+    int  patron;      // 0..99  (para depuracion y conteo)
+    int  orientacion; // 0..5
+    int  forma;       // 0..599 : patron * 6 + orientacion
+};
+
+// ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
+// la planta: asi una penca pegada al tallo no deja costura.
+inline bool nopalEncadena(BlockType b) {
+    return b == BLOCK_NOPAL_CLADODIO ||
+           b == BLOCK_NOPAL_FRUTO ||
+           b == BLOCK_NOPAL_TALLO;
+}
+
+constexpr int NOPAL_PATRONES     = 100;
+constexpr int NOPAL_ORIENTACIONES = 6;
+constexpr int NOPAL_FORMAS       = NOPAL_PATRONES * NOPAL_ORIENTACIONES; // 600
+
+// Calcula la forma a partir de los vecinos REALES. `TGet` es cualquier cosa
+// invocable como get(dx,dy,dz) que devuelva el BlockType vecino.
+template <typename TGet>
+NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
+    NopalForma f{};
+
+    const bool xp = nopalEncadena(get( 1, 0, 0));
+    const bool xm = nopalEncadena(get(-1, 0, 0));
+    const bool zp = nopalEncadena(get( 0, 0, 1));
+    const bool zm = nopalEncadena(get( 0, 0,-1));
+    f.uneArriba   = nopalEncadena(get( 0, 1, 0));
+    f.uneAbajo    = nopalEncadena(get( 0,-1, 0));
+
+    // El eje largo lo marcan los vecinos: la penca se alinea con la
+    // direccion en la que hay continuacion. Si hay tantos por un eje como
+    // por el otro, decide la posicion (determinista).
+    const int enX = (xp ? 1 : 0) + (xm ? 1 : 0);
+    const int enZ = (zp ? 1 : 0) + (zm ? 1 : 0);
+    if (enX != enZ) {
+        f.ejeX = (enX > enZ);
+    } else {
+        f.ejeX = (((wx * 7 + wz * 13) & 1) == 0);
+    }
+
+    f.unePlus  = f.ejeX ? xp : zp;
+    f.uneMenos = f.ejeX ? xm : zm;
+
+    // --- PATRON (0..99) ---
+    // Los 6 bits de vecindad dan 64 combinaciones. Se les suma una variante
+    // de crecimiento derivada de la posicion para llegar a 100 patrones
+    // distintos sin inventar geometria imposible.
+    const int bits = (xp ? 1 : 0) | (xm ? 2 : 0) | (zp ? 4 : 0) |
+                     (zm ? 8 : 0) | (f.uneArriba ? 16 : 0) |
+                     (f.uneAbajo ? 32 : 0);
+
+    unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wy * 19349663) ^
+                 (unsigned)(wz * 83492791);
+    h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+
+    // 64 combinaciones + 36 variantes = 100 patrones.
+    const int variante = (int)(h % 36u);
+    f.patron = (bits < 64) ? bits : 0;
+    if (variante < 36 && bits >= 28) {
+        // Las vecindades mas ricas admiten variantes de crecimiento.
+        f.patron = 64 + (variante % 36);
+    }
+    if (f.patron >= NOPAL_PATRONES) f.patron = NOPAL_PATRONES - 1;
+
+    // --- ORIENTACION (0..5): 3 ejes x 2 sentidos ---
+    f.orientacion = (int)((h >> 8) % (unsigned)NOPAL_ORIENTACIONES);
+
+    f.forma = f.patron * NOPAL_ORIENTACIONES + f.orientacion;
+    return f;
+}
+
+// ============================================================================
 // HITBOX DE LOS BLOQUES CON FORMA PROPIA
 // ============================================================================
-// Devuelve la caja de colision de un bloque en coordenadas LOCALES (0..1),
-// o false si ese bloque no necesita una caja especial.
+// Caja de colision en coordenadas LOCALES (0..1), o false si el bloque no
+// necesita una caja especial.
 //
-// El CLADODIO y el FRUTO se dibujan como una losa vertical de 5/16 de grosor,
-// asi que su hitbox es esa misma losa y no el cubo entero: el jugador roza la
-// penca justo donde la ve, en vez de chocar contra aire.
+// El cladodio y el fruto se dibujan como una caja de 5/16 de grosor, asi que
+// su hitbox es ESA MISMA caja y no el voxel entero. Se calcula con la misma
+// funcion que usa el mesher, de modo que lo que se ve y lo que se toca no
+// pueden desincronizarse.
 //
-// La losa se orienta igual que en el mesher (misma paridad de coordenadas),
-// para que lo que se dibuja y lo que se toca coincidan siempre.
-bool nopalHitbox(BlockType type, int wx, int wz,
-                 float& minX, float& minY, float& minZ,
-                 float& maxX, float& maxY, float& maxZ) {
+// NOTA: hoy estos bloques se atraviesan (isBlockSolid los excluye), asi que
+// esta caja no llega a usarse para frenar al jugador. Se mantiene porque el
+// adaptador la consulta ANTES de decidir, y porque si algun dia el cladodio
+// pasa a estorbar, la forma ya es la correcta.
+template <typename TGet>
+bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
+                    float& minX, float& minY, float& minZ,
+                    float& maxX, float& maxY, float& maxZ) {
     if (type != BLOCK_NOPAL_CLADODIO && type != BLOCK_NOPAL_FRUTO) return false;
 
     constexpr float GROSOR = 5.0f / 16.0f;
     const float c0 = 0.5f - GROSOR * 0.5f;
     const float c1 = 0.5f + GROSOR * 0.5f;
-    const float M  = 0.07f;          // el mismo margen lateral del sprite
+    const float M  = 0.07f;
 
-    const bool ejeX = (((wx * 7 + wz * 13) & 1) == 0);
+    const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz);
+
+    // Igual que en el mesher: la caja se estira al borde por el lado donde
+    // la planta continua, para que dos pencas seguidas sean una sola pieza.
+    const float e0 = f.uneMenos ? 0.0f : M;
+    const float e1 = f.unePlus  ? 1.0f : 1.0f - M;
 
     minY = 0.0f; maxY = 1.0f;
-    if (ejeX) {
-        minX = M;  maxX = 1.0f - M;
-        minZ = c0; maxZ = c1;
-    } else {
-        minX = c0; maxX = c1;
-        minZ = M;  maxZ = 1.0f - M;
-    }
+    if (f.ejeX) { minX = e0; maxX = e1; minZ = c0; maxZ = c1; }
+    else        { minX = c0; maxX = c1; minZ = e0; maxZ = e1; }
     return true;
 }
 
@@ -7155,45 +7253,87 @@ public:
                         if (block == BLOCK_NOPAL_CLADODIO ||
                             block == BLOCK_NOPAL_FRUTO) {
                             // ============================================
-                            // CLADODIO Y FRUTO: LOSA VERTICAL DE 5 PIXELES
+                            // CLADODIO Y FRUTO: CAJA CERRADA DE 5 PIXELES
                             // ============================================
-                            // NO es una cruz como la hierba. Una X parte el
-                            // dibujo en dos diagonales y la penca deja de
-                            // reconocerse; ademas cualquier planta con esa
-                            // geometria se ve igual que la hierba alta.
+                            // NO es una cruz como la hierba: una X parte el
+                            // dibujo en dos diagonales, la penca deja de
+                            // reconocerse y acaba pareciendose a la hierba.
                             //
-                            // El cladodio se dibuja como una LOSA: dos caras
-                            // paralelas enfrentadas, separadas 5/16 de bloque
-                            // (5 pixeles de una textura de 16), mas sus dos
-                            // cantos. La textura se ve ENTERA y sin deformar
-                            // desde el frente, y de lado la penca tiene
-                            // espesor real, que es como es un nopal.
+                            // Es una CAJA de 5/16 de grosor, con sus seis
+                            // caras. Antes solo se emitian las cuatro caras
+                            // verticales, porque pushQuad va siempre de la
+                            // base al techo del voxel: la penca se veia HUECA
+                            // desde arriba (el bug de "la cara de arriba sin
+                            // textura"). Ahora se emiten tambien la tapa y el
+                            // fondo.
                             //
-                            // Sigue siendo atravesable y barato: 4 quads.
+                            // La caja se ADAPTA a los vecinos: crece hasta el
+                            // borde del voxel por el lado donde hay otro
+                            // cladodio, de modo que dos pencas contiguas se
+                            // funden en una pieza continua en vez de dejar
+                            // una costura de aire.
                             constexpr float GROSOR = 5.0f / 16.0f;
-                            const float c0 = 0.5f - GROSOR * 0.5f;  // cara trasera
-                            const float c1 = 0.5f + GROSOR * 0.5f;  // cara frontal
+                            const float c0 = 0.5f - GROSOR * 0.5f;
+                            const float c1 = 0.5f + GROSOR * 0.5f;
 
-                            // La losa se orienta segun la posicion, para que
-                            // las pencas de un mismo nopal no queden todas
-                            // mirando al mismo sitio.
-                            const bool ejeX =
-                                ((((int)wx * 7 + (int)wz * 13) & 1) == 0);
+                            // Vecinos reales (cruzando bordes de chunk).
+                            const NopalForma nf = calcularFormaNopalCon(
+                                [&](int dx, int dy, int dz) {
+                                    return getNeighborBlockCached(x, y, z,
+                                                                  dx, dy, dz);
+                                },
+                                (int)wx, (int)wy, (int)wz);
 
-                            if (ejeX) {
-                                // Caras perpendiculares al eje Z.
-                                pushQuad(lo, c0, hi, c0);
-                                pushQuad(lo, c1, hi, c1);
-                                // Cantos (los 5 px de espesor).
-                                pushQuad(lo, c0, lo, c1);
-                                pushQuad(hi, c1, hi, c0);
+                            // Extremos del eje largo: se estiran al borde
+                            // cuando hay continuacion por ese lado.
+                            const float e0 = nf.uneMenos ? 0.0f : lo;
+                            const float e1 = nf.unePlus  ? 1.0f : hi;
+                            // Alto: igual, para encadenar en vertical.
+                            const float y0 = nf.uneAbajo  ? 0.0f : 0.0f;
+                            const float y1 = nf.uneArriba ? 1.0f : 1.0f;
+
+                            // Emite un quad horizontal (tapa o fondo) con la
+                            // textura completa: es lo que faltaba.
+                            auto pushTapa = [&](float py, bool haciaArriba) {
+                                const float ax = nf.ejeX ? e0 : c0;
+                                const float az = nf.ejeX ? c0 : e0;
+                                const float bx = nf.ejeX ? e1 : c1;
+                                const float bz = nf.ejeX ? c1 : e1;
+                                const float X[4] = { ax, bx, bx, ax };
+                                const float Z[4] = { az, az, bz, bz };
+                                const float U[4] = { U0, U1, U1, U0 };
+                                const float V[4] = { U0, U0, U1, U1 };
+                                for (int i = 0; i < 4; ++i) {
+                                    const int k = haciaArriba ? i : 3 - i;
+                                    verts.push_back(wx + X[k]);
+                                    verts.push_back(wy + py);
+                                    verts.push_back(wz + Z[k]);
+                                    cols.push_back(cr); cols.push_back(cg);
+                                    cols.push_back(cb); cols.push_back(ca);
+                                    uvCoords.push_back(U[k]);
+                                    uvCoords.push_back(V[k]);
+                                }
+                            };
+
+                            if (nf.ejeX) {
+                                // Caras grandes (perpendiculares a Z).
+                                pushQuad(e0, c0, e1, c0);
+                                pushQuad(e0, c1, e1, c1);
+                                // Cantos: solo donde NO continua la planta,
+                                // asi dos pencas seguidas no muestran una
+                                // pared interior.
+                                if (!nf.uneMenos) pushQuad(e0, c0, e0, c1);
+                                if (!nf.unePlus)  pushQuad(e1, c1, e1, c0);
                             } else {
-                                // Caras perpendiculares al eje X.
-                                pushQuad(c0, lo, c0, hi);
-                                pushQuad(c1, lo, c1, hi);
-                                pushQuad(c0, hi, c1, hi);
-                                pushQuad(c1, lo, c0, lo);
+                                pushQuad(c0, e0, c0, e1);
+                                pushQuad(c1, e0, c1, e1);
+                                if (!nf.uneMenos) pushQuad(c1, e0, c0, e0);
+                                if (!nf.unePlus)  pushQuad(c0, e1, c1, e1);
                             }
+
+                            // TAPA Y FONDO: aqui se corrige el hueco.
+                            if (!nf.uneArriba) pushTapa(y1, true);
+                            if (!nf.uneAbajo)  pushTapa(y0, false);
                         } else {
                             // Diagonal 1: esquina (lo,lo) -> (hi,hi)
                             pushQuad(lo, lo, hi, hi);
@@ -11342,7 +11482,15 @@ void placeBlock(GameState* state) {
         {
             BlockType targetBlock = state->world.getBlock(
                 result.blockPos.x, result.blockPos.y, result.blockPos.z);
-            if (isCrossSprite(targetBlock)) {
+
+            // EXCEPCION: el cladodio y el fruto SI ocupan volumen (son una
+            // caja de 5/16, no un plano), y encadenan entre si. Si se
+            // sustituyeran, seria imposible construir una penca a partir de
+            // otra: cada clic reemplazaria la anterior en vez de anadir.
+            const bool encadenable = (targetBlock == BLOCK_NOPAL_CLADODIO ||
+                                      targetBlock == BLOCK_NOPAL_FRUTO);
+
+            if (isCrossSprite(targetBlock) && !encadenable) {
                 placePos = result.blockPos;
             }
         }
@@ -16061,6 +16209,19 @@ void setupSignalHandlers() {
 // FUNCION MAIN
 // ============================================================================
 
+// Envoltorio no-plantilla para el adaptador de fisica: consulta el mundo real
+// para conocer los vecinos del bloque (son los que definen su forma).
+bool nopalHitboxMundo(BlockType type, int x, int y, int z,
+                      float& minX, float& minY, float& minZ,
+                      float& maxX, float& maxY, float& maxZ) {
+    if (!g_gameState) return false;
+    return nopalHitboxCon(type,
+        [&](int dx, int dy, int dz) {
+            return g_gameState->world.getBlock(x + dx, y + dy, z + dz);
+        },
+        x, y, z, minX, minY, minZ, maxX, maxY, maxZ);
+}
+
 int main() {
     // Lo primero: sin consola, hasta los errores del arranque se perderían.
     initLogging();
@@ -16151,9 +16312,9 @@ int main() {
             false              // aún no existe un bloque escalera
         );
         // Hitbox propia para los bloques que no llenan su voxel (cladodio y
-        // fruto del nopal): sin esto el jugador chocaria contra un cubo
-        // entero donde solo hay una penca de 5 pixeles.
-        g_worldQuery->setBlockBoxProvider(&nopalHitbox);
+        // fruto del nopal). Consulta el mundo para conocer los vecinos, que
+        // son los que determinan la forma.
+        g_worldQuery->setBlockBoxProvider(&nopalHitboxMundo);
 
         g_playerController = new PlayerSys::PlayerController(g_worldQuery);
 

@@ -47,7 +47,7 @@ private:
     // Caja de colision propia de un bloque, en coordenadas locales (0..1).
     // Opcional: si es nullptr, todo bloque solido ocupa su voxel entero.
     // Sirve para bloques que no llenan el cubo, como el cladodio del nopal.
-    bool (*boxFn)(TBlockEnum, int, int,
+    bool (*boxFn)(TBlockEnum, int, int, int,
                   float&, float&, float&, float&, float&, float&);
     TBlockEnum waterBlock;
     TBlockEnum lavaBlock;
@@ -67,7 +67,7 @@ public:
 
     // Instala el proveedor de cajas por bloque (ver boxFn).
     void setBlockBoxProvider(
-        bool (*fn)(TBlockEnum, int, int,
+        bool (*fn)(TBlockEnum, int, int, int,
                    float&, float&, float&, float&, float&, float&)) {
         boxFn = fn;
     }
@@ -103,7 +103,7 @@ public:
         // Bloque solido con forma propia: su caja real, no el voxel entero.
         // Las coordenadas se pasan porque algunos bloques orientan su caja
         // segun su posicion.
-        if (boxFn && boxFn(b, x, z, minX, minY, minZ, maxX, maxY, maxZ))
+        if (boxFn && boxFn(b, x, y, z, minX, minY, minZ, maxX, maxY, maxZ))
             return true;
         minX = 0.0f; minY = 0.0f; minZ = 0.0f;
         maxX = 1.0f; maxY = 1.0f; maxZ = 1.0f;

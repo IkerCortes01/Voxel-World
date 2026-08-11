@@ -548,15 +548,23 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
     const float M  = 0.07f;                  // margen del lado ancho
     const float A0 = M, A1 = 1.0f - M;
 
+    // ⭐ NINGUNA cara puede caer EXACTAMENTE en 0.0 o 1.0: ahi coincidiria de
+    // plano con la cara del bloque vecino y las dos pelearian en el depth
+    // buffer, de modo que segun el angulo de camara desaparece una u otra.
+    // Ese es el motivo de que "al mirar desde arriba falte la cara norte".
+    // Un margen de medio milesimo es invisible y separa los planos.
+    constexpr float EPS_Y = 0.0005f;
+    const float Y0 = EPS_Y, Y1 = 1.0f - EPS_Y;
+
     switch (f.orientacion) {
         case 0: case 1:   // losa VERTICAL fina en Z
             f.minX = A0; f.maxX = A1;
-            f.minY = 0.0f; f.maxY = 1.0f;
+            f.minY = Y0; f.maxY = Y1;
             f.minZ = c0; f.maxZ = c1;
             break;
         case 2: case 3:   // losa VERTICAL fina en X
             f.minX = c0; f.maxX = c1;
-            f.minY = 0.0f; f.maxY = 1.0f;
+            f.minY = Y0; f.maxY = Y1;
             f.minZ = A0; f.maxZ = A1;
             break;
         case 4:           // losa HORIZONTAL (tumbada)
@@ -568,7 +576,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
             const float g = GROSOR * 1.6f;
             const float d0 = 0.5f - g * 0.5f, d1 = 0.5f + g * 0.5f;
             f.minX = d0; f.maxX = d1;
-            f.minY = 0.0f; f.maxY = 1.0f;
+            f.minY = Y0; f.maxY = Y1;
             f.minZ = d0; f.maxZ = d1;
             break;
         }
@@ -7384,12 +7392,32 @@ public:
                             // Limites de la caja en el voxel. Cada eje se
                             // estira al borde si hay continuacion por ese
                             // lado; si no, se queda en el grosor de la penca.
-                            const float bx0 = nf.uneXm ? 0.0f : nf.minX;
-                            const float bx1 = nf.uneXp ? 1.0f : nf.maxX;
-                            const float by0 = nf.uneAbajo  ? 0.0f : nf.minY;
-                            const float by1 = nf.uneArriba ? 1.0f : nf.maxY;
-                            const float bz0 = nf.uneZm ? 0.0f : nf.minZ;
-                            const float bz1 = nf.uneZp ? 1.0f : nf.maxZ;
+                            // ⭐ NUNCA TOCAR EL BORDE EXACTO DEL VOXEL
+                            //
+                            // Al estirar la caja hasta 0.0 / 1.0 por el lado
+                            // conectado, sus caras quedaban EN EL MISMO PLANO
+                            // que las del bloque vecino. Dos superficies
+                            // coplanares compiten en el depth buffer y el
+                            // resultado depende del angulo de camara: por eso
+                            // "al mirar desde arriba desaparece la cara norte"
+                            // y "de lado se pierden este/norte/sur". Eso es
+                            // z-fighting, no un problema de winding.
+                            //
+                            // Con vecinos a AMBOS lados de un eje la caja
+                            // llegaba a ocupar el voxel entero (medido:
+                            // X[0..1] Z[0..1]) y el sintoma se veia siempre.
+                            //
+                            // Se deja un margen minusculo: la union sigue
+                            // viendose continua (media milesima de bloque es
+                            // invisible) pero ya no hay dos planos peleando.
+                            constexpr float EPS = 0.0005f;
+
+                            const float bx0 = nf.uneXm ? EPS        : nf.minX;
+                            const float bx1 = nf.uneXp ? 1.0f - EPS : nf.maxX;
+                            const float by0 = nf.uneAbajo  ? EPS        : nf.minY;
+                            const float by1 = nf.uneArriba ? 1.0f - EPS : nf.maxY;
+                            const float bz0 = nf.uneZm ? EPS        : nf.minZ;
+                            const float bz1 = nf.uneZp ? 1.0f - EPS : nf.maxZ;
 
                             // Emite UNA cara de la caja, con sus 4 vertices en
                             // el orden que le da la normal correcta.
@@ -7488,6 +7516,7 @@ public:
                                 pushCara(bx0, by0, bz1,  bx1, by0, bz1,
                                          bx1, by0, bz0,  bx0, by0, bz0);
                             }
+
                         } else {
                             // Diagonal 1: esquina (lo,lo) -> (hi,hi)
                             pushQuad(lo, lo, hi, hi);

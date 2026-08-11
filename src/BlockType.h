@@ -96,6 +96,11 @@ enum BlockType {
     BLOCK_NOPAL_TALLO,           // 34 Tallo de nopal (bloque COMPLETO)
     BLOCK_NOPAL_CLADODIO,        // 35 Cladodio: sprite 3D atravesable
 
+    // El FRUTO (la tuna). Cambia de textura cuando esta pegado a un
+    // cladodio, conservando la misma forma: es el mismo bloque, solo se
+    // dibuja distinto segun el vecino.
+    BLOCK_NOPAL_FRUTO,           // 36 Nopal de Castilla (fruto)
+
     // ========================================================================
     // ITEMS
     // ========================================================================
@@ -127,7 +132,7 @@ enum BlockType {
 
 // Último bloque COLOCABLE de la lista ordenada (cladodio de nopal).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_CLADODIO;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_FRUTO;
 
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.

@@ -387,7 +387,8 @@ bool isNopal(BlockType type) {
            type == BLOCK_NOPAL_BASE_T_ARCILLA ||
            type == BLOCK_NOPAL_BASE_A_ARCILLA ||
            type == BLOCK_NOPAL_TALLO ||
-           type == BLOCK_NOPAL_CLADODIO;
+           type == BLOCK_NOPAL_CLADODIO ||
+           type == BLOCK_NOPAL_FRUTO;
 }
 
 // Las BASES y el TALLO son bloques COMPLETOS (solidos, con sus seis caras).
@@ -397,9 +398,11 @@ bool isNopalSolido(BlockType type) {
 }
 
 bool isCrossSprite(BlockType type) {
-    // Hierba corta y CLADODIO del nopal. Las bases y el tallo del nopal son
-    // bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró del juego.
-    return type == BLOCK_TALLGRASS || type == BLOCK_NOPAL_CLADODIO;
+    // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
+    // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
+    return type == BLOCK_TALLGRASS ||
+           type == BLOCK_NOPAL_CLADODIO ||
+           type == BLOCK_NOPAL_FRUTO;
 }
 
 // Suelos en los que arraiga el NOPAL: cualquier terreno natural blando.
@@ -451,6 +454,41 @@ bool esSueloParaNopal(BlockType type) {
     }
 }
 
+// ============================================================================
+// HITBOX DE LOS BLOQUES CON FORMA PROPIA
+// ============================================================================
+// Devuelve la caja de colision de un bloque en coordenadas LOCALES (0..1),
+// o false si ese bloque no necesita una caja especial.
+//
+// El CLADODIO y el FRUTO se dibujan como una losa vertical de 5/16 de grosor,
+// asi que su hitbox es esa misma losa y no el cubo entero: el jugador roza la
+// penca justo donde la ve, en vez de chocar contra aire.
+//
+// La losa se orienta igual que en el mesher (misma paridad de coordenadas),
+// para que lo que se dibuja y lo que se toca coincidan siempre.
+bool nopalHitbox(BlockType type, int wx, int wz,
+                 float& minX, float& minY, float& minZ,
+                 float& maxX, float& maxY, float& maxZ) {
+    if (type != BLOCK_NOPAL_CLADODIO && type != BLOCK_NOPAL_FRUTO) return false;
+
+    constexpr float GROSOR = 5.0f / 16.0f;
+    const float c0 = 0.5f - GROSOR * 0.5f;
+    const float c1 = 0.5f + GROSOR * 0.5f;
+    const float M  = 0.07f;          // el mismo margen lateral del sprite
+
+    const bool ejeX = (((wx * 7 + wz * 13) & 1) == 0);
+
+    minY = 0.0f; maxY = 1.0f;
+    if (ejeX) {
+        minX = M;  maxX = 1.0f - M;
+        minZ = c0; maxZ = c1;
+    } else {
+        minX = c0; maxX = c1;
+        minZ = M;  maxZ = 1.0f - M;
+    }
+    return true;
+}
+
 bool isBlockSolid(BlockType type) {
     // La vegetación en cruz NO tiene colisión: el jugador la atraviesa.
     // Sigue siendo seleccionable y rompible (eso lo decide el raycast, que
@@ -463,7 +501,7 @@ bool isBlockSolid(BlockType type) {
 bool isBlockOpaque(BlockType type) {
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
-    if (type == BLOCK_NOPAL_CLADODIO) return false;
+    if (type == BLOCK_NOPAL_CLADODIO || type == BLOCK_NOPAL_FRUTO) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
@@ -2595,7 +2633,8 @@ public:
         // Nopal de Castilla (la base tiene una variante por tipo de suelo)
         loadTexture("Tallo de Nopal de Castilla.png");
         loadTexture("Cladodio de Nopal de Castilla.png");
-        loadTexture("Nopal de Castilla.png");
+        loadTexture("Nopal de Castilla conectado al  Cladodio.png");
+        loadTexture("../Items/Nopal de Castilla.png");
         loadTexture("Tallo de Nopal de Castilla en pasto.png");
         loadTexture("Tallo de nopal de Castilla en tierra.png");
         loadTexture("Tallo de Nopal de castilla en arena.png");
@@ -2733,6 +2772,12 @@ public:
             // Cladodio: SPRITE 3D.
             case BLOCK_NOPAL_CLADODIO:
                 return getTexture("Cladodio de Nopal de Castilla.png");
+
+            // Fruto (tuna). Esta es la variante SUELTA; cuando toca un
+            // cladodio el mesher usa la textura "conectado" (misma forma,
+            // distinto dibujo).
+            case BLOCK_NOPAL_FRUTO:
+                return getTexture("../Items/Nopal de Castilla.png");
 
             // --- Bloques nuevos ---
             case BLOCK_LIMESTONE:
@@ -6992,6 +7037,36 @@ public:
                     if (isCrossSprite(block)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 0);
 
+                        // ================================================
+                        // FRUTO CONECTADO AL CLADODIO
+                        // ================================================
+                        // El fruto conserva SU FORMA (la misma losa) y solo
+                        // cambia de textura cuando esta pegado a un cladodio.
+                        // Se miran las 6 caras y las 2 diagonales verticales
+                        // del eje sobre el que se apoya, de modo que un mismo
+                        // fruto puede quedar conectado a hasta 8 cladodios a
+                        // la vez sin dejar de ser un solo bloque.
+                        if (block == BLOCK_NOPAL_FRUTO) {
+                            static const int VEC[8][3] = {
+                                { 1, 0, 0}, {-1, 0, 0},
+                                { 0, 1, 0}, { 0,-1, 0},
+                                { 0, 0, 1}, { 0, 0,-1},
+                                { 1, 0, 1}, {-1, 0,-1}
+                            };
+                            bool conectado = false;
+                            for (int i = 0; i < 8 && !conectado; ++i) {
+                                if (getNeighborBlockCached(x, y, z,
+                                        VEC[i][0], VEC[i][1], VEC[i][2])
+                                    == BLOCK_NOPAL_CLADODIO) {
+                                    conectado = true;
+                                }
+                            }
+                            if (conectado) {
+                                texture = g_textureManager->getTexture(
+                                    "Nopal de Castilla conectado al  Cladodio.png");
+                            }
+                        }
+
                         // Luz de la celda de la planta (transparente al cielo).
                         const float lightFactor = faceLightFactor(x, y, z, 0, 0, 0);
 
@@ -7077,9 +7152,10 @@ public:
                             uvCoords.push_back(U0); uvCoords.push_back(U0);
                         };
 
-                        if (block == BLOCK_NOPAL_CLADODIO) {
+                        if (block == BLOCK_NOPAL_CLADODIO ||
+                            block == BLOCK_NOPAL_FRUTO) {
                             // ============================================
-                            // CLADODIO: LOSA VERTICAL DE 5 PIXELES
+                            // CLADODIO Y FRUTO: LOSA VERTICAL DE 5 PIXELES
                             // ============================================
                             // NO es una cruz como la hierba. Una X parte el
                             // dibujo en dos diagonales y la penca deja de
@@ -16074,6 +16150,11 @@ int main() {
             BLOCK_AIR,         // placeholder de escalera
             false              // aún no existe un bloque escalera
         );
+        // Hitbox propia para los bloques que no llenan su voxel (cladodio y
+        // fruto del nopal): sin esto el jugador chocaria contra un cubo
+        // entero donde solo hay una penca de 5 pixeles.
+        g_worldQuery->setBlockBoxProvider(&nopalHitbox);
+
         g_playerController = new PlayerSys::PlayerController(g_worldQuery);
 
         // Heredar la configuración que el jugador ya tenía en los menús.

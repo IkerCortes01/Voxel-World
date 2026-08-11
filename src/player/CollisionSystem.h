@@ -103,7 +103,26 @@ private:
             for (int z = z0; z <= z1; ++z) {
                 for (int x = x0; x <= x1; ++x) {
                     ++queryCount;
-                    if (world->isSolid(x, y, z)) return true;
+
+                    // Caja REAL del bloque, no su voxel entero: hay bloques
+                    // que solo ocupan una parte (p. ej. el cladodio del nopal,
+                    // una losa de 5/16). Para un bloque normal esto devuelve
+                    // el cubo completo y el resultado es identico al de antes.
+                    float bx0, by0, bz0, bx1, by1, bz1;
+                    if (!world->getBlockBox(x, y, z, bx0, by0, bz0,
+                                                     bx1, by1, bz1)) continue;
+
+                    // A coordenadas de mundo.
+                    bx0 += (float)x; bx1 += (float)x;
+                    by0 += (float)y; by1 += (float)y;
+                    bz0 += (float)z; bz1 += (float)z;
+
+                    // Solape real entre el AABB del jugador y el del bloque.
+                    if (box.maxX > bx0 && box.minX < bx1 &&
+                        box.maxY > by0 && box.minY < by1 &&
+                        box.maxZ > bz0 && box.minZ < bz1) {
+                        return true;
+                    }
                 }
             }
         }

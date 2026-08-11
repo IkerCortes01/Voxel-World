@@ -43,6 +43,12 @@ private:
 
     // Predicados inyectados: el motor decide que es solido/liquido/escalable.
     bool (*solidFn)(TBlockEnum);
+
+    // Caja de colision propia de un bloque, en coordenadas locales (0..1).
+    // Opcional: si es nullptr, todo bloque solido ocupa su voxel entero.
+    // Sirve para bloques que no llenan el cubo, como el cladodio del nopal.
+    bool (*boxFn)(TBlockEnum, int, int,
+                  float&, float&, float&, float&, float&, float&);
     TBlockEnum waterBlock;
     TBlockEnum lavaBlock;
     TBlockEnum ladderBlock;
@@ -55,9 +61,16 @@ public:
                      TBlockEnum lava,
                      TBlockEnum ladder,
                      bool ladderExists)
-        : world(w), solidFn(isSolidFn),
+        : world(w), solidFn(isSolidFn), boxFn(nullptr),
           waterBlock(water), lavaBlock(lava),
           ladderBlock(ladder), hasLadderBlock(ladderExists) {}
+
+    // Instala el proveedor de cajas por bloque (ver boxFn).
+    void setBlockBoxProvider(
+        bool (*fn)(TBlockEnum, int, int,
+                   float&, float&, float&, float&, float&, float&)) {
+        boxFn = fn;
+    }
 
     void setWorld(TWorld* w) { world = w; }
 
@@ -75,6 +88,26 @@ public:
     bool isClimbable(int x, int y, int z) const override {
         if (!world || !hasLadderBlock) return false;
         return world->getBlock(x, y, z) == ladderBlock;
+    }
+
+    bool getBlockBox(int x, int y, int z,
+                     float& minX, float& minY, float& minZ,
+                     float& maxX, float& maxY, float& maxZ) const override {
+        if (!world) return false;
+        const TBlockEnum b = world->getBlock(x, y, z);
+
+        // Un bloque que NO frena al jugador no tiene caja de colision, por
+        // muy propia que sea su forma: el cladodio del nopal se atraviesa.
+        if (!solidFn(b)) return false;
+
+        // Bloque solido con forma propia: su caja real, no el voxel entero.
+        // Las coordenadas se pasan porque algunos bloques orientan su caja
+        // segun su posicion.
+        if (boxFn && boxFn(b, x, z, minX, minY, minZ, maxX, maxY, maxZ))
+            return true;
+        minX = 0.0f; minY = 0.0f; minZ = 0.0f;
+        maxX = 1.0f; maxY = 1.0f; maxZ = 1.0f;
+        return true;
     }
 };
 

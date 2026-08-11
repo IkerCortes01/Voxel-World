@@ -254,6 +254,26 @@ public:
     virtual bool isLiquid(int x, int y, int z) const = 0;
     // Escalera: permite ascenso vertical controlado.
     virtual bool isClimbable(int x, int y, int z) const = 0;
+
+    // ------------------------------------------------------------------------
+    // HITBOX POR BLOQUE
+    // ------------------------------------------------------------------------
+    // Casi todos los bloques ocupan su voxel entero, pero algunos no: el
+    // cladodio del nopal es una losa de 5/16 de grosor, y chocar contra un
+    // cubo completo donde solo hay una penca fina se siente mal.
+    //
+    // Devuelve false si el bloque no colisiona; si devuelve true, rellena la
+    // caja en COORDENADAS LOCALES del voxel (0..1 en cada eje). La
+    // implementacion por defecto es el cubo completo, asi que un motor que no
+    // necesite formas propias no tiene que tocar nada.
+    virtual bool getBlockBox(int x, int y, int z,
+                             float& minX, float& minY, float& minZ,
+                             float& maxX, float& maxY, float& maxZ) const {
+        if (!isSolid(x, y, z)) return false;
+        minX = 0.0f; minY = 0.0f; minZ = 0.0f;
+        maxX = 1.0f; maxY = 1.0f; maxZ = 1.0f;
+        return true;
+    }
 };
 
 // ----------------------------------------------------------------------------

@@ -7393,6 +7393,24 @@ public:
 
                             // Emite UNA cara de la caja, con sus 4 vertices en
                             // el orden que le da la normal correcta.
+                            // Emite UNA cara de la caja... y su gemela con el
+                            // orden de vertices INVERTIDO.
+                            //
+                            // POR QUE A DOBLE CARA: el render del mundo tiene
+                            // GL_CULL_FACE activo, asi que OpenGL DESCARTA
+                            // ENTERO cualquier quad cuyo winding no coincida
+                            // con el sentido esperado. Basta equivocarse en el
+                            // orden de una cara para que esa cara desaparezca
+                            // por completo: es exactamente el sintoma de "no
+                            // renderiza sus caras".
+                            //
+                            // Emitiendo las dos versiones, la cara se ve
+                            // SIEMPRE, mire el jugador desde donde mire y sin
+                            // depender de acertar el winding en las seis. El
+                            // coste es el doble de triangulos en una planta
+                            // pequena, que es irrelevante, y a cambio el
+                            // resultado es robusto: no puede volver a faltar
+                            // una cara.
                             auto pushCara = [&](float ax, float ay, float az,
                                                 float bx_, float by_, float bz_,
                                                 float cx_, float cy_, float cz_,
@@ -7402,7 +7420,20 @@ public:
                                 const float PZ[4] = { az, bz_, cz_, dz_ };
                                 const float U[4]  = { U0, U1, U1, U0 };
                                 const float V[4]  = { U0, U0, U1, U1 };
+
+                                // Sentido directo.
                                 for (int i = 0; i < 4; ++i) {
+                                    verts.push_back(wx + PX[i]);
+                                    verts.push_back(wy + PY[i]);
+                                    verts.push_back(wz + PZ[i]);
+                                    cols.push_back(cr); cols.push_back(cg);
+                                    cols.push_back(cb); cols.push_back(ca);
+                                    uvCoords.push_back(U[i]);
+                                    uvCoords.push_back(V[i]);
+                                }
+                                // Sentido inverso: la misma cara vista desde
+                                // el otro lado.
+                                for (int i = 3; i >= 0; --i) {
                                     verts.push_back(wx + PX[i]);
                                     verts.push_back(wy + PY[i]);
                                     verts.push_back(wz + PZ[i]);

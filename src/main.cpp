@@ -4731,6 +4731,23 @@ public:
             auto it = pendingBlocks.find(chunk->position);
             if (it != pendingBlocks.end()) {
                 for (const PendingBlock& pb : it->second) {
+                    // ⭐ UN ARBOL DE OTRO CHUNK NO PISA EL TERRENO
+                    //
+                    // Estos bloques son ramas/troncos/hojas que sobresalen
+                    // del chunk vecino. Se aplicaban SIN MIRAR que habia
+                    // debajo, asi que un arbol plantado junto a un rio o una
+                    // playa sobrescribia la arena, el agua o la grava con su
+                    // TRONCO: aparecian troncos incrustados en el cauce y en
+                    // la orilla, justo donde deberia haber bloque natural.
+                    //
+                    // Dentro de su propio chunk el arbol ya respeta lo que
+                    // hay (comprueba getBlock == BLOCK_AIR antes de escribir);
+                    // aqui faltaba esa misma comprobacion. El agua tambien se
+                    // respeta: un arbol no debe crecer dentro del rio.
+                    const BlockType actual =
+                        chunk->getBlock(pb.localX, pb.y, pb.localZ);
+                    if (actual != BLOCK_AIR) continue;
+
                     chunk->setBlock(pb.localX, pb.y, pb.localZ, pb.type);
                 }
                 pendingBlocks.erase(it);

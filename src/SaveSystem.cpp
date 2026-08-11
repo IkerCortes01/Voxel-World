@@ -1,5 +1,6 @@
 #include "SaveSystem.h"
 #include <iostream>
+#include <fstream>
 #include <filesystem>
 #include <cstring>
 #include <algorithm>
@@ -777,9 +778,43 @@ WorldSaveManager::~WorldSaveManager() {
 bool WorldSaveManager::initialize() {
     std::cout << "[WorldSaveManager] Initializing for world: " << worldName << std::endl;
 
+    // ========================================================================
+    // VERSION DEL MUNDO EN DISCO (para migrar los IDs de bloque)
+    // ========================================================================
+    // saveVersion se inicializaba SIEMPRE a SAVE_VERSION, sin mirar el disco:
+    // un mundo viejo se declaraba a si mismo "actual" y la migracion de IDs no
+    // se aplicaba nunca, asi que se cargaria con unos bloques cambiados por
+    // otros (el 11 era "tablones" y hoy es "grava").
+    //
+    // La version se guarda en un fichero propio. Si el mundo YA EXISTE pero no
+    // lo tiene, es anterior a la reordenacion de IDs.
+    {
+        const std::string versionFile = worldPath + "/save_version.txt";
+        const bool mundoExiste = fs::exists(worldPath + "/regions");
+
+        if (fs::exists(versionFile)) {
+            std::ifstream in(versionFile);
+            int v = 0;
+            if (in >> v && v > 0) saveVersion = v;
+            else                  saveVersion = SAVE_VERSION_LEGACY_IDS;
+        } else if (mundoExiste) {
+            saveVersion = SAVE_VERSION_LEGACY_IDS;   // mundo previo a la v3
+        } else {
+            saveVersion = SAVE_VERSION;              // mundo nuevo
+        }
+
+        if (saveVersion <= SAVE_VERSION_LEGACY_IDS) {
+            std::cout << "[WorldSaveManager] Mundo en formato v" << saveVersion
+                      << ": se migraran los IDs de bloque al cargar."
+                      << std::endl;
+        }
+    }
+
     // Create world directory
     fs::create_directories(worldPath);
     fs::create_directories(worldPath + "/regions");
+
+
 
     // Check for crash recovery
     journal.recover();
@@ -810,6 +845,15 @@ void WorldSaveManager::shutdown() {
 
     // Flush all regions
     flushAll();
+
+    // Sellar la version SOLO ahora: los chunks ya se han reescrito con los IDs
+    // nuevos. Hacerlo en initialize() era peligroso —si el juego se cerraba de
+    // golpe, quedaban chunks sin migrar pero el mundo ya figuraba como v3 y no
+    // se volverian a traducir nunca.
+    {
+        std::ofstream out(worldPath + "/save_version.txt", std::ios::trunc);
+        if (out) out << SAVE_VERSION << std::endl;
+    }
 
     std::cout << "[WorldSaveManager] Shutdown complete" << std::endl;
 }

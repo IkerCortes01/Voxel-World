@@ -279,6 +279,7 @@ struct Vec3i {
 // ============================================================================
 
 #include "BlockType.h"
+#include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "WorldName.h"
 
 // ============================================================================
@@ -342,6 +343,9 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_PLANKS:    r = 0.6f; g = 0.4f; b = 0.2f; break;    // Marrón claro
         case BLOCK_PLANKS_ENCINO: r = 0.55f; g = 0.36f; b = 0.18f; break; // Encino - algo más oscuro
         case BLOCK_PLANKS_OYAMEL: r = 0.68f; g = 0.50f; b = 0.30f; break; // Oyamel - más claro
+        case BLOCK_LIMESTONE: r = 0.85f; g = 0.83f; b = 0.75f; break;  // Caliza - crema
+        case BLOCK_CLAY_DIRT: r = 0.52f; g = 0.40f; b = 0.28f; break;  // Tierra arcillosa
+        case BLOCK_CLAY_SAND: r = 0.80f; g = 0.72f; b = 0.55f; break;  // Arena arcillosa
         case BLOCK_COAL_ORE:  r = 0.3f; g = 0.3f; b = 0.3f; break;    // Gris muy oscuro (común)
         case BLOCK_IRON_ORE:  r = 0.8f; g = 0.7f; b = 0.6f; break;    // Beige rosado (poco común)
         case BLOCK_GOLD_ORE:  r = 1.0f; g = 0.84f; b = 0.0f; break;   // Dorado brillante (poco común)
@@ -414,6 +418,9 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_PLANKS:    return 2.0f;   // Tablones - medio
         case BLOCK_PLANKS_ENCINO: return 2.0f;
         case BLOCK_PLANKS_OYAMEL: return 2.0f;
+        case BLOCK_LIMESTONE: return 1.6f;   // caliza - mas blanda que la piedra
+        case BLOCK_CLAY_DIRT: return 0.65f;  // tierra arcillosa - como la arcilla
+        case BLOCK_CLAY_SAND: return 0.55f;  // arena arcillosa - blanda
         case BLOCK_SCRAP_METAL: return 2.5f; // Metal desecho - medio-lento
         case BLOCK_LAVA:      return 0.0f;   // Lava - no se puede romper
         default:              return 1.0f;   // Por defecto
@@ -663,7 +670,8 @@ public:
         std::string soundName = "footstep_grass"; // Default
 
         // Piedra y minerales
-        if (blockType == BLOCK_STONE || blockType == BLOCK_COBBLESTONE || blockType == BLOCK_BEDROCK ||
+        if (blockType == BLOCK_STONE || blockType == BLOCK_COBBLESTONE ||
+            blockType == BLOCK_LIMESTONE ||
             blockType == BLOCK_COAL_ORE || blockType == BLOCK_IRON_ORE ||
             blockType == BLOCK_GOLD_ORE || blockType == BLOCK_SILVER_ORE ||
             blockType == BLOCK_DIAMOND_ORE || blockType == BLOCK_SCRAP_METAL || blockType == BLOCK_BRICKS) {
@@ -2497,6 +2505,11 @@ public:
         loadTexture("Tablones de Madera de Pino.png");   // BLOCK_PLANKS
         loadTexture("Tablones de Madera Encino.png");    // BLOCK_PLANKS_ENCINO
         loadTexture("Tablones de Madera de Oyame.png");  // BLOCK_PLANKS_OYAMEL
+        loadTexture("Piedra caliza.png");                // BLOCK_LIMESTONE
+        loadTexture("Tierra arcillosa.png");             // BLOCK_CLAY_DIRT
+        loadTexture("Arena arcillosa.png");              // BLOCK_CLAY_SAND
+        loadTexture("Mineral de Oro.png");               // BLOCK_GOLD_ORE
+        loadTexture("Mineral de Plata.png");             // BLOCK_SILVER_ORE
         // Los ITEMS (polvo de tierra, palo, hoz, carbón, zinc, cobre) NO se
         // precargan aquí: sus PNG viven en Textures/Items/, no en Blocks/, así
         // que estas llamadas fallaban siempre y sólo ensuciaban el log. Quien
@@ -2604,6 +2617,16 @@ public:
             case BLOCK_PLANKS_OYAMEL:
                 return getTexture("Tablones de Madera de Oyame.png");
 
+            // --- Bloques nuevos ---
+            case BLOCK_LIMESTONE:
+                return getTexture("Piedra caliza.png");
+
+            case BLOCK_CLAY_DIRT:
+                return getTexture("Tierra arcillosa.png");
+
+            case BLOCK_CLAY_SAND:
+                return getTexture("Arena arcillosa.png");
+
             // ⭐ ITEMS: sus PNG viven en Textures/Items/, NO en Blocks/.
             // Estas rutas apuntaban a Blocks/ y los archivos ya no estan ahi,
             // asi que devolvian 0 y el item salia sin textura. Se cargan desde
@@ -2629,13 +2652,15 @@ public:
                 return getTexture("Mineral de Carbon.png");
 
             case BLOCK_IRON_ORE:
-                return getTexture("Piedra.png"); // Temporal
+                return getTexture("Piedra.png"); // sin implementar
 
+            // Oro y plata ya tienen su PNG propio: hasta ahora usaban la
+            // textura de la piedra como marcador temporal y no se distinguian.
             case BLOCK_GOLD_ORE:
-                return getTexture("Piedra.png"); // Temporal
+                return getTexture("Mineral de Oro.png");
 
             case BLOCK_SILVER_ORE:
-                return getTexture("Piedra.png"); // Temporal
+                return getTexture("Mineral de Plata.png");
 
             case BLOCK_DIAMOND_ORE:
                 return getTexture("Mineral de Diamante.png");
@@ -3968,6 +3993,11 @@ private:
     std::unique_ptr<WorldSaveManager> saveManager;
     bool useAAASystem;  // Flag to use new save system
 
+    // ⭐ ¿Este mundo se guardo con los IDs de bloque ANTIGUOS (antes de
+    // reordenarlos)? Si es asi, hay que traducirlos al cargar cada chunk o el
+    // mundo apareceria con unos bloques cambiados por otros.
+    bool legacyBlockIds = false;
+
     // ⭐⭐⭐ ADVANCED CHUNK CACHING SYSTEM ⭐⭐⭐
     struct ChunkCacheEntry {
         Chunk* chunk;
@@ -4226,6 +4256,33 @@ public:
         currentWorldPath = path;
         std::cout << "Ruta del mundo configurada: " << path << std::endl;
 
+        // ⭐ ¿Mundo guardado con los IDs de bloque VIEJOS?
+        // El marcador save_version.txt lo escribe el juego al cerrar. Si el
+        // mundo ya tiene datos pero no marcador, es anterior a la reordenacion
+        // de IDs y hay que traducir cada chunk al cargarlo.
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            const fs::path base(path);
+            const bool tieneDatos = fs::exists(base / "regions", ec) ||
+                                    fs::exists(base / "chunks",  ec);
+            const fs::path marcador = base / "save_version.txt";
+
+            int version = 0;
+            if (fs::exists(marcador, ec)) {
+                std::ifstream in(marcador.string());
+                if (!(in >> version)) version = 0;
+            }
+
+            legacyBlockIds = tieneDatos &&
+                             (version <= VoxelWorld::SaveSystem::SAVE_VERSION_LEGACY_IDS);
+
+            if (legacyBlockIds) {
+                std::cout << "Mundo en formato antiguo: se traduciran los IDs "
+                             "de bloque al cargar." << std::endl;
+            }
+        }
+
         // ⭐ Initialize AAA Save System
         if (useAAASystem && !saveManager) {
             std::string worldName = std::filesystem::path(path).filename().string();
@@ -4344,6 +4401,16 @@ public:
             // siempre); de ahí pasa a la paleta, la única fuente de verdad.
             std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
             if (saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata)) {
+                // ⭐ MUNDOS ANTIGUOS: los IDs de bloque se reordenaron, asi que
+                // un chunk guardado con el formato viejo trae numeros que hoy
+                // significan otra cosa (el 11 era "tablones" y ahora es
+                // "grava"). Se traducen antes de tocar la paleta.
+                if (saveManager->getSaveVersion() <= SAVE_VERSION_LEGACY_IDS) {
+                    for (auto& b : raw) {
+                        b = BlockCompat::fromLegacy((uint16_t)b);
+                    }
+                }
+
                 chunk->importBlocks(raw.data());
 
                 chunk->isGenerated = true;
@@ -7973,6 +8040,14 @@ public:
                 return false;
             }
 
+            // ⭐ Misma migracion de IDs que en la ruta del WorldSaveManager:
+            // esta via (chunks sueltos en disco) tambien lee mundos escritos
+            // con el orden viejo. Aqui no hay cabecera de version, asi que se
+            // usa la del mundo (marcador save_version.txt).
+            if (legacyBlockIds) {
+                for (auto& b : raw) b = BlockCompat::fromLegacy((uint16_t)b);
+            }
+
             chunk->importBlocks(raw.data());
 
             chunk->isGenerated = true;
@@ -8089,6 +8164,21 @@ public:
         if (chunksToSave.empty()) {
             // Silencioso - no molestar si no hay nada que guardar
             return;
+        }
+
+        // ⭐ Un guardado COMPLETO reescribe los chunks con los IDs nuevos, asi
+        // que a partir de aqui el mundo ya esta en el formato actual: se sella
+        // la version y se deja de traducir en las cargas siguientes.
+        // En el autosave (solo modificados) NO se sella: quedarian chunks sin
+        // reescribir y dejarian de migrarse.
+        if (!asyncOnlyModified && legacyBlockIds) {
+            std::ofstream out((std::filesystem::path(worldPath) /
+                               "save_version.txt").string(), std::ios::trunc);
+            if (out) {
+                out << VoxelWorld::SaveSystem::SAVE_VERSION << std::endl;
+                legacyBlockIds = false;
+                std::cout << "Mundo migrado al formato de IDs actual." << std::endl;
+            }
         }
 
         // Contar cuántos están realmente modificados
@@ -8797,6 +8887,7 @@ inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
             return Audio::StepMaterial::Stone;
 
         case BLOCK_SAND:
+        case BLOCK_CLAY_SAND:
             return Audio::StepMaterial::Sand;
 
         case BLOCK_GRAVEL:
@@ -16284,12 +16375,12 @@ int main() {
                     // centinela que el consumo reconoce para no decrementar
                     // nunca (ver Inventory::consumeSelected).
                     int creativeCount = 0;
-                    for (int id = 1; id <= (int)BLOCK_TYPE_MAX; ++id) {
+                    // Solo BLOQUES COLOCABLES: el recorrido llega hasta
+                    // BLOCK_LAST_PLACEABLE, asi que los items (palo, hoz,
+                    // carbon...) y los bloques retirados/sin implementar que
+                    // viven despues en el enum ya no entran.
+                    for (int id = 1; id <= BLOCK_LAST_PLACEABLE; ++id) {
                         const BlockType bt = (BlockType)id;
-
-                        // La flor naranja se retiró del juego (usaba la
-                        // textura de la lava).
-                        if (bt == BLOCK_ORANGE_FLOWER) continue;
 
                         if (creativeCount >= Inventory::SLOTS) break;
 
@@ -17045,6 +17136,11 @@ int main() {
                     case BLOCK_PLANKS: blockName = "TABLONES DE PINO"; break;
                     case BLOCK_PLANKS_ENCINO: blockName = "TABLONES DE ENCINO"; break;
                     case BLOCK_PLANKS_OYAMEL: blockName = "TABLONES DE OYAMEL"; break;
+                    case BLOCK_LIMESTONE: blockName = "PIEDRA CALIZA"; break;
+                    case BLOCK_GOLD_ORE: blockName = "MINERAL DE ORO"; break;
+                    case BLOCK_SILVER_ORE: blockName = "MINERAL DE PLATA"; break;
+                    case BLOCK_CLAY_DIRT: blockName = "TIERRA ARCILLOSA"; break;
+                    case BLOCK_CLAY_SAND: blockName = "ARENA ARCILLOSA"; break;
                     case BLOCK_WOOD_ENCINO: blockName = "MADERA DE ENCINO"; break;
                     case BLOCK_WOOD_OYAMEL: blockName = "MADERA DE OYAMEL"; break;
                     case BLOCK_LEAVES_ENCINO: blockName = "HOJAS DE ENCINO"; break;

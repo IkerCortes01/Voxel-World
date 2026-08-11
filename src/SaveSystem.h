@@ -37,7 +37,11 @@ namespace SaveSystem {
 
 // Version 1: RLE sin escape (corrompe datos con bytes 0xFF) + CRC32 defectuoso.
 // Version 2: RLE con escape de 0xFF + CRC32 estándar. Lectura compatible con v1.
-constexpr int SAVE_VERSION = 2;                    // Current save format version
+// Version 3: IDs de bloque REORDENADOS (agrupados por familia). Los mundos v1/v2
+//            se traducen al cargar con BlockCompat::fromLegacy(); sin eso, un
+//            mundo viejo aparecería con unos bloques cambiados por otros.
+constexpr int SAVE_VERSION = 3;                    // Current save format version
+constexpr int SAVE_VERSION_LEGACY_IDS = 2;         // <= esta version usa IDs viejos
 constexpr int REGION_SIZE = 32;                    // 32x32 chunks per region file
 constexpr int CHUNK_HEADER_SIZE = 8;               // Chunk header: 4 bytes offset + 4 bytes size
 constexpr int SECTOR_SIZE = 4096;                  // 4KB sectors (standard disk block)

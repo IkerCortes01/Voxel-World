@@ -11,45 +11,54 @@
 // BIOME_TABLE. Ningun otro modulo necesita cambiar: el selector de biomas,
 // el generador de superficie y el decorador leen todos desde este registro.
 //
-// IDs DE BLOQUE: coinciden con el enum BlockType de main.cpp. Se replican
-// aqui como constantes con nombre para que el modulo de terreno no dependa
-// de main.cpp (evita una dependencia circular) y para que el mapeo sea
-// explicito y auditable.
+// IDs DE BLOQUE: se toman DIRECTAMENTE del enum BlockType (BlockType.h).
 // ============================================================================
+
+#include "../BlockType.h"
 
 namespace TerrainGen {
 
 // ----------------------------------------------------------------------------
-// IDs de bloque (espejo de BlockType en main.cpp)
+// IDs de bloque
 // ----------------------------------------------------------------------------
-// VERIFICADO contra main.cpp:142-176. Si el enum de main.cpp cambia de orden,
-// hay que actualizar estas constantes.
+// ⭐ Antes esto era una copia A MANO de los numeros del enum, con un comentario
+// que avisaba "si el enum cambia de orden, hay que actualizar estas
+// constantes". Al reordenar los IDs nadie lo hizo, y el generador empezo a
+// escribir bloques equivocados: pedia SAND=6 y el 6 habia pasado a ser
+// "tronco de oyamel", COBBLESTONE=10 y el 10 era "arena"... con lo que las
+// playas salian de piedra labrada y el terreno de troncos.
+//
+// Ahora cada constante se DERIVA del enum: si manana se reordena otra vez,
+// estos valores se actualizan solos y el fallo no puede repetirse.
 namespace Blocks {
-    constexpr uint8_t AIR          = 0;
-    constexpr uint8_t GRASS        = 1;
-    constexpr uint8_t DIRT         = 2;
-    constexpr uint8_t STONE        = 3;
-    constexpr uint8_t WOOD         = 4;
-    constexpr uint8_t LEAVES       = 5;
-    constexpr uint8_t SAND         = 6;
-    constexpr uint8_t WATER        = 7;
-    constexpr uint8_t TALLGRASS    = 8;
-    constexpr uint8_t BEDROCK      = 9;
-    constexpr uint8_t COBBLESTONE  = 10;
-    constexpr uint8_t GRAVEL       = 16;
-    constexpr uint8_t ORANGE_FLOWER= 17;
-    constexpr uint8_t SNOW         = 18;
-    constexpr uint8_t LAVA         = 20;
-    // Arcilla: añadida al final del enum de main.cpp.
-    // ID 30 (verificado contando el enum: AIR=0 ... RAW_COPPER=29, CLAY=30).
-    constexpr uint8_t CLAY         = 30;
+    constexpr uint8_t AIR          = (uint8_t)BLOCK_AIR;
+    constexpr uint8_t GRASS        = (uint8_t)BLOCK_GRASS;
+    constexpr uint8_t DIRT         = (uint8_t)BLOCK_DIRT;
+    constexpr uint8_t STONE        = (uint8_t)BLOCK_STONE;
+    constexpr uint8_t WOOD         = (uint8_t)BLOCK_WOOD;
+    constexpr uint8_t LEAVES       = (uint8_t)BLOCK_LEAVES;
+    constexpr uint8_t SAND         = (uint8_t)BLOCK_SAND;
+    constexpr uint8_t WATER        = (uint8_t)BLOCK_WATER;
+    constexpr uint8_t TALLGRASS    = (uint8_t)BLOCK_TALLGRASS;
+    constexpr uint8_t BEDROCK      = (uint8_t)BLOCK_BEDROCK;
+    constexpr uint8_t COBBLESTONE  = (uint8_t)BLOCK_COBBLESTONE;
+    constexpr uint8_t GRAVEL       = (uint8_t)BLOCK_GRAVEL;
+    constexpr uint8_t SNOW         = (uint8_t)BLOCK_SNOW;
+    constexpr uint8_t LAVA         = (uint8_t)BLOCK_LAVA;
+    constexpr uint8_t CLAY         = (uint8_t)BLOCK_CLAY;
 
     // Minerales
-    constexpr uint8_t COAL_ORE     = 14;
-    constexpr uint8_t DIAMOND_ORE  = 15;
-    constexpr uint8_t IRON_ORE     = 21;
-    constexpr uint8_t GOLD_ORE     = 22;
-    constexpr uint8_t SILVER_ORE   = 23;
+    constexpr uint8_t COAL_ORE     = (uint8_t)BLOCK_COAL_ORE;
+    constexpr uint8_t DIAMOND_ORE  = (uint8_t)BLOCK_DIAMOND_ORE;
+    constexpr uint8_t IRON_ORE     = (uint8_t)BLOCK_IRON_ORE;
+    constexpr uint8_t GOLD_ORE     = (uint8_t)BLOCK_GOLD_ORE;
+    constexpr uint8_t SILVER_ORE   = (uint8_t)BLOCK_SILVER_ORE;
+    constexpr uint8_t SCRAP_METAL  = (uint8_t)BLOCK_SCRAP_METAL;
+
+    // Bloques nuevos
+    constexpr uint8_t LIMESTONE    = (uint8_t)BLOCK_LIMESTONE;
+    constexpr uint8_t CLAY_DIRT    = (uint8_t)BLOCK_CLAY_DIRT;
+    constexpr uint8_t CLAY_SAND    = (uint8_t)BLOCK_CLAY_SAND;
 }
 
 // ----------------------------------------------------------------------------

@@ -4373,6 +4373,50 @@ public:
         return nullptr;
     }
 
+    // ¿Este chunk se grabo con el generador que escribia bloques
+    // equivocados? Se busca un patron IMPOSIBLE en terreno sano.
+    //
+    // Un arbol normal tiene unas decenas de bloques de tronco en un chunk.
+    // El generador roto usaba el tronco de oyamel COMO RELLENO DE TERRENO
+    // (creia que el id 6 era arena), asi que aparecian miles, y ademas
+    // enterrados: con bloques solidos justo encima, cosa que a un tronco de
+    // arbol no le pasa.
+    //
+    // El umbral es deliberadamente ALTO para no tocar jamas un mundo sano ni
+    // una construccion de madera del jugador.
+    static bool chunkTerrenoCorrupto(const std::vector<BlockType>& raw) {
+        auto idx = [](int x, int y, int z) {
+            return (x * CHUNK_HEIGHT + y) * CHUNK_SIZE + z;
+        };
+
+        // Se cuenta el VOLUMEN TOTAL de troncos del chunk. Un bosque, por
+        // denso que sea, deja unos cientos de bloques de tronco; el generador
+        // roto rellenaba el subsuelo entero con ellos, lo que da decenas de
+        // miles. Entre ambos casos hay dos ordenes de magnitud, asi que el
+        // umbral no necesita ser fino.
+        long troncos = 0;
+        long troncosBajoTierra = 0;   // por debajo de y=40 no crecen arboles
+
+        for (int x = 0; x < CHUNK_SIZE; ++x) {
+            for (int z = 0; z < CHUNK_SIZE; ++z) {
+                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                    const BlockType b = raw[idx(x, y, z)];
+                    if (b != BLOCK_WOOD_OYAMEL && b != BLOCK_WOOD_ENCINO &&
+                        b != BLOCK_WOOD) continue;
+                    ++troncos;
+                    if (y < 40) ++troncosBajoTierra;
+                }
+            }
+        }
+
+        // Dos señales independientes, ambas imposibles en un mundo sano:
+        //  - Un macizo enorme de madera (el subsuelo relleno de troncos).
+        //  - Troncos a profundidad de roca madre, donde no crece nada.
+        // Una construccion del jugador no llega a estas cifras salvo que
+        // llene un chunk entero de madera a mano, y ni asi bajo tierra.
+        return troncos > 3000 || troncosBajoTierra > 1500;
+    }
+
     Chunk* getOrCreateChunk(const Vec3i& chunkPos) {
         // ⭐⭐⭐ PASO 1: Verificar si ya está cargado
         Chunk* chunk = getChunk(chunkPos);
@@ -4411,6 +4455,26 @@ public:
                     }
                 }
 
+                // ⭐ CHUNK CON TERRENO CORRUPTO
+                // Hubo una version en la que el generador escribia bloques
+                // equivocados (pedia "arena" y salia un TRONCO DE OYAMEL,
+                // pedia "piedra labrada" y salia arena) porque tenia los IDs
+                // copiados a mano y se quedaron obsoletos al reordenarlos.
+                // Los chunks generados en ese rato quedaron MAL GRABADOS en
+                // disco: la migracion no los arregla, porque no son "mundos
+                // viejos" sino datos escritos incorrectamente.
+                //
+                // Se detectan por un patron imposible en terreno sano
+                // (macizos de tronco/hojas como suelo) y se REGENERAN.
+                if (chunkTerrenoCorrupto(raw)) {
+                    std::cout << "Chunk (" << chunkPos.x << "," << chunkPos.z
+                              << ") con terreno corrupto: regenerando."
+                              << std::endl;
+                    deallocateChunk(chunk);
+                    chunk = nullptr;
+                    loaded = false;
+                } else {
+
                 chunk->importBlocks(raw.data());
 
                 chunk->isGenerated = true;
@@ -4425,6 +4489,7 @@ public:
                 auto loadEnd = std::chrono::high_resolution_clock::now();
                 float loadTimeMs = std::chrono::duration<float, std::milli>(loadEnd - loadStart).count();
                 perfMetrics.avgLoadTimeMs = (perfMetrics.avgLoadTimeMs * 0.95f) + (loadTimeMs * 0.05f);
+                }   // fin del else de chunkTerrenoCorrupto
             } else {
                 // No se pudo cargar, devolver al pool
                 deallocateChunk(chunk);

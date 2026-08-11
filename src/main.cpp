@@ -2856,7 +2856,22 @@ struct Chunk {
         int vertexCount;
         GLuint texture;
 
-        TextureBatch() : vbo(0), colorVBO(0), uvVBO(0), vertexCount(0), texture(0) {}
+        // ⭐ ¿Este batch es agua/lava (se dibuja en el pase con blending)?
+        //
+        // Antes el render lo deducia comparando el ID de textura del batch
+        // con getWaterTexture(). Eso es fragil: el mesher guarda el FRAME
+        // ANIMADO del agua (getCurrentWaterFrame) mientras que el render
+        // comparaba con la textura BASE ("Agua.png"). En cuanto ambas dejan
+        // de coincidir —basta con que la animacion tenga mas de un frame— el
+        // agua no se reconoce como transparente y se dibuja en el pase
+        // OPACO: aparecen placas azules solidas tapando el terreno.
+        //
+        // El tipo de bloque es el dato real, asi que se guarda al construir
+        // el mesh y el render ya no tiene que adivinar nada.
+        bool transparente;
+
+        TextureBatch() : vbo(0), colorVBO(0), uvVBO(0), vertexCount(0), texture(0),
+                         transparente(false) {}
 
         ~TextureBatch() {
             if (vbo) glDeleteBuffers(1, &vbo);
@@ -6187,6 +6202,11 @@ public:
         std::map<GLuint, std::vector<float>> colorsByTexture;
         std::map<GLuint, std::vector<float>> uvsByTexture;
 
+        // Texturas que corresponden a bloques transparentes (agua/lava). Se
+        // anotan aqui, al construir, en lugar de que el render intente
+        // deducirlo comparando IDs de textura (ver TextureBatch::transparente).
+        std::set<GLuint> texturasTransparentes;
+
         int facesRendered = 0;  // Contador para debug
 
         // OPTIMIZACIÓN: Reset texture bind cache para este chunk
@@ -6366,6 +6386,15 @@ public:
                     // teñir ni transparencia.
                     bool isTransparent = isWater;
                     float uvAnimOffset = 0.0f; // Sin offset - la animación se maneja en el render
+
+                    // Anotar la textura del agua como transparente para que el
+                    // render la mande al pase con blending. Se registra la
+                    // textura REAL que usara el batch (el frame animado), asi
+                    // que la clasificacion no puede desincronizarse.
+                    if (isTransparent) {
+                        texturasTransparentes.insert(
+                            g_textureManager->getBlockTexture(block, 0));
+                    }
 
                     if (isWater) {
                         // Color azulado semi-transparente para agua
@@ -6981,6 +7010,8 @@ public:
             Chunk::TextureBatch* batch = new Chunk::TextureBatch();
             batch->texture = texture;
             batch->vertexCount = expectedVertCount;
+            batch->transparente =
+                (texturasTransparentes.find(texture) != texturasTransparentes.end());
 
             // Generar VBOs para este batch
             glGenBuffers(1, &batch->vbo);
@@ -7717,9 +7748,10 @@ public:
                     continue;
                 }
 
-                // ⭐ PASE 1: Saltar agua/lava, solo bloques opacos
-                bool isTransparentBatch = (batch->texture == waterTexture || batch->texture == lavaTexture);
-                if (isTransparentBatch) continue;  // Skip agua/lava en este pase
+                // ⭐ PASE 1: Saltar agua, solo bloques opacos.
+                // Se usa la marca guardada al construir el mesh, no una
+                // comparacion de IDs de textura (ver TextureBatch::transparente).
+                if (batch->transparente) continue;
 
                 // Bind textura para este batch (optimizado con cache)
                 g_textureManager->bindOptimized(batch->texture);
@@ -7767,9 +7799,8 @@ public:
                 if (batch->vertexCount % 4 != 0) continue;
                 if (batch->texture == 0) continue;
 
-                // ⭐ PASE 2: Solo renderizar agua/lava
-                bool isTransparentBatch = (batch->texture == waterTexture || batch->texture == lavaTexture);
-                if (!isTransparentBatch) continue;  // Skip bloques opacos en este pase
+                // ⭐ PASE 2: Solo el agua (marca del mesh, no comparar IDs).
+                if (!batch->transparente) continue;
 
                 // Bind textura para este batch (optimizado con cache)
                 g_textureManager->bindOptimized(batch->texture);

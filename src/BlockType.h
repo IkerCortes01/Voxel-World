@@ -58,10 +58,15 @@ enum BlockType {
     BLOCK_WOOD_ENCINO,    // Tronco de encino
     BLOCK_LEAVES_ENCINO,  // Hojas de encino
     BLOCK_WOOD_OYAMEL,    // Tronco de oyamel
-    BLOCK_LEAVES_OYAMEL   // Hojas de oyamel
+    BLOCK_LEAVES_OYAMEL,  // Hojas de oyamel
+
+    // Tablones por especie. BLOCK_PLANKS es el tablon de PINO (el original).
+    // Al final del enum, como siempre, para no desplazar los IDs ya guardados.
+    BLOCK_PLANKS_ENCINO,  // Tablones de encino
+    BLOCK_PLANKS_OYAMEL   // Tablones de oyamel
 };
 
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_LEAVES_OYAMEL;
+constexpr int BLOCK_TYPE_MAX = BLOCK_PLANKS_OYAMEL;

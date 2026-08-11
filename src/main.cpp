@@ -340,6 +340,8 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_SNOW:      r = 0.95f; g = 0.95f; b = 1.0f; break;  // Color blanco con tono azul
         case BLOCK_COBBLESTONE: r = 0.4f; g = 0.4f; b = 0.4f; break;  // Gris oscuro
         case BLOCK_PLANKS:    r = 0.6f; g = 0.4f; b = 0.2f; break;    // Marrón claro
+        case BLOCK_PLANKS_ENCINO: r = 0.55f; g = 0.36f; b = 0.18f; break; // Encino - algo más oscuro
+        case BLOCK_PLANKS_OYAMEL: r = 0.68f; g = 0.50f; b = 0.30f; break; // Oyamel - más claro
         case BLOCK_COAL_ORE:  r = 0.3f; g = 0.3f; b = 0.3f; break;    // Gris muy oscuro (común)
         case BLOCK_IRON_ORE:  r = 0.8f; g = 0.7f; b = 0.6f; break;    // Beige rosado (poco común)
         case BLOCK_GOLD_ORE:  r = 1.0f; g = 0.84f; b = 0.0f; break;   // Dorado brillante (poco común)
@@ -410,6 +412,8 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_SNOW:      return 0.2f;   // Nieve - muy rápido
         case BLOCK_COBBLESTONE: return 2.0f; // Piedra labrada - medio
         case BLOCK_PLANKS:    return 2.0f;   // Tablones - medio
+        case BLOCK_PLANKS_ENCINO: return 2.0f;
+        case BLOCK_PLANKS_OYAMEL: return 2.0f;
         case BLOCK_SCRAP_METAL: return 2.5f; // Metal desecho - medio-lento
         case BLOCK_LAVA:      return 0.0f;   // Lava - no se puede romper
         default:              return 1.0f;   // Por defecto
@@ -666,7 +670,9 @@ public:
             soundName = "footstep_stone";
         }
         // Madera
-        else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS) {
+        else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS ||
+                 blockType == BLOCK_WOOD_ENCINO || blockType == BLOCK_WOOD_OYAMEL ||
+                 blockType == BLOCK_PLANKS_ENCINO || blockType == BLOCK_PLANKS_OYAMEL) {
             soundName = "footstep_wood";
         }
         // Arena
@@ -708,11 +714,14 @@ public:
             soundName = "break_ore";
         }
         // Madera
-        else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS) {
+        else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS ||
+                 blockType == BLOCK_WOOD_ENCINO || blockType == BLOCK_WOOD_OYAMEL ||
+                 blockType == BLOCK_PLANKS_ENCINO || blockType == BLOCK_PLANKS_OYAMEL) {
             soundName = "break_wood";
         }
         // Hojas (sonido único)
-        else if (blockType == BLOCK_LEAVES) {
+        else if (blockType == BLOCK_LEAVES || blockType == BLOCK_LEAVES_ENCINO ||
+                 blockType == BLOCK_LEAVES_OYAMEL) {
             soundName = "break_leaves";
         }
         // Arena
@@ -2486,6 +2495,8 @@ public:
         loadTexture("nieve.png");              // BLOCK_SNOW
         loadTexture("Piedra Labrada.png");     // BLOCK_COBBLESTONE (textura mejorada)
         loadTexture("Tablones de Madera de Pino.png");   // BLOCK_PLANKS
+        loadTexture("Tablones de Madera Encino.png");    // BLOCK_PLANKS_ENCINO
+        loadTexture("Tablones de Madera de Oyame.png");  // BLOCK_PLANKS_OYAMEL
         // Los ITEMS (polvo de tierra, palo, hoz, carbón, zinc, cobre) NO se
         // precargan aquí: sus PNG viven en Textures/Items/, no en Blocks/, así
         // que estas llamadas fallaban siempre y sólo ensuciaban el log. Quien
@@ -2585,6 +2596,13 @@ public:
 
             case BLOCK_PLANKS:
                 return getTexture("Tablones de Madera de Pino.png");
+
+            // Nombres tal cual estan en disco: uno lleva "de" y el otro no.
+            case BLOCK_PLANKS_ENCINO:
+                return getTexture("Tablones de Madera Encino.png");
+
+            case BLOCK_PLANKS_OYAMEL:
+                return getTexture("Tablones de Madera de Oyame.png");
 
             // ⭐ ITEMS: sus PNG viven en Textures/Items/, NO en Blocks/.
             // Estas rutas apuntaban a Blocks/ y los archivos ya no estan ahi,
@@ -3565,6 +3583,19 @@ public:
             recipes.push_back(recipe);
         }
 
+        // Cada especie da SU tablon: el encino produce tablones de encino y
+        // el oyamel los suyos, igual que el pino con BLOCK_PLANKS.
+        {
+            CraftingRecipe recipe(BLOCK_PLANKS_ENCINO, 6, true);
+            recipe.pattern[0] = BLOCK_WOOD_ENCINO;
+            recipes.push_back(recipe);
+        }
+        {
+            CraftingRecipe recipe(BLOCK_PLANKS_OYAMEL, 6, true);
+            recipe.pattern[0] = BLOCK_WOOD_OYAMEL;
+            recipes.push_back(recipe);
+        }
+
         // ⭐ NUEVO: 1 Dirt = 1 Dirt Powder (procesar tierra)
         {
             CraftingRecipe recipe(BLOCK_DIRT_POWDER, 1, true);
@@ -3586,6 +3617,24 @@ public:
             recipe.pattern[0] = BLOCK_PLANKS;
             recipe.pattern[3] = BLOCK_PLANKS;
             recipes.push_back(recipe);
+        }
+
+        // Los tablones de encino y oyamel sirven igual que los de pino para
+        // palos y hoz. Las recetas comparan el bloque exacto, asi que cada
+        // especie necesita su propia entrada.
+        for (BlockType tablon : { BLOCK_PLANKS_ENCINO, BLOCK_PLANKS_OYAMEL }) {
+            {
+                CraftingRecipe recipe(BLOCK_STICK, 8, false);
+                recipe.pattern[1] = tablon;
+                recipe.pattern[4] = tablon;
+                recipes.push_back(recipe);
+            }
+            {
+                CraftingRecipe recipe(BLOCK_HOE, 1, false);
+                recipe.pattern[0] = tablon;
+                recipe.pattern[3] = tablon;
+                recipes.push_back(recipe);
+            }
         }
 
         // 3 Planks (fila superior) = Wooden Pickaxe (representado con 3 planks)
@@ -8755,6 +8804,10 @@ inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
 
         case BLOCK_WOOD:
         case BLOCK_PLANKS:
+        case BLOCK_PLANKS_ENCINO:
+        case BLOCK_PLANKS_OYAMEL:
+        case BLOCK_WOOD_ENCINO:
+        case BLOCK_WOOD_OYAMEL:
             return Audio::StepMaterial::Wood;
 
         case BLOCK_SNOW:
@@ -16989,6 +17042,13 @@ int main() {
                     case BLOCK_GRAVEL: blockName = "GRAVA"; break;
                     case BLOCK_CLAY: blockName = "ARCILLA"; break;
                     case BLOCK_ORANGE_FLOWER: blockName = "FLOR NARANJA"; break;
+                    case BLOCK_PLANKS: blockName = "TABLONES DE PINO"; break;
+                    case BLOCK_PLANKS_ENCINO: blockName = "TABLONES DE ENCINO"; break;
+                    case BLOCK_PLANKS_OYAMEL: blockName = "TABLONES DE OYAMEL"; break;
+                    case BLOCK_WOOD_ENCINO: blockName = "MADERA DE ENCINO"; break;
+                    case BLOCK_WOOD_OYAMEL: blockName = "MADERA DE OYAMEL"; break;
+                    case BLOCK_LEAVES_ENCINO: blockName = "HOJAS DE ENCINO"; break;
+                    case BLOCK_LEAVES_OYAMEL: blockName = "HOJAS DE OYAMEL"; break;
                     default: break;
                 }
 

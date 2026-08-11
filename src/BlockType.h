@@ -77,16 +77,24 @@ enum BlockType {
     // ------------------------------------------------------------------
     // NOPAL DE CASTILLA
     // ------------------------------------------------------------------
-    // Se guardan como bloques distintos porque cada parte usa su propia
-    // textura y su propia altura de sprite:
-    //   BASE     - el tallo que arranca del suelo. Tiene una variante por
-    //              tipo de terreno (pasto, tierra, arena...) para fundirse
-    //              con el bloque de abajo.
-    //   TALLO    - el tronco carnoso que crece sobre la base.
-    //   CLADODIO - las pencas ovaladas que salen a los lados.
-    BLOCK_NOPAL_BASE,       // 29 Tallo de nopal a ras de suelo
-    BLOCK_NOPAL_TALLO,      // 30 Tallo de nopal
-    BLOCK_NOPAL_CLADODIO,   // 31 Cladodio (penca)
+    // La planta se compone de tres piezas:
+    //   BASE     - bloque COMPLETO donde el tallo arranca del suelo. Su
+    //              textura lleva el terreno incrustado, por eso hay una
+    //              variante por tipo de suelo.
+    //   TALLO    - bloque COMPLETO: la columna carnosa que sube.
+    //   CLADODIO - SPRITE 3D atravesable: las pencas que salen a los lados.
+    //
+    // BASES: bloques COMPLETOS. Cada una lleva el terreno en su textura
+    // (medio bloque de suelo, medio de tallo), asi que hay una por tipo de
+    // suelo y se elige al generar, no al dibujar.
+    BLOCK_NOPAL_BASE_PASTO,      // 29 Tallo en pasto (el mas comun)
+    BLOCK_NOPAL_BASE_TIERRA,     // 30 Tallo en tierra
+    BLOCK_NOPAL_BASE_ARENA,      // 31 Tallo en arena
+    BLOCK_NOPAL_BASE_T_ARCILLA,  // 32 Tallo en tierra arcillosa (poco comun)
+    BLOCK_NOPAL_BASE_A_ARCILLA,  // 33 Tallo en arena arcillosa (poco comun)
+
+    BLOCK_NOPAL_TALLO,           // 34 Tallo de nopal (bloque COMPLETO)
+    BLOCK_NOPAL_CLADODIO,        // 35 Cladodio: sprite 3D atravesable
 
     // ========================================================================
     // ITEMS
@@ -94,12 +102,12 @@ enum BlockType {
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 32 Polvo de tierra
-    BLOCK_STICK,            // 33 Palo
-    BLOCK_HOE,              // 34 Hoz
-    BLOCK_COAL_ITEM,        // 35 Carbón (item)
-    BLOCK_RAW_ZINC,         // 36 Zinc crudo
-    BLOCK_RAW_COPPER,       // 37 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 36 Polvo de tierra
+    BLOCK_STICK,            // 37 Palo
+    BLOCK_HOE,              // 38 Hoz
+    BLOCK_COAL_ITEM,        // 39 Carbón (item)
+    BLOCK_RAW_ZINC,         // 40 Zinc crudo
+    BLOCK_RAW_COPPER,       // 41 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -108,16 +116,16 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 38 (sin implementar)
-    BLOCK_BRICKS,           // 39 (sin implementar)
-    BLOCK_GLASS,            // 40 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 41 (retirado del juego)
+    BLOCK_IRON_ORE,         // 42 (sin implementar)
+    BLOCK_BRICKS,           // 43 (sin implementar)
+    BLOCK_GLASS,            // 44 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 45 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 42 (ya no se genera)
+    BLOCK_BEDROCK           // 46 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (arena arcillosa).
+// Último bloque COLOCABLE de la lista ordenada (cladodio de nopal).
 // Lo que va después son items y bloques retirados.
 constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_CLADODIO;
 

@@ -2758,8 +2758,8 @@ public:
         // Nopal de Castilla (la base tiene una variante por tipo de suelo)
         loadTexture("Tallo de Nopal de Castilla.png");
         loadTexture("Cladodio de Nopal de Castilla.png");
-        loadTexture("Nopal de Castilla conectado al  Cladodio.png");
-        loadTexture("../Items/Nopal de Castilla.png");
+        loadTexture("Penca Nopal de Castilla conectado al  Cladodio.png");
+        loadTexture("../Items/Penca de Nopal de Castilla.png");
         loadTexture("Tallo de Nopal de Castilla en pasto.png");
         loadTexture("Tallo de nopal de Castilla en tierra.png");
         loadTexture("Tallo de Nopal de castilla en arena.png");
@@ -2902,7 +2902,7 @@ public:
             // cladodio el mesher usa la textura "conectado" (misma forma,
             // distinto dibujo).
             case BLOCK_NOPAL_FRUTO:
-                return getTexture("../Items/Nopal de Castilla.png");
+                return getTexture("../Items/Penca de Nopal de Castilla.png");
 
             // --- Bloques nuevos ---
             case BLOCK_LIMESTONE:
@@ -6190,6 +6190,37 @@ public:
                     }
                 }
             }
+
+            // GARANTIA: todo nopal lleva fruto. La pasada de arriba es
+            // probabilistica (12% por cara), asi que una planta con pocas
+            // pencas podia quedarse sin ninguna tuna. Si ha pasado, se coloca
+            // en el primer hueco libre que se encuentre.
+            if (frutos == 0) {
+                for (int y = topeTallo + 3; y >= primerBrote && frutos == 0; --y) {
+                    for (int dx = -4; dx <= 4 && frutos == 0; ++dx) {
+                        for (int dz = -4; dz <= 4 && frutos == 0; ++dz) {
+                            const int cx = worldX + dx, cz = worldZ + dz;
+                            if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+                            for (int c = 0; c < 6 && frutos == 0; ++c) {
+                                const int fx = cx + caras[c][0];
+                                const int fy = y  + caras[c][1];
+                                const int fz = cz + caras[c][2];
+                                if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
+                                if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
+                                setBlock(fx, fy, fz, BLOCK_NOPAL_FRUTO);
+                                ++frutos;
+                            }
+                        }
+                    }
+                }
+
+                // Ultimo recurso: si ninguna penca tenia cara libre, el fruto
+                // corona el tallo. Asi ningun nopal se queda sin tuna.
+                if (frutos == 0 && topeTallo + 1 < CHUNK_HEIGHT - 1 &&
+                    getBlock(worldX, topeTallo + 1, worldZ) == BLOCK_AIR) {
+                    setBlock(worldX, topeTallo + 1, worldZ, BLOCK_NOPAL_FRUTO);
+                }
+            }
         }
     }
 
@@ -7226,7 +7257,7 @@ public:
                             }
                             if (conectado) {
                                 texture = g_textureManager->getTexture(
-                                    "Nopal de Castilla conectado al  Cladodio.png");
+                                    "Penca Nopal de Castilla conectado al  Cladodio.png");
                             }
                         }
 
@@ -7382,30 +7413,50 @@ public:
                                 }
                             };
 
+                            // ============================================
+                            // LAS SEIS CARAS, SIEMPRE
+                            // ============================================
+                            // Antes se omitia la cara que daba a un vecino
+                            // conectado, como en un bloque opaco normal. Pero
+                            // la penca NO llena su voxel: al quitar esa cara
+                            // quedaba un hueco por el que se veia el interior
+                            // de la planta.
+                            //
+                            // Ahora se emiten las seis SIEMPRE, como un bloque
+                            // normal. La union entre pencas se sigue viendo
+                            // continua porque la caja se estira hasta el borde
+                            // del voxel por el lado conectado: las dos caras
+                            // quedan pegadas, no separadas por aire.
                             // -X (oeste)
-                            if (!nf.uneXm)
+                            {
                                 pushCara(bx0, by0, bz1,  bx0, by0, bz0,
                                          bx0, by1, bz0,  bx0, by1, bz1);
+                            }
                             // +X (este)
-                            if (!nf.uneXp)
+                            {
                                 pushCara(bx1, by0, bz0,  bx1, by0, bz1,
                                          bx1, by1, bz1,  bx1, by1, bz0);
-                            // -Z (NORTE): la cara que faltaba
-                            if (!nf.uneZm)
+                            }
+                            // -Z (norte)
+                            {
                                 pushCara(bx0, by0, bz0,  bx1, by0, bz0,
                                          bx1, by1, bz0,  bx0, by1, bz0);
+                            }
                             // +Z (sur)
-                            if (!nf.uneZp)
+                            {
                                 pushCara(bx1, by0, bz1,  bx0, by0, bz1,
                                          bx0, by1, bz1,  bx1, by1, bz1);
+                            }
                             // +Y (tapa)
-                            if (!nf.uneArriba)
+                            {
                                 pushCara(bx0, by1, bz0,  bx1, by1, bz0,
                                          bx1, by1, bz1,  bx0, by1, bz1);
+                            }
                             // -Y (fondo)
-                            if (!nf.uneAbajo)
+                            {
                                 pushCara(bx0, by0, bz1,  bx1, by0, bz1,
                                          bx1, by0, bz0,  bx0, by0, bz0);
+                            }
                         } else {
                             // Diagonal 1: esquina (lo,lo) -> (hi,hi)
                             pushQuad(lo, lo, hi, hi);
@@ -10405,6 +10456,52 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
 
         // Detectar TODOS los bloques sólidos (como Minecraft - solo ignora aire y agua)
         if (block != BLOCK_AIR && block != BLOCK_WATER) {
+            // ============================================================
+            // SELECCION ADAPTADA A LA FORMA DEL BLOQUE
+            // ============================================================
+            // El DDA avanza por VOXELES, asi que un bloque que no llena su
+            // cubo —el cladodio y el fruto son cajas de 5/16— se seleccionaba
+            // apuntando al aire que lo rodea. Aqui se comprueba que el rayo
+            // atraviese de verdad SU caja; si no, se sigue avanzando y se
+            // selecciona lo que haya detras.
+            float bx0, by0, bz0, bx1, by1, bz1;
+            if (nopalHitboxCon(block,
+                    [&](int dx, int dy, int dz) {
+                        return world.getBlock(x + dx, y + dy, z + dz);
+                    },
+                    x, y, z, bx0, by0, bz0, bx1, by1, bz1)) {
+
+                // Caja en coordenadas de mundo.
+                bx0 += (float)x; bx1 += (float)x;
+                by0 += (float)y; by1 += (float)y;
+                bz0 += (float)z; bz1 += (float)z;
+
+                // Interseccion rayo-AABB (slab method).
+                float tEnt = 0.0f, tSal = maxDistance;
+                bool atraviesa = true;
+                const float O[3] = { origin.x, origin.y, origin.z };
+                const float D[3] = { direction.x, direction.y, direction.z };
+                const float B0[3] = { bx0, by0, bz0 };
+                const float B1[3] = { bx1, by1, bz1 };
+
+                for (int e = 0; e < 3 && atraviesa; ++e) {
+                    if (fabsf(D[e]) < 1e-6f) {
+                        // Rayo paralelo a este eje: debe estar dentro.
+                        if (O[e] < B0[e] || O[e] > B1[e]) atraviesa = false;
+                    } else {
+                        float t1 = (B0[e] - O[e]) / D[e];
+                        float t2 = (B1[e] - O[e]) / D[e];
+                        if (t1 > t2) { const float tmp = t1; t1 = t2; t2 = tmp; }
+                        if (t1 > tEnt) tEnt = t1;
+                        if (t2 < tSal) tSal = t2;
+                        if (tEnt > tSal) atraviesa = false;
+                    }
+                }
+
+                // No toca la penca: seguir buscando detras.
+                if (!atraviesa) continue;
+            }
+
             result.hit = true;
             result.blockPos = Vec3i(x, y, z);
             result.previousPos = prevBlock;

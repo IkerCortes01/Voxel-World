@@ -829,6 +829,33 @@ bool WorldSaveManager::initialize() {
     return true;
 }
 
+void WorldSaveManager::abandon() {
+    std::cout << "[WorldSaveManager] Abandonando (el mundo se va a borrar)..." << std::endl;
+
+    // Descartar lo pendiente: no se escribe nada.
+    {
+        std::lock_guard<std::mutex> lock(dirtyMutex);
+        dirtyChunks.clear();
+    }
+
+    // Parar los hilos de guardado.
+    savingActive.store(false);
+    saveQueue.clear();
+    for (auto& thread : saveThreads) {
+        if (thread.joinable()) thread.join();
+    }
+    saveThreads.clear();
+
+    // Soltar los ficheros de region: es LO IMPORTANTE. Mientras sigan
+    // abiertos, Windows rechaza borrarlos.
+    {
+        std::lock_guard<std::mutex> lock(regionCacheMutex);
+        regionCache.clear();
+    }
+
+    std::cout << "[WorldSaveManager] Handles liberados." << std::endl;
+}
+
 void WorldSaveManager::shutdown() {
     std::cout << "[WorldSaveManager] Shutting down..." << std::endl;
 

@@ -326,6 +326,12 @@ public:
     bool initialize();
     void shutdown();
 
+    // Cierra el sistema SIN escribir nada a disco. Se usa cuando el mundo va a
+    // BORRARSE: guardar antes es trabajo inutil y ademas recrearia los ficheros
+    // que se estan intentando eliminar. Lo importante es soltar los handles
+    // para que el borrado no choque con archivos abiertos.
+    void abandon();
+
     // Save operations
     void saveChunkAsync(int chunkX, int chunkZ, const void* blockData, size_t blockDataSize, const ChunkMetadata& metadata);
     void saveChunkSync(int chunkX, int chunkZ, const void* blockData, size_t blockDataSize, const ChunkMetadata& metadata);

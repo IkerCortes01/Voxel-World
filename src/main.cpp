@@ -4252,6 +4252,9 @@ public:
     }
 
     // Establecer la ruta del mundo actual para guardar/cargar chunks
+    // Ruta del mundo actualmente abierto ("" si no hay ninguno).
+    const std::string& getWorldPath() const { return currentWorldPath; }
+
     void setWorldPath(const std::string& path) {
         currentWorldPath = path;
         std::cout << "Ruta del mundo configurada: " << path << std::endl;
@@ -4305,6 +4308,46 @@ public:
         // generación inicial se hace sincrónica a propósito: el jugador no
         // puede entrar al mundo hasta que esté lista.
         startGenerationWorkers();
+    }
+
+    // ========================================================================
+    // CERRAR EL MUNDO ACTUAL (sin destruir el objeto World)
+    // ========================================================================
+    // Imprescindible antes de BORRAR un mundo del disco: mientras el
+    // WorldSaveManager siga vivo mantiene abiertos los archivos de region y
+    // dos hilos de guardado escribiendo en ellos. Windows no deja borrar un
+    // archivo abierto, asi que remove_all fallaba con ERROR_SHARING_VIOLATION
+    // y el borrado no funcionaba por muchos reintentos que se hicieran.
+    //
+    // `descartarCambios` evita volcar a disco lo que esta en memoria: si el
+    // mundo se va a borrar, guardar antes es trabajo inutil que ademas
+    // recrea los archivos que acabamos de intentar eliminar.
+    void closeWorld(bool descartarCambios) {
+        // 1) Parar los hilos de generacion: siguen tocando el pool y el mapa.
+        stopGenerationWorkers();
+
+        // 2) Cerrar el sistema de guardado (cierra los ficheros de region).
+        if (saveManager) {
+            if (!descartarCambios) {
+                flushPendingSaves();
+                saveManager->shutdown();      // vuelca lo pendiente
+            } else {
+                saveManager->abandon();       // cierra SIN escribir
+            }
+            saveManager.reset();
+        }
+
+        // 3) Soltar los chunks en memoria.
+        for (auto& pair : chunks) delete pair.second;
+        chunks.clear();
+        chunkCache.clear();
+        {
+            std::lock_guard<std::mutex> lock(pendingMutex);
+            pendingBlocks.clear();
+        }
+
+        currentWorldPath.clear();
+        legacyBlockIds = false;
     }
 
     ~World() {
@@ -12368,6 +12411,18 @@ void scanSavedWorlds(GameState* state) {
             std::string worldName = entry.path().filename().string();
             std::string worldPath = entry.path().string();
 
+            // ⭐ RESTOS DE UN BORRADO: si al borrar un mundo algun fichero
+            // seguia bloqueado, la carpeta se aparta con el sufijo
+            // ".borrado". Ahora ya nadie la tiene abierta, asi que se
+            // reintenta eliminarla, y en cualquier caso NO se muestra en la
+            // lista: para el jugador ese mundo ya no existe.
+            if (worldName.size() > 8 &&
+                worldName.compare(worldName.size() - 8, 8, ".borrado") == 0) {
+                std::error_code limpiezaEc;
+                std::filesystem::remove_all(entry.path(), limpiezaEc);
+                continue;
+            }
+
             // Crear WorldInfo temporal
             WorldInfo worldInfo;
             worldInfo.name = worldName;
@@ -12375,6 +12430,23 @@ void scanSavedWorlds(GameState* state) {
 
             // ⭐⭐⭐ NUEVO: Cargar level.dat si existe para obtener metadata completa
             bool levelDatLoaded = loadLevelDat(worldPath, worldInfo);
+
+            // ⭐ CARPETA VACIA = MUNDO BORRADO A MEDIAS.
+            // Si el borrado no pudo eliminar la carpeta (un fichero seguia
+            // bloqueado) pero si vacio su contenido, lo que queda no es un
+            // mundo: no tiene level.dat ni regiones. Mostrarlo haria que un
+            // mundo ya borrado "reapareciera" en la lista.
+            if (!levelDatLoaded) {
+                std::error_code vacEc;
+                const bool hayRegiones =
+                    std::filesystem::exists(entry.path() / "regions", vacEc) ||
+                    std::filesystem::exists(entry.path() / "chunks",  vacEc);
+                if (!hayRegiones) {
+                    std::error_code rmEc;
+                    std::filesystem::remove_all(entry.path(), rmEc);
+                    continue;
+                }
+            }
 
             // Si no se pudo cargar level.dat, usar tiempo de última modificación como fallback
             if (!levelDatLoaded) {
@@ -13164,572 +13236,213 @@ void renderMainMenu(GameState* state, int screenWidth, int screenHeight, GLFWwin
 
 // Función para borrar un mundo (ULTRA MEJORADO - NUNCA FALLA)
 bool deleteWorld(GameState* state, int worldIndex) {
-    // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Try-catch global para evitar crashes
+    // ========================================================================
+    // BORRAR UN MUNDO
+    // ========================================================================
+    // Un mundo debe poder borrarse SIEMPRE, tenga 1 KB o 500 MB, sin colgar
+    // el juego ni crashear.
+    //
+    // POR QUE FALLABA ANTES:
+    //   1. No se cerraba el WorldSaveManager. Sus dos hilos de guardado
+    //      seguian vivos con los ficheros de region ABIERTOS, y Windows no
+    //      deja borrar un fichero abierto: remove_all fallaba con
+    //      ERROR_SHARING_VIOLATION (codigo 32), asi que no habia forma de
+    //      borrar el mundo en el que acababas de jugar.
+    //   2. Se intentaba compensar con 15 reintentos y esperas crecientes
+    //      (400 ms, 800 ms, 1200 ms...) que sumaban ~48 s CONGELANDO el
+    //      juego, y aun asi fallaban: esperar no cierra un fichero abierto.
+    //   3. Antes de borrar se recorria el mundo entero para calcular su
+    //      tamano en MB. En un mundo grande son decenas de miles de ficheros
+    //      escaneados solo para imprimir una cifra.
+    //
+    // AHORA: se cierra el mundo (que suelta los handles) y se borra. Sin
+    // esperas magicas: si el primer intento funciona, es instantaneo.
     try {
-        // ⭐ VALIDACIÓN: Puntero nulo
         if (!state) {
-            std::cerr << "❌ Error crítico: state es NULL" << std::endl;
+            std::cerr << "Error: state es NULL" << std::endl;
             return false;
         }
-
-        // ⭐ VALIDACIÓN: Índice válido
         if (worldIndex < 0 || worldIndex >= (int)state->savedWorlds.size()) {
-            std::cerr << "❌ Error: Índice de mundo inválido (" << worldIndex << ")" << std::endl;
+            std::cerr << "Error: indice de mundo invalido (" << worldIndex << ")" << std::endl;
             return false;
         }
 
-        // ⭐ VALIDACIÓN: Copiar datos ANTES de acceder (evita dangling reference)
-        std::string worldPath, worldName;
+        // Copiar los datos ANTES de tocar nada: al reescanear la lista, una
+        // referencia al elemento dejaria de ser valida.
+        const std::string worldPath = state->savedWorlds[worldIndex].folderPath;
+        const std::string worldName = state->savedWorlds[worldIndex].name;
+
+        if (worldPath.empty()) {
+            std::cerr << "Error: ruta de mundo vacia" << std::endl;
+            return false;
+        }
+
+        std::cout << "\n=== BORRANDO MUNDO: " << worldName << " ===" << std::endl;
+        std::cout << "Ruta: " << worldPath << std::endl;
+
+        // --------------------------------------------------------------------
+        // PASO 1: SOLTAR EL MUNDO (la parte que faltaba)
+        // --------------------------------------------------------------------
         try {
-            worldPath = state->savedWorlds[worldIndex].folderPath;
-            worldName = state->savedWorlds[worldIndex].name;
+            std::error_code sameEc;
+            const std::string abierto = state->world.getWorldPath();
+            const bool esElAbierto =
+                (state->currentWorldName == worldName) ||
+                (!abierto.empty() &&
+                 std::filesystem::exists(abierto, sameEc) &&
+                 std::filesystem::exists(worldPath, sameEc) &&
+                 std::filesystem::equivalent(abierto, worldPath, sameEc) && !sameEc);
+
+            if (esElAbierto) {
+                std::cout << "Cerrando el mundo abierto (se descartan cambios)..." << std::endl;
+                state->currentWorldName = "";
+                // descartarCambios=true: guardar aqui seria absurdo (el mundo
+                // se borra a continuacion) y ademas recrearia los ficheros.
+                state->world.closeWorld(true);
+                std::cout << "Mundo cerrado: handles liberados." << std::endl;
+            }
         } catch (const std::exception& e) {
-            std::cerr << "❌ Error al acceder a datos del mundo: " << e.what() << std::endl;
-            return false;
-        }
-
-        // ⭐ VALIDACIÓN: Path no vacío
-        if (worldPath.empty() || worldName.empty()) {
-            std::cerr << "❌ Error: Path o nombre de mundo vacío" << std::endl;
-            return false;
-        }
-
-    std::cout << "\n╔══════════════════════════════════════╗" << std::endl;
-    std::cout << "║  🗑️  BORRANDO MUNDO                 ║" << std::endl;
-    std::cout << "╚══════════════════════════════════════╝" << std::endl;
-    std::cout << "📁 Nombre: " << worldName << std::endl;
-    std::cout << "📂 Ruta: " << worldPath << std::endl;
-
-    // ⭐⭐⭐ PASO 0: LIBERACIÓN ULTRA AGRESIVA DE RECURSOS
-    std::cout << "🔓 Liberando recursos del juego..." << std::endl;
-
-    // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Si es el mundo actual, FORZAR DESCARGA COMPLETA
-    if (state->currentWorldName == worldName) {
-        std::cout << "   ⚠️⚠️⚠️ ADVERTENCIA: Intentando borrar el mundo ACTUAL" << std::endl;
-        std::cout << "   ⚠️ Esto puede causar crash si hay recursos en uso" << std::endl;
-        std::cout << "   🔄 Descargando mundo actual de forma segura..." << std::endl;
-
-        try {
-            // ⭐ PASO 1: Marcar mundo como desvinculado INMEDIATAMENTE
-            // Esto evita que el juego intente acceder a archivos del mundo durante el borrado
-            state->currentWorldName = "";
-            std::cout << "   ✅ Mundo desvinculado del estado del juego" << std::endl;
-
-            // ⭐ PASO 2: NO guardar ni limpiar manualmente
-            // Guardar puede causar crash si el mundo está corrupto
-            // Los chunks se limpiarán automáticamente cuando se cargue otro mundo
-            std::cout << "   ⚠️ Guardado omitido - el mundo será eliminado de todos modos" << std::endl;
-
-            // ⭐ PASO 3: Esperar para que el sistema operativo libere handles de archivos
-            #ifdef _WIN32
-            Sleep(300);
-            #endif
-
-            std::cout << "   ✅ Mundo descargado de forma segura" << std::endl;
-
-        } catch (const std::exception& e) {
-            std::cerr << "   ❌ Error al descargar mundo: " << e.what() << std::endl;
-            std::cerr << "   ⚠️ Continuando con borrado (puede fallar)" << std::endl;
+            std::cerr << "Aviso al cerrar el mundo: " << e.what() << std::endl;
         } catch (...) {
-            std::cerr << "   ❌ Error desconocido al descargar mundo" << std::endl;
-            std::cerr << "   ⚠️ Continuando con borrado (puede fallar)" << std::endl;
-        }
-    }
-
-    // Forzar recolección de basura (múltiples pasadas)
-    std::cout << "   🧹 Recolectando basura..." << std::endl;
-    for (int i = 0; i < 3; i++) {
-        // Forzar liberación de memoria temporal
-        std::vector<char> dummy(1024);
-        dummy.clear();
-        dummy.shrink_to_fit();
-
-        #ifdef _WIN32
-        Sleep(50);
-        #endif
-    }
-
-    // Tiempo de espera más largo para asegurar liberación de handles
-    #ifdef _WIN32
-    std::cout << "   ⏳ Esperando liberación de handles..." << std::endl;
-    Sleep(800); // ⭐ 800ms - aún más tiempo para asegurar cierre de archivos
-    #endif
-
-    std::cout << "   ✅ Recursos liberados completamente" << std::endl;
-
-        // ⭐ Continuar con verificaciones y borrado (ya estamos dentro del try global)
-        // Verificar que el mundo existe
-        if (!std::filesystem::exists(worldPath)) {
-            std::cerr << "❌ Error: El mundo no existe en el disco" << std::endl;
-            scanSavedWorlds(state);  // Actualizar lista
-            state->selectedWorldIndex = -1;
-            state->confirmingDelete = false;
-            state->isEditingWorldName = false;
-            return false;
+            std::cerr << "Aviso desconocido al cerrar el mundo" << std::endl;
         }
 
-        // Verificar que es un directorio
-        if (!std::filesystem::is_directory(worldPath)) {
-            std::cerr << "❌ Error: La ruta no es un directorio" << std::endl;
-            return false;
-        }
-
-        // ⭐⭐⭐ PROTECCIÓN: Calcular tamaño del mundo de forma segura
-        uintmax_t totalSize = 0;
-        int fileCount = 0;
-        int dirCount = 0;
-
-        try {
-            // Usar std::error_code para evitar excepciones
-            std::error_code ec;
-            auto dirIter = std::filesystem::recursive_directory_iterator(
-                worldPath,
-                std::filesystem::directory_options::skip_permission_denied,
-                ec
-            );
-
-            if (ec) {
-                std::cout << "⚠️ No se pudo escanear directorio: " << ec.message() << std::endl;
-            } else {
-                for (const auto& entry : dirIter) {
-                    try {
-                        std::error_code entryEc;
-                        if (entry.is_regular_file(entryEc) && !entryEc) {
-                            auto size = entry.file_size(entryEc);
-                            if (!entryEc) {
-                                totalSize += size;
-                                fileCount++;
-                            }
-                        } else if (entry.is_directory(entryEc) && !entryEc) {
-                            dirCount++;
-                        }
-                    } catch (const std::exception& e) {
-                        // Ignorar errores en archivos individuales
-                        std::cout << "⚠️ Ignorando entrada: " << e.what() << std::endl;
-                    } catch (...) {
-                        // Capturar cualquier error no estándar
-                        std::cout << "⚠️ Error desconocido en entrada" << std::endl;
-                    }
-                }
-            }
-        } catch (const std::filesystem::filesystem_error& e) {
-            std::cout << "⚠️ Error filesystem al escanear: " << e.what() << std::endl;
-        } catch (const std::exception& e) {
-            std::cout << "⚠️ Error al escanear: " << e.what() << std::endl;
-        } catch (...) {
-            std::cout << "⚠️ Error desconocido al escanear directorio" << std::endl;
-        }
-
-        std::cout << "📄 Archivos: " << fileCount << std::endl;
-        std::cout << "📁 Carpetas: " << dirCount << std::endl;
-        std::cout << "💾 Espacio a liberar: " << (totalSize / 1024.0f / 1024.0f) << " MB" << std::endl;
-        std::cout << "\n🔄 Eliminando archivos..." << std::endl;
-
-        // ⭐ PASO 0.5: Eliminar archivos de lock/temporales que bloquean el borrado
-        std::cout << "🔓 Eliminando archivos de bloqueo..." << std::endl;
-        try {
-            std::vector<std::string> lockFiles = {"save.lock", ".lock", "~lock", ".tmp"};
-            for (const std::string& lockFile : lockFiles) {
-                std::filesystem::path lockPath = std::filesystem::path(worldPath) / lockFile;
-                if (std::filesystem::exists(lockPath)) {
-                    std::error_code ec;
-                    std::filesystem::remove(lockPath, ec);
-                    if (!ec) {
-                        std::cout << "   ✅ Eliminado: " << lockFile << std::endl;
-                    }
-                }
-            }
-
-            // ⭐⭐⭐ PROTECCIÓN: Buscar archivos de journal del SaveSystem de forma segura
-            std::error_code dirEc;
-            auto dirIter = std::filesystem::directory_iterator(
-                worldPath,
-                std::filesystem::directory_options::skip_permission_denied,
-                dirEc
-            );
-
-            if (!dirEc) {
-                for (const auto& entry : dirIter) {
-                    try {
-                        std::error_code pathEc;
-                        auto filename = entry.path().filename().string();
-                        if (filename.find("journal") != std::string::npos ||
-                            filename.find(".lock") != std::string::npos ||
-                            filename.find(".tmp") != std::string::npos) {
-                            std::error_code removeEc;
-                            std::filesystem::remove(entry.path(), removeEc);
-                            if (!removeEc) {
-                                std::cout << "   ✅ Eliminado: " << filename << std::endl;
-                            }
-                        }
-                    } catch (...) {
-                        // Ignorar errores en archivos individuales
-                    }
-                }
-            }
-        } catch (const std::exception& e) {
-            std::cout << "   ⚠️ Error al eliminar locks: " << e.what() << std::endl;
-        }
-
-        // Espera adicional después de eliminar locks
-        #ifdef _WIN32
-        Sleep(200);
-        #endif
-
-        // ⭐ PASO 1: Intentar remover atributos read-only recursivamente (Windows)
-        #ifdef _WIN32
-        try {
-            std::error_code permEc;
-            auto permIter = std::filesystem::recursive_directory_iterator(
-                worldPath,
-                std::filesystem::directory_options::skip_permission_denied,
-                permEc
-            );
-
-            if (!permEc) {
-                for (const auto& entry : permIter) {
-                    try {
-                        std::error_code chmodEc;
-                        std::filesystem::permissions(entry.path(),
-                            std::filesystem::perms::owner_write,
-                            std::filesystem::perm_options::add,
-                            chmodEc);
-                    } catch (...) {
-                        // Ignorar errores de permisos
-                    }
-                }
-            }
-        } catch (...) {
-            // Ignorar si falla el cambio de permisos
-        }
-        #endif
-
-        // ⭐⭐⭐ PASO 2: BORRADO CON REINTENTOS EXTENDIDOS Y DIAGNÓSTICO
-        std::uintmax_t deletedCount = 0;
+        // --------------------------------------------------------------------
+        // PASO 2: BORRAR
+        // --------------------------------------------------------------------
         std::error_code ec;
-        bool deleted = false;
-        const int MAX_RETRIES = 15; // ⭐⭐⭐ Aumentado a 15 reintentos para garantizar éxito
+        if (!std::filesystem::exists(worldPath, ec)) {
+            std::cout << "La carpeta ya no existe; nada que borrar." << std::endl;
+        } else {
+            bool borrado = false;
 
-        for (int attempt = 1; attempt <= MAX_RETRIES && !deleted; attempt++) {
-            if (attempt > 1) {
-                std::cout << "🔄 Reintento " << attempt << "/" << MAX_RETRIES << "..." << std::endl;
-                #ifdef _WIN32
-                // ⭐ Tiempo de espera progresivo ULTRA LARGO
-                int waitTime = 400 * attempt; // 400ms, 800ms, 1200ms, etc.
-                std::cout << "   ⏳ Esperando " << waitTime << "ms..." << std::endl;
-                Sleep(waitTime);
+            // Hasta 3 intentos. El primero deberia bastar; los otros dos
+            // cubren que el antivirus o el indexador de Windows tenga un
+            // fichero abierto un instante.
+            for (int intento = 1; intento <= 3 && !borrado; ++intento) {
+                ec.clear();
+                std::filesystem::remove_all(worldPath, ec);
 
-                // ⭐ Forzar limpieza de handles del sistema cada 3 intentos
-                if (attempt % 3 == 0) {
-                    std::cout << "   🧹 Forzando limpieza de handles..." << std::endl;
-
-                    // Forzar garbage collection extrema
-                    for (int i = 0; i < 5; i++) {
-                        std::vector<char> dummy(4096);
-                        dummy.clear();
-                        dummy.shrink_to_fit();
-                    }
-
-                    Sleep(300);
+                std::error_code existsEc;
+                if (!ec || !std::filesystem::exists(worldPath, existsEc)) {
+                    borrado = true;
+                    break;
                 }
 
-                // ⭐ Cada 5 intentos, reintentamos eliminar locks de nuevo
-                if (attempt % 5 == 0) {
-                    std::cout << "   🔓 Re-eliminando locks..." << std::endl;
-                    try {
-                        std::error_code retryEc;
-                        auto retryIter = std::filesystem::recursive_directory_iterator(
-                            worldPath,
-                            std::filesystem::directory_options::skip_permission_denied,
-                            retryEc
-                        );
+                std::cerr << "Intento " << intento << " fallido: "
+                          << ec.message() << " (codigo " << ec.value() << ")"
+                          << std::endl;
 
-                        if (!retryEc) {
-                            for (const auto& entry : retryIter) {
-                                try {
-                                    std::string filename = entry.path().filename().string();
-                                    if (filename.find("lock") != std::string::npos ||
-                                        filename.find(".tmp") != std::string::npos) {
-                                        std::error_code ec2;
-                                        std::filesystem::remove(entry.path(), ec2);
-                                    }
-                                } catch (...) {}
-                            }
-                        }
-                    } catch (...) {}
-                    Sleep(200);
-                }
-                #endif
-            }
-
-            ec.clear();
-            deletedCount = std::filesystem::remove_all(worldPath, ec);
-
-            if (!ec) {
-                deleted = true;
-                std::cout << "✅ Elementos borrados: " << deletedCount << std::endl;
-                break;
-            }
-
-            if (attempt < MAX_RETRIES) {
-                std::cout << "⚠️ Intento " << attempt << " falló: " << ec.message() << std::endl;
-                std::cout << "   Código de error: " << ec.value() << std::endl;
-
-                // ⭐ Diagnóstico específico de errores comunes en Windows
-                #ifdef _WIN32
-                if (ec.value() == 32) {  // ERROR_SHARING_VIOLATION
-                    std::cout << "   💡 Archivo en uso por otro proceso" << std::endl;
-                } else if (ec.value() == 5) {  // ERROR_ACCESS_DENIED
-                    std::cout << "   💡 Acceso denegado - verificando permisos..." << std::endl;
-                } else if (ec.value() == 145) {  // ERROR_DIR_NOT_EMPTY
-                    std::cout << "   💡 Directorio no vacío - limpieza requerida" << std::endl;
-                }
-                #endif
-            }
-        }
-
-        // Si los reintentos normales fallaron, usar borrado agresivo
-        if (!deleted) {
-            std::cerr << "❌ Todos los reintentos fallaron: " << ec.message() << std::endl;
-            std::cerr << "   Código de error: " << ec.value() << std::endl;
-
-            // ⭐ PASO 3: BORRADO AGRESIVO ARCHIVO POR ARCHIVO
-            std::cout << "\n⚡ Iniciando borrado agresivo..." << std::endl;
-            int forcedDeletes = 0;
-            int failedDeletes = 0;
-
-            try {
-                // ⭐⭐⭐ PROTECCIÓN: Recolectar todos los archivos de forma segura
-                std::vector<std::filesystem::path> files;
-                std::vector<std::filesystem::path> directories;
-
-                std::error_code aggressiveEc;
-                auto aggressiveIter = std::filesystem::recursive_directory_iterator(
-                    worldPath,
-                    std::filesystem::directory_options::skip_permission_denied,
-                    aggressiveEc
-                );
-
-                if (!aggressiveEc) {
-                    for (const auto& entry : aggressiveIter) {
-                        try {
-                            std::error_code entryTypeEc;
-                            if (entry.is_regular_file(entryTypeEc) && !entryTypeEc) {
-                                files.push_back(entry.path());
-                            } else if (entry.is_directory(entryTypeEc) && !entryTypeEc) {
-                                directories.push_back(entry.path());
-                            }
-                        } catch (...) {
-                            // Ignorar errores al leer entradas
-                        }
-                    }
-                } else {
-                    std::cout << "   ⚠️ No se pudo iterar directorio: " << aggressiveEc.message() << std::endl;
-                }
-
-                // Borrar archivos primero
-                std::cout << "   📄 Borrando " << files.size() << " archivos..." << std::endl;
-                for (const auto& file : files) {
-                    for (int retry = 0; retry < 3; retry++) {
-                        ec.clear();
-
-                        #ifdef _WIN32
-                        // Remover atributos read-only en Windows
-                        try {
-                            std::filesystem::permissions(file,
-                                std::filesystem::perms::owner_write,
-                                std::filesystem::perm_options::add);
-                        } catch (...) {}
-
-                        if (retry > 0) Sleep(50);
-                        #endif
-
-                        if (std::filesystem::remove(file, ec)) {
-                            forcedDeletes++;
-                            break;
-                        }
-
-                        if (retry == 2) {
-                            failedDeletes++;
-                            std::cout << "   ❌ No se pudo borrar: " << file.filename() << std::endl;
-                        }
-                    }
-                }
-
-                // Borrar directorios en orden inverso (de más profundo a menos profundo)
-                std::cout << "   📁 Borrando " << directories.size() << " directorios..." << std::endl;
-                std::sort(directories.begin(), directories.end(),
-                    [](const auto& a, const auto& b) {
-                        return a.string().length() > b.string().length();
-                    });
-
-                for (const auto& dir : directories) {
-                    for (int retry = 0; retry < 3; retry++) {
-                        ec.clear();
-
-                        #ifdef _WIN32
-                        if (retry > 0) Sleep(50);
-                        #endif
-
-                        if (std::filesystem::remove(dir, ec)) {
-                            forcedDeletes++;
-                            break;
-                        }
-                    }
-                }
-
-                // Intentar borrar el directorio raíz
-                for (int retry = 0; retry < 3; retry++) {
-                    ec.clear();
-
-                    #ifdef _WIN32
-                    if (retry > 0) Sleep(100);
-                    #endif
-
-                    if (std::filesystem::remove(worldPath, ec)) {
-                        forcedDeletes++;
-                        break;
-                    }
-                }
-
-            } catch (const std::exception& e) {
-                std::cerr << "❌ Error en borrado agresivo: " << e.what() << std::endl;
-            }
-
-            std::cout << "✅ Borrados forzados: " << forcedDeletes << " elementos" << std::endl;
-            if (failedDeletes > 0) {
-                std::cout << "⚠️ Borrados fallidos: " << failedDeletes << " elementos" << std::endl;
-            }
-
-            // ⭐⭐⭐ PROTECCIÓN: Verificar si quedó algo de forma segura
-            std::error_code existsEc;
-            if (std::filesystem::exists(worldPath, existsEc) && !existsEc) {
-                // Verificar si el directorio está vacío o casi vacío
-                int remainingFiles = 0;
-                try {
-                    std::error_code remainingEc;
-                    auto remainingIter = std::filesystem::recursive_directory_iterator(
+                if (intento < 3) {
+                    // Quitar el atributo de solo-lectura, la otra causa
+                    // habitual de "acceso denegado", y reintentar.
+                    std::error_code permEc;
+                    auto it = std::filesystem::recursive_directory_iterator(
                         worldPath,
                         std::filesystem::directory_options::skip_permission_denied,
-                        remainingEc
-                    );
-
-                    if (!remainingEc) {
-                        for (const auto& entry : remainingIter) {
-                            remainingFiles++;
-                        }
+                        permEc);
+                    const auto end = std::filesystem::recursive_directory_iterator();
+                    for (; !permEc && it != end; ++it) {
+                        std::error_code e2;
+                        std::filesystem::permissions(it->path(),
+                            std::filesystem::perms::owner_write,
+                            std::filesystem::perm_options::add, e2);
                     }
-                } catch (...) {}
-
-                if (remainingFiles > 0) {
-                    std::cerr << "\n⚠️ ADVERTENCIA: Quedan " << remainingFiles << " archivos/carpetas" << std::endl;
-
-                    // ⭐⭐⭐ ÚLTIMO RECURSO: Intentar usando comando del sistema operativo
                     #ifdef _WIN32
-                    std::cout << "\n⚡ Intentando borrado con comando del sistema..." << std::endl;
-                    try {
-                        // Usar rmdir /S /Q en Windows (más agresivo que C++ filesystem)
-                        std::string cmdPath = worldPath;
-                        // Reemplazar / con \ para Windows
-                        std::replace(cmdPath.begin(), cmdPath.end(), '/', '\\');
-                        std::string command = "rmdir /S /Q \"" + cmdPath + "\" 2>nul";
-
-                        std::cout << "   📌 Ejecutando: rmdir /S /Q" << std::endl;
-                        int result = system(command.c_str());
-
-                        // Esperar un momento para que el sistema termine
-                        Sleep(500);
-
-                        // Verificar si funcionó
-                        if (!std::filesystem::exists(worldPath)) {
-                            std::cout << "✅ Borrado exitoso con comando del sistema" << std::endl;
-                            std::cout << "╔══════════════════════════════════════╗" << std::endl;
-                            std::cout << "║  ✅ MUNDO BORRADO EXITOSAMENTE      ║" << std::endl;
-                            std::cout << "╚══════════════════════════════════════╝\n" << std::endl;
-
-                            scanSavedWorlds(state);
-                            state->selectedWorldIndex = -1;
-                            state->confirmingDelete = false;
-                            state->isEditingWorldName = false;
-                            return true;
-                        } else {
-                            std::cout << "⚠️ Comando del sistema no eliminó todo" << std::endl;
-                        }
-                    } catch (const std::exception& e) {
-                        std::cout << "⚠️ Error en comando del sistema: " << e.what() << std::endl;
-                    }
+                    Sleep(150);
                     #endif
-
-                    std::cerr << "\n❌ No se pudo eliminar completamente el mundo" << std::endl;
-                    std::cerr << "   Algunos archivos están bloqueados por:" << std::endl;
-                    std::cerr << "   • Otra aplicación (antivirus, explorer, etc.)" << std::endl;
-                    std::cerr << "   • Permisos insuficientes" << std::endl;
-                    std::cerr << "   • Sistema de archivos" << std::endl;
-                    std::cerr << "\n💡 Sugerencias:" << std::endl;
-                    std::cerr << "   1. Cierra todas las aplicaciones que puedan estar usando los archivos" << std::endl;
-                    std::cerr << "   2. Intenta de nuevo en unos segundos" << std::endl;
-                    std::cerr << "   3. Si persiste, reinicia el juego" << std::endl;
-                    std::cerr << "   4. Como último recurso, borra manualmente: " << worldPath << std::endl;
-
-                    // Actualizar lista de todos modos
-                    scanSavedWorlds(state);
-                    state->selectedWorldIndex = -1;
-                    state->confirmingDelete = false;
-                    state->isEditingWorldName = false;
-                    return false;
-                } else {
-                    // Directorio vacío pero aún existe, intentar borrarlo una vez más
-                    std::filesystem::remove(worldPath, ec);
                 }
+            }
+
+            if (!borrado) {
+                // Ultimo recurso: apartar la carpeta. Aunque un fichero siga
+                // bloqueado, el mundo DESAPARECE de la lista y se puede crear
+                // otro con el mismo nombre; los restos se limpian al arrancar.
+                // Windows tampoco deja RENOMBRAR una carpeta que contiene un
+                // fichero abierto, asi que primero se vacia todo lo que si se
+                // pueda borrar: asi el mundo queda inservible (sin level.dat
+                // ni regiones) aunque quede un fichero suelto atascado.
+                std::error_code vaciarEc;
+                auto it = std::filesystem::recursive_directory_iterator(
+                    worldPath,
+                    std::filesystem::directory_options::skip_permission_denied,
+                    vaciarEc);
+                const auto endIt = std::filesystem::recursive_directory_iterator();
+                std::vector<std::filesystem::path> aBorrar;
+                for (; !vaciarEc && it != endIt; ++it) aBorrar.push_back(it->path());
+                // De mas profundo a mas superficial, para vaciar los directorios.
+                for (auto rit = aBorrar.rbegin(); rit != aBorrar.rend(); ++rit) {
+                    std::error_code delEc;
+                    std::filesystem::remove(*rit, delEc);
+                }
+
+                std::error_code mvEc;
+                const std::filesystem::path base(worldPath);
+                const std::filesystem::path papelera =
+                    base.parent_path() / (base.filename().string() + ".borrado");
+
+                std::filesystem::remove_all(papelera, mvEc);
+                mvEc.clear();
+                std::filesystem::rename(base, papelera, mvEc);
+
+                // Si ni renombrar funciona, al menos la carpeta quedo vacia:
+                // el mundo ya no es cargable y scanSavedWorlds lo descarta.
+                if (mvEc) {
+                    std::error_code rmEc;
+                    std::filesystem::remove_all(base, rmEc);
+                    if (!std::filesystem::exists(base, rmEc)) mvEc.clear();
+                }
+
+                if (!mvEc) {
+                    std::cout << "Carpeta apartada como .borrado "
+                                 "(se limpiara al reiniciar)." << std::endl;
+                    borrado = true;
+                } else {
+                    std::cerr << "No se pudo borrar ni apartar el mundo: "
+                              << mvEc.message() << std::endl;
+                }
+            }
+
+            if (borrado) {
+                std::cout << "Mundo borrado." << std::endl;
             }
         }
 
-        std::cout << "✅ Elementos borrados: " << deletedCount << std::endl;
-        std::cout << "╔══════════════════════════════════════╗" << std::endl;
-        std::cout << "║  ✅ MUNDO BORRADO EXITOSAMENTE      ║" << std::endl;
-        std::cout << "╚══════════════════════════════════════╝\n" << std::endl;
-
-        // Recargar la lista de mundos
-        scanSavedWorlds(state);
-        state->selectedWorldIndex = -1;
-        state->confirmingDelete = false;  // Reset confirmación
-        state->isEditingWorldName = false;  // ⭐ Reset edición de nombre
-
-        return true;
-
-    } catch (const std::filesystem::filesystem_error& e) {
-        std::cerr << "❌ Error filesystem al borrar mundo: " << e.what() << std::endl;
-        std::cerr << "   Path1: " << e.path1() << std::endl;
-        if (!e.path2().empty()) {
-            std::cerr << "   Path2: " << e.path2() << std::endl;
-        }
-        std::cerr << "   Código: " << e.code() << std::endl;
-    } catch (const std::bad_alloc& e) {
-        // ⭐ PROTECCIÓN: Out of memory
-        std::cerr << "❌ Error de memoria al borrar mundo: " << e.what() << std::endl;
-        std::cerr << "   El sistema se quedó sin memoria durante la operación" << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "❌ Error general al borrar mundo: " << e.what() << std::endl;
-        std::cerr << "   Tipo: " << typeid(e).name() << std::endl;
-    } catch (...) {
-        // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Capturar CUALQUIER excepción (incluso no-estándar)
-        std::cerr << "❌ ERROR CRÍTICO DESCONOCIDO al borrar mundo" << std::endl;
-        std::cerr << "   Excepción no estándar capturada - el juego NO crasheará" << std::endl;
-    }
-
-    // ⭐ LIMPIEZA FINAL: Intentar actualizar la lista SIEMPRE (incluso si el borrado falló)
-    try {
-        std::cout << "🔄 Actualizando lista de mundos..." << std::endl;
+        // --------------------------------------------------------------------
+        // PASO 3: ACTUALIZAR LA LISTA
+        // --------------------------------------------------------------------
         scanSavedWorlds(state);
         state->selectedWorldIndex = -1;
         state->confirmingDelete = false;
         state->isEditingWorldName = false;
-        std::cout << "✅ Lista actualizada" << std::endl;
+
+        // Exito = el mundo ya no es cargable. Normalmente la carpeta ha
+        // desaparecido; si algun fichero seguia bloqueado por el sistema, basta
+        // con que no queden datos utiles (sin level.dat ni regiones,
+        // scanSavedWorlds ya lo descarta y el jugador no lo ve).
+        std::error_code finalEc;
+        if (!std::filesystem::exists(worldPath, finalEc)) return true;
+
+        const std::filesystem::path base(worldPath);
+        const bool quedanDatos =
+            std::filesystem::exists(base / "level.dat", finalEc) ||
+            std::filesystem::exists(base / "regions",  finalEc) ||
+            std::filesystem::exists(base / "chunks",   finalEc);
+        return !quedanDatos;
+
     } catch (const std::exception& e) {
-        std::cerr << "⚠️ Error al actualizar lista: " << e.what() << std::endl;
+        std::cerr << "Error al borrar mundo: " << e.what() << std::endl;
     } catch (...) {
-        std::cerr << "⚠️ Error desconocido al actualizar lista" << std::endl;
+        std::cerr << "Error desconocido al borrar mundo" << std::endl;
     }
+
+    // Pase lo que pase, dejar la interfaz en un estado coherente.
+    try {
+        scanSavedWorlds(state);
+        state->selectedWorldIndex = -1;
+        state->confirmingDelete = false;
+        state->isEditingWorldName = false;
+    } catch (...) {}
 
     return false;
 }

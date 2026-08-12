@@ -11282,10 +11282,20 @@ void renderCorazones(GameState* state, int width, int height) {
     // activa y no hace el glBindTexture: el terreno se dibuja con la textura
     // del corazon. Como este HUD solo se dibuja en SUPERVIVENCIA, el sintoma
     // aparecia unicamente en ese modo.
+    // Se devuelve TODO lo que se toco al entrar. Faltaban depth test,
+    // culling, niebla y la mascara de profundidad: sin ellos el mundo del
+    // frame siguiente se dibujaba sin ocultacion ni descarte de caras, y por
+    // eso en supervivencia "no se veia nada". Un renderizador de UI debe
+    // dejar el estado como lo encontro.
     glDisable(GL_TEXTURE_2D);
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     glDisable(GL_BLEND);
-    glEnable(GL_ALPHA_TEST);   // el resto del motor lo espera activo
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_ALPHA_TEST);
+    glAlphaFunc(GL_GREATER, 0.1f);
 
     if (g_textureManager) g_textureManager->invalidateBindCache();
 }

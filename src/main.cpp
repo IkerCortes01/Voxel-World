@@ -582,6 +582,26 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
         }
     }
 
+    // ========================================================================
+    // ENSANCHAR EN TODO EJE CON VECINO
+    // ========================================================================
+    // La orientacion elige UN eje fino, pero un cladodio puede tener vecinos
+    // en VARIOS a la vez (una L, una T, una columna con brazo...). Si el eje
+    // fino coincide con uno de esos, la penca se queda estrecha justo por
+    // donde deberia unirse y aparece un escalon o un hueco.
+    //
+    // Solucion: en cualquier eje que tenga vecino, la caja pasa a ocupar el
+    // ancho completo. Asi el bloque SIEMPRE llega a tocar a su vecino, sea
+    // cual sea la orientacion que le haya tocado, y la planta queda continua.
+    const float ANCHO0 = 0.07f, ANCHO1 = 1.0f - 0.07f;
+    if (f.uneXp || f.uneXm) { f.minX = ANCHO0; f.maxX = ANCHO1; }
+    if (f.uneZp || f.uneZm) { f.minZ = ANCHO0; f.maxZ = ANCHO1; }
+    if (f.uneArriba || f.uneAbajo) {
+        // En vertical se ocupa TODO el alto (menos el epsilon que evita el
+        // z-fighting con el bloque de arriba/abajo).
+        f.minY = 0.0005f; f.maxY = 1.0f - 0.0005f;
+    }
+
     // Compatibilidad con el codigo que razona en "eje largo".
     f.ejeX     = (f.orientacion == 2 || f.orientacion == 3);
     f.unePlus  = f.ejeX ? f.uneXp : f.uneZp;
@@ -2768,6 +2788,10 @@ public:
         loadTexture("Cladodio de Nopal de Castilla.png");
         loadTexture("Penca Nopal de Castilla conectado al  Cladodio.png");
         loadTexture("../Items/Penca de Nopal de Castilla.png");
+        // Corazones del HUD de vida
+        loadTexture("../Entitys/Player/corazon del jugador.png");
+        // "a la mitad" y "vacio" aun no estan en el resourcepack; se cargaran
+        // solas en cuanto existan (getTexture las pide bajo demanda).
         loadTexture("Tallo de Nopal de Castilla en pasto.png");
         loadTexture("Tallo de nopal de Castilla en tierra.png");
         loadTexture("Tallo de Nopal de castilla en arena.png");
@@ -6066,72 +6090,91 @@ public:
             const int largo = 1 + rnd(cx * 31 + cz * 17 + forma, 3);   // 1..3
             int x = cx, y = cy, z = cz, puestos = 0;
 
+            // ================================================================
+            // CRECIMIENTO POR PASOS DE UNA SOLA CARA
+            // ================================================================
+            // REGLA: cada bloque nuevo toca al anterior POR UNA CARA. Nunca en
+            // diagonal.
+            //
+            // Antes varias formas hacian "x += dx; ++y;" en el mismo paso: eso
+            // mueve el bloque en diagonal, y dos cubos en diagonal NO se tocan
+            // por ninguna cara. El resultado eran pencas partidas, con huecos
+            // de aire entre ellas y sin conectar. Ahora un paso avanza EN UN
+            // SOLO EJE, asi que la planta siempre queda unida.
+            //
+            // `avanzar` coloca el bloque y devuelve si pudo; si algo estorba,
+            // el brote se detiene ahi en vez de saltarselo y dejar un hueco.
+            auto avanzar = [&](int ax, int ay, int az) -> bool {
+                x += ax; y += ay; z += az;
+                if (!poner(x, y, z)) return false;
+                ++puestos;
+                return true;
+            };
+
             switch (forma % 6) {
-                case 0:   // RECTA ascendente
+                case 0:   // RECTA que sube en escalones
                     for (int i = 0; i < largo; ++i) {
-                        x += dx; z += dz; if (i % 2 == 0) ++y;
-                        if (!poner(x, y, z)) return puestos;
-                        ++puestos;
+                        if (!avanzar(dx, 0, dz)) return puestos;
+                        // El escalon es un paso VERTICAL aparte, no diagonal.
+                        if (i % 2 == 0 && !avanzar(0, 1, 0)) return puestos;
                     }
                     break;
 
-                case 1: { // EN L: sale recto y gira hacia arriba
-                    for (int i = 0; i < largo; ++i) {
-                        x += dx; z += dz;
-                        if (!poner(x, y, z)) return puestos;
-                        ++puestos;
-                    }
+                case 1: { // EN L: sale recto y despues sube
+                    for (int i = 0; i < largo; ++i)
+                        if (!avanzar(dx, 0, dz)) return puestos;
                     const int alto = 1 + rnd(cx + cz + 5, 2);
-                    for (int i = 0; i < alto; ++i) {
-                        ++y;
-                        if (!poner(x, y, z)) return puestos;
-                        ++puestos;
-                    }
+                    for (int i = 0; i < alto; ++i)
+                        if (!avanzar(0, 1, 0)) return puestos;
                     break;
                 }
 
                 case 2: { // EN T: sale recto y se abre a los dos lados
                     for (int i = 0; i < largo; ++i) {
-                        x += dx; z += dz; if (i % 2 == 0) ++y;
-                        if (!poner(x, y, z)) return puestos;
-                        ++puestos;
+                        if (!avanzar(dx, 0, dz)) return puestos;
+                        if (i % 2 == 0 && !avanzar(0, 1, 0)) return puestos;
                     }
+                    // Los brazos salen del bloque actual: se tocan por una
+                    // cara, asi que la T queda unida.
                     if (poner(x + px_, y, z + pz_)) ++puestos;
                     if (poner(x - px_, y, z - pz_)) ++puestos;
                     break;
                 }
 
-                case 3: { // EN Y: se bifurca en la punta, ambas hacia arriba
+                case 3: { // EN Y: se bifurca en la punta
                     for (int i = 0; i < largo; ++i) {
-                        x += dx; z += dz; if (i % 2 == 0) ++y;
-                        if (!poner(x, y, z)) return puestos;
-                        ++puestos;
+                        if (!avanzar(dx, 0, dz)) return puestos;
+                        if (i % 2 == 0 && !avanzar(0, 1, 0)) return puestos;
                     }
-                    if (poner(x + px_, y + 1, z + pz_)) ++puestos;
-                    if (poner(x - px_, y + 1, z - pz_)) ++puestos;
+                    // Cada brazo se apoya PRIMERO al lado y LUEGO sube, para
+                    // no quedar en diagonal respecto al tronco de la penca.
+                    if (poner(x + px_, y, z + pz_)) {
+                        ++puestos;
+                        if (poner(x + px_, y + 1, z + pz_)) ++puestos;
+                    }
+                    if (poner(x - px_, y, z - pz_)) {
+                        ++puestos;
+                        if (poner(x - px_, y + 1, z - pz_)) ++puestos;
+                    }
                     break;
                 }
 
                 case 4: { // ENROLLADA: gira sobre si misma como una espiral
                     int d = dir;
                     for (int i = 0; i < largo + 2; ++i) {
-                        x += dirs[d][0]; z += dirs[d][1];
-                        if (i % 2 == 0) ++y;
-                        if (!poner(x, y, z)) return puestos;
-                        ++puestos;
-                        // Giro de 90 grados cada dos pasos -> caracola.
-                        if (i % 2 == 1) d = (d + 1) % 4;
+                        if (!avanzar(dirs[d][0], 0, dirs[d][1])) return puestos;
+                        if (i % 2 == 0 && !avanzar(0, 1, 0)) return puestos;
+                        if (i % 2 == 1) d = (d + 1) % 4;   // giro de 90 grados
                     }
                     break;
                 }
 
-                default: { // ESCALERA: sube un bloque por cada paso
+                default: { // ESCALERA: un paso lateral y uno vertical
                     for (int i = 0; i < largo; ++i) {
-                        x += dx; z += dz; ++y;
-                        if (!poner(x, y, z)) return puestos;
-                        ++puestos;
+                        if (!avanzar(dx, 0, dz)) return puestos;
+                        if (!avanzar(0, 1, 0))   return puestos;
                     }
-                    // Remate lateral, para que no quede como una rampa sola.
+                    // Remate lateral, pegado al ultimo bloque.
                     if (poner(x + px_, y, z + pz_)) ++puestos;
                     break;
                 }
@@ -10071,6 +10114,29 @@ struct GameState {
     // local que se perdía, así que en tiempo de juego no había forma de saber
     // el modo (y por eso la tecla V permitía volar también en supervivencia).
     int currentGameMode = 0;
+
+    // ========================================================================
+    // SISTEMA DE VIDA (SUPERVIVENCIA)
+    // ========================================================================
+    // Primera version: la barra de corazones EXISTE y se ve, pero todavia no
+    // hace nada. No hay dano ni muerte: el jugador gana un corazon por cada
+    // hora jugada y ya esta. Es el cimiento sobre el que se montara el dano
+    // mas adelante, y de momento sirve para que el HUD ya tenga su sitio.
+    //
+    // La vida se guarda en MEDIOS corazones porque las texturas incluyen la
+    // mitad: asi el sistema ya soporta 1/2 sin cambiar el formato cuando se
+    // añada el dano.
+    static constexpr int MEDIOS_POR_CORAZON = 2;
+    static constexpr int CORAZONES_INICIALES = 1;
+    static constexpr int CORAZONES_MAX = 20;      // tope de la fila del HUD
+
+    int vidaMedios = CORAZONES_INICIALES * MEDIOS_POR_CORAZON;
+    int vidaMaxMedios = CORAZONES_INICIALES * MEDIOS_POR_CORAZON;
+
+    // Tiempo jugado EN ESTE MUNDO, en segundos. De aqui salen los corazones:
+    // uno por hora. Se acumula solo dentro de la partida, no en los menus.
+    double tiempoJugadoSegundos = 0.0;
+
     int selectedWorldIndex;
     bool isEditingWorldName;
     std::string editingWorldNewName;
@@ -11076,6 +11142,152 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
 
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     glDisable(GL_TEXTURE_2D);
+}
+
+// ============================================================================
+// SISTEMA DE VIDA: UN CORAZON POR HORA
+// ============================================================================
+// Primera version del sistema. La barra se ve y crece con el tiempo jugado,
+// pero TODAVIA NO HACE NADA: no hay dano, ni muerte, ni curacion. Es la base
+// sobre la que se montara el combate mas adelante.
+//
+// Solo cuenta en SUPERVIVENCIA: en creativo la vida no pinta nada.
+void actualizarVida(GameState* state, float deltaTime) {
+    if (!state) return;
+    if (state->currentGameMode != 0) return;   // 0 = supervivencia
+
+    // Descartar deltas absurdos (un pico tras cargar el mundo o al salir de
+    // pausa dispararia el contador de golpe).
+    if (deltaTime <= 0.0f || deltaTime > 1.0f) return;
+
+    state->tiempoJugadoSegundos += (double)deltaTime;
+
+    constexpr double SEGUNDOS_POR_HORA = 3600.0;
+    const int horasJugadas = (int)(state->tiempoJugadoSegundos / SEGUNDOS_POR_HORA);
+
+    // Corazones ganados = 1 de inicio + 1 por cada hora completa.
+    int corazones = GameState::CORAZONES_INICIALES + horasJugadas;
+    if (corazones > GameState::CORAZONES_MAX) corazones = GameState::CORAZONES_MAX;
+
+    const int nuevoMax = corazones * GameState::MEDIOS_POR_CORAZON;
+    if (nuevoMax > state->vidaMaxMedios) {
+        // Al ganar un corazon nuevo, entra lleno.
+        const int ganado = nuevoMax - state->vidaMaxMedios;
+        state->vidaMaxMedios = nuevoMax;
+        state->vidaMedios += ganado;
+        std::cout << "Vida: " << corazones << " corazon"
+                  << (corazones == 1 ? "" : "es")
+                  << " (" << horasJugadas << " h jugadas)" << std::endl;
+    }
+
+    // Nunca por encima del maximo (el dano aun no existe, pero la invariante
+    // debe cumplirse desde ya).
+    if (state->vidaMedios > state->vidaMaxMedios) {
+        state->vidaMedios = state->vidaMaxMedios;
+    }
+}
+
+// ============================================================================
+// BARRA DE CORAZONES (HUD)
+// ============================================================================
+// Se dibuja SOBRE la hotbar, centrada con ella. Cada corazon puede estar
+// lleno, a la mitad o vacio: las tres texturas ya existen, asi que el HUD
+// soporta medios corazones desde el primer dia aunque todavia nada los quite.
+void renderCorazones(GameState* state, int width, int height) {
+    if (!state) return;
+    if (state->currentGameMode != 0) return;   // solo en supervivencia
+    if (state->vidaMaxMedios <= 0) return;
+
+    // Mismo estado GL explicito que la hotbar: un HUD no debe heredar nada
+    // del render del mundo (ver el comentario largo en renderHotbar).
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_FOG);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_TEXTURE_GEN_S);
+    glDisable(GL_TEXTURE_GEN_T);
+
+    // Los corazones tienen fondo transparente: hace falta blending, y NO
+    // alpha test (recortaria el antialias del borde).
+    glDisable(GL_ALPHA_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glMatrixMode(GL_TEXTURE);
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+
+    // La textura se pinta tal cual, sin teñir con el color de vertice.
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+    const int corazones = (state->vidaMaxMedios +
+                           GameState::MEDIOS_POR_CORAZON - 1) /
+                          GameState::MEDIOS_POR_CORAZON;
+
+    const float TAM = 18.0f;      // lado del corazon en pixeles
+    const float SEP = 2.0f;       // separacion entre corazones
+
+    // Alineados con el borde izquierdo de la hotbar, justo encima.
+    const float hotbarAncho = 9 * 50.0f + 8 * 4.0f;
+    const float x0 = (width - hotbarAncho) / 2.0f;
+    const float y0 = height - 80.0f - TAM - 6.0f;
+
+    glEnable(GL_TEXTURE_2D);
+
+    for (int i = 0; i < corazones; ++i) {
+        // Cuantos medios quedan para ESTE corazon: 2 lleno, 1 mitad, 0 vacio.
+        const int restantes = state->vidaMedios -
+                              i * GameState::MEDIOS_POR_CORAZON;
+        const char* ruta;
+        if (restantes >= 2) {
+            ruta = "../Entitys/Player/corazon del jugador.png";
+        } else if (restantes == 1) {
+            ruta = "../Entitys/Player/corazon del jugador a la mitad.png";
+        } else {
+            ruta = "../Entitys/Player/corazon del jugador vacio.png";
+        }
+
+        // Solo existe la textura de corazon LLENO. Las de mitad y vacio se
+        // usan en cuanto aparezcan en el resourcepack; mientras tanto se cae
+        // a la llena para el medio, y el vacio simplemente no se dibuja (asi
+        // no sale un hueco negro ni un damero de "textura ausente").
+        GLuint tex = g_textureManager->getTexture(ruta);
+        if (tex == 0) {
+            if (restantes <= 0) continue;   // vacio sin textura: no dibujar
+            tex = g_textureManager->getTexture(
+                "../Entitys/Player/corazon del jugador.png");
+            if (tex == 0) continue;
+        }
+        g_textureManager->bindForUI(tex);
+
+        const float x = x0 + i * (TAM + SEP);
+        const float y = y0;
+
+        glBegin(GL_QUADS);
+            glTexCoord2f(0.0f, 1.0f); glVertex2f(x,       y);
+            glTexCoord2f(1.0f, 1.0f); glVertex2f(x + TAM, y);
+            glTexCoord2f(1.0f, 0.0f); glVertex2f(x + TAM, y + TAM);
+            glTexCoord2f(0.0f, 0.0f); glVertex2f(x,       y + TAM);
+        glEnd();
+    }
+
+    // ========================================================================
+    // DEVOLVER EL ESTADO GL Y EL CACHE DE BIND
+    // ========================================================================
+    // bindForUI() deja el cache del TextureManager apuntando al ultimo
+    // corazon dibujado. Si se sale de aqui sin invalidarlo, en el frame
+    // siguiente el MUNDO pide una textura, bindOptimized() cree que ya esta
+    // activa y no hace el glBindTexture: el terreno se dibuja con la textura
+    // del corazon. Como este HUD solo se dibuja en SUPERVIVENCIA, el sintoma
+    // aparecia unicamente en ese modo.
+    glDisable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_BLEND);
+    glEnable(GL_ALPHA_TEST);   // el resto del motor lo espera activo
+
+    if (g_textureManager) g_textureManager->invalidateBindCache();
 }
 
 void renderHotbar(Inventory* inventory, int width, int height) {
@@ -16190,6 +16402,22 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
         // ⭐ CRÍTICO: Establecer la semilla ANTES de generar cualquier chunk
         state->world.setSeed(tempWorldInfo.seed);
         std::cout << "   ✅ Semilla cargada desde level.dat: " << tempWorldInfo.seed << std::endl;
+
+        // ⭐ VIDA: el tiempo jugado se arrastra entre sesiones, asi que los
+        // corazones ganados NO se pierden al salir y volver. Se reconstruye
+        // el estado a partir del total guardado en level.dat.
+        state->tiempoJugadoSegundos = (double)tempWorldInfo.totalPlaytime;
+        {
+            const int horas = (int)(state->tiempoJugadoSegundos / 3600.0);
+            int corazones = GameState::CORAZONES_INICIALES + horas;
+            if (corazones > GameState::CORAZONES_MAX)
+                corazones = GameState::CORAZONES_MAX;
+            state->vidaMaxMedios = corazones * GameState::MEDIOS_POR_CORAZON;
+            state->vidaMedios    = state->vidaMaxMedios;
+            std::cout << "   Vida: " << corazones << " corazon"
+                      << (corazones == 1 ? "" : "es")
+                      << " (" << horas << " h jugadas)" << std::endl;
+        }
     } else {
         // Fallback: Intentar cargar desde world.cfg
         std::filesystem::path worldCfgPath = worldPath / "world.cfg";
@@ -17285,6 +17513,11 @@ int main() {
                 // g_gameState->world.processLightingQueue();
                 g_gameState->updateItems(deltaTime);
 
+                // ⭐ VIDA: un corazon por cada hora jugada.
+                // Solo cuenta el tiempo DENTRO del mundo (no los menus ni la
+                // pausa), que es lo que hace justo el contador.
+                actualizarVida(g_gameState, deltaTime);
+
                 // ANIMACIÓN: Actualizar animación de agua
                 g_textureManager->updateWaterAnimation(deltaTime);
 
@@ -17898,6 +18131,9 @@ int main() {
 
             // Renderizar hotbar
             renderHotbar(&g_gameState->inventory, width, height);
+
+            // Barra de vida encima de la hotbar (solo en supervivencia).
+            renderCorazones(g_gameState, width, height);
 
 
             // ⭐ Renderizar item en la mano (esquina inferior derecha)

@@ -2895,14 +2895,30 @@ public:
     //   - No gasta IDs de bloque ni ocupa sitio en el chunk.
     //   - Si el jugador rompe el arbol, el suelo vuelve solo a su aspecto
     //     normal: la variante depende del vecino, no de un dato guardado.
-    //   - Cada especie y cada suelo tienen 4 variantes, elegidas por la
-    //     posicion, asi que un bosque no se ve repetitivo.
+    //   - Cada especie y cada suelo tienen 4 variantes, que NO son adornos
+    //     distintos: son la MISMA imagen girada 90 grados cada vez. Se
+    //     comprobo pixel a pixel. Por eso hay que elegirlas por la direccion
+    //     al tronco, no al azar: cada variante tiene un lado por el que la
+    //     raiz entra (denso) y el opuesto por el que se desvanece (libre).
+    //     Si se elige mal, la raiz sale huyendo del arbol en vez de nacer de
+    //     el, y dos bloques vecinos no empalman.
+    //
+    // `dirTronco` dice hacia donde queda el arbol desde ESTE bloque de suelo:
+    //     0 = norte (-Z)   1 = sur (+Z)   2 = oeste (-X)   3 = este (+X)
+    //     -1 = el tronco esta justo encima (no hay direccion: da igual)
     //
     // Devuelve 0 si ese suelo no lleva raices (y entonces se usa la textura
     // normal del bloque).
-    GLuint getTexturaRaices(BlockType suelo, BlockType encima, int wx, int wz) {
+    GLuint getTexturaRaices(BlockType suelo, BlockType encima, int wx, int wz,
+                            int dirTronco = -1) {
         // Solo la cara SUPERIOR del suelo lleva raices.
         const char* base = nullptr;
+
+        // Las 4 variantes son rotaciones, pero NO todas las familias giran en
+        // el mismo sentido: se midio que "Encino en tierra" y "Arena con
+        // raices de nopal" van al reves que las otras seis. `invertida` marca
+        // esas dos para que la tabla de direcciones siga saliendo bien.
+        bool invertida = false;
 
         switch (encima) {
             case BLOCK_WOOD:            // pino
@@ -2911,7 +2927,10 @@ public:
                 break;
             case BLOCK_WOOD_ENCINO:
                 if (suelo == BLOCK_GRASS) base = "Raices de Encino en pasto v";
-                else if (suelo == BLOCK_DIRT) base = "Raices de Encino en tierra v";
+                else if (suelo == BLOCK_DIRT) {
+                    base = "Raices de Encino en tierra v";
+                    invertida = true;   // esta familia gira al reves
+                }
                 break;
             case BLOCK_WOOD_OYAMEL:
                 if (suelo == BLOCK_GRASS) base = "Raices de Oyame en pasto v";
@@ -2923,23 +2942,49 @@ public:
             case BLOCK_NOPAL_BASE_T_ARCILLA:
             case BLOCK_NOPAL_BASE_A_ARCILLA:
                 if (suelo == BLOCK_GRASS) base = "Pasto con raices de nopal v";
-                else if (suelo == BLOCK_SAND) base = "Arena con raices de nopal v";
+                else if (suelo == BLOCK_SAND) {
+                    base = "Arena con raices de nopal v";
+                    invertida = true;   // esta familia gira al reves
+                }
                 // No hay textura de nopal en TIERRA ni en las arcillas. Se usa
                 // la de arena, que es el suelo mas parecido visualmente y
                 // evita que un nopal en tierra se quede sin raices.
                 else if (suelo == BLOCK_DIRT || suelo == BLOCK_CLAY_DIRT ||
-                         suelo == BLOCK_CLAY_SAND)
+                         suelo == BLOCK_CLAY_SAND) {
                     base = "Arena con raices de nopal v";
+                    invertida = true;
+                }
                 break;
             default:
                 break;
         }
         if (!base) return 0;
 
-        // Variante 1..4 por posicion: determinista, pero sin patron visible.
-        unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wz * 19349663);
-        h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
-        const int v = 1 + (int)(h % 4u);
+        // ------------------------------------------------------------------
+        // ELEGIR LA VARIANTE QUE MIRA AL TRONCO
+        // ------------------------------------------------------------------
+        // Medido rotando las imagenes pixel a pixel, el lado por el que la
+        // raiz ENTRA en cada variante es:
+        //
+        //     familia normal :  v1=N  v2=O  v3=S  v4=E
+        //     familia inversa:  v1=N  v2=E  v3=S  v4=O
+        //
+        // Se elige la variante cuyo lado denso apunta al arbol, para que la
+        // raiz nazca del tronco y empalme con la del bloque de al lado.
+        int v;
+        if (dirTronco < 0) {
+            // El tronco esta justo ENCIMA: no hay un lado preferente, la raiz
+            // rodea al arbol por igual. Aqui si conviene variar por posicion,
+            // para que dos arboles vecinos no se vean calcados.
+            unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wz * 19349663);
+            h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+            v = 1 + (int)(h % 4u);
+        } else {
+            //                      norte sur oeste este
+            static const int kNormal[4]  = { 1,  3,  2,  4 };
+            static const int kInversa[4] = { 1,  3,  4,  2 };
+            v = invertida ? kInversa[dirTronco] : kNormal[dirTronco];
+        }
 
         char ruta[192];
         snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s%d.png", base, v);
@@ -8641,19 +8686,22 @@ public:
                             cell.tex = g_textureManager->getBlockTexture(b, dir);
 
                             // ================================================
-                            // RAICES ALREDEDOR DEL ARBOL
+                            // RAICES: SOLO LAS 4 CARAS PEGADAS AL TRONCO
                             // ================================================
-                            // El suelo se dibuja con raices no solo BAJO el
-                            // tronco, sino en los bloques de ALREDEDOR: un
-                            // arbol real extiende sus raices varios metros y
-                            // las mas gruesas afloran junto a la base.
+                            // El suelo lleva raices cuando el arbol nace justo
+                            // encima, o cuando lo tiene PEGADO por una de sus
+                            // 4 caras laterales (norte, sur, oeste, este). No
+                            // se mira en diagonal ni mas lejos: en diagonal los
+                            // bloques solo se tocan por una arista, asi que la
+                            // raiz saltaria de un bloque a otro sin empalmar y
+                            // se veria cortada.
                             //
-                            // Se busca un tronco (o una base de nopal) en un
-                            // radio de 2 bloques. La probabilidad cae con la
-                            // distancia: pegado al tronco casi siempre hay
-                            // raiz, a dos bloques solo a veces. Asi el suelo
-                            // se degrada de forma natural en vez de dibujar un
-                            // cuadrado perfecto de raices.
+                            // Y lo importante: la variante NO se elige al azar.
+                            // Las 4 variantes de cada familia son la misma
+                            // imagen girada 90 grados, con un lado por el que
+                            // la raiz entra. Se escoge la que apunta al tronco,
+                            // para que la raiz nazca del arbol en vez de salir
+                            // huyendo de el.
                             //
                             // Sigue sin ser un bloque nuevo: es el mismo
                             // pasto, tierra o arena con otra textura, elegida
@@ -8664,45 +8712,34 @@ public:
                                 const int wxr = chunk->position.x * CHUNK_SIZE + bx;
                                 const int wzr = chunk->position.z * CHUNK_SIZE + bz;
 
-                                // 1) Justo encima: la base del tronco. Aqui la
-                                //    raiz es segura.
-                                GLuint raices =
-                                    g_textureManager->getTexturaRaices(b, nb, wxr, wzr);
+                                // 1) Tronco justo ENCIMA: es la base del arbol.
+                                //    Aqui no hay direccion preferente, la raiz
+                                //    rodea el tronco por los cuatro lados.
+                                GLuint raices = g_textureManager->getTexturaRaices(
+                                    b, nb, wxr, wzr, -1);
 
-                                // 2) Si no, buscar un tronco cerca. Se recorre
-                                //    en anillos para quedarse con el MAS
-                                //    CERCANO, que es el que manda la textura.
+                                // 2) Si no, mirar las 4 CARAS pegadas. El orden
+                                //    coincide con el que espera getTexturaRaices:
+                                //    0=norte(-Z) 1=sur(+Z) 2=oeste(-X) 3=este(+X)
                                 if (raices == 0) {
-                                    for (int r = 1; r <= 2 && raices == 0; ++r) {
-                                        for (int ox = -r; ox <= r && raices == 0; ++ox) {
-                                            for (int oz = -r; oz <= r && raices == 0; ++oz) {
-                                                // Solo el borde del anillo.
-                                                if (abs(ox) != r && abs(oz) != r) continue;
-                                                // Distancia de Manhattan: evita
-                                                // que las esquinas queden mas
-                                                // lejos que los lados.
-                                                const int dist = abs(ox) + abs(oz);
-                                                if (dist > 2) continue;
-
-                                                // Probabilidad por distancia:
-                                                // 1 bloque -> 70%, 2 -> 30%.
-                                                unsigned hh = (unsigned)((wxr + ox) * 73856093)
-                                                            ^ (unsigned)((wzr + oz) * 19349663)
-                                                            ^ (unsigned)(dist * 83492791);
-                                                hh ^= hh >> 13; hh *= 1274126177u; hh ^= hh >> 16;
-                                                const int prob = (dist == 1) ? 70 : 30;
-                                                if ((int)(hh % 100u) >= prob) continue;
-
-                                                // El vecino de arriba de ESE
-                                                // bloque es el que dice si hay
-                                                // tronco (y de que especie).
-                                                const BlockType arriba =
-                                                    getNeighborBlockCached(bx + ox, by, bz + oz,
-                                                                           0, 1, 0);
-                                                raices = g_textureManager->getTexturaRaices(
-                                                    b, arriba, wxr, wzr);
-                                            }
-                                        }
+                                    static const int CARA[4][2] = {
+                                        {  0, -1 },   // norte
+                                        {  0,  1 },   // sur
+                                        { -1,  0 },   // oeste
+                                        {  1,  0 },   // este
+                                    };
+                                    for (int c = 0; c < 4 && raices == 0; ++c) {
+                                        // Que hay ENCIMA del bloque vecino: si
+                                        // es un tronco, el arbol esta pegado a
+                                        // esta cara.
+                                        const BlockType arriba =
+                                            getNeighborBlockCached(bx + CARA[c][0], by,
+                                                                   bz + CARA[c][1], 0, 1, 0);
+                                        // `c` es justamente la direccion en la
+                                        // que queda el tronco: la textura se
+                                        // orienta hacia el.
+                                        raices = g_textureManager->getTexturaRaices(
+                                            b, arriba, wxr, wzr, c);
                                     }
                                 }
 

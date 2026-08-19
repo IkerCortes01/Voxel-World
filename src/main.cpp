@@ -353,11 +353,18 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_NOPAL_BASE_T_ARCILLA:
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
-        case BLOCK_NOPAL_CLADODIO: r = 0.35f; g = 0.62f; b = 0.30f; break; // Verde nopal
+        case BLOCK_NOPAL_CLADODIO:
+        case BLOCK_NOPAL_CLADODIO_X2:
+        case BLOCK_NOPAL_CLADODIO_X3:
+        case BLOCK_NOPAL_CLADODIO_Z2:
+        case BLOCK_NOPAL_CLADODIO_Z3:
+        case BLOCK_NOPAL_CLADODIO_DIAG: r = 0.35f; g = 0.62f; b = 0.30f; break; // Verde nopal
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
         case BLOCK_RAMA_OYAMEL: r = 0.34f; g = 0.22f; b = 0.12f; break; // Corteza
-        case BLOCK_TUNA:      r = 0.78f; g = 0.30f; b = 0.24f; break; // Tuna madura
+        case BLOCK_TUNA:      r = 0.42f; g = 0.66f; b = 0.30f; break; // Tuna verde
+        case BLOCK_TUNA_AMARILLA: r = 0.93f; g = 0.74f; b = 0.19f; break;
+        case BLOCK_TUNA_ROJA: r = 0.78f; g = 0.20f; b = 0.20f; break;
         case BLOCK_COAL_ORE:  r = 0.3f; g = 0.3f; b = 0.3f; break;    // Gris muy oscuro (común)
         case BLOCK_IRON_ORE:  r = 0.8f; g = 0.7f; b = 0.6f; break;    // Beige rosado (poco común)
         case BLOCK_GOLD_ORE:  r = 1.0f; g = 0.84f; b = 0.0f; break;   // Dorado brillante (poco común)
@@ -391,14 +398,14 @@ bool isNopal(BlockType type) {
            type == BLOCK_NOPAL_BASE_T_ARCILLA ||
            type == BLOCK_NOPAL_BASE_A_ARCILLA ||
            type == BLOCK_NOPAL_TALLO ||
-           type == BLOCK_NOPAL_CLADODIO ||
+           esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO;
 }
 
 // Las BASES y el TALLO son bloques COMPLETOS (solidos, con sus seis caras).
 // Solo el CLADODIO es un sprite 3D atravesable.
 bool isNopalSolido(BlockType type) {
-    return isNopal(type) && type != BLOCK_NOPAL_CLADODIO;
+    return isNopal(type) && !esCladodio(type);
 }
 
 bool isRama(BlockType type);   // definida mas abajo
@@ -411,9 +418,9 @@ bool isCrossSprite(BlockType type) {
     // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
     return type == BLOCK_TALLGRASS ||
-           type == BLOCK_NOPAL_CLADODIO ||
+           esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
-           type == BLOCK_TUNA;
+           esTuna(type);
 }
 
 // Suelos en los que arraiga el NOPAL: cualquier terreno natural blando.
@@ -498,6 +505,12 @@ struct NopalForma {
     int  patron;             // 0..99
     int  orientacion;        // 0..5
     int  forma;              // 0..599
+    BlockType tipo;          // que variante de penca es (apilada, diagonal...)
+
+    // Inclinacion de la penca diagonal: cuanto se desplaza su parte alta
+    // respecto a la baja, en fraccion de bloque. 0 = recta.
+    float inclina;
+    bool  inclinaEnX;        // se dobla en X (true) o en Z (false)
 };
 
 // ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
@@ -506,7 +519,7 @@ inline bool nopalEncadena(BlockType b) {
     // La TUNA queda FUERA a proposito: es un bloque independiente que se
     // apoya en la penca, no una parte de ella. Si encadenara, la penca se
     // estiraria hacia el fruto y perderia su forma.
-    return b == BLOCK_NOPAL_CLADODIO ||
+    return esCladodio(b) ||
            b == BLOCK_NOPAL_FRUTO ||
            b == BLOCK_NOPAL_TALLO;
 }
@@ -526,8 +539,10 @@ constexpr int NOPAL_FORMAS        = NOPAL_PATRONES * NOPAL_ORIENTACIONES;
 // Si hay vecinos, mandan ellos: la penca se alinea con la direccion en la que
 // la planta continua, que es lo que hace que las piezas encajen.
 template <typename TGet>
-NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
+NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
+                                 BlockType tipo = BLOCK_NOPAL_CLADODIO) {
     NopalForma f{};
+    f.tipo = tipo;
 
     f.uneXp     = nopalEncadena(get( 1, 0, 0));
     f.uneXm     = nopalEncadena(get(-1, 0, 0));
@@ -545,7 +560,13 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
     const int enY = (f.uneArriba ? 1 : 0) + (f.uneAbajo ? 1 : 0);
 
     // --- ORIENTACION ---
-    if (enX > enZ && enX >= enY) {
+    // Las pencas APILADAS mandan sobre todo lo demas: el jugador eligio al
+    // colocarlas si las juntaba a lo ancho (eje X) o a lo largo (eje Z), y esa
+    // decision no puede cambiarla el vecindario.
+    if (pencasApiladas(f.tipo) > 1) {
+        // Apilado en X -> la losa es fina en X; en Z -> fina en Z.
+        f.orientacion = apiladoEnX(f.tipo) ? 2 : 0;
+    } else if (enX > enZ && enX >= enY) {
         f.orientacion = 2 + (int)(h & 1u);          // se alarga en X
     } else if (enZ > enX && enZ >= enY) {
         f.orientacion = (int)(h & 1u);              // se alarga en Z
@@ -556,7 +577,17 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
     }
 
     // --- CAJA segun la orientacion ---
-    constexpr float GROSOR = 5.0f / 16.0f;   // los 5 pixeles
+    // GROSOR de UNA penca. Al apilar varias en el mismo voxel el bloque se
+    // ensancha: 5 px una, 10 dos, 15 tres. Es lo que permite juntar hasta
+    // tres pencas sin gastar tres bloques.
+    //
+    // Dato de campo: una penca real mide 30-60 cm de largo por 1.9-2.8 cm de
+    // grosor, o sea una relacion de ~1:20 (FAO/ICARDA, INIFAP). A escala de
+    // voxel eso seria menos de un pixel, asi que 5 px es ya una concesion
+    // generosa a la legibilidad; apilarlas es lo que acerca el volumen del
+    // conjunto al de una mata real.
+    const int nPencas = pencasApiladas(f.tipo);
+    const float GROSOR = (5.0f / 16.0f) * (float)nPencas;
     const float c0 = 0.5f - GROSOR * 0.5f;
     const float c1 = 0.5f + GROSOR * 0.5f;
     const float M  = 0.07f;                  // margen del lado ancho
@@ -594,6 +625,25 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
             f.minZ = d0; f.maxZ = d1;
             break;
         }
+    }
+
+    // --- PENCA INCLINADA (diagonal) ---
+    // Un nopal real no es una reja de pencas verticales: se dobla. Medido en
+    // Opuntia puberula, el 95% de los cladodios tienen menos de 50 grados de
+    // inclinacion respecto a la vertical, y el angulo baja cuanto menos luz
+    // hay (Sortibran et al. 2005, Am. J. Bot. 92:700).
+    //
+    // Aqui la penca diagonal se dibuja tumbada ~45 grados: es el valor central
+    // de ese rango y el que mas se nota en una rejilla de voxeles. `inclina`
+    // dice cuanto se desplaza la parte alta respecto a la baja, y el mesher lo
+    // aplica al emitir las caras.
+    f.inclina = 0.0f;
+    if (f.tipo == BLOCK_NOPAL_CLADODIO_DIAG) {
+        // El sentido depende de la posicion, para que dos pencas contiguas no
+        // se doblen siempre igual y la mata quede con forma natural.
+        f.inclina = ((h >> 7) & 1u) ? 0.42f : -0.42f;
+        // Se dobla en el eje ANCHO de la losa, que es donde tiene recorrido.
+        f.inclinaEnX = (f.orientacion == 0 || f.orientacion == 1);
     }
 
     // ========================================================================
@@ -754,14 +804,20 @@ void tunaCajaCon(TGet get,
     // Se une a cladodios y a otras tunas: un racimo queda continuo.
     auto une = [&](int dx, int dy, int dz) {
         const BlockType b = get(dx, dy, dz);
-        return b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO ||
-               b == BLOCK_TUNA;
+        return esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
+               esTuna(b);
     };
 
-    if (une(-1, 0, 0)) minX = EPS;
-    if (une( 1, 0, 0)) maxX = 1.0f - EPS;
-    if (une( 0, 0,-1)) minZ = EPS;
-    if (une( 0, 0, 1)) maxZ = 1.0f - EPS;
+    // La tuna conecta por CINCO caras. La del POLO SUR (-Z) queda libre a
+    // proposito: es el lado por el que el fruto "mira" hacia fuera, y dejarlo
+    // sin unir es lo que impide que un racimo se cierre sobre si mismo y
+    // acabe pareciendo un bloque macizo en vez de frutos sueltos.
+    //
+    // Convencion del mesher del mundo (DIR_VEC): norte = +Z, sur = -Z.
+    if (une(-1, 0, 0)) minX = EPS;             // oeste
+    if (une( 1, 0, 0)) maxX = 1.0f - EPS;      // este
+    if (une( 0, 0, 1)) maxZ = 1.0f - EPS;      // norte
+    // -Z (polo sur): NO se conecta nunca.
     // Hacia abajo ya se apoya en la penca (minY es la base del voxel).
     // Hacia arriba solo si hay otra pieza: asi un racimo se ve de una pieza.
     if (une( 0, 1, 0)) maxY = 1.0f - EPS;
@@ -783,14 +839,14 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     //
     // Se calcula igual aqui y en el mesher (esta funcion la usan los dos), de
     // forma que lo que se ve y lo que se toca coinciden siempre.
-    if (type == BLOCK_TUNA) {
+    if (esTuna(type)) {
         tunaCajaCon(get, minX, minY, minZ, maxX, maxY, maxZ);
         return true;
     }
 
-    if (type != BLOCK_NOPAL_CLADODIO && type != BLOCK_NOPAL_FRUTO) return false;
+    if (!esCladodio(type) && type != BLOCK_NOPAL_FRUTO) return false;
 
-    const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz);
+    const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz, type);
 
     minX = f.uneXm ? 0.0f : f.minX;   maxX = f.uneXp ? 1.0f : f.maxX;
     minY = f.uneAbajo ? 0.0f : f.minY; maxY = f.uneArriba ? 1.0f : f.maxY;
@@ -850,8 +906,8 @@ bool isBlockSolid(BlockType type) {
 bool isBlockOpaque(BlockType type) {
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
-    if (type == BLOCK_NOPAL_CLADODIO || type == BLOCK_NOPAL_FRUTO ||
-        type == BLOCK_TUNA) return false;
+    if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
+        esTuna(type)) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
@@ -870,9 +926,16 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_NOPAL_BASE_T_ARCILLA:
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
-        case BLOCK_NOPAL_CLADODIO: return 3.0f;
+        case BLOCK_NOPAL_CLADODIO:
+        case BLOCK_NOPAL_CLADODIO_X2:
+        case BLOCK_NOPAL_CLADODIO_X3:
+        case BLOCK_NOPAL_CLADODIO_Z2:
+        case BLOCK_NOPAL_CLADODIO_Z3:
+        case BLOCK_NOPAL_CLADODIO_DIAG: return 3.0f;
         // La tuna se arranca de un tiron: es fruta, no carne de penca.
-        case BLOCK_TUNA:      return 0.4f;
+        case BLOCK_TUNA:
+        case BLOCK_TUNA_AMARILLA:
+        case BLOCK_TUNA_ROJA: return 0.4f;
         // Ramas: madera fina, se parten rapido.
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
@@ -3067,11 +3130,15 @@ public:
     //
     // `wx,wz` son los del TALLO (color de la planta) y `fx,fy,fz` los del
     // fruto (madurez individual).
-    GLuint getTexturaTuna(int tallox, int talloz, int fx, int fy, int fz) {
-        // --- Variedad de la planta ---
-        unsigned hp = (unsigned)(tallox * 73856093) ^ (unsigned)(talloz * 19349663);
-        hp ^= hp >> 13; hp *= 1274126177u; hp ^= hp >> 16;
-        const int variedad = (int)(hp % 3u);      // 0 verde, 1 amarilla, 2 roja
+    GLuint getTexturaTuna(BlockType tipo, int fx, int fy, int fz) {
+        // --- Variedad: la dice el BLOQUE, no un hash ---
+        // Cada variedad es un bloque distinto, asi que al romper una tuna roja
+        // el jugador recoge una tuna roja. El color no puede salir de la
+        // posicion: tiene que salir del bloque, o lo que se ve y lo que se
+        // recoge no coincidirian.
+        const int variedad = (tipo == BLOCK_TUNA_AMARILLA) ? 1
+                           : (tipo == BLOCK_TUNA_ROJA)     ? 2
+                                                           : 0;
 
         // --- Madurez de ESTA tuna: CRECE CON EL TIEMPO ---
         // Cada fruto tiene su propia "fecha de maduracion", repartida en las
@@ -3467,6 +3534,11 @@ public:
 
             // Cladodio: SPRITE 3D.
             case BLOCK_NOPAL_CLADODIO:
+            case BLOCK_NOPAL_CLADODIO_X2:
+            case BLOCK_NOPAL_CLADODIO_X3:
+            case BLOCK_NOPAL_CLADODIO_Z2:
+            case BLOCK_NOPAL_CLADODIO_Z3:
+            case BLOCK_NOPAL_CLADODIO_DIAG:
                 return getTexture("Cladodio de Nopal de Castilla.png");
 
             // --- RAMAS: cada especie usa la textura de SU tronco ---
@@ -3491,6 +3563,12 @@ public:
             case BLOCK_TUNA:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Tuna verde.png"));
+            case BLOCK_TUNA_AMARILLA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/tuna amarilla.png"));
+            case BLOCK_TUNA_ROJA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/Tuna roja.png"));
 
             // --- Bloques nuevos ---
             case BLOCK_LIMESTONE:
@@ -4043,8 +4121,8 @@ struct Chunk {
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
                isRama(b) ||
-               b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO ||
-               b == BLOCK_TUNA;
+               esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
+               esTuna(b);
     }
 
     // ========================================================================
@@ -4107,11 +4185,11 @@ struct Chunk {
         // Cladodio y fruto: losas de 5/16 de grosor. Tapan mas que una rama
         // pero mucho menos que un cubo, asi que atenuan 2: se nota una sombra
         // suave bajo la penca sin que llegue a oscurecerla.
-        if (b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO) return 2;
+        if (esCladodio(b) || b == BLOCK_NOPAL_FRUTO) return 2;
 
         // La TUNA es un bulto de 4x4 pixeles: ocupa aun menos que la penca,
         // asi que la luz la rodea igual que a una rama.
-        if (b == BLOCK_TUNA) return 1;
+        if (esTuna(b)) return 1;
 
         // El TALLO y la BASE del nopal SI son bloques completos: opacos.
         if (b == BLOCK_NOPAL_TALLO ||
@@ -4972,7 +5050,7 @@ public:
             for (int x = 0; x < CHUNK_SIZE && !tiene; ++x)
                 for (int z = 0; z < CHUNK_SIZE && !tiene; ++z)
                     for (int y = 0; y < CHUNK_HEIGHT; ++y)
-                        if (c->getBlock(x, y, z) == BLOCK_TUNA) { tiene = true; break; }
+                        if (esTuna(c->getBlock(x, y, z))) { tiene = true; break; }
 
             if (tiene) c->needsRebuild = true;
         }
@@ -7385,17 +7463,44 @@ public:
             return puestos;
         };
 
-        // Se apunta a 8-9 partes de cladodio por planta: es lo que da la
-        // silueta reconocible. Se recorren las posiciones (altura x lado) y
-        // se rellenan hasta llegar al objetivo, con una segunda pasada por si
-        // la primera se quedo corta. Asi ningun ejemplar sale pelado.
-        const int objetivo = 8 + rnd(77, 2);          // 8 o 9
+        // ====================================================================
+        // CUANTAS PENCAS Y POR DONDE BROTAN
+        // ====================================================================
+        // Datos de campo (INIFAP; FAO, El cultivo de Opuntia para produccion
+        // de forraje; SciELO MX 2014 'Rojo Pelon'):
+        //
+        //   - Una planta lleva 10.2 cladodios de media, con un rango medido de
+        //     1 a 18. El objetivo de 8-9 se queda corto: se sube a 7-13, que
+        //     cubre el grueso de ese rango sin llegar a los ejemplares record.
+        //
+        //   - LA REGLA DURA: la brotacion es UNICAMENTE PERIFERICA. Solo el
+        //     30% de las areolas de una penca brotan, y son las del contorno,
+        //     sobre todo el arco superior. Las caras planas NO brotan nunca.
+        //     Traducido: las pencas nuevas salen del BORDE de las anteriores,
+        //     no de su superficie, y con sesgo hacia arriba.
+        //
+        //   - La planta crece por PISOS: 1 nivel nuevo por temporada, hasta 3
+        //     en condiciones buenas. Por eso los brotes se reparten por altura
+        //     en vez de amontonarse.
+        //
+        //   - Los cladodios hijos no quedan en el plano del padre: la filotaxis
+        //     de areolas es helicoidal (~137 grados de divergencia), asi que
+        //     cada piso se gira respecto al anterior. Es lo que hace que la
+        //     mata se vea en volumen y no como una reja plana.
+        const int objetivo = 7 + rnd(77, 7);          // 7..13
         const int posiciones = (topeTallo - primerBrote + 1) * 4;
         int puestos = 0;
 
         for (int pasada = 0; pasada < 2 && puestos < objetivo; ++pasada) {
             for (int y = primerBrote; y <= topeTallo && puestos < objetivo; ++y) {
-                for (int d = 0; d < 4 && puestos < objetivo; ++d) {
+                // GIRO HELICOIDAL POR PISO: 137 grados sobre 4 direcciones son
+                // 1.53 pasos, que se aproxima alternando 1 y 2. Ese desfase es
+                // justo lo que rompe la simetria de "cuatro pencas en cruz".
+                const int giro = ((y - primerBrote) * 3) / 2;
+
+                for (int k = 0; k < 4 && puestos < objetivo; ++k) {
+                    const int d = (k + giro) % 4;
+
                     const int prob = (posiciones > 0)
                                    ? (objetivo * 100) / posiciones : 100;
                     if (pasada == 0 &&
@@ -7404,6 +7509,73 @@ public:
                     // Cada brote elige su propia forma: de ahi la variedad.
                     const int forma = rnd(y * 137 + d * 211 + 7, 6);
                     puestos += brotarCladodio(worldX, y, worldZ, d, forma);
+                }
+            }
+        }
+
+        // --- PENCAS DOBLADAS ---
+        // Medido en Opuntia puberula: el 95% de los cladodios se inclinan
+        // menos de 50 grados respecto a la vertical, y el angulo baja cuanta
+        // menos luz reciben (Sortibran et al. 2005, Am. J. Bot. 92:700). O
+        // sea: una nopalera real no es un conjunto de placas verticales, tiene
+        // pencas dobladas por todas partes.
+        //
+        // Aqui una parte de las pencas ya colocadas se cambia por su version
+        // DIAGONAL. Se hace despues de generar, sobre las que quedaron sueltas
+        // (sin otra penca encima), que son las que en la planta real se
+        // vencen: las de dentro estan sujetas por las de alrededor.
+        for (int y = primerBrote; y <= topeTallo + 3; ++y) {
+            for (int dx = -4; dx <= 4; ++dx) {
+                for (int dz = -4; dz <= 4; ++dz) {
+                    const int cx = worldX + dx, cz = worldZ + dz;
+                    if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+                    // Solo las de la punta: si tiene penca encima, esta
+                    // sujeta y se queda recta.
+                    if (esCladodio(getBlock(cx, y + 1, cz))) continue;
+                    // Un tercio se dobla: el resto sigue erecto, que es lo
+                    // predominante a pleno sol.
+                    if (rnd(cx * 53 + y * 31 + cz * 17, 100) >= 34) continue;
+                    setBlock(cx, y, cz, BLOCK_NOPAL_CLADODIO_DIAG);
+                }
+            }
+        }
+
+        // --- MATAS DE VARIAS PENCAS ---
+        // En una nopalera las pencas no van de una en una: se agolpan varias
+        // en el mismo sitio, superpuestas. Aqui algunas pencas del interior
+        // pasan a ser grupos de 2 o 3 en el mismo bloque.
+        //
+        // Solo las que tienen vecinos a los lados: son las del centro de la
+        // mata, donde de verdad se amontonan. Las del borde se quedan solas,
+        // que es como se ve la silueta de la planta.
+        for (int y = primerBrote; y <= topeTallo + 2; ++y) {
+            for (int dx = -4; dx <= 4; ++dx) {
+                for (int dz = -4; dz <= 4; ++dz) {
+                    const int cx = worldX + dx, cz = worldZ + dz;
+                    if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+
+                    // Cuantas pencas la rodean: mide si esta "dentro" de la mata.
+                    int vecinas = 0;
+                    if (esCladodio(getBlock(cx - 1, y, cz))) ++vecinas;
+                    if (esCladodio(getBlock(cx + 1, y, cz))) ++vecinas;
+                    if (esCladodio(getBlock(cx, y, cz - 1))) ++vecinas;
+                    if (esCladodio(getBlock(cx, y, cz + 1))) ++vecinas;
+                    if (vecinas < 2) continue;   // esta en el borde: se queda sola
+
+                    const int r = rnd(cx * 71 + y * 43 + cz * 29, 100);
+                    if (r >= 45) continue;       // menos de la mitad se agrupan
+
+                    // El eje sigue al vecino: si la mata se extiende en X, las
+                    // pencas se apilan en X, y asi el grupo queda alineado con
+                    // la planta en vez de cruzado.
+                    const bool enX = esCladodio(getBlock(cx - 1, y, cz)) ||
+                                     esCladodio(getBlock(cx + 1, y, cz));
+                    const bool tres = (r < 15);   // un tercio de los grupos, de 3
+                    setBlock(cx, y, cz,
+                             tres ? (enX ? BLOCK_NOPAL_CLADODIO_X3
+                                         : BLOCK_NOPAL_CLADODIO_Z3)
+                                  : (enX ? BLOCK_NOPAL_CLADODIO_X2
+                                         : BLOCK_NOPAL_CLADODIO_Z2));
                 }
             }
         }
@@ -7426,8 +7598,8 @@ public:
             // sus seis caras: eso garantiza que queda soldada a la planta.
             auto tocaCladodio = [&](int fx, int fy, int fz) {
                 for (int c = 0; c < 6; ++c) {
-                    if (getBlock(fx + caras[c][0], fy + caras[c][1],
-                                 fz + caras[c][2]) == BLOCK_NOPAL_CLADODIO)
+                    if (esCladodio(getBlock(fx + caras[c][0], fy + caras[c][1],
+                                            fz + caras[c][2])))
                         return true;
                 }
                 return false;
@@ -7440,7 +7612,7 @@ public:
                 for (int dx = -4; dx <= 4 && pencas < maxPencas; ++dx) {
                     for (int dz = -4; dz <= 4 && pencas < maxPencas; ++dz) {
                         const int cx = worldX + dx, cz = worldZ + dz;
-                        if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+                        if (!esCladodio(getBlock(cx, y, cz))) continue;
 
                         for (int c = 0; c < 6 && pencas < maxPencas; ++c) {
                             // La penca crece del borde, nunca colgando por
@@ -7475,7 +7647,7 @@ public:
                     for (int dx = -4; dx <= 4 && pencas == 0; ++dx) {
                         for (int dz = -4; dz <= 4 && pencas == 0; ++dz) {
                             const int cx = worldX + dx, cz = worldZ + dz;
-                            if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+                            if (!esCladodio(getBlock(cx, y, cz))) continue;
                             for (int c = 0; c < 6 && pencas == 0; ++c) {
                                 if (c == 3) continue;
                                 const int fx = cx + caras[c][0];
@@ -7497,9 +7669,9 @@ public:
         }
 
         // --- TUNAS ---
-        // La tuna es un BLOQUE propio (BLOCK_TUNA): crece justo ENCIMA de un
-        // cladodio, apoyada en el, y el jugador la selecciona y la arranca por
-        // separado sin tocar la penca.
+        // La tuna es un BLOQUE propio: crece justo ENCIMA de un cladodio,
+        // apoyada en el, y el jugador la selecciona y la arranca por separado
+        // sin tocar la penca.
         //
         // Al exigir cladodio debajo, es imposible que quede flotando: si se
         // rompe la penca que la sostiene, la tuna se queda sin soporte, que es
@@ -7508,11 +7680,20 @@ public:
             int tunas = 0;
             const int maxTunas = 2 + rnd(613, 4);   // 2..5 por planta
 
+            // VARIEDAD DE LA PLANTA: un nopal da tunas de UN color, porque es
+            // su variedad, no algo que cambie de fruto a fruto. Las tres se
+            // reparten por igual, asi que el jugador puede conseguir verde,
+            // amarilla y roja recorriendo distintos nopales.
+            const BlockType VARIEDADES[3] = {
+                BLOCK_TUNA, BLOCK_TUNA_AMARILLA, BLOCK_TUNA_ROJA
+            };
+            const BlockType variedad = VARIEDADES[rnd(451, 3)];
+
             for (int y = primerBrote; y <= topeTallo + 4 && tunas < maxTunas; ++y) {
                 for (int dx = -4; dx <= 4 && tunas < maxTunas; ++dx) {
                     for (int dz = -4; dz <= 4 && tunas < maxTunas; ++dz) {
                         const int cx = worldX + dx, cz = worldZ + dz;
-                        if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+                        if (!esCladodio(getBlock(cx, y, cz))) continue;
 
                         // Justo encima de la penca, y solo si esta libre.
                         const int fy = y + 1;
@@ -7522,7 +7703,7 @@ public:
                         // No todas las pencas dan fruto.
                         if (rnd(cx * 31 + y * 17 + cz * 13, 100) >= 30) continue;
 
-                        setBlock(cx, fy, cz, BLOCK_TUNA);
+                        setBlock(cx, fy, cz, variedad);
                         ++tunas;
                     }
                 }
@@ -8719,9 +8900,9 @@ public:
                             continue;   // no emitir las caras del cubo
                         }
 
-                        if (block == BLOCK_NOPAL_CLADODIO ||
+                        if (esCladodio(block) ||
                             block == BLOCK_NOPAL_FRUTO ||
-                            block == BLOCK_TUNA) {
+                            esTuna(block)) {
                             // ============================================
                             // CLADODIO Y FRUTO: CAJA ADAPTATIVA
                             // ============================================
@@ -8753,7 +8934,7 @@ public:
                                     return getNeighborBlockCached(x, y, z,
                                                                   dx, dy, dz);
                                 },
-                                (int)wx, (int)wy, (int)wz);
+                                (int)wx, (int)wy, (int)wz, block);
 
                             // Limites de la caja en el voxel. Cada eje se
                             // estira al borde si hay continuacion por ese
@@ -8886,8 +9067,8 @@ public:
                                 "Penca Nopal de Castilla conectado al  Cladodio.png");
                             auto texLado = [&](int dx_, int dy_, int dz_) -> GLuint {
                                 if (texUnion == 0) return texture;
-                                return (getNeighborBlockCached(x, y, z, dx_, dy_, dz_)
-                                            == BLOCK_NOPAL_CLADODIO)
+                                return esCladodio(getNeighborBlockCached(
+                                           x, y, z, dx_, dy_, dz_))
                                        ? texUnion : texture;
                             };
 
@@ -8923,10 +9104,33 @@ public:
                             auto pushRodaja = [&](float y0, float y1, float mordisco) {
                                 // Solo se recorta el lado libre: por donde la
                                 // planta sigue, la caja llega al borde.
-                                const float rx0 = bx0 + (nf.uneXm ? 0.0f : mordisco);
-                                const float rx1 = bx1 - (nf.uneXp ? 0.0f : mordisco);
-                                const float rz0 = bz0 + (nf.uneZm ? 0.0f : mordisco);
-                                const float rz1 = bz1 - (nf.uneZp ? 0.0f : mordisco);
+                                float rx0 = bx0 + (nf.uneXm ? 0.0f : mordisco);
+                                float rx1 = bx1 - (nf.uneXp ? 0.0f : mordisco);
+                                float rz0 = bz0 + (nf.uneZm ? 0.0f : mordisco);
+                                float rz1 = bz1 - (nf.uneZp ? 0.0f : mordisco);
+
+                                // PENCA DIAGONAL: cada rodaja se corre un poco
+                                // mas que la de abajo, asi que la penca sube
+                                // torcida en vez de recta. Es lo que da las
+                                // formas dobladas y en codo de un nopal real,
+                                // donde el 95% de las pencas se inclinan menos
+                                // de 50 grados (Sortibran 2005).
+                                if (nf.inclina != 0.0f) {
+                                    // Desplazamiento proporcional a la altura:
+                                    // 0 abajo, `inclina` arriba.
+                                    const float t = (y0 + y1) * 0.5f;
+                                    const float d = nf.inclina * (t - 0.5f);
+                                    if (nf.inclinaEnX) { rx0 += d; rx1 += d; }
+                                    else               { rz0 += d; rz1 += d; }
+                                    // Sin salirse del voxel: invadir al vecino
+                                    // rompe la colision, que va celda a celda.
+                                    const float E = 0.0005f;
+                                    if (rx0 < E) { rx1 += E - rx0; rx0 = E; }
+                                    if (rz0 < E) { rz1 += E - rz0; rz0 = E; }
+                                    if (rx1 > 1.0f - E) { rx0 -= rx1 - (1.0f - E); rx1 = 1.0f - E; }
+                                    if (rz1 > 1.0f - E) { rz0 -= rz1 - (1.0f - E); rz1 = 1.0f - E; }
+                                }
+
                                 // Si el mordisco se comiera la rodaja entera,
                                 // no se emite nada (evita caras invertidas).
                                 if (rx1 <= rx0 || rz1 <= rz0) return;
@@ -8961,7 +9165,7 @@ public:
                             // La penca ya no cede sitio a ningun fruto: la tuna
                             // es un bloque aparte, en su propio voxel, y se
                             // dibuja mas abajo con su propia geometria.
-                            if (block != BLOCK_TUNA) {
+                            if (!esTuna(block)) {
                                 pushRodaja(by0, yc0, nf.uneAbajo  ? 0.0f : CURVA);
                                 pushRodaja(yc0, yc1, 0.0f);
                                 pushRodaja(yc1, by1, nf.uneArriba ? 0.0f : CURVA);
@@ -8975,7 +9179,7 @@ public:
                             // en el voxel de encima de la penca. El jugador la
                             // selecciona y la arranca por separado, y la penca
                             // se queda intacta.
-                            if (block == BLOCK_TUNA) {
+                            if (esTuna(block)) {
                                 // SIN AGUJEROS: el dibujo de la tuna es redondo
                                 // sobre fondo transparente, asi que mapear la
                                 // imagen entera dejaba ver a traves por las
@@ -9004,8 +9208,7 @@ public:
                                 // rejilla de 8 la identifica) y la madurez de
                                 // cada tuna.
                                 const GLuint texT = g_textureManager->getTexturaTuna(
-                                    ((int)wx) >> 3, ((int)wz) >> 3,
-                                    (int)wx, (int)wy, (int)wz);
+                                    block, (int)wx, (int)wy, (int)wz);
                                 if (texT != 0) {
                                     // Las seis caras: es un volumen cerrado.
                                     pushCaraTex(texT, tx0,ty0,tz1, tx0,ty0,tz0,
@@ -11952,6 +12155,11 @@ struct GameState {
         case BLOCK_NOPAL_BASE_A_ARCILLA:
             case BLOCK_NOPAL_TALLO:
             case BLOCK_NOPAL_CLADODIO:
+            case BLOCK_NOPAL_CLADODIO_X2:
+            case BLOCK_NOPAL_CLADODIO_X3:
+            case BLOCK_NOPAL_CLADODIO_Z2:
+            case BLOCK_NOPAL_CLADODIO_Z3:
+            case BLOCK_NOPAL_CLADODIO_DIAG:
                 return BLOCK_NOPAL_CLADODIO;
 
             // Una rama da un PALO: es exactamente lo que es.
@@ -11962,7 +12170,9 @@ struct GameState {
 
             // La tuna se recoge entera: es fruta, se arranca y ya.
             case BLOCK_TUNA:
-                return BLOCK_TUNA;
+            case BLOCK_TUNA_AMARILLA:
+            case BLOCK_TUNA_ROJA:
+                return brokenBlock;   // cada variedad se recoge tal cual
 
             case BLOCK_LEAVES:
                 // Las hojas pueden no soltar nada (20% de probabilidad de soltar)
@@ -12592,7 +12802,9 @@ void prewarmItemTextures() {
         // dibuja el icono como un quad y no como un cubo isometrico). Se
         // registra aqui para que use la textura de fruto maduro, en vez de
         // heredar la del bloque, que es la verde tierna.
-        { BLOCK_TUNA,        "Tuna roja crecida.png" },
+        { BLOCK_TUNA,          "Tuna verde crecida.png"    },
+        { BLOCK_TUNA_AMARILLA, "Tuna amarilla crecida.png" },
+        { BLOCK_TUNA_ROJA,     "Tuna roja crecida.png"     },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -13623,6 +13835,45 @@ void placeBlock(GameState* state) {
     if (result.hit) {
         Vec3i placePos = result.previousPos;
 
+        // ====================================================================
+        // APILAR PENCAS EN EL MISMO BLOQUE
+        // ====================================================================
+        // Si el jugador lleva una penca en la mano y apunta a otra, en vez de
+        // ocupar un voxel nuevo la ANADE a la que ya esta: caben hasta tres.
+        //
+        // El eje lo decide POR DONDE apunta. Si golpea una cara este u oeste,
+        // las junta a lo ancho; si golpea norte o sur, a lo largo. Asi el
+        // jugador controla la forma sin menus: basta con rodear la penca y
+        // pegarle por el lado que quiera.
+        if (selectedBlock == BLOCK_NOPAL_CLADODIO) {
+            const BlockType objetivo = state->world.getBlock(
+                result.blockPos.x, result.blockPos.y, result.blockPos.z);
+
+            if (esCladodio(objetivo)) {
+                // La cara golpeada sale de comparar el bloque tocado con el
+                // hueco de delante: la diferencia es la normal.
+                const int nx = result.previousPos.x - result.blockPos.x;
+                const int nz = result.previousPos.z - result.blockPos.z;
+
+                // Si ya venia apilada, se respeta SU eje: mezclar ancho y
+                // largo en el mismo bloque no tiene representacion.
+                const bool enX = (pencasApiladas(objetivo) > 1)
+                                 ? apiladoEnX(objetivo)
+                                 : (nx != 0 || nz == 0);
+
+                const BlockType siguiente = apilarPenca(objetivo, enX);
+                if (siguiente != BLOCK_AIR) {
+                    state->world.setBlock(result.blockPos.x, result.blockPos.y,
+                                          result.blockPos.z, siguiente);
+                    state->inventory.consumeSelected();
+                    state->placeCooldown = 0.25f;
+                    return;
+                }
+                // Si ya esta llena (3 pencas), se sigue por el camino normal:
+                // la penca nueva se coloca en el hueco de al lado.
+            }
+        }
+
         // ⭐ VEGETACIÓN REEMPLAZABLE
         // Si se apunta directamente a un sprite en cruz (hierba, flor), el
         // bloque nuevo lo SUSTITUYE en vez de colocarse delante. Como la
@@ -13639,7 +13890,7 @@ void placeBlock(GameState* state) {
             // Ahora que ramas y nopal SI ocupan volumen, ninguno debe ser
             // sustituido: el bloque nuevo se coloca al lado, como con
             // cualquier bloque solido. Solo la hierba se reemplaza.
-            const bool encadenable = (targetBlock == BLOCK_NOPAL_CLADODIO ||
+            const bool encadenable = (esCladodio(targetBlock) ||
                                       targetBlock == BLOCK_NOPAL_FRUTO ||
                                       isRama(targetBlock));
 

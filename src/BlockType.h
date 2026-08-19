@@ -123,9 +123,34 @@ enum BlockType {
     // romperla el cladodio se queda intacto. Ocupa su voxel con un bulto de
     // 6x4x4 pixeles apoyado en la penca de abajo.
     //
-    // Va al final para no desplazar ningun ID anterior: las partidas ya
+    // Hay TRES variedades, y cada una es un bloque distinto para que el
+    // jugador pueda conseguir las tres por separado: al romper una tuna roja
+    // recoge una tuna roja, no una generica. Se corresponden con las
+    // variedades que se cultivan en Mexico.
+    //
+    // Van al final para no desplazar ningun ID anterior: las partidas ya
     // guardadas siguen leyendose igual.
-    BLOCK_TUNA,                  // 40 Tuna (fruto del nopal)
+    BLOCK_TUNA,                  // 40 Tuna verde (blanca / Alfajayucan)
+    BLOCK_TUNA_AMARILLA,         // 41 Tuna amarilla
+    BLOCK_TUNA_ROJA,             // 42 Tuna roja (cardona)
+
+    // ------------------------------------------------------------------
+    // PENCAS APILADAS
+    // ------------------------------------------------------------------
+    // En un mismo voxel caben hasta TRES pencas. Como el chunk solo guarda
+    // un BlockType por bloque (sin metadatos), la cantidad ES el propio ID:
+    // asi el apilado no cuesta ni un byte extra y se guarda solo.
+    //
+    // El eje (ancho o largo) tambien va en el ID, porque el jugador decide al
+    // colocar si las junta de lado o en profundidad.
+    BLOCK_NOPAL_CLADODIO_X2,     // 43 Dos pencas juntas, en ancho
+    BLOCK_NOPAL_CLADODIO_X3,     // 44 Tres pencas juntas, en ancho
+    BLOCK_NOPAL_CLADODIO_Z2,     // 45 Dos pencas juntas, en largo
+    BLOCK_NOPAL_CLADODIO_Z3,     // 46 Tres pencas juntas, en largo
+
+    // Penca INCLINADA: crece en diagonal en vez de recta. Es lo que da a la
+    // planta las formas dobladas y en codo de un nopal real.
+    BLOCK_NOPAL_CLADODIO_DIAG,   // 47 Penca en diagonal
 
     // ========================================================================
     // ITEMS
@@ -133,12 +158,12 @@ enum BlockType {
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 41 Polvo de tierra
-    BLOCK_STICK,            // 42 Palo
-    BLOCK_HOE,              // 43 Hoz
-    BLOCK_COAL_ITEM,        // 44 Carbón (item)
-    BLOCK_RAW_ZINC,         // 45 Zinc crudo
-    BLOCK_RAW_COPPER,       // 46 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 48 Polvo de tierra
+    BLOCK_STICK,            // 49 Palo
+    BLOCK_HOE,              // 50 Hoz
+    BLOCK_COAL_ITEM,        // 51 Carbón (item)
+    BLOCK_RAW_ZINC,         // 52 Zinc crudo
+    BLOCK_RAW_COPPER,       // 53 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -147,18 +172,56 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 47 (sin implementar)
-    BLOCK_BRICKS,           // 48 (sin implementar)
-    BLOCK_GLASS,            // 49 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 50 (retirado del juego)
+    BLOCK_IRON_ORE,         // 54 (sin implementar)
+    BLOCK_BRICKS,           // 55 (sin implementar)
+    BLOCK_GLASS,            // 56 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 57 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 51 (ya no se genera)
+    BLOCK_BEDROCK           // 58 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (la tuna).
+// Último bloque COLOCABLE de la lista ordenada (la penca diagonal).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_TUNA;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_CLADODIO_DIAG;
+
+// ¿Es una tuna, de cualquiera de las tres variedades? Se usa en todos los
+// sitios donde el comportamiento es el mismo (forma, colisión, luz) y solo
+// cambia la textura.
+inline bool esTuna(BlockType t) {
+    return t == BLOCK_TUNA || t == BLOCK_TUNA_AMARILLA || t == BLOCK_TUNA_ROJA;
+}
+
+// ¿Es una penca (cladodio), en cualquiera de sus formas? Todas comparten
+// textura, dureza y comportamiento; solo cambia cuántas caben y cómo se
+// inclinan.
+inline bool esCladodio(BlockType t) {
+    return t == BLOCK_NOPAL_CLADODIO ||
+           t == BLOCK_NOPAL_CLADODIO_X2 || t == BLOCK_NOPAL_CLADODIO_X3 ||
+           t == BLOCK_NOPAL_CLADODIO_Z2 || t == BLOCK_NOPAL_CLADODIO_Z3 ||
+           t == BLOCK_NOPAL_CLADODIO_DIAG;
+}
+
+// Cuántas pencas hay apiladas en este bloque (1..3).
+inline int pencasApiladas(BlockType t) {
+    if (t == BLOCK_NOPAL_CLADODIO_X3 || t == BLOCK_NOPAL_CLADODIO_Z3) return 3;
+    if (t == BLOCK_NOPAL_CLADODIO_X2 || t == BLOCK_NOPAL_CLADODIO_Z2) return 2;
+    return 1;
+}
+
+// ¿Se apilan a lo ANCHO (eje X) o a lo LARGO (eje Z)?
+inline bool apiladoEnX(BlockType t) {
+    return t == BLOCK_NOPAL_CLADODIO_X2 || t == BLOCK_NOPAL_CLADODIO_X3;
+}
+
+// El siguiente escalón al añadir una penca más. Devuelve AIR si ya está lleno.
+inline BlockType apilarPenca(BlockType actual, bool enX) {
+    if (actual == BLOCK_NOPAL_CLADODIO)
+        return enX ? BLOCK_NOPAL_CLADODIO_X2 : BLOCK_NOPAL_CLADODIO_Z2;
+    if (actual == BLOCK_NOPAL_CLADODIO_X2) return BLOCK_NOPAL_CLADODIO_X3;
+    if (actual == BLOCK_NOPAL_CLADODIO_Z2) return BLOCK_NOPAL_CLADODIO_Z3;
+    return BLOCK_AIR;   // X3, Z3 y la diagonal ya no admiten mas
+}
 
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.

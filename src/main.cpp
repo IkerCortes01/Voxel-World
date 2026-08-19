@@ -687,10 +687,11 @@ bool ramaEncadena(BlockType b) {
 }
 
 bool isBlockSolid(BlockType type) {
-    // La vegetación en cruz NO tiene colisión: el jugador la atraviesa.
-    // Sigue siendo seleccionable y rompible (eso lo decide el raycast, que
-    // usa su propio criterio, no isBlockSolid).
-    if (isCrossSprite(type)) return false;
+    // La HIERBA no tiene colision: es una brizna, el jugador la atraviesa.
+    // Las ramas y el nopal SI frenan: son madera y carne de planta. Su caja
+    // no es el cubo entero, sino su forma real (ver nopalHitboxCon y
+    // ramaHitbox), asi que el jugador choca justo donde ve el bloque.
+    if (type == BLOCK_TALLGRASS || type == BLOCK_ORANGE_FLOWER) return false;
 
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA;
 }
@@ -3509,18 +3510,39 @@ struct Chunk {
 
     // Coste de atravesar este bloque, en niveles de luz.
     // 0 = no atraviesa (bloque sólido); 1 = aire; LEAF_ATTENUATION = hojas.
+    // ========================================================================
+    // ATENUACION PROPORCIONAL AL VOLUMEN REAL DEL BLOQUE
+    // ========================================================================
+    // Un bloque macizo corta la luz del todo (coste 0 = opaco). El aire no
+    // atenua nada (coste 1). Pero las ramas y el nopal no son ni una cosa ni
+    // la otra: SI son solidos —el jugador choca con ellos— pero solo ocupan
+    // una parte del voxel, asi que la luz les pasa por al lado.
+    //
+    // El coste sale de la fraccion del voxel que ocupan:
+    //
+    //   RAMA      4/16 de lado -> (4/16)^3 = 1.6% del volumen -> casi nada
+    //   CLADODIO  losa de 5/16 -> ~27% de la seccion -> atenua un poco
+    //   HOJAS     llenan el voxel pero son porosas -> LEAF_ATTENUATION (3)
+    //
+    // Asi la iluminacion es la de un bloque normal, pero ADAPTADA A SU FORMA:
+    // una rama proyecta la sombra de una rama, no la de un cubo.
     static uint8_t lightCost(BlockType b) {
         if (isFoliage(b)) return LEAF_ATTENUATION;
 
-        // ⭐ RAMAS: un palo de 4x4 pixeles NO es un cubo macizo.
-        // Caian en el "return 0" de opaco, asi que cortaban la luz por
-        // completo: la propia rama y todo lo que quedaba debajo se veian
-        // NEGROS. Ocupan 1/16 del volumen del voxel, asi que apenas deben
-        // atenuar: coste 1, igual que el aire.
+        // Rama: 4x4 pixeles de seccion. Ocupa tan poco que la luz la rodea
+        // casi por completo; atenua 1, como el aire.
         if (isRama(b)) return 1;
 
-        // El nopal tampoco llena su voxel (cladodio y fruto son losas).
-        if (b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO) return 1;
+        // Cladodio y fruto: losas de 5/16 de grosor. Tapan mas que una rama
+        // pero mucho menos que un cubo, asi que atenuan 2: se nota una sombra
+        // suave bajo la penca sin que llegue a oscurecerla.
+        if (b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO) return 2;
+
+        // El TALLO y la BASE del nopal SI son bloques completos: opacos.
+        if (b == BLOCK_NOPAL_TALLO ||
+            b == BLOCK_NOPAL_BASE_PASTO || b == BLOCK_NOPAL_BASE_TIERRA ||
+            b == BLOCK_NOPAL_BASE_ARENA || b == BLOCK_NOPAL_BASE_T_ARCILLA ||
+            b == BLOCK_NOPAL_BASE_A_ARCILLA) return 0;
 
         if (skyTransparent(b)) return 1;
         return 0;   // opaco
@@ -12410,8 +12432,12 @@ void placeBlock(GameState* state) {
             // caja de 5/16, no un plano), y encadenan entre si. Si se
             // sustituyeran, seria imposible construir una penca a partir de
             // otra: cada clic reemplazaria la anterior en vez de anadir.
+            // Ahora que ramas y nopal SI ocupan volumen, ninguno debe ser
+            // sustituido: el bloque nuevo se coloca al lado, como con
+            // cualquier bloque solido. Solo la hierba se reemplaza.
             const bool encadenable = (targetBlock == BLOCK_NOPAL_CLADODIO ||
-                                      targetBlock == BLOCK_NOPAL_FRUTO);
+                                      targetBlock == BLOCK_NOPAL_FRUTO ||
+                                      isRama(targetBlock));
 
             if (isCrossSprite(targetBlock) && !encadenable) {
                 placePos = result.blockPos;
@@ -17154,10 +17180,37 @@ bool nopalHitboxMundo(BlockType type, int x, int y, int z,
                       float& minX, float& minY, float& minZ,
                       float& maxX, float& maxY, float& maxZ) {
     if (!g_gameState) return false;
-    return nopalHitboxCon(type,
-        [&](int dx, int dy, int dz) {
-            return g_gameState->world.getBlock(x + dx, y + dy, z + dz);
-        },
+
+    auto vecino = [&](int dx, int dy, int dz) {
+        return g_gameState->world.getBlock(x + dx, y + dy, z + dz);
+    };
+
+    // ------------------------------------------------------------------
+    // RAMA: la caja envuelve el nucleo Y los brazos conectados
+    // ------------------------------------------------------------------
+    // El mesher dibuja un nucleo de 4/16 y un brazo hacia cada vecino
+    // encadenado. La colision usa EXACTAMENTE el mismo criterio, asi que
+    // el jugador choca justo donde ve la madera: si la rama se prolonga
+    // hacia el este, su caja llega hasta el borde este del voxel.
+    if (isRama(type)) {
+        constexpr float G = 4.0f / 16.0f;
+        const float n0 = 0.5f - G * 0.5f;
+        const float n1 = 0.5f + G * 0.5f;
+
+        minX = n0; maxX = n1;
+        minY = n0; maxY = n1;
+        minZ = n0; maxZ = n1;
+
+        if (ramaEncadena(vecino( 1, 0, 0))) maxX = 1.0f;
+        if (ramaEncadena(vecino(-1, 0, 0))) minX = 0.0f;
+        if (ramaEncadena(vecino( 0, 1, 0))) maxY = 1.0f;
+        if (ramaEncadena(vecino( 0,-1, 0))) minY = 0.0f;
+        if (ramaEncadena(vecino( 0, 0, 1))) maxZ = 1.0f;
+        if (ramaEncadena(vecino( 0, 0,-1))) minZ = 0.0f;
+        return true;
+    }
+
+    return nopalHitboxCon(type, vecino,
         x, y, z, minX, minY, minZ, maxX, maxY, maxZ);
 }
 

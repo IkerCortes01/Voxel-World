@@ -5598,6 +5598,43 @@ public:
     //
     // `tipoRama` es el bloque de la especie; `tipoHoja`, para colgar follaje
     // de las puntas.
+    // ========================================================================
+    // RAMAS SEGUN LA BOTANICA REAL DE CADA ESPECIE
+    // ========================================================================
+    // Los tres arboles se ramifican de forma MUY distinta en la naturaleza, y
+    // eso es lo que los hace reconocibles de un vistazo. Datos tomados de
+    // fuentes botanicas (CONABIO/EncicloVida, The Gymnosperm Database,
+    // Jardin Botanico del IB-UNAM):
+    //
+    //   OYAMEL (Abies religiosa)
+    //     - El mas ESTRECHO: copa de 5-8 m en un arbol de 30-40 m -> ~1:5.
+    //     - Ramas VERTICILADAS: salen en pisos regulares, uno por ano, con
+    //       4-6 ramas por piso.
+    //     - Salen a 90 grados (horizontales). La "ramificacion en cruz" es el
+    //       origen del epiteto religiosa.
+    //     - Gradiente por altura: ascendentes arriba, horizontales en medio,
+    //       colgantes abajo. De ahi el perfil conico clasico.
+    //     - Follaje denso y OPACO: no se ve el tronco a traves de la copa.
+    //
+    //   PINO (Pinus montezumae / hartwegii / patula)
+    //     - Poda natural intensa: la copa viva ocupa solo el TERCIO SUPERIOR,
+    //       asi que el 60-65% del tronco va limpio.
+    //     - Pocas ramas, GRUESAS y largas, casi horizontales, muy separadas.
+    //     - Las aciculas se agrupan en PENACHOS en las puntas: ramas desnudas
+    //       que acaban en pompones, con huecos de cielo entre ellos.
+    //
+    //   ENCINO (Quercus rugosa / laurina)
+    //     - Tan ANCHO como alto (~1:1): copa de 12 m en un arbol de 15 m.
+    //     - Se BIFURCA bajo y PIERDE EL EJE CENTRAL: no hay lider dominante.
+    //     - Ramas alternas, irregulares, SINUOSAS y retorcidas. Sin simetria.
+    //     - Follaje muy denso, de borde grumoso.
+    //
+    // La forma final de cada rama la calcula el mesher a partir de sus
+    // vecinos (2^6 = 64 combinaciones por bloque), asi que estas reglas
+    // deciden DONDE va la madera y el numero de siluetas sigue siendo
+    // astronomico sin gastar memoria.
+    enum EspecieRama { RAMA_OYAMEL_ = 0, RAMA_PINO_ = 1, RAMA_ENCINO_ = 2 };
+
     void generarRamasArbol(int worldX, int baseY, int worldZ, int altura,
                            BlockType tipoRama, BlockType tipoHoja,
                            int semillaExtra) {
@@ -5608,82 +5645,170 @@ public:
             return mod > 0 ? (int)(v % (unsigned)mod) : 0;
         };
 
-        const int topY = baseY + altura - 1;
-        // Tercio superior del tronco: por debajo el arbol va limpio.
-        const int desde = baseY + (altura * 2) / 3;
-        if (desde >= topY) return;
+        // Que especie es, para aplicar su patron propio.
+        const EspecieRama esp = (tipoRama == BLOCK_RAMA_OYAMEL) ? RAMA_OYAMEL_
+                              : (tipoRama == BLOCK_RAMA_PINO)   ? RAMA_PINO_
+                                                                : RAMA_ENCINO_;
 
+        const int topY = baseY + altura - 1;
         const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
 
-        // Numero de ramas proporcional a la altura, con variacion.
-        const int nRamas = 3 + altura / 3 + rnd(11, 3);
+        // --- FUSTE LIMPIO: fraccion del tronco sin ramas, por especie ---
+        //   oyamel 25%  |  pino 60%  |  encino 30%
+        const int desde = baseY + (esp == RAMA_OYAMEL_ ? altura / 4
+                                 : esp == RAMA_PINO_   ? (altura * 3) / 5
+                                                       : (altura * 3) / 10);
+        if (desde >= topY) return;
 
-        for (int i = 0; i < nRamas; ++i) {
-            const int y0 = desde + rnd(i * 71 + 3, (topY - desde) + 1);
-            const int d  = rnd(i * 137 + 29, 4);
+        auto ponerRama = [&](int x, int y, int z) {
+            if (y < 1 || y >= CHUNK_HEIGHT - 2) return false;
+            const BlockType a = getBlock(x, y, z);
+            if (a != BLOCK_AIR && a != tipoHoja) return false;
+            setBlock(x, y, z, tipoRama);
+            return true;
+        };
 
-            // Ramas LARGAS, como se pidio: 3 a 7 bloques de recorrido.
-            const int largo = 3 + rnd(i * 211 + 17, 5);
-
-            int x = worldX, y = y0, z = worldZ;
-            bool viva = true;
-
-            for (int paso = 0; paso < largo && viva; ++paso) {
-                // Paso lateral (siempre en un solo eje).
-                x += dirs[d][0];
-                z += dirs[d][1];
-                if (y < 1 || y >= CHUNK_HEIGHT - 2) break;
-
-                const BlockType actual = getBlock(x, y, z);
-                if (actual != BLOCK_AIR && actual != tipoHoja) { viva = false; break; }
-                setBlock(x, y, z, tipoRama);
-
-                // Cada dos pasos sube uno: da la inclinacion natural sin
-                // romper la conexion (el paso vertical es aparte).
-                if (paso % 2 == 1) {
-                    ++y;
-                    if (y >= CHUNK_HEIGHT - 2) break;
-                    const BlockType arriba = getBlock(x, y, z);
-                    if (arriba != BLOCK_AIR && arriba != tipoHoja) { viva = false; break; }
-                    setBlock(x, y, z, tipoRama);
-                }
-
-                // Una de cada tres ramas se bifurca a mitad de camino: de ahi
-                // salen las horquillas y las formas en Y.
-                if (paso == largo / 2 && rnd(i * 313 + paso, 3) == 0) {
-                    const int d2 = (d + 1 + rnd(i * 17 + paso, 2)) % 4;
-                    int bx = x, bz = z;
-                    const int largoB = 2 + rnd(i * 401 + paso, 3);
-                    for (int k = 0; k < largoB; ++k) {
-                        bx += dirs[d2][0];
-                        bz += dirs[d2][1];
-                        const BlockType b = getBlock(bx, y, bz);
-                        if (b != BLOCK_AIR && b != tipoHoja) break;
-                        setBlock(bx, y, bz, tipoRama);
+        // Follaje alrededor de un punto. `densidad` en 0..100 y `radio` en
+        // bloques: con eso se distingue la copa opaca del oyamel de los
+        // penachos ralos del pino.
+        auto follaje = [&](int cx, int cy, int cz, int radio, int densidad) {
+            for (int dy = -radio; dy <= radio; ++dy)
+                for (int dx = -radio; dx <= radio; ++dx)
+                    for (int dz = -radio; dz <= radio; ++dz) {
+                        if (dx*dx + dy*dy + dz*dz > radio*radio) continue;
+                        const int fx = cx+dx, fy = cy+dy, fz = cz+dz;
+                        if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
+                        if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
+                        if (rnd(fx*53 + fy*29 + fz*11, 100) < densidad)
+                            setBlock(fx, fy, fz, tipoHoja);
                     }
-                    // Follaje en la punta del brote.
-                    for (int dy = -1; dy <= 1; ++dy)
-                        for (int dx2 = -1; dx2 <= 1; ++dx2)
-                            for (int dz2 = -1; dz2 <= 1; ++dz2)
-                                if (getBlock(bx+dx2, y+dy, bz+dz2) == BLOCK_AIR &&
-                                    rnd(bx*31+dy*17+dz2*7, 100) < 55)
-                                    setBlock(bx+dx2, y+dy, bz+dz2, tipoHoja);
+        };
+
+        if (esp == RAMA_OYAMEL_) {
+            // ================================================================
+            // OYAMEL: VERTICILOS REGULARES, RAMAS HORIZONTALES EN CRUZ
+            // ================================================================
+            // Un piso de ramas cada 2 bloques (un verticilo por ano), con las
+            // 4 direcciones a la vez: eso es la "ramificacion en cruz".
+            const int alturaCopa = topY - desde;
+            if (alturaCopa < 1) return;
+
+            for (int y = desde; y <= topY; y += 2) {
+                // La rama es mas larga abajo y se acorta hacia la punta: de
+                // ahi sale el cono. Copa ESTRECHA (ratio ~1:5), asi que el
+                // maximo es corto.
+                const float t = (float)(y - desde) / (float)alturaCopa;  // 0..1
+                int largo = 1 + (int)((1.0f - t) * 3.0f + 0.5f);         // 4..1
+                if (largo < 1) largo = 1;
+
+                // Gradiente vertical: abajo colgantes, en medio horizontales,
+                // arriba ascendentes.
+                const int inclina = (t < 0.35f) ? -1 : (t > 0.75f ? +1 : 0);
+
+                for (int d = 0; d < 4; ++d) {
+                    int x = worldX, z = worldZ, yy = y;
+                    for (int i = 0; i < largo; ++i) {
+                        x += dirs[d][0];
+                        z += dirs[d][1];
+                        if (!ponerRama(x, yy, z)) break;
+                        // La inclinacion es un paso VERTICAL aparte, nunca en
+                        // diagonal, para que los bloques se toquen por cara.
+                        if (inclina != 0 && i == largo / 2) {
+                            yy += inclina;
+                            if (!ponerRama(x, yy, z)) break;
+                        }
+                    }
+                    // Follaje DENSO y opaco: el oyamel no deja ver el tronco.
+                    follaje(x, yy, z, 2, 85);
                 }
             }
+            // Punta en chapitel: una sola aguja rematando el eje.
+            follaje(worldX, topY + 1, worldZ, 1, 90);
 
-            // FOLLAJE EN LA PUNTA: las hojas cuelgan de la rama por todos los
-            // lados posibles, que es lo que se pidio. El mesher las conecta
-            // porque ramaEncadena() incluye las hojas.
-            if (viva) {
-                for (int dy = -1; dy <= 1; ++dy)
-                    for (int dx2 = -1; dx2 <= 1; ++dx2)
-                        for (int dz2 = -1; dz2 <= 1; ++dz2) {
-                            const int fx = x + dx2, fy = y + dy, fz = z + dz2;
-                            if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
-                            if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
-                            if (rnd(fx * 53 + fy * 29 + fz * 11, 100) < 65)
-                                setBlock(fx, fy, fz, tipoHoja);
+        } else if (esp == RAMA_PINO_) {
+            // ================================================================
+            // PINO: POCAS RAMAS GRUESAS QUE ACABAN EN PENACHOS
+            // ================================================================
+            // La copa viva ocupa solo el tercio superior. Ramas largas, casi
+            // horizontales, muy separadas, y follaje SOLO en la punta: entre
+            // penacho y penacho se ve el cielo.
+            const int nRamas = 4 + rnd(31, 4);        // 4..7 ramas, pocas
+            for (int i = 0; i < nRamas; ++i) {
+                const int y0 = desde + rnd(i * 71 + 3, (topY - desde) + 1);
+                const int d  = rnd(i * 137 + 29, 4);
+                // Ramas LARGAS: la copa del pino es ancha (ratio ~1:2.5).
+                // Copa mas estrecha que la del encino (ratio ~1:2.5).
+                const int largo = 3 + rnd(i * 211 + 17, 3);   // 3..5
+
+                int x = worldX, z = worldZ, y = y0;
+                bool viva = true;
+                for (int paso = 0; paso < largo && viva; ++paso) {
+                    x += dirs[d][0];
+                    z += dirs[d][1];
+                    if (!ponerRama(x, y, z)) { viva = false; break; }
+                    // Casi horizontal: sube solo un bloque en todo el trayecto.
+                    if (paso == largo / 2) {
+                        ++y;
+                        if (!ponerRama(x, y, z)) { viva = false; break; }
+                    }
+                }
+                // PENACHO en la punta: bola de agujas separada de las demas.
+                if (viva) follaje(x, y, z, 2, 80);
+            }
+            // Apice REDONDEADO, no puntiagudo (asi es el pino adulto).
+            follaje(worldX, topY, worldZ, 2, 70);
+
+        } else {
+            // ================================================================
+            // ENCINO: BIFURCACION BAJA, RAMAS SINUOSAS, COPA ANCHA
+            // ================================================================
+            // Se bifurca pronto y pierde el eje central. Las ramas serpentean
+            // en vez de ir rectas, y la copa es tan ancha como alta (~1:1).
+            const int nRamas = 5 + rnd(11, 4);        // 5..8, mas que el pino
+            for (int i = 0; i < nRamas; ++i) {
+                const int y0 = desde + rnd(i * 71 + 3, (topY - desde) + 1);
+                int d = rnd(i * 137 + 29, 4);
+                // Ramas largas: la copa del encino es la mas ancha de las tres.
+                // El encino es el mas ancho de los tres: copa de 12 m en un
+                // arbol de 15 m. Ramas largas y muy extendidas.
+                const int largo = 7 + rnd(i * 211 + 17, 4);   // 7..10
+
+                int x = worldX, z = worldZ, y = y0;
+                bool viva = true;
+                for (int paso = 0; paso < largo && viva; ++paso) {
+                    x += dirs[d][0];
+                    z += dirs[d][1];
+                    if (!ponerRama(x, y, z)) { viva = false; break; }
+
+                    // SINUOSIDAD: la rama sube y ademas cambia de direccion a
+                    // mitad de camino. Nada de lineas rectas ni simetria.
+                    if (paso % 2 == 1) {
+                        ++y;
+                        if (!ponerRama(x, y, z)) { viva = false; break; }
+                    }
+                    if (rnd(i * 313 + paso * 17, 100) < 40) {
+                        d = (d + 1 + rnd(i * 17 + paso, 2)) % 4;   // se retuerce
+                    }
+
+                    // Bifurcacion: de una rama sale otra, como en un roble.
+                    if (paso == largo / 2 && rnd(i * 401 + paso, 2) == 0) {
+                        const int d2 = (d + 1 + rnd(i * 23 + paso, 2)) % 4;
+                        int bx = x, bz = z, by = y;
+                        const int lb = 3 + rnd(i * 401 + paso, 3);
+                        for (int k = 0; k < lb; ++k) {
+                            bx += dirs[d2][0];
+                            bz += dirs[d2][1];
+                            if (!ponerRama(bx, by, bz)) break;
+                            if (k % 2 == 1) {
+                                ++by;
+                                if (!ponerRama(bx, by, bz)) break;
+                            }
                         }
+                        follaje(bx, by, bz, 3, 75);
+                    }
+                }
+                // Follaje denso y de borde grumoso en toda la punta.
+                if (viva) follaje(x, y, z, 4, 80);   // copa ancha y densa
             }
         }
     }

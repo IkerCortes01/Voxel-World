@@ -3234,6 +3234,9 @@ public:
 
         // Texturas de pasto (múltiples)
         loadTexture("Bloque de pasto up.png"); // BLOCK_GRASS top
+        // Variante florida del pasto: no es un bloque, solo otra textura para
+        // la cara de arriba (ver getTexturaPastoFlores).
+        loadTexture("Bloque de pasto up 1v.png");
         loadTexture("Bloque de pasto.png");    // BLOCK_GRASS side
 
         // Texturas de hojas
@@ -3561,6 +3564,37 @@ public:
     //
     // Devuelve 0 si ese suelo no lleva raices (y entonces se usa la textura
     // normal del bloque).
+    // ========================================================================
+    // PASTO CON FLORES
+    // ========================================================================
+    // Algunos bloques de pasto salen floridos: pequenas margaritas de centro
+    // amarillo repartidas por la hierba. NO es un bloque nuevo ni una planta
+    // encima: es el MISMO pasto de siempre dibujado con otra textura en su
+    // cara superior.
+    //
+    // Ventajas de hacerlo asi, igual que con las raices:
+    //   - No gasta un ID de bloque ni ocupa sitio en el chunk.
+    //   - No se puede recoger ni romper aparte: es pasto, sin mas.
+    //   - Aparece y desaparece solo si el bloque cambia de tipo.
+    //
+    // Que bloques florecen lo decide su POSICION, asi que el reparto es
+    // estable: un prado no cambia de sitio sus flores al recargar el chunk.
+    //
+    // Devuelve 0 si a ese bloque no le tocan flores, y entonces se usa la
+    // textura normal del pasto.
+    GLuint getTexturaPastoFlores(int wx, int wy, int wz) {
+        unsigned h = (unsigned)(wx * 374761393) ^ (unsigned)(wy * 668265263)
+                   ^ (unsigned)(wz * 2246822519u);
+        h ^= h >> 15; h *= 2654435761u; h ^= h >> 13;
+
+        // Uno de cada ocho aproximadamente. Suficiente para que se vean
+        // manchas de flores por el prado, pero sin que el campo entero
+        // aparezca florido, que se veria artificial.
+        if ((int)(h % 100u) >= 12) return 0;
+
+        return getTexture("Bloque de pasto up 1v.png");
+    }
+
     GLuint getTexturaRaices(BlockType suelo, BlockType encima, int wx, int wz,
                             int dirTronco = -1) {
         // Solo la cara SUPERIOR del suelo lleva raices.
@@ -10149,6 +10183,29 @@ public:
                                 const GLuint th =
                                     g_textureManager->getTexturaHoja(b, gx, gy, gz);
                                 if (th != 0) cell.tex = th;
+                            }
+
+                            // ================================================
+                            // PASTO CON FLORES
+                            // ================================================
+                            // Algunos bloques de pasto se dibujan floridos. NO
+                            // es un bloque nuevo ni una planta encima: es el
+                            // mismo pasto con otra textura en su cara de
+                            // arriba, como las raices.
+                            //
+                            // Va ANTES que las raices a proposito: si un arbol
+                            // nace justo ahi, mandan las raices, que es lo que
+                            // de verdad tapa la hierba al pie del tronco.
+                            //
+                            // Solo la cara superior y solo si esta despejada:
+                            // un bloque tapado por otro no florece.
+                            if (dir == 0 && b == BLOCK_GRASS &&
+                                nb == BLOCK_AIR) {
+                                const int wxf = chunk->position.x * CHUNK_SIZE + bx;
+                                const int wzf = chunk->position.z * CHUNK_SIZE + bz;
+                                const GLuint flores =
+                                    g_textureManager->getTexturaPastoFlores(wxf, by, wzf);
+                                if (flores != 0) cell.tex = flores;
                             }
 
                             // ================================================

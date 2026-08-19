@@ -643,6 +643,34 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
                     float& maxX, float& maxY, float& maxZ) {
     if (type != BLOCK_NOPAL_CLADODIO && type != BLOCK_NOPAL_FRUTO) return false;
 
+    // --- LA TUNA tiene su propia caja: 6 px de alto por 4 de ancho ---
+    // No comparte la forma de la penca, asi que tampoco puede compartir la
+    // hitbox: si no, el jugador seleccionaria un area mucho mayor que el
+    // fruto que ve. Debe coincidir con la geometria del mesher.
+    if (type == BLOCK_NOPAL_FRUTO) {
+        constexpr float ALTO  = 6.0f / 16.0f;
+        constexpr float ANCHO = 4.0f / 16.0f;
+        const float a0 = 0.5f - ANCHO * 0.5f, a1 = 0.5f + ANCHO * 0.5f;
+        minX = a0; maxX = a1;
+        minZ = a0; maxZ = a1;
+
+        // Igual que en el mesher: si el cladodio esta debajo, la tuna se
+        // asienta sobre el; si esta al lado, nace a media altura.
+        if (get(0, -1, 0) == BLOCK_NOPAL_CLADODIO) {
+            minY = 0.0f; maxY = ALTO;
+        } else {
+            minY = 0.5f - ALTO * 0.5f; maxY = 0.5f + ALTO * 0.5f;
+        }
+
+        // Y se arrima a la cara del cladodio del que brota.
+        constexpr float ARRIMO = 0.30f;
+        if (get(-1,0,0) == BLOCK_NOPAL_CLADODIO)      { minX -= ARRIMO; maxX -= ARRIMO; }
+        else if (get(1,0,0) == BLOCK_NOPAL_CLADODIO)  { minX += ARRIMO; maxX += ARRIMO; }
+        else if (get(0,0,-1) == BLOCK_NOPAL_CLADODIO) { minZ -= ARRIMO; maxZ -= ARRIMO; }
+        else if (get(0,0,1) == BLOCK_NOPAL_CLADODIO)  { minZ += ARRIMO; maxZ += ARRIMO; }
+        return true;
+    }
+
     const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz);
 
     minX = f.uneXm ? 0.0f : f.minX;   maxX = f.uneXp ? 1.0f : f.maxX;
@@ -2883,6 +2911,52 @@ public:
     }
 
     // ========================================================================
+    // TUNAS: COLOR POR PLANTA, TAMANO POR MADUREZ
+    // ========================================================================
+    // Un nopal real da tunas de UN color: es la variedad de la planta, no algo
+    // que cambie de fruto a fruto. Por eso el color se saca de la posicion del
+    // TALLO (que es la misma para toda la planta) y no de la del fruto.
+    //
+    // La madurez si es de cada tuna: nacen verdes y pequenas, y al crecer
+    // pasan a su color final y a la textura "crecida", que es mas grande.
+    // Las tres etapas se dibujan con las 6 texturas que hay:
+    //
+    //     tuna verde        ->  brote tierno (cualquier variedad)
+    //     Tuna verde crecida->  madura, si la planta es de tuna verde
+    //     Tuna roja/amarilla crecida -> madura, segun la variedad
+    //
+    // `wx,wz` son los del TALLO (color de la planta) y `fx,fy,fz` los del
+    // fruto (madurez individual).
+    GLuint getTexturaTuna(int tallox, int talloz, int fx, int fy, int fz) {
+        // --- Variedad de la planta ---
+        unsigned hp = (unsigned)(tallox * 73856093) ^ (unsigned)(talloz * 19349663);
+        hp ^= hp >> 13; hp *= 1274126177u; hp ^= hp >> 16;
+        const int variedad = (int)(hp % 3u);      // 0 verde, 1 amarilla, 2 roja
+
+        // --- Madurez de ESTA tuna ---
+        unsigned hf = (unsigned)(fx * 374761393) ^ (unsigned)(fy * 668265263)
+                    ^ (unsigned)(fz * 2246822519u);
+        hf ^= hf >> 15; hf *= 2654435761u; hf ^= hf >> 13;
+        // Un tercio siguen siendo brotes verdes: en una penca real conviven
+        // frutos de varias edades, no maduran todos a la vez.
+        const bool madura = (int)(hf % 100u) >= 33;
+
+        const char* arch;
+        if (!madura) {
+            arch = "tuna verde.png";
+        } else {
+            switch (variedad) {
+                case 1:  arch = "Tuna amarilla crecida.png"; break;
+                case 2:  arch = "Tuna roja crecida.png";  break;
+                default: arch = "Tuna verde crecida.png"; break;
+            }
+        }
+        char ruta[224];
+        snprintf(ruta, sizeof(ruta), "resourcepacks/Textures/Items/%s", arch);
+        return loadTextureFromPath(gamePath(ruta));
+    }
+
+    // ========================================================================
     // RAICES QUE SE EXPANDEN: CONEXIONES Y ESQUINAS
     // ========================================================================
     // Ademas del bloque pegado al tronco, las raices se alargan 1 o 2 bloques
@@ -3236,11 +3310,13 @@ public:
             case BLOCK_RAMA_OYAMEL:
                 return getTexture("Tronco de Oyame.png");
 
-            // Fruto (tuna). Esta es la variante SUELTA; cuando toca un
-            // cladodio el mesher usa la textura "conectado" (misma forma,
-            // distinto dibujo).
+            // Fruto (tuna). El color y la madurez los decide el mesher segun
+            // la posicion (ver getTexturaTuna); esta es la de respaldo, por si
+            // se pide la textura del bloque fuera del mundo (inventario, item
+            // en el suelo...). Se usa la verde tierna, que es la fase inicial.
             case BLOCK_NOPAL_FRUTO:
-                return getTexture("../Items/Penca de Nopal de Castilla.png");
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/Tuna verde.png"));
 
             // --- Bloques nuevos ---
             case BLOCK_LIMESTONE:
@@ -7022,8 +7098,21 @@ public:
                         if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
 
                         for (int c = 0; c < 6 && frutos < maxFrutos; ++c) {
-                            // Solo una fraccion de las caras da fruto.
-                            if (rnd(cx * 31 + y * 17 + cz * 13 + c * 7, 100) >= 12)
+                            // ------------------------------------------------
+                            // DONDE NACEN LAS TUNAS DE VERDAD
+                            // ------------------------------------------------
+                            // En un nopal las tunas brotan de las areolas del
+                            // BORDE de la penca, sobre todo del filo de arriba,
+                            // que es la zona joven. Nunca cuelgan de la cara
+                            // inferior ni salen de la cara plana.
+                            //
+                            // caras[]: 0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z
+                            if (c == 3) continue;              // nunca por debajo
+
+                            // El filo de arriba es el sitio preferente; los
+                            // laterales dan menos fruto.
+                            const int prob = (c == 2) ? 34 : 10;
+                            if (rnd(cx * 31 + y * 17 + cz * 13 + c * 7, 100) >= prob)
                                 continue;
 
                             const int fx = cx + caras[c][0];
@@ -7050,6 +7139,7 @@ public:
                             const int cx = worldX + dx, cz = worldZ + dz;
                             if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
                             for (int c = 0; c < 6 && frutos == 0; ++c) {
+                                if (c == 3) continue;   // tampoco aqui cuelgan
                                 const int fx = cx + caras[c][0];
                                 const int fy = y  + caras[c][1];
                                 const int fz = cz + caras[c][2];
@@ -8087,34 +8177,31 @@ public:
                     if (isCrossSprite(block)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 0);
 
+                        // NOTA: la marca de union con el cladodio ya NO se
+                        // aplica al bloque entero. Antes bastaba con tener un
+                        // cladodio cerca para que la cicatriz se dibujara en
+                        // las seis caras, incluidas las que dan al aire. Ahora
+                        // se decide CARA POR CARA mas abajo (ver `texLado`),
+                        // que es donde en la planta real se ve la union.
+
                         // ================================================
-                        // FRUTO CONECTADO AL CLADODIO
+                        // COLOR DE LA TUNA
                         // ================================================
-                        // El fruto conserva SU FORMA (la misma losa) y solo
-                        // cambia de textura cuando esta pegado a un cladodio.
-                        // Se miran las 6 caras y las 2 diagonales verticales
-                        // del eje sobre el que se apoya, de modo que un mismo
-                        // fruto puede quedar conectado a hasta 8 cladodios a
-                        // la vez sin dejar de ser un solo bloque.
+                        // El color es de la PLANTA (una variedad da tunas de
+                        // un color), asi que se busca el tallo bajando por el
+                        // nopal: asi todas las tunas del mismo nopal salen
+                        // iguales, y dos nopales vecinos pueden ser distintos.
                         if (block == BLOCK_NOPAL_FRUTO) {
-                            static const int VEC[8][3] = {
-                                { 1, 0, 0}, {-1, 0, 0},
-                                { 0, 1, 0}, { 0,-1, 0},
-                                { 0, 0, 1}, { 0, 0,-1},
-                                { 1, 0, 1}, {-1, 0,-1}
-                            };
-                            bool conectado = false;
-                            for (int i = 0; i < 8 && !conectado; ++i) {
-                                if (getNeighborBlockCached(x, y, z,
-                                        VEC[i][0], VEC[i][1], VEC[i][2])
-                                    == BLOCK_NOPAL_CLADODIO) {
-                                    conectado = true;
-                                }
-                            }
-                            if (conectado) {
-                                texture = g_textureManager->getTexture(
-                                    "Penca Nopal de Castilla conectado al  Cladodio.png");
-                            }
+                            // El color es de la VARIEDAD, y un nopal ocupa unos
+                            // pocos bloques, asi que se redondea la posicion a
+                            // una rejilla de 8: todas las tunas de una misma
+                            // planta caen en la misma celda y comparten color,
+                            // mientras que nopales alejados pueden diferir.
+                            // Es estable y no cuesta ninguna busqueda.
+                            const int tx = ((int)wx) >> 3;
+                            const int tz = ((int)wz) >> 3;
+                            texture = g_textureManager->getTexturaTuna(
+                                tx, tz, (int)wx, (int)wy, (int)wz);
                         }
 
                         // Luz de la celda de la planta (transparente al cielo).
@@ -8342,12 +8429,59 @@ public:
                             // invisible) pero ya no hay dos planos peleando.
                             constexpr float EPS = 0.0005f;
 
-                            const float bx0 = nf.uneXm ? EPS        : nf.minX;
-                            const float bx1 = nf.uneXp ? 1.0f - EPS : nf.maxX;
-                            const float by0 = nf.uneAbajo  ? EPS        : nf.minY;
-                            const float by1 = nf.uneArriba ? 1.0f - EPS : nf.maxY;
-                            const float bz0 = nf.uneZm ? EPS        : nf.minZ;
-                            const float bz1 = nf.uneZp ? 1.0f - EPS : nf.maxZ;
+                            float bx0 = nf.uneXm ? EPS        : nf.minX;
+                            float bx1 = nf.uneXp ? 1.0f - EPS : nf.maxX;
+                            float by0 = nf.uneAbajo  ? EPS        : nf.minY;
+                            float by1 = nf.uneArriba ? 1.0f - EPS : nf.maxY;
+                            float bz0 = nf.uneZm ? EPS        : nf.minZ;
+                            float bz1 = nf.uneZp ? 1.0f - EPS : nf.maxZ;
+
+                            // ============================================
+                            // LA TUNA: 6 PIXELES DE ALTO POR 4 DE ANCHO
+                            // ============================================
+                            // El fruto NO tiene la forma de la penca: es un
+                            // bulto pequeno y ovalado que sale del borde del
+                            // cladodio. Se le da su tamano exacto y se le
+                            // pega a la cara del cladodio del que brota, que
+                            // es como crece en la planta real: nunca flotando
+                            // en el aire ni centrado en el voxel.
+                            bool tunaPegadaArriba = false;
+                            if (block == BLOCK_NOPAL_FRUTO) {
+                                constexpr float ALTO  = 6.0f / 16.0f;
+                                constexpr float ANCHO = 4.0f / 16.0f;
+                                const float a0 = 0.5f - ANCHO * 0.5f;
+                                const float a1 = 0.5f + ANCHO * 0.5f;
+                                bx0 = a0; bx1 = a1;
+                                bz0 = a0; bz1 = a1;
+
+                                // Se apoya en el cladodio que lo sostiene. Si
+                                // el soporte esta debajo, la tuna se asienta
+                                // sobre el; si esta al lado, nace a media
+                                // altura, como las areolas del borde.
+                                const bool soporteAbajo =
+                                    getNeighborBlockCached(x, y, z, 0, -1, 0)
+                                        == BLOCK_NOPAL_CLADODIO;
+                                if (soporteAbajo) {
+                                    by0 = EPS; by1 = EPS + ALTO;
+                                } else {
+                                    by0 = 0.5f - ALTO * 0.5f;
+                                    by1 = 0.5f + ALTO * 0.5f;
+                                    tunaPegadaArriba = true;
+                                }
+
+                                // Y se arrima a la cara del cladodio lateral
+                                // del que brota, en vez de quedar centrada.
+                                constexpr float ARRIMO = 0.30f;
+                                if (getNeighborBlockCached(x,y,z,-1,0,0) == BLOCK_NOPAL_CLADODIO)
+                                    { bx0 -= ARRIMO; bx1 -= ARRIMO; }
+                                else if (getNeighborBlockCached(x,y,z,1,0,0) == BLOCK_NOPAL_CLADODIO)
+                                    { bx0 += ARRIMO; bx1 += ARRIMO; }
+                                else if (getNeighborBlockCached(x,y,z,0,0,-1) == BLOCK_NOPAL_CLADODIO)
+                                    { bz0 -= ARRIMO; bz1 -= ARRIMO; }
+                                else if (getNeighborBlockCached(x,y,z,0,0,1) == BLOCK_NOPAL_CLADODIO)
+                                    { bz0 += ARRIMO; bz1 += ARRIMO; }
+                            }
+                            (void)tunaPegadaArriba;
 
                             // Emite UNA cara de la caja, con sus 4 vertices en
                             // el orden que le da la normal correcta.
@@ -8369,7 +8503,13 @@ public:
                             // pequena, que es irrelevante, y a cambio el
                             // resultado es robusto: no puede volver a faltar
                             // una cara.
-                            auto pushCara = [&](float ax, float ay, float az,
+                            // `texCara` permite que UNA cara concreta use otra
+                            // textura distinta a la del resto del bloque: es
+                            // lo que hace que la marca de union con el
+                            // cladodio se vea SOLO en el lado por el que de
+                            // verdad conecta, y no envuelva la penca entera.
+                            auto pushCaraTex = [&](GLuint tex,
+                                                float ax, float ay, float az,
                                                 float bx_, float by_, float bz_,
                                                 float cx_, float cy_, float cz_,
                                                 float dx_, float dy_, float dz_) {
@@ -8379,72 +8519,135 @@ public:
                                 const float U[4]  = { U0, U1, U1, U0 };
                                 const float V[4]  = { U0, U0, U1, U1 };
 
+                                auto& vv = verticesByTexture[tex];
+                                auto& cc = colorsByTexture[tex];
+                                auto& uu = uvsByTexture[tex];
+
                                 // Sentido directo.
                                 for (int i = 0; i < 4; ++i) {
-                                    verts.push_back(wx + PX[i]);
-                                    verts.push_back(wy + PY[i]);
-                                    verts.push_back(wz + PZ[i]);
-                                    cols.push_back(cr); cols.push_back(cg);
-                                    cols.push_back(cb); cols.push_back(ca);
-                                    uvCoords.push_back(U[i]);
-                                    uvCoords.push_back(V[i]);
+                                    vv.push_back(wx + PX[i]);
+                                    vv.push_back(wy + PY[i]);
+                                    vv.push_back(wz + PZ[i]);
+                                    cc.push_back(cr); cc.push_back(cg);
+                                    cc.push_back(cb); cc.push_back(ca);
+                                    uu.push_back(U[i]);
+                                    uu.push_back(V[i]);
                                 }
                                 // Sentido inverso: la misma cara vista desde
                                 // el otro lado.
                                 for (int i = 3; i >= 0; --i) {
-                                    verts.push_back(wx + PX[i]);
-                                    verts.push_back(wy + PY[i]);
-                                    verts.push_back(wz + PZ[i]);
-                                    cols.push_back(cr); cols.push_back(cg);
-                                    cols.push_back(cb); cols.push_back(ca);
-                                    uvCoords.push_back(U[i]);
-                                    uvCoords.push_back(V[i]);
+                                    vv.push_back(wx + PX[i]);
+                                    vv.push_back(wy + PY[i]);
+                                    vv.push_back(wz + PZ[i]);
+                                    cc.push_back(cr); cc.push_back(cg);
+                                    cc.push_back(cb); cc.push_back(ca);
+                                    uu.push_back(U[i]);
+                                    uu.push_back(V[i]);
                                 }
+                            };
+                            auto pushCara = [&](float ax, float ay, float az,
+                                                float bx_, float by_, float bz_,
+                                                float cx_, float cy_, float cz_,
+                                                float dx_, float dy_, float dz_) {
+                                pushCaraTex(texture, ax, ay, az, bx_, by_, bz_,
+                                            cx_, cy_, cz_, dx_, dy_, dz_);
                             };
 
                             // ============================================
-                            // LAS SEIS CARAS, SIEMPRE
+                            // LA MARCA DE UNION, SOLO DONDE CONECTA
                             // ============================================
-                            // Antes se omitia la cara que daba a un vecino
-                            // conectado, como en un bloque opaco normal. Pero
-                            // la penca NO llena su voxel: al quitar esa cara
-                            // quedaba un hueco por el que se veia el interior
-                            // de la planta.
+                            // "Penca ... conectado al Cladodio" es la textura
+                            // que muestra la cicatriz por donde la penca nace
+                            // de otra. Antes se aplicaba al bloque ENTERO en
+                            // cuanto hubiera un cladodio cerca, asi que la
+                            // cicatriz se veia por las seis caras, incluso por
+                            // las que dan al aire.
                             //
-                            // Ahora se emiten las seis SIEMPRE, como un bloque
-                            // normal. La union entre pencas se sigue viendo
-                            // continua porque la caja se estira hasta el borde
-                            // del voxel por el lado conectado: las dos caras
-                            // quedan pegadas, no separadas por aire.
-                            // -X (oeste)
-                            {
-                                pushCara(bx0, by0, bz1,  bx0, by0, bz0,
-                                         bx0, by1, bz0,  bx0, by1, bz1);
-                            }
-                            // +X (este)
-                            {
-                                pushCara(bx1, by0, bz0,  bx1, by0, bz1,
-                                         bx1, by1, bz1,  bx1, by1, bz0);
-                            }
-                            // -Z (norte)
-                            {
-                                pushCara(bx0, by0, bz0,  bx1, by0, bz0,
-                                         bx1, by1, bz0,  bx0, by1, bz0);
-                            }
-                            // +Z (sur)
-                            {
-                                pushCara(bx1, by0, bz1,  bx0, by0, bz1,
-                                         bx0, by1, bz1,  bx1, by1, bz1);
-                            }
-                            // +Y (tapa)
-                            {
-                                pushCara(bx0, by1, bz0,  bx1, by1, bz0,
-                                         bx1, by1, bz1,  bx0, by1, bz1);
-                            }
-                            // -Y (fondo)
-                            {
-                                pushCara(bx0, by0, bz1,  bx1, by0, bz1,
-                                         bx1, by0, bz0,  bx0, by0, bz0);
+                            // Ahora se guarda aparte y solo se usa en la cara
+                            // que toca al cladodio: es ahi donde en la planta
+                            // real se ve la union.
+                            const GLuint texUnion = g_textureManager->getTexture(
+                                "Penca Nopal de Castilla conectado al  Cladodio.png");
+                            auto texLado = [&](int dx_, int dy_, int dz_) -> GLuint {
+                                if (texUnion == 0) return texture;
+                                return (getNeighborBlockCached(x, y, z, dx_, dy_, dz_)
+                                            == BLOCK_NOPAL_CLADODIO)
+                                       ? texUnion : texture;
+                            };
+
+                            // ============================================
+                            // SILUETA DE PENCA: OVALO CUBICO
+                            // ============================================
+                            // Una penca de nopal no es un rectangulo: es un
+                            // ovalo. Para que lo parezca sin dejar de ser
+                            // voxel, la caja se corta en TRES rodajas a lo
+                            // alto y a las de los extremos se les quitan 2
+                            // pixeles por cada lado. Queda el perfil de un
+                            // ovalo cubico, con las esquinas mordidas:
+                            //
+                            //      ..####..     <- 2 px menos por lado
+                            //      ########     <- centro completo
+                            //      ..####..     <- 2 px menos por lado
+                            //
+                            // El recorte solo se aplica por los lados donde la
+                            // planta NO continua: si hay una penca pegada, ese
+                            // lado tiene que llegar al borde o quedaria un
+                            // escalon en la union.
+                            constexpr float CURVA = 2.0f / 16.0f;   // los 2 px
+
+                            // Alto de cada rodaja. Las de los extremos son las
+                            // que se recortan.
+                            const float ah = (by1 - by0) / 3.0f;
+                            const float yc0 = by0 + ah;         // fin rodaja baja
+                            const float yc1 = by1 - ah;         // inicio rodaja alta
+
+                            // Emite una caja completa (6 caras) entre dos
+                            // alturas, con el recorte lateral que se le pase.
+                            auto pushRodaja = [&](float y0, float y1, float mordisco) {
+                                // Solo se recorta el lado libre: por donde la
+                                // planta sigue, la caja llega al borde.
+                                const float rx0 = bx0 + (nf.uneXm ? 0.0f : mordisco);
+                                const float rx1 = bx1 - (nf.uneXp ? 0.0f : mordisco);
+                                const float rz0 = bz0 + (nf.uneZm ? 0.0f : mordisco);
+                                const float rz1 = bz1 - (nf.uneZp ? 0.0f : mordisco);
+                                // Si el mordisco se comiera la rodaja entera,
+                                // no se emite nada (evita caras invertidas).
+                                if (rx1 <= rx0 || rz1 <= rz0) return;
+
+                                // Cada cara consulta SU vecino: la cicatriz de
+                                // union sale solo por el lado que toca a un
+                                // cladodio, el resto lleva la textura normal.
+                                pushCaraTex(texLado(-1,0,0),
+                                         rx0, y0, rz1,  rx0, y0, rz0,
+                                         rx0, y1, rz0,  rx0, y1, rz1);   // -X
+                                pushCaraTex(texLado( 1,0,0),
+                                         rx1, y0, rz0,  rx1, y0, rz1,
+                                         rx1, y1, rz1,  rx1, y1, rz0);   // +X
+                                pushCaraTex(texLado(0,0,-1),
+                                         rx0, y0, rz0,  rx1, y0, rz0,
+                                         rx1, y1, rz0,  rx0, y1, rz0);   // -Z
+                                pushCaraTex(texLado(0,0, 1),
+                                         rx1, y0, rz1,  rx0, y0, rz1,
+                                         rx0, y1, rz1,  rx1, y1, rz1);   // +Z
+                                pushCaraTex(texLado(0, 1,0),
+                                         rx0, y1, rz0,  rx1, y1, rz0,
+                                         rx1, y1, rz1,  rx0, y1, rz1);   // +Y
+                                pushCaraTex(texLado(0,-1,0),
+                                         rx0, y0, rz1,  rx1, y0, rz1,
+                                         rx1, y0, rz0,  rx0, y0, rz0);   // -Y
+                            };
+
+                            // Las tres rodajas. Arriba y abajo van mordidas,
+                            // salvo que la planta continue en esa direccion:
+                            // entonces la union tiene que ser recta.
+                            if (block == BLOCK_NOPAL_FRUTO) {
+                                // La tuna ya es un bulto pequeno: no se le
+                                // muerden las esquinas, se dibuja de una pieza.
+                                pushRodaja(by0, by1, 0.0f);
+                            } else {
+                                pushRodaja(by0, yc0, nf.uneAbajo  ? 0.0f : CURVA);
+                                pushRodaja(yc0, yc1, 0.0f);
+                                pushRodaja(yc1, by1, nf.uneArriba ? 0.0f : CURVA);
                             }
 
                         } else {

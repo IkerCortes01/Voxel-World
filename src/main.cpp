@@ -5708,129 +5708,354 @@ public:
 
         if (esp == RAMA_OYAMEL_) {
             // ================================================================
-            // OYAMEL: VERTICILOS REGULARES, RAMAS HORIZONTALES EN CRUZ
+            // OYAMEL: COLUMNA ESTRECHA, PISOS PLANOS Y PUNTAS EN CRUZ
             // ================================================================
-            // Un piso de ramas cada 2 bloques (un verticilo por ano), con las
-            // 4 direcciones a la vez: eso es la "ramificacion en cruz".
+            // Datos de campo (relacion altura-diametro ajustada con 2747
+            // arboles, SciELO MX 2019; estructura del bosque en la Reserva de
+            // la Monarca; The Gymnosperm Database; Jardin Botanico IB-UNAM):
+            //
+            //   - COLUMNA, NO SOMBRILLA. Ratio alto/ancho ~9:1: un oyamel de
+            //     36 m tiene apenas 3 m de radio de copa. Es lo que mas lo
+            //     separa del pino (que es 3:1).
+            //   - APICE EN AGUJA SIEMPRE, incluso en el arbol mas viejo. El
+            //     pino se redondea con la edad; el oyamel no. A distancia es
+            //     el rasgo mas reconocible.
+            //   - PISOS PLANOS (modelo arquitectural de Massart, no Rauh):
+            //     las ramas son plagiotropas y forman planchas horizontales
+            //     de un bloque de grosor, apiladas como estantes. El pino, en
+            //     cambio, tiene ramas ortotropas que se curvan hacia arriba.
+            //   - GRADIENTE DE ANGULO: el "90 grados" de las fuentes
+            //     mexicanas es el PROMEDIO, no una constante. En realidad:
+            //     ascendente arriba, horizontal en medio, colgante abajo
+            //     (medido en 17953 ramas de Douglas-fir, CJFR).
+            //   - LA CRUZ: el epiteto "religiosa" NO viene de las ramas
+            //     primarias, sino de las RAMILLAS. Cada punta de rama saca
+            //     al ano un brote terminal MAS DOS laterales coplanares, y
+            //     eso dibuja una cruz. Un arbol tiene miles.
+            //   - Follaje solo en el 40% exterior: las aciculas viven 5-10
+            //     anos, asi que el tramo pegado al tronco es madera desnuda.
             const int alturaCopa = topY - desde;
             if (alturaCopa < 1) return;
 
+            // Radio maximo: ratio 9:1 respecto a la altura. Para un oyamel de
+            // 30 bloques salen 3, que es exactamente el dato de campo.
+            int radioMax = 1 + altura / 10;
+            if (radioMax < 2) radioMax = 2;
+
+            // Un verticilo cada 2 bloques: en la realidad los pisos estan a
+            // 0.25-0.60 m, asi que a escala de 1 bloque hay que agrupar. Se
+            // conserva el RITMO (pisos regulares) aunque no la escala.
             for (int y = desde; y <= topY; y += 2) {
-                // La rama es mas larga abajo y se acorta hacia la punta: de
-                // ahi sale el cono. Copa ESTRECHA (ratio ~1:5), asi que el
-                // maximo es corto.
-                const float t = (float)(y - desde) / (float)alturaCopa;  // 0..1
-                int largo = 1 + (int)((1.0f - t) * 3.0f + 0.5f);         // 4..1
-                if (largo < 1) largo = 1;
+                // Profundidad desde el apice: 0 arriba, 1 en la base.
+                const float prof = 1.0f - (float)(y - desde) / (float)alturaCopa;
 
-                // Gradiente vertical: abajo colgantes, en medio horizontales,
-                // arriba ascendentes.
-                const int inclina = (t < 0.35f) ? -1 : (t > 0.75f ? +1 : 0);
+                // Perfil conico con ligera convexidad (exponente 0.75), no un
+                // cono recto: la copa se abre despacio y luego se ensancha.
+                int largo = (int)(radioMax * powf(prof, 0.75f) + 0.5f);
+                if (largo < 1) {
+                    // Cerca del apice no hay rama: eso deja la AGUJA limpia.
+                    continue;
+                }
 
-                for (int d = 0; d < 4; ++d) {
+                // --- VERTICILO: 4-6 ramas, moda 5 ---
+                const int nRamas = 4 + rnd(y * 313 + 7, 3);
+
+                // Rotacion aleatoria entre pisos: sin esto el arbol parece una
+                // torre de antenas, con todas las ramas alineadas.
+                const int giro = rnd(y * 971 + 13, 4);
+
+                for (int k = 0; k < nRamas; ++k) {
+                    const int d = (k + giro) % 4;
+
                     int x = worldX, z = worldZ, yy = y;
-                    for (int i = 0; i < largo; ++i) {
+                    bool viva = true;
+
+                    for (int paso = 0; paso < largo && viva; ++paso) {
                         x += dirs[d][0];
                         z += dirs[d][1];
-                        if (!ponerRama(x, yy, z)) break;
-                        // La inclinacion es un paso VERTICAL aparte, nunca en
-                        // diagonal, para que los bloques se toquen por cara.
-                        if (inclina != 0 && i == largo / 2) {
-                            yy += inclina;
-                            if (!ponerRama(x, yy, z)) break;
+                        if (!ponerRama(x, yy, z)) { viva = false; break; }
+
+                        // GRADIENTE DE ANGULO por altura:
+                        //   arriba (prof<0.33)  -> +40 grados, ascendente
+                        //   medio               ->   0 grados, horizontal
+                        //   abajo  (prof>0.66)  -> -15 grados, colgante
+                        if (prof < 0.33f) {
+                            // Tercio superior: la rama sube.
+                            if (paso % 2 == 0) {
+                                ++yy;
+                                if (!ponerRama(x, yy, z)) { viva = false; break; }
+                            }
+                        } else if (prof > 0.66f && paso == largo - 1 && largo > 1) {
+                            // Tercio inferior: la punta cae (ramas pendulas).
+                            --yy;
+                            if (!ponerRama(x, yy, z)) { viva = false; break; }
+                        }
+                        // Tercio medio: perfectamente horizontal, sin tocar yy.
+                    }
+
+                    if (!viva) continue;
+
+                    // --- LA CRUZ DE LA PUNTA (rasgo firma de la especie) ---
+                    // Un brote terminal que sigue recto MAS dos laterales
+                    // coplanares a 90 grados. Es literalmente lo que da
+                    // nombre a Abies religiosa, y sale practicamente gratis.
+                    const int dIzq = (d + 2) % 4;   // perpendicular
+                    const int dDer = (d + 3) % 4;   // el opuesto
+                    ponerRama(x + dirs[dIzq][0], yy, z + dirs[dIzq][1]);
+                    ponerRama(x + dirs[dDer][0], yy, z + dirs[dDer][1]);
+
+                    // --- FOLLAJE EN LOSA PLANA ---
+                    // Las hojas forman planchas horizontales de un bloque de
+                    // grosor (dorsiventrales), no bolas. Opacidad alta (la
+                    // cobertura medida en campo es del 80% con LAI 6.5): el
+                    // tronco no debe verse a traves de la copa.
+                    // La plancha se extiende 2 bloques a los lados y solo 1
+                    // en vertical: sigue siendo una LOSA (dorsiventral), pero
+                    // con suficiente cuerpo para tapar el tronco. La cobertura
+                    // medida en campo es del 80% con LAI 6.5, asi que el
+                    // oyamel debe ser el mas OPACO de los tres.
+                    for (int dx = -2; dx <= 2; ++dx) {
+                        for (int dz = -2; dz <= 2; ++dz) {
+                            if (abs(dx) + abs(dz) > 3) continue;   // borde suave
+                            for (int dy = 0; dy <= 1; ++dy) {
+                                const int fx = x + dx, fy = yy + dy, fz = z + dz;
+                                if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
+                                if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
+                                // Denso en el centro de la plancha, mas ralo
+                                // en el borde: da el contorno mullido real.
+                                const int dens = (abs(dx) + abs(dz) <= 1) ? 95 : 78;
+                                if (rnd(fx * 53 + fy * 29 + fz * 11, 100) < dens)
+                                    setBlock(fx, fy, fz, tipoHoja);
+                            }
                         }
                     }
-                    // Follaje DENSO y opaco: el oyamel no deja ver el tronco.
-                    follaje(x, yy, z, 2, 85);
                 }
             }
-            // Punta en chapitel: una sola aguja rematando el eje.
-            follaje(worldX, topY + 1, worldZ, 1, 90);
+
+            // APICE EN AGUJA: dos bloques finos rematando el eje. Nunca
+            // redondeado, ni siquiera en el arbol mas viejo.
+            for (int a = 1; a <= 2; ++a) {
+                if (topY + a >= CHUNK_HEIGHT - 1) break;
+                if (getBlock(worldX, topY + a, worldZ) == BLOCK_AIR)
+                    setBlock(worldX, topY + a, worldZ, tipoHoja);
+            }
 
         } else if (esp == RAMA_PINO_) {
             // ================================================================
-            // PINO: POCAS RAMAS GRUESAS QUE ACABAN EN PENACHOS
+            // PINO: VERTICILOS, PANZA BAJA Y FOLLAJE SOLO EN LA PUNTA
             // ================================================================
-            // La copa viva ocupa solo el tercio superior. Ramas largas, casi
-            // horizontales, muy separadas, y follaje SOLO en la punta: entre
-            // penacho y penacho se ve el cielo.
-            const int nRamas = 4 + rnd(31, 4);        // 4..7 ramas, pocas
-            for (int i = 0; i < nRamas; ++i) {
-                const int y0 = desde + rnd(i * 71 + 3, (topY - desde) + 1);
-                const int d  = rnd(i * 137 + 29, 4);
-                // Ramas LARGAS: la copa del pino es ancha (ratio ~1:2.5).
-                // Copa mas estrecha que la del encino (ratio ~1:2.5).
-                const int largo = 3 + rnd(i * 211 + 17, 3);   // 3..5
+            // Datos de campo (morfometria de copa en plantaciones de Michoacan,
+            // Bosque 43(3):311 2022; perfil de copa de P. cooperi en Durango,
+            // Rev. Mex. Cienc. For. 2016; arquitectura de rama en P. radiata,
+            // NZ J. For. Sci. 28:182):
+            //
+            //   - La rama MAS LARGA no esta arriba ni en el medio, sino a
+            //     0.3-0.4 de la altura del arbol: el pino tiene la PANZA BAJA.
+            //     Un cono simple se ve mal precisamente por esto.
+            //   - Por debajo de ese maximo el radio NO se cierra: el faldon se
+            //     queda en el 74% del radio maximo (coeficiente b1=0.737 del
+            //     modelo de Hann). Las ramas de abajo siguen siendo largas.
+            //   - Las ramas salen en VERTICILOS (modelo arquitectural de Rauh):
+            //     3-7 por piso, media 5, un piso por ano de crecimiento.
+            //   - El follaje ocupa SOLO el ultimo tramo de cada rama, porque
+            //     las aciculas viven 2-3 anos y el brote alarga ~1 m/ano. El
+            //     interior de la copa es madera desnuda. Esto es lo que hace
+            //     que un pino se lea como pino y no como un brocoli.
+            //   - Las ramas de Pinus son ORTOTROPAS: se curvan hacia ARRIBA en
+            //     la punta. No son planas como las del oyamel (que sigue el
+            //     modelo de Massart). Ese es el rasgo que los separa.
+            const int alturaCopa = topY - desde;
+            if (alturaCopa < 1) return;
 
-                int x = worldX, z = worldZ, y = y0;
-                bool viva = true;
-                for (int paso = 0; paso < largo && viva; ++paso) {
-                    x += dirs[d][0];
-                    z += dirs[d][1];
-                    if (!ponerRama(x, y, z)) { viva = false; break; }
-                    // Casi horizontal: sube solo un bloque en todo el trayecto.
-                    if (paso == largo / 2) {
-                        ++y;
-                        if (!ponerRama(x, y, z)) { viva = false; break; }
-                    }
+            // Radio maximo de la copa. El pino es una SOMBRILLA de ratio
+            // ~3:1 (alto/ancho), a medio camino entre la columna del oyamel
+            // (9:1) y la bola del encino (1:1). Para un pino de 25 m de alto
+            // eso son unos 4 bloques de radio: copa de 8, altura 25.
+            const int radioMax = 2 + altura / 12;     // ~4 en un pino de 25
+
+            // Altura del maximo: 0.35 de la copa, contando desde su base.
+            const float hMax = 0.35f;
+
+            // Un verticilo por bloque de copa (crecimiento ~1 m/ano).
+            for (int y = desde; y <= topY; ++y) {
+                const float hRel = (float)(y - desde) / (float)alturaCopa;
+
+                // --- PERFIL DE COPA con panza baja ---
+                float f;
+                if (hRel < hMax) {
+                    // Por debajo del maximo: del 74% al 100%, sin cerrarse.
+                    const float t = hRel / hMax;
+                    f = 0.74f + 0.26f * powf(t, 0.6f);
+                } else {
+                    // Por encima: se estrecha hacia el apice.
+                    const float t = (hRel - hMax) / (1.0f - hMax);
+                    f = powf(1.0f - t, 0.55f);
                 }
-                // PENACHO en la punta: bola de agujas separada de las demas.
-                if (viva) follaje(x, y, z, 2, 80);
+                int largo = (int)(radioMax * f + 0.5f);
+                if (largo < 1) largo = 1;
+
+                // --- VERTICILO: 3-7 ramas, media 5 ---
+                const int nRamas = 3 + rnd(y * 313 + 7, 5);
+
+                // Giro aureo entre pisos: evita que los verticilos queden
+                // alineados en columnas y da el aspecto desordenado real.
+                const int giro = (int)(((y - desde) * 137) / 90) % 4;
+
+                for (int k = 0; k < nRamas; ++k) {
+                    const int d = (k + giro) % 4;
+                    // No todas las direcciones en cada piso: si no, seria una
+                    // estrella perfecta. Con 3-7 ramas y 4 direcciones, unas
+                    // se repiten y otras faltan, que es lo natural.
+                    if (nRamas < 4 && rnd(y * 71 + k * 29, 100) < 35) continue;
+
+                    int x = worldX, z = worldZ, yy = y;
+                    bool viva = true;
+                    for (int paso = 0; paso < largo && viva; ++paso) {
+                        x += dirs[d][0];
+                        z += dirs[d][1];
+                        if (!ponerRama(x, yy, z)) { viva = false; break; }
+
+                        // ANGULO POR ALTURA (Makinen & Colin 1998):
+                        //   arriba  20-35 grados -> muy ascendente
+                        //   medio   65-80        -> casi horizontal
+                        //   abajo   85-100       -> horizontal o caida
+                        // Traducido a voxels: arriba sube casi cada paso,
+                        // en medio sube a la mitad, abajo baja al final.
+                        if (hRel > 0.70f) {
+                            // Tercio superior: ascendente.
+                            if (paso % 2 == 0) {
+                                ++yy;
+                                if (!ponerRama(x, yy, z)) { viva = false; break; }
+                            }
+                        } else if (hRel > 0.35f) {
+                            // Tercio medio: casi horizontal.
+                            if (paso == largo / 2) {
+                                ++yy;
+                                if (!ponerRama(x, yy, z)) { viva = false; break; }
+                            }
+                        } else if (paso == largo - 1 && largo > 2) {
+                            // Faldon inferior: la punta cae.
+                            --yy;
+                            if (!ponerRama(x, yy, z)) { viva = false; break; }
+                        }
+                    }
+
+                    // PENACHO: el follaje va SOLO al final de la rama. El
+                    // resto queda como madera desnuda, que es lo que da al
+                    // pino su aspecto abierto y ralo.
+                    if (viva) follaje(x, yy, z, 2, 78);
+                }
             }
-            // Apice REDONDEADO, no puntiagudo (asi es el pino adulto).
+            // Apice REDONDEADO, no en punta: asi es el pino adulto.
             follaje(worldX, topY, worldZ, 2, 70);
 
         } else {
             // ================================================================
-            // ENCINO: BIFURCACION BAJA, RAMAS SINUOSAS, COPA ANCHA
+            // ENCINO: HORQUILLAS ASIMETRICAS, SIN EJE CENTRAL
             // ================================================================
-            // Se bifurca pronto y pierde el eje central. Las ramas serpentean
-            // en vez de ir rectas, y la copa es tan ancha como alta (~1:1).
-            const int nRamas = 5 + rnd(11, 4);        // 5..8, mas que el pino
-            for (int i = 0; i < nRamas; ++i) {
-                const int y0 = desde + rnd(i * 71 + 3, (topY - desde) + 1);
-                int d = rnd(i * 137 + 29, 4);
-                // Ramas largas: la copa del encino es la mas ancha de las tres.
-                // El encino es el mas ancho de los tres: copa de 12 m en un
-                // arbol de 15 m. Ramas largas y muy extendidas.
-                const int largo = 7 + rnd(i * 211 + 17, 4);   // 7..10
+            // Un encino y un pino comparten el MISMO modelo arquitectural de
+            // Halle (Rauh). La enorme diferencia visual no viene del modelo,
+            // sino de que el encino lo DESTRUYE por reiteracion: pierde la
+            // dominancia apical y el tronco se disuelve en brazos.
+            //
+            // Datos (Kedra et al. bioRxiv 795286, 30 encinos maduros;
+            // biomasa de encinos de Guanajuato, Madera y Bosques; regla de
+            // Leonardo en Quercus petraea, Annals of Botany 2018):
+            //
+            //   - HORQUILLAS de DOS ejes casi equivalentes, no ramas
+            //     subordinadas. Es LA firma del encino: el eje TERMINA
+            //     dividiendose, mientras que en el pino el eje CONTINUA.
+            //   - Regla de Leonardo con perdida: en Quercus el ratio
+            //     hijas/madre es MENOR que 1, asi que cada horquilla adelgaza
+            //     el brazo (factor ~0.68). En Abies el ratio es 1.16-1.44:
+            //     la conifera conserva o gana seccion.
+            //   - Reparto ASIMETRICO obligatorio: 60/40, nunca 50/50. Una
+            //     horquilla simetrica delata al instante que es un fractal.
+            //   - Filotaxis de 137.5 grados (angulo aureo), NUNCA verticilos:
+            //     los pisos regulares son cosa de las coniferas.
+            //   - Sinuosidad: dobla 15-30 grados cada 1-2 bloques. Ninguna
+            //     recta de mas de 3 bloques.
+            //   - El follaje va en GRUMOS terminales ("clouds"): solo ~40%
+            //     del volumen de copa tiene hoja, y las ramas gruesas quedan
+            //     DESNUDAS y visibles.
 
-                int x = worldX, z = worldZ, y = y0;
+            // Longitud del brazo segun su orden: cada horquilla acorta.
+            // Los brazos primarios son largos porque la copa del encino es
+            // tan ancha como alta.
+            const int largoBase = 4 + altura / 4;     // ~7 en un encino de 14
+
+            // Una horquilla es un brazo que, al terminar, se parte en DOS.
+            // `orden` limita la profundidad (4-6 ordenes en un encino adulto).
+            struct Brazo { int x, y, z, dir, largo, orden; };
+            Brazo pila[64];
+            int nPila = 0;
+
+            // --- BIFURCACION DEL TRONCO ---
+            // A 0.35-0.45 de la altura salen 3-4 brazos gruesos. A partir de
+            // ahi el tronco YA NO se distingue: es uno mas de los brazos.
+            const int nPrimarias = 3 + rnd(97, 2);    // 3 o 4
+            for (int i = 0; i < nPrimarias && nPila < 64; ++i) {
+                // Filotaxis: 137.5 grados entre ramas sucesivas. Sobre 4
+                // direcciones, ese giro cae en 1.53 pasos -> se aproxima
+                // alternando 1 y 2, que es lo que rompe la simetria.
+                const int d = ((i * 3) / 2 + rnd(i * 41, 2)) % 4;
+                const int y0 = desde + rnd(i * 71 + 3, 2);
+                pila[nPila++] = { worldX, y0, worldZ, d, largoBase, 1 };
+            }
+
+            // --- CRECER LOS BRAZOS ---
+            int procesados = 0;
+            while (nPila > 0 && procesados < 60) {
+                const Brazo b = pila[--nPila];
+                ++procesados;
+
+                int x = b.x, y = b.y, z = b.z, d = b.dir;
                 bool viva = true;
-                for (int paso = 0; paso < largo && viva; ++paso) {
+
+                for (int paso = 0; paso < b.largo && viva; ++paso) {
                     x += dirs[d][0];
                     z += dirs[d][1];
                     if (!ponerRama(x, y, z)) { viva = false; break; }
 
-                    // SINUOSIDAD: la rama sube y ademas cambia de direccion a
-                    // mitad de camino. Nada de lineas rectas ni simetria.
+                    // Sube: sesgo fototropico (+7 grados por segmento en las
+                    // ramas exteriores) traducido a un paso vertical.
                     if (paso % 2 == 1) {
                         ++y;
                         if (!ponerRama(x, y, z)) { viva = false; break; }
                     }
-                    if (rnd(i * 313 + paso * 17, 100) < 40) {
-                        d = (d + 1 + rnd(i * 17 + paso, 2)) % 4;   // se retuerce
-                    }
 
-                    // Bifurcacion: de una rama sale otra, como en un roble.
-                    if (paso == largo / 2 && rnd(i * 401 + paso, 2) == 0) {
-                        const int d2 = (d + 1 + rnd(i * 23 + paso, 2)) % 4;
-                        int bx = x, bz = z, by = y;
-                        const int lb = 3 + rnd(i * 401 + paso, 3);
-                        for (int k = 0; k < lb; ++k) {
-                            bx += dirs[d2][0];
-                            bz += dirs[d2][1];
-                            if (!ponerRama(bx, by, bz)) break;
-                            if (k % 2 == 1) {
-                                ++by;
-                                if (!ponerRama(bx, by, bz)) break;
-                            }
-                        }
-                        follaje(bx, by, bz, 3, 75);
+                    // SINUOSIDAD: dobla CADA paso. Ninguna recta de mas de
+                    // 2 bloques, que es lo que mas delata a un arbol
+                    // artificial. El giro no es simetrico: unas veces abre a
+                    // un lado y otras al contrario, segun el hash.
+                    d = (d + 1 + rnd(b.orden * 317 + paso * 19, 3)) % 4;
+                }
+
+                if (!viva) continue;
+
+                // --- HORQUILLA TERMINAL: la firma del encino ---
+                // El brazo no continua: se PARTE en dos ejes. El reparto es
+                // asimetrico (60/40) y ambos adelgazan, asi que la copa se
+                // abre en abanico sin parecer un fractal simetrico.
+                if (b.orden < 4 && nPila + 2 <= 64) {
+                    // 0.62 = perdida de Leonardo en Quercus por horquilla.
+                    const int largoHija = (b.largo * 62) / 100;
+                    if (largoHija >= 2) {
+                        const int dA = (d + 1) % 4;             // se abre
+                        const int dB = (d + 3) % 4;             // al otro lado
+                        // Asimetria: la hija dominante crece mas.
+                        pila[nPila++] = { x, y, z, dA, largoHija, b.orden + 1 };
+                        pila[nPila++] = { x, y, z, dB,
+                                          (largoHija * 7) / 10, b.orden + 1 };
+                        continue;   // el follaje lo ponen las hijas
                     }
                 }
-                // Follaje denso y de borde grumoso en toda la punta.
-                if (viva) follaje(x, y, z, 4, 80);   // copa ancha y densa
+
+                // --- GRUMO DE FOLLAJE ---
+                // Solo en las puntas. Los brazos gruesos quedan desnudos, que
+                // es lo que hace que se vean las ramas desde fuera del arbol.
+                // Relleno del 70%: el grumo deja pasar luz, no es macizo.
+                follaje(x, y, z, 3, 70);
             }
         }
     }

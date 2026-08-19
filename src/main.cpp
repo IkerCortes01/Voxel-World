@@ -511,6 +511,10 @@ struct NopalForma {
     // respecto a la baja, en fraccion de bloque. 0 = recta.
     float inclina;
     bool  inclinaEnX;        // se dobla en X (true) o en Z (false)
+
+    // Rumbo de la penca en el plano horizontal, en 8 direcciones:
+    //   0 N   1 NE   2 E   3 SE   4 S   5 SO   6 O   7 NO
+    int giro;
 };
 
 // ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
@@ -654,6 +658,64 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         f.orientacion = (int)(h % (unsigned)NOPAL_ORIENTACIONES);
     }
 
+    // ========================================================================
+    // LAS OCHO DIRECCIONES DEL PLANO
+    // ========================================================================
+    // La orientacion de arriba dice en que EJE es fina la penca, pero no si
+    // esta mirando al norte, al noroeste o al sureste. Eso lo decide aqui el
+    // GIRO, que es el rumbo de la penca en el plano horizontal:
+    //
+    //     0 = norte      1 = noreste    2 = este       3 = sureste
+    //     4 = sur        5 = suroeste   6 = oeste      7 = noroeste
+    //
+    // Se saca de hacia donde tiene vecinos: la penca "apunta" al lado por el
+    // que la planta continua. Si tiene vecinos en dos lados contiguos (por
+    // ejemplo norte y este), el rumbo es la diagonal entre ambos (noreste),
+    // que es lo que permite matas dobladas en vez de solo cruces rectas.
+    {
+        // Peso de cada rumbo cardinal segun los vecinos que hay por ese lado,
+        // contando tambien los de arriba y abajo (un brote que sale en
+        // diagonal cuenta para su lado).
+        int pN = 0, pS = 0, pE = 0, pO = 0;
+        for (int dy = -1; dy <= 1; ++dy) {
+            if (nopalEncadena(get( 0, dy, 1))) pN += (dy == 0) ? 2 : 1;
+            if (nopalEncadena(get( 0, dy,-1))) pS += (dy == 0) ? 2 : 1;
+            if (nopalEncadena(get( 1, dy, 0))) pE += (dy == 0) ? 2 : 1;
+            if (nopalEncadena(get(-1, dy, 0))) pO += (dy == 0) ? 2 : 1;
+        }
+        // Las esquinas del plano reparten su peso entre los dos rumbos que
+        // las forman: asi una vecina al noreste inclina hacia el noreste.
+        if (nopalEncadena(get( 1, 0, 1))) { ++pN; ++pE; }
+        if (nopalEncadena(get( 1, 0,-1))) { ++pS; ++pE; }
+        if (nopalEncadena(get(-1, 0, 1))) { ++pN; ++pO; }
+        if (nopalEncadena(get(-1, 0,-1))) { ++pS; ++pO; }
+
+        const int ejeNS = pN - pS;    // >0 mira al norte, <0 al sur
+        const int ejeEO = pE - pO;    // >0 mira al este,  <0 al oeste
+
+        if (ejeNS == 0 && ejeEO == 0) {
+            // Sin vecinos que manden: rumbo por posicion, para que dos pencas
+            // sueltas contiguas no salgan calcadas.
+            f.giro = (int)((h >> 5) % 8u);
+        } else {
+            // Se traduce el par (NS, EO) al rumbo de 8 direcciones. Cuando los
+            // dos ejes tienen peso parecido sale una DIAGONAL; cuando uno
+            // domina, sale el cardinal.
+            const int aNS = ejeNS < 0 ? -ejeNS : ejeNS;
+            const int aEO = ejeEO < 0 ? -ejeEO : ejeEO;
+            const bool diagonal = (aNS > 0 && aEO > 0);
+
+            if (diagonal) {
+                if (ejeNS > 0) f.giro = (ejeEO > 0) ? 1 : 7;   // NE o NO
+                else           f.giro = (ejeEO > 0) ? 3 : 5;   // SE o SO
+            } else if (aNS >= aEO) {
+                f.giro = (ejeNS > 0) ? 0 : 4;                  // N o S
+            } else {
+                f.giro = (ejeEO > 0) ? 2 : 6;                  // E u O
+            }
+        }
+    }
+
     // --- CAJA segun la orientacion ---
     // GROSOR de UNA penca. Al apilar varias en el mismo voxel el bloque se
     // ensancha: 5 px una, 10 dos, 15 tres. Es lo que permite juntar hasta
@@ -664,11 +726,17 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // voxel eso seria menos de un pixel, asi que 5 px es ya una concesion
     // generosa a la legibilidad; apilarlas es lo que acerca el volumen del
     // conjunto al de una mata real.
+    // Medidas de UNA penca: 8 px de ancho por 7 de grosor. Al apilar varias
+    // en el mismo voxel el grosor crece: 7 una, 14 dos, y tres ya no caben en
+    // los 16 px del bloque, asi que se limitan a 15.
     const int nPencas = pencasApiladas(f.tipo);
-    const float GROSOR = (5.0f / 16.0f) * (float)nPencas;
+    constexpr float PENCA_ANCHO  = 8.0f / 16.0f;
+    constexpr float PENCA_GROSOR = 7.0f / 16.0f;
+    float GROSOR = PENCA_GROSOR * (float)nPencas;
+    if (GROSOR > 15.0f / 16.0f) GROSOR = 15.0f / 16.0f;
     const float c0 = 0.5f - GROSOR * 0.5f;
     const float c1 = 0.5f + GROSOR * 0.5f;
-    const float M  = 0.07f;                  // margen del lado ancho
+    const float M  = 0.5f - PENCA_ANCHO * 0.5f;   // margen del lado ancho
     const float A0 = M, A1 = 1.0f - M;
 
     // ⭐ NINGUNA cara puede caer EXACTAMENTE en 0.0 o 1.0: ahi coincidiria de
@@ -921,42 +989,31 @@ void tunaCajaCon(TGet get,
         minY = EPS;  maxY = EPS + TUNA_ALTO;
     }
 
-    // Se une a cladodios y a otras tunas: un racimo queda continuo.
-    auto une = [&](int dx, int dy, int dz) {
+    // ========================================================================
+    // LA TUNA SOLO SE UNE POR SU POLO SUR
+    // ========================================================================
+    // El fruto NO se combina con nada por sus otras caras: ni con otra tuna,
+    // ni con la penca de al lado. Solo se suelda por UNA cara, la de su polo
+    // sur, y siempre contra el soporte del que nace.
+    //
+    // Como la orientacion de arriba ya giro la tuna para que su eje largo
+    // apunte hacia afuera del soporte, el extremo que toca la planta es
+    // justamente ese polo: basta con estirarlo hasta el borde del voxel para
+    // que las dos piezas se toquen sin junta.
+    //
+    // Asi un racimo nunca se cierra sobre si mismo: las tunas contiguas se
+    // ven como frutos sueltos y no como un bloque macizo.
+    auto sostenido = [&](int dx, int dy, int dz) {
         const BlockType b = get(dx, dy, dz);
-        return esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
-               esTuna(b);
+        return esCladodio(b) || b == BLOCK_NOPAL_FRUTO;
     };
 
-    // La tuna conecta por CINCO caras. La del POLO SUR (-Z) queda libre a
-    // proposito: es el lado por el que el fruto "mira" hacia fuera, y dejarlo
-    // sin unir es lo que impide que un racimo se cierre sobre si mismo y
-    // acabe pareciendo un bloque macizo en vez de frutos sueltos.
-    //
-    // Convencion del mesher del mundo (DIR_VEC): norte = +Z, sur = -Z.
-    //
-    // El estiramiento NO toca el eje largo del fruto: ese ya lo fijo la
-    // orientacion de arriba, y volver a estirarlo lo alargaria hasta llenar el
-    // voxel, con lo que la tuna dejaria de parecer un fruto. Solo se estiran
-    // los dos ejes cortos, que es lo que sirve para soldarla a la planta.
-    const float largoX = maxX - minX;
-    const float largoZ = maxZ - minZ;
-    const float largoY = maxY - minY;
-    const bool ejeEnX = (largoX > largoZ && largoX > largoY);
-    const bool ejeEnZ = (largoZ > largoX && largoZ > largoY);
-
-    if (!ejeEnX) {
-        if (une(-1, 0, 0)) minX = EPS;             // oeste
-        if (une( 1, 0, 0)) maxX = 1.0f - EPS;      // este
-    }
-    if (!ejeEnZ) {
-        if (une( 0, 0, 1)) maxZ = 1.0f - EPS;      // norte
-        // -Z (polo sur): NO se conecta nunca.
-    }
-    // Hacia arriba solo si hay otra pieza, y solo cuando el eje largo NO es
-    // la vertical: si lo fuera, estirarlo llenaria el voxel de punta a punta.
-    const bool ejeEnY = (largoY > largoX && largoY > largoZ);
-    if (!ejeEnY && une(0, 1, 0)) maxY = 1.0f - EPS;
+    if      (sostenido(0, -1, 0)) minY = EPS;            // nace del suelo
+    else if (sostenido(0,  1, 0)) maxY = 1.0f - EPS;     // cuelga del techo
+    else if (sostenido(-1, 0, 0)) minX = EPS;            // sale al oeste
+    else if (sostenido( 1, 0, 0)) maxX = 1.0f - EPS;     // sale al este
+    else if (sostenido(0, 0, -1)) minZ = EPS;            // sale al sur
+    else if (sostenido(0, 0,  1)) maxZ = 1.0f - EPS;     // sale al norte
 }
 
 // Caja de colision en coordenadas LOCALES (0..1), o false si el bloque no
@@ -7845,13 +7902,15 @@ public:
             };
             const BlockType variedad = VARIEDADES[rnd(451, 3)];
 
-            // Sitios donde puede nacer un fruto respecto a la penca. El de
-            // arriba va primero porque es el preferente: la fructificacion se
-            // concentra en el borde superior distal.
-            static const int SITIOS[5][3] = {
+            // Sitios donde puede nacer un fruto respecto a la penca: LAS SEIS
+            // CARAS. El de arriba va primero porque es el preferente (la
+            // fructificacion se concentra en el borde superior distal), pero
+            // pueden salir por cualquier lado, incluso por debajo.
+            static const int SITIOS[6][3] = {
                 { 0, 1, 0},                       // encima (el mas comun)
                 { 1, 0, 0}, {-1, 0, 0},
                 { 0, 0, 1}, { 0, 0,-1},
+                { 0,-1, 0},                       // debajo (el mas raro)
             };
 
             for (int y = primerBrote; y <= topeTallo + 4 && tunas < maxTunas; ++y) {
@@ -7861,17 +7920,30 @@ public:
                         // SOLO sobre PENCA, no sobre cladodio.
                         if (getBlock(cx, y, cz) != BLOCK_NOPAL_FRUTO) continue;
 
-                        // Una misma penca puede dar VARIAS tunas.
-                        for (int s = 0; s < 5 && tunas < maxTunas; ++s) {
+                        // Una misma penca puede dar VARIAS tunas, repartidas
+                        // por sus seis caras y de forma aleatoria.
+                        for (int s = 0; s < 6 && tunas < maxTunas; ++s) {
                             const int fx = cx + SITIOS[s][0];
                             const int fy = y  + SITIOS[s][1];
                             const int fz = cz + SITIOS[s][2];
                             if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
                             if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
 
+                            // UNA SOLA TUNA POR CARA: si ese hueco ya tiene un
+                            // fruto pegado a otra penca, no se pone otro. Cada
+                            // cara da fruto una vez y ya no admite mas.
+                            bool ocupada = false;
+                            for (int v = 0; v < 6 && !ocupada; ++v) {
+                                if (esTuna(getBlock(fx + SITIOS[v][0],
+                                                    fy + SITIOS[v][1],
+                                                    fz + SITIOS[v][2])))
+                                    ocupada = true;
+                            }
+                            if (ocupada) continue;
+
                             // El borde de arriba fructifica mucho mas que los
-                            // laterales, como en la planta real.
-                            const int prob = (s == 0) ? 55 : 22;
+                            // laterales, y por debajo es raro que cuelguen.
+                            const int prob = (s == 0) ? 55 : (s == 5) ? 10 : 22;
                             if (rnd(cx * 31 + y * 17 + cz * 13 + s * 7, 100) >= prob)
                                 continue;
 
@@ -9357,6 +9429,29 @@ public:
                                 // formas dobladas y en codo de un nopal real,
                                 // donde el 95% de las pencas se inclinan menos
                                 // de 50 grados (Sortibran 2005).
+                                // GIRO DIAGONAL: en los rumbos NE, SE, SO y NO
+                                // la penca no queda alineada con los ejes del
+                                // mundo, sino cruzada. Se consigue corriendo
+                                // cada rodaja un poco en el eje perpendicular,
+                                // proporcional a su altura: el conjunto sube
+                                // en diagonal aunque cada pieza siga siendo
+                                // una caja. Es lo que da los rumbos
+                                // intermedios sin geometria rotada.
+                                if ((nf.giro & 1) != 0) {
+                                    const float t = (y0 + y1) * 0.5f - 0.5f;
+                                    // Sentido segun el cuadrante del rumbo.
+                                    const float sx = (nf.giro == 1 || nf.giro == 3) ? 1.0f : -1.0f;
+                                    const float sz = (nf.giro == 1 || nf.giro == 7) ? 1.0f : -1.0f;
+                                    const float d = 0.28f * t;
+                                    rx0 += d * sx; rx1 += d * sx;
+                                    rz0 += d * sz; rz1 += d * sz;
+                                    const float E = 0.0005f;
+                                    if (rx0 < E) { rx1 += E - rx0; rx0 = E; }
+                                    if (rz0 < E) { rz1 += E - rz0; rz0 = E; }
+                                    if (rx1 > 1.0f - E) { rx0 -= rx1 - (1.0f - E); rx1 = 1.0f - E; }
+                                    if (rz1 > 1.0f - E) { rz0 -= rz1 - (1.0f - E); rz1 = 1.0f - E; }
+                                }
+
                                 if (nf.inclina != 0.0f) {
                                     // Desplazamiento proporcional a la altura:
                                     // 0 abajo, `inclina` arriba.
@@ -9466,6 +9561,73 @@ public:
                                     if (i == 0 && nf.uneAbajo) m = 0.0f;
                                     if (i == RODAJAS - 1 && nf.uneArriba) m = 0.0f;
                                     pushRodaja(ya, yb, m);
+                                }
+
+                                // ========================================
+                                // ESPINAS QUE SOBRESALEN
+                                // ========================================
+                                // Las areolas van en el CONTORNO de la penca,
+                                // separadas 1.5-2.3 cm, y de cada una salen
+                                // 3-6 espinas de ~30 mm. Aqui se dibujan como
+                                // pinchos finos que asoman del borde: son lo
+                                // que hace que la penca se lea como un cactus
+                                // y no como una hoja.
+                                //
+                                // Salen del BORDE (los lados del ancho), no de
+                                // la cara plana, que es donde estan las
+                                // areolas fertiles de verdad.
+                                constexpr float ESP_LARGO = 2.5f / 16.0f;
+                                constexpr float ESP_GRUESO = 1.0f / 16.0f;
+
+                                for (int i = 0; i < RODAJAS; ++i) {
+                                    const float ya = by0 + alto * i;
+                                    const float yb = ya + alto;
+                                    const float yc = (ya + yb) * 0.5f;
+
+                                    float m = (1.0f - PERFIL[i]) * anchoTotal * 0.5f;
+                                    if (m > margenMax) m = margenMax;
+                                    if (m < 0.0f) m = 0.0f;
+
+                                    // Dos espinas por rodaja, una por lado. No
+                                    // en todas: se saltan segun la posicion,
+                                    // para que no salga un peine regular.
+                                    for (int lado = 0; lado < 2; ++lado) {
+                                        unsigned he = (unsigned)((int)wx * 92837111)
+                                                    ^ (unsigned)((int)wy * 689287499)
+                                                    ^ (unsigned)((int)wz * 283923481)
+                                                    ^ (unsigned)(i * 2654435761u)
+                                                    ^ (unsigned)(lado * 40503u);
+                                        he ^= he >> 13; he *= 1274126177u; he ^= he >> 16;
+                                        if ((int)(he % 100u) >= 55) continue;
+
+                                        const float g = ESP_GRUESO * 0.5f;
+                                        const float e0 = yc - g, e1 = yc + g;
+                                        if (anchoEnX) {
+                                            const float x = (lado == 0) ? (bx0 + m) : (bx1 - m);
+                                            const float xa = (lado == 0) ? (x - ESP_LARGO) : x;
+                                            const float xb = (lado == 0) ? x : (x + ESP_LARGO);
+                                            if (xa < 0.0f || xb > 1.0f) continue;
+                                            const float zc = (bz0 + bz1) * 0.5f;
+                                            pushCara(xa,e0,zc+g, xa,e0,zc-g, xa,e1,zc-g, xa,e1,zc+g);
+                                            pushCara(xb,e0,zc-g, xb,e0,zc+g, xb,e1,zc+g, xb,e1,zc-g);
+                                            pushCara(xa,e0,zc-g, xb,e0,zc-g, xb,e1,zc-g, xa,e1,zc-g);
+                                            pushCara(xb,e0,zc+g, xa,e0,zc+g, xa,e1,zc+g, xb,e1,zc+g);
+                                            pushCara(xa,e1,zc-g, xb,e1,zc-g, xb,e1,zc+g, xa,e1,zc+g);
+                                            pushCara(xa,e0,zc+g, xb,e0,zc+g, xb,e0,zc-g, xa,e0,zc-g);
+                                        } else {
+                                            const float z = (lado == 0) ? (bz0 + m) : (bz1 - m);
+                                            const float za = (lado == 0) ? (z - ESP_LARGO) : z;
+                                            const float zb = (lado == 0) ? z : (z + ESP_LARGO);
+                                            if (za < 0.0f || zb > 1.0f) continue;
+                                            const float xc = (bx0 + bx1) * 0.5f;
+                                            pushCara(xc-g,e0,zb, xc-g,e0,za, xc-g,e1,za, xc-g,e1,zb);
+                                            pushCara(xc+g,e0,za, xc+g,e0,zb, xc+g,e1,zb, xc+g,e1,za);
+                                            pushCara(xc-g,e0,za, xc+g,e0,za, xc+g,e1,za, xc-g,e1,za);
+                                            pushCara(xc+g,e0,zb, xc-g,e0,zb, xc-g,e1,zb, xc+g,e1,zb);
+                                            pushCara(xc-g,e1,za, xc+g,e1,za, xc+g,e1,zb, xc-g,e1,zb);
+                                            pushCara(xc-g,e0,zb, xc+g,e0,zb, xc+g,e0,za, xc-g,e0,za);
+                                        }
+                                    }
                                 }
                             }
 

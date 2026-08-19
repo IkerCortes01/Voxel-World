@@ -2882,6 +2882,147 @@ public:
         std::cout << "=== Animación de carga inicializada ===" << std::endl;
     }
 
+    // ========================================================================
+    // RAICES QUE SE EXPANDEN: CONEXIONES Y ESQUINAS
+    // ========================================================================
+    // Ademas del bloque pegado al tronco, las raices se alargan 1 o 2 bloques
+    // mas. Para que el dibujo no se corte a media raiz hacen falta piezas que
+    // encajen entre si, igual que las vias de un tren:
+    //
+    //   RECTA     la raiz entra por un lado y sale por el opuesto (N-S u O-E)
+    //   CODO      entra por un lado y gira 90 grados (N-O, N-E, S-O, S-E)
+    //   GRUESA    tramo ancho y ramificado, con un borde lleno que empalma
+    //   ESQUINA   solo un trocito en una esquina, para las diagonales
+    //
+    // Se midieron las 36 texturas pixel a pixel: cada tipo viene en sus 4
+    // rotaciones, y el borde por el que la raiz sale lleno (16 px de ancho)
+    // es justo el que tiene que tocar al vecino.
+    //
+    // `mascara` son los lados por los que ESTA raiz debe continuar:
+    //     bit 0 = norte (-Z)   bit 1 = sur (+Z)
+    //     bit 2 = oeste (-X)   bit 3 = este (+X)
+    // `variante` desempata entre las texturas del mismo tipo (hay 2 juegos de
+    // conexion gruesa por especie), para que un bosque no se vea calcado.
+    //
+    // Devuelve 0 si esa combinacion no tiene textura, y entonces el mesher
+    // recurre a la raiz normal.
+    static const int RAIZ_N = 1, RAIZ_S = 2, RAIZ_O = 4, RAIZ_E = 8;
+
+    GLuint getTexturaRaicesConexion(BlockType encima, int mascara, int variante) {
+        // Solo hay piezas de conexion para pino y oyamel, y solo sobre pasto:
+        // son las que se dibujaron. El resto usa la raiz simple de siempre.
+        const char* esp = nullptr;
+        switch (encima) {
+            case BLOCK_WOOD:        esp = "pino";  break;
+            case BLOCK_WOOD_OYAMEL: esp = "oyame"; break;
+            default: return 0;
+        }
+        const bool pino = (encima == BLOCK_WOOD);
+
+        char ruta[192];
+
+        // --- RECTA: norte-sur u oeste-este ---
+        // Solo existe dibujada para el pino. Para el oyamel se usa la gruesa,
+        // que tambien atraviesa el bloque.
+        const bool NS = (mascara & (RAIZ_N | RAIZ_S)) == (RAIZ_N | RAIZ_S);
+        const bool OE = (mascara & (RAIZ_O | RAIZ_E)) == (RAIZ_O | RAIZ_E);
+        if (pino && (NS || OE) && !(NS && OE)) {
+            // Medido: v1=N+S(SE)  v1.1=O+E(NE)  v1.2=N+S(NO)  v1.3=O+E(SO)
+            static const char* kRectaNS[2] = { "conecion de raices de pino v1",
+                                               "conecion de raices de pino v1.2" };
+            static const char* kRectaOE[2] = { "conecion de raices de pino v1.1",
+                                               "conecion de raices de pino v1.3" };
+            const char* base = NS ? kRectaNS[variante & 1] : kRectaOE[variante & 1];
+            snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s.png", base);
+            const GLuint t = getTexture(ruta);
+            if (t) return t;
+        }
+
+        // --- CODO / ESQUINA: dos lados en angulo ---
+        // La pieza de esquina es casi todo suelo con un trocito de raiz en el
+        // vertice: sirve para doblar y para rellenar diagonales sin que se vea
+        // un pegote.
+        {
+            const bool n = (mascara & RAIZ_N) != 0, s = (mascara & RAIZ_S) != 0;
+            const bool o = (mascara & RAIZ_O) != 0, e = (mascara & RAIZ_E) != 0;
+            int cuad = -1;                        // 0=NO 1=NE 2=SO 3=SE
+            if (n && o && !s && !e) cuad = 0;
+            else if (n && e && !s && !o) cuad = 1;
+            else if (s && o && !n && !e) cuad = 2;
+            else if (s && e && !n && !o) cuad = 3;
+            if (cuad >= 0) {
+                // Medido en las 16 texturas de esquina:
+                //   pino  v1=NO v2=SO v3=SE v4=NE   (juego A)
+                //   pino  v1.0=NO v1.1=SO v1.2=SE v1.3=NE (juego B)
+                //   oyame v1=NO v2=SO v3=SE v4=NE   (juego A)
+                //   oyame 1.2=NO 1.3=SO 1.4=SE 1.1=NE (juego B)
+                static const char* kPinoA[4] = { "esquina de raices de pino v1",
+                                                 "esquina de raices de pino v4",
+                                                 "esquina de raices de pino v2",
+                                                 "esquina de raices de pino v3" };
+                static const char* kPinoB[4] = { "esquina de raices depino v1.0",
+                                                 "esquina de raices depino v1.3",
+                                                 "esquina de raices depino v1.1",
+                                                 "esquina de raices depino v1.2" };
+                static const char* kOyaA[4]  = { "esquina de raices de oyame v1",
+                                                 "esquina de raices de oyame v4",
+                                                 "esquina de raices de oyame v2",
+                                                 "esquina de raices de oyame v3" };
+                static const char* kOyaB[4]  = { "esquina de oyame 1.2",
+                                                 "esquina de oyame 1.1",
+                                                 "esquina de oyame 1.3",
+                                                 "esquina de oyame 1.4" };
+                const char* const* juego = pino ? ((variante & 1) ? kPinoB : kPinoA)
+                                                : ((variante & 1) ? kOyaB  : kOyaA);
+                snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s.png", juego[cuad]);
+                const GLuint t = getTexture(ruta);
+                if (t) return t;
+            }
+        }
+
+        // --- GRUESA: tramo ancho, para el bloque pegado al tronco ---
+        // Su borde lleno (16 px) marca por donde empalma. Se elige el lado
+        // "principal": el primero de la mascara.
+        {
+            int lado = -1;                        // 0=N 1=S 2=O 3=E
+            if (mascara & RAIZ_N) lado = 0;
+            else if (mascara & RAIZ_S) lado = 1;
+            else if (mascara & RAIZ_O) lado = 2;
+            else if (mascara & RAIZ_E) lado = 3;
+            if (lado >= 0) {
+                // Medido, borde lleno por familia (indice = N,S,O,E):
+                //   pino 2.*  : 2.3=N 2.1=S 2.4=O 2.2=E
+                //   oyame 1.* : 1.4=N 1.2=S 1.1=O 1.3=E
+                // Las familias 3.* (pino) y 2.* (oyame) son mas ramificadas y
+                // no tienen un borde lleno claro: se usan como segundo juego.
+                static const char* kPinoA[4] = { "coneccion de raices de pino 2.3",
+                                                 "coneccion de raices de pino 2.1",
+                                                 "coneccion de raices de pino 2.4",
+                                                 "coneccion de raices de pino 2.2" };
+                static const char* kPinoB[4] = { "coneccion de raices de pino 3.1",
+                                                 "coneccion de raices de pino 3.2",
+                                                 "coneccion de raices de pino 3.3",
+                                                 "coneccion de raices de pino 3.4" };
+                static const char* kOyaA[4]  = { "coneccion de oyame 1.4",
+                                                 "coneccion de oyame 1.2",
+                                                 "coneccion de oyame 1.1",
+                                                 "coneccion de oyame 1.3" };
+                static const char* kOyaB[4]  = { "coneccion de oyame 2.1",
+                                                 "coneccion de oyame 2.2",
+                                                 "coneccion de oyame 2.3",
+                                                 "coneccion de oyame 2.4" };
+                const char* const* juego = pino ? ((variante & 1) ? kPinoB : kPinoA)
+                                                : ((variante & 1) ? kOyaB  : kOyaA);
+                snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s.png", juego[lado]);
+                const GLuint t = getTexture(ruta);
+                if (t) return t;
+            }
+        }
+
+        (void)esp;
+        return 0;
+    }
+
     // Obtener textura para un tipo de bloque y cara (con soporte de animación y rotación)
     // ========================================================================
     // VARIANTES VISUALES: SUELO CON RAICES
@@ -8581,6 +8722,61 @@ public:
                        !isCrossSprite(b);
             };
 
+            // ============================================================
+            // POR DONDE SIGUE LA RAIZ (y como se garantiza que empalme)
+            // ============================================================
+            // Una raiz que nace del arbol en (wax,waz) y pasa por el bloque
+            // (wx,wz) puede seguir hacia otro lado, o pararse ahi.
+            //
+            // Todo depende SOLO de esas dos posiciones, asi que el bloque que
+            // continua la raiz calcula exactamente el mismo valor que el que
+            // la empieza. No hay que guardar nada ni comunicar chunks: dos
+            // bloques vecinos siempre coinciden en si la raiz pasa de uno a
+            // otro. Es lo que impide que quede una raiz cortada.
+            //
+            // Devuelve la direccion de salida (0=N 1=S 2=O 3=E) o -1 si la
+            // raiz termina en ese bloque.
+            auto raizSalida = [](int wax, int waz, int wx, int wz) -> int {
+                unsigned h = (unsigned)(wax * 374761393) ^ (unsigned)(waz * 668265263)
+                           ^ (unsigned)(wx  * 2246822519u) ^ (unsigned)(wz * 3266489917u);
+                h ^= h >> 15; h *= 2654435761u; h ^= h >> 13;
+
+                // Solo un 55% de las raices se alargan al segundo bloque: si
+                // se alargaran todas, el suelo alrededor del arbol seria una
+                // maraña y no se distinguiria ninguna raiz.
+                if ((int)(h % 100u) >= 55) return -1;
+
+                // La raiz se aleja del arbol: nunca vuelve hacia el, que se
+                // veria como un tramo que se pisa a si mismo. Se elige entre
+                // seguir recto o doblar a un lado.
+                const int dx = wx - wax, dz = wz - waz;
+                int recto;
+                if (dz < 0) recto = 0;              // el arbol quedo al sur
+                else if (dz > 0) recto = 1;
+                else if (dx < 0) recto = 2;
+                else recto = 3;
+
+                // 60% sigue recto, 40% dobla: da raices con codos sin que
+                // parezcan un zigzag.
+                const unsigned g = (h >> 8);
+                if ((int)(g % 100u) < 60) return recto;
+                // Doblar 90 grados hacia uno de los dos lados.
+                static const int GIRO[4][2] = {
+                    { 2, 3 },   // norte  -> oeste o este
+                    { 2, 3 },   // sur    -> oeste o este
+                    { 0, 1 },   // oeste  -> norte o sur
+                    { 0, 1 },   // este   -> norte o sur
+                };
+                return GIRO[recto][(g >> 8) & 1];
+            };
+
+            // Que juego de texturas usa este bloque (hay dos por especie).
+            auto raizVariante = [](int wx, int wz) -> int {
+                unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wz * 19349663);
+                h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+                return (int)(h & 1u);
+            };
+
             auto emitQuad = [&](int dir, GLuint tex, uint8_t light,
                                 int layer, int u0, int v0, int w, int h) {
                 const float f = lightToFactor(light) * DIR_BRIGHT[dir];
@@ -8686,60 +8882,108 @@ public:
                             cell.tex = g_textureManager->getBlockTexture(b, dir);
 
                             // ================================================
-                            // RAICES: SOLO LAS 4 CARAS PEGADAS AL TRONCO
+                            // RAICES QUE SE EXPANDEN 1 O 2 BLOQUES
                             // ================================================
-                            // El suelo lleva raices cuando el arbol nace justo
-                            // encima, o cuando lo tiene PEGADO por una de sus
-                            // 4 caras laterales (norte, sur, oeste, este). No
-                            // se mira en diagonal ni mas lejos: en diagonal los
-                            // bloques solo se tocan por una arista, asi que la
-                            // raiz saltaria de un bloque a otro sin empalmar y
-                            // se veria cortada.
+                            // La raiz ya no es un solo bloque pegado al tronco:
+                            // se alarga hasta 2 bloques hacia fuera, y cada
+                            // tramo elige la pieza que EMPALMA con el anterior
+                            // (recta, codo o esquina), como las vias de un tren.
+                            // Asi nunca queda una raiz cortada a la mitad.
                             //
-                            // Y lo importante: la variante NO se elige al azar.
-                            // Las 4 variantes de cada familia son la misma
-                            // imagen girada 90 grados, con un lado por el que
-                            // la raiz entra. Se escoge la que apunta al tronco,
-                            // para que la raiz nazca del arbol en vez de salir
-                            // huyendo de el.
+                            // El truco para que siempre conecten: el tramo que
+                            // sale del arbol y el que viene detras se calculan
+                            // con el MISMO hash. Los dos bloques llegan por su
+                            // cuenta a la misma conclusion sobre por donde pasa
+                            // la raiz, sin hablar entre ellos ni guardar nada.
                             //
-                            // Sigue sin ser un bloque nuevo: es el mismo
-                            // pasto, tierra o arena con otra textura, elegida
-                            // al mallar a partir de lo que hay al lado.
+                            // Sigue sin ser un bloque nuevo: es el mismo pasto
+                            // o la misma tierra con otra textura.
                             if (dir == 0 &&
                                 (b == BLOCK_GRASS || b == BLOCK_DIRT ||
                                  b == BLOCK_SAND)) {
                                 const int wxr = chunk->position.x * CHUNK_SIZE + bx;
                                 const int wzr = chunk->position.z * CHUNK_SIZE + bz;
 
-                                // 1) Tronco justo ENCIMA: es la base del arbol.
-                                //    Aqui no hay direccion preferente, la raiz
-                                //    rodea el tronco por los cuatro lados.
+                                //   0=norte(-Z) 1=sur(+Z) 2=oeste(-X) 3=este(+X)
+                                static const int CARA[4][2] = {
+                                    {  0, -1 }, {  0,  1 }, { -1,  0 }, {  1,  0 },
+                                };
+                                // Bit de la direccion, y el bit del lado por el
+                                // que se ENTRA al bloque de destino (el opuesto).
+                                static const int BIT[4]  = { 1, 2, 4, 8 };   // N S O E
+                                static const int OPUE[4] = { 2, 1, 8, 4 };   // S N E O
+
+                                // 1) Tronco justo ENCIMA: la base del arbol.
                                 GLuint raices = g_textureManager->getTexturaRaices(
                                     b, nb, wxr, wzr, -1);
 
-                                // 2) Si no, mirar las 4 CARAS pegadas. El orden
-                                //    coincide con el que espera getTexturaRaices:
-                                //    0=norte(-Z) 1=sur(+Z) 2=oeste(-X) 3=este(+X)
+                                // 2) Tronco PEGADO a una cara: primer tramo de
+                                //    raiz. Ademas de apuntar al arbol, decide
+                                //    si la raiz sigue mas alla de este bloque.
                                 if (raices == 0) {
-                                    static const int CARA[4][2] = {
-                                        {  0, -1 },   // norte
-                                        {  0,  1 },   // sur
-                                        { -1,  0 },   // oeste
-                                        {  1,  0 },   // este
-                                    };
                                     for (int c = 0; c < 4 && raices == 0; ++c) {
-                                        // Que hay ENCIMA del bloque vecino: si
-                                        // es un tronco, el arbol esta pegado a
-                                        // esta cara.
+                                        const int tx = bx + CARA[c][0];
+                                        const int tz = bz + CARA[c][1];
                                         const BlockType arriba =
-                                            getNeighborBlockCached(bx + CARA[c][0], by,
-                                                                   bz + CARA[c][1], 0, 1, 0);
-                                        // `c` es justamente la direccion en la
-                                        // que queda el tronco: la textura se
-                                        // orienta hacia el.
-                                        raices = g_textureManager->getTexturaRaices(
-                                            b, arriba, wxr, wzr, c);
+                                            getNeighborBlockCached(tx, by, tz, 0, 1, 0);
+                                        if (!g_textureManager->getTexturaRaices(
+                                                b, arriba, wxr, wzr, c)) continue;
+
+                                        // El arbol esta en la direccion `c`. La
+                                        // raiz entra por ahi; ahora se mira si
+                                        // continua hacia otro lado.
+                                        const int wtx = chunk->position.x * CHUNK_SIZE + tx;
+                                        const int wtz = chunk->position.z * CHUNK_SIZE + tz;
+                                        int mascara = BIT[c];
+                                        const int salida = raizSalida(wtx, wtz, wxr, wzr);
+                                        if (salida >= 0) mascara |= BIT[salida];
+
+                                        const int var = raizVariante(wxr, wzr);
+                                        raices = g_textureManager->getTexturaRaicesConexion(
+                                            arriba, mascara, var);
+                                        // Si no hay pieza para esa forma, la
+                                        // raiz simple orientada al tronco sirve.
+                                        if (raices == 0)
+                                            raices = g_textureManager->getTexturaRaices(
+                                                b, arriba, wxr, wzr, c);
+                                    }
+                                }
+
+                                // 3) SEGUNDO tramo: el bloque anterior ya decidio
+                                //    que la raiz sale hacia aca. Se recalcula esa
+                                //    misma decision para saber por donde entra.
+                                if (raices == 0) {
+                                    for (int c = 0; c < 4 && raices == 0; ++c) {
+                                        const int px = bx + CARA[c][0];
+                                        const int pz = bz + CARA[c][1];
+                                        // El vecino en `c` tiene que ser un primer
+                                        // tramo: o sea, tener el arbol pegado.
+                                        const int wpx = chunk->position.x * CHUNK_SIZE + px;
+                                        const int wpz = chunk->position.z * CHUNK_SIZE + pz;
+                                        for (int t = 0; t < 4 && raices == 0; ++t) {
+                                            const int ax = px + CARA[t][0];
+                                            const int az = pz + CARA[t][1];
+                                            const BlockType arriba =
+                                                getNeighborBlockCached(ax, by, az, 0, 1, 0);
+                                            if (!g_textureManager->getTexturaRaices(
+                                                    b, arriba, wpx, wpz, t)) continue;
+
+                                            // Ese vecino tiene el arbol al lado.
+                                            // Sale su raiz hacia ESTE bloque?
+                                            const int watx = chunk->position.x * CHUNK_SIZE + ax;
+                                            const int watz = chunk->position.z * CHUNK_SIZE + az;
+                                            const int salida =
+                                                raizSalida(watx, watz, wpx, wpz);
+                                            if (salida < 0) continue;
+                                            if (px + CARA[salida][0] != bx ||
+                                                pz + CARA[salida][1] != bz) continue;
+
+                                            // Si: la raiz entra por el lado
+                                            // opuesto y aqui se acaba.
+                                            const int var = raizVariante(wxr, wzr);
+                                            raices = g_textureManager->getTexturaRaicesConexion(
+                                                arriba, OPUE[salida], var);
+                                        }
                                     }
                                 }
 

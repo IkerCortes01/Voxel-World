@@ -115,18 +115,30 @@ enum BlockType {
     BLOCK_RAMA_ENCINO,           // 38 Rama de encino
     BLOCK_RAMA_OYAMEL,           // 39 Rama de oyamel
 
+    // ------------------------------------------------------------------
+    // LA TUNA
+    // ------------------------------------------------------------------
+    // Bloque PROPIO, independiente del cladodio: se genera creciendo sobre
+    // una penca, pero el jugador la selecciona y la rompe por separado, y al
+    // romperla el cladodio se queda intacto. Ocupa su voxel con un bulto de
+    // 6x4x4 pixeles apoyado en la penca de abajo.
+    //
+    // Va al final para no desplazar ningun ID anterior: las partidas ya
+    // guardadas siguen leyendose igual.
+    BLOCK_TUNA,                  // 40 Tuna (fruto del nopal)
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 40 Polvo de tierra
-    BLOCK_STICK,            // 41 Palo
-    BLOCK_HOE,              // 42 Hoz
-    BLOCK_COAL_ITEM,        // 43 Carbón (item)
-    BLOCK_RAW_ZINC,         // 44 Zinc crudo
-    BLOCK_RAW_COPPER,       // 45 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 41 Polvo de tierra
+    BLOCK_STICK,            // 42 Palo
+    BLOCK_HOE,              // 43 Hoz
+    BLOCK_COAL_ITEM,        // 44 Carbón (item)
+    BLOCK_RAW_ZINC,         // 45 Zinc crudo
+    BLOCK_RAW_COPPER,       // 46 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -135,18 +147,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 46 (sin implementar)
-    BLOCK_BRICKS,           // 47 (sin implementar)
-    BLOCK_GLASS,            // 48 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 49 (retirado del juego)
+    BLOCK_IRON_ORE,         // 47 (sin implementar)
+    BLOCK_BRICKS,           // 48 (sin implementar)
+    BLOCK_GLASS,            // 49 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 50 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 50 (ya no se genera)
+    BLOCK_BEDROCK           // 51 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (rama de oyamel).
+// Último bloque COLOCABLE de la lista ordenada (la tuna).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_RAMA_OYAMEL;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_TUNA;
 
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.

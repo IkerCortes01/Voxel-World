@@ -357,6 +357,7 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
         case BLOCK_RAMA_OYAMEL: r = 0.34f; g = 0.22f; b = 0.12f; break; // Corteza
+        case BLOCK_TUNA:      r = 0.78f; g = 0.30f; b = 0.24f; break; // Tuna madura
         case BLOCK_COAL_ORE:  r = 0.3f; g = 0.3f; b = 0.3f; break;    // Gris muy oscuro (común)
         case BLOCK_IRON_ORE:  r = 0.8f; g = 0.7f; b = 0.6f; break;    // Beige rosado (poco común)
         case BLOCK_GOLD_ORE:  r = 1.0f; g = 0.84f; b = 0.0f; break;   // Dorado brillante (poco común)
@@ -411,7 +412,8 @@ bool isCrossSprite(BlockType type) {
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
     return type == BLOCK_TALLGRASS ||
            type == BLOCK_NOPAL_CLADODIO ||
-           type == BLOCK_NOPAL_FRUTO;
+           type == BLOCK_NOPAL_FRUTO ||
+           type == BLOCK_TUNA;
 }
 
 // Suelos en los que arraiga el NOPAL: cualquier terreno natural blando.
@@ -501,6 +503,9 @@ struct NopalForma {
 // ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
 // la planta, para que una penca pegada al tallo no deje costura.
 inline bool nopalEncadena(BlockType b) {
+    // La TUNA queda FUERA a proposito: es un bloque independiente que se
+    // apoya en la penca, no una parte de ella. Si encadenara, la penca se
+    // estiraria hacia el fruto y perderia su forma.
     return b == BLOCK_NOPAL_CLADODIO ||
            b == BLOCK_NOPAL_FRUTO ||
            b == BLOCK_NOPAL_TALLO;
@@ -727,6 +732,19 @@ template <typename TGet>
 bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
                     float& minX, float& minY, float& minZ,
                     float& maxX, float& maxY, float& maxZ) {
+    // --- LA TUNA: bloque propio, con su caja de 6x4x4 ---
+    // Se apoya en la penca de abajo, asi que arranca en la base del voxel y
+    // se centra en planta. El jugador la selecciona y la rompe por separado.
+    if (type == BLOCK_TUNA) {
+        constexpr float EPS = 0.0005f;
+        const float a0 = 0.5f - TUNA_ANCHO * 0.5f;
+        const float a1 = 0.5f + TUNA_ANCHO * 0.5f;
+        minX = a0;   maxX = a1;
+        minZ = a0;   maxZ = a1;
+        minY = EPS;  maxY = EPS + TUNA_ALTO;
+        return true;
+    }
+
     if (type != BLOCK_NOPAL_CLADODIO && type != BLOCK_NOPAL_FRUTO) return false;
 
     const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz);
@@ -735,32 +753,9 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     minY = f.uneAbajo ? 0.0f : f.minY; maxY = f.uneArriba ? 1.0f : f.maxY;
     minZ = f.uneZm ? 0.0f : f.minZ;   maxZ = f.uneZp ? 1.0f : f.maxZ;
 
-    // --- LAS TUNAS TAMBIEN SE TOCAN ---
-    // Sobresalen por encima del filo del cladodio, asi que la caja se estira
-    // para abarcarlas: si no, el jugador atravesaria un fruto que esta viendo
-    // y no podria seleccionarlo. La caja crece justo lo que ocupan, ni mas.
-    // La misma condicion que usa el mesher: solo hay fruto donde la planta no
-    // continua hacia arriba. Si no coincidieran, el jugador chocaria con una
-    // tuna que no se dibuja (o atravesaria una que si se ve).
-    if (type == BLOCK_NOPAL_CLADODIO && !f.uneArriba) {
-        constexpr float EPS = 0.0005f;
-        // Se parte de la caja de la PENCA: si se fuera ampliando sobre la
-        // caja ya crecida, cada tuna moveria el punto de partida de la
-        // siguiente y el resultado no coincidiria con el del mesher.
-        const float pX0 = minX, pX1 = maxX;
-        const float pY0 = minY, pY1 = maxY;
-        const float pZ0 = minZ, pZ1 = maxZ;
-        tunasDelCladodio(wx, wy, wz, pX0, pX1, pY0, pY1, pZ0, pZ1, EPS,
-            [&](int, float tx0, float tx1, float ty0, float ty1,
-                float tz0, float tz1) {
-                if (tx0 < minX) minX = tx0;
-                if (tx1 > maxX) maxX = tx1;
-                if (ty0 < minY) minY = ty0;
-                if (ty1 > maxY) maxY = ty1;
-                if (tz0 < minZ) minZ = tz0;
-                if (tz1 > maxZ) maxZ = tz1;
-            });
-    }
+    // La TUNA ya no forma parte de esta caja: es un bloque aparte, con la
+    // suya. Asi el jugador la selecciona y la arranca sin tocar la penca, y
+    // la penca conserva su forma limpia.
     return true;
 }
 
@@ -812,7 +807,8 @@ bool isBlockSolid(BlockType type) {
 bool isBlockOpaque(BlockType type) {
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
-    if (type == BLOCK_NOPAL_CLADODIO || type == BLOCK_NOPAL_FRUTO) return false;
+    if (type == BLOCK_NOPAL_CLADODIO || type == BLOCK_NOPAL_FRUTO ||
+        type == BLOCK_TUNA) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
@@ -832,6 +828,8 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
         case BLOCK_NOPAL_CLADODIO: return 3.0f;
+        // La tuna se arranca de un tiron: es fruta, no carne de penca.
+        case BLOCK_TUNA:      return 0.4f;
         // Ramas: madera fina, se parten rapido.
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
@@ -3403,6 +3401,13 @@ public:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Penca de Nopal de Castilla.png"));
 
+            // LA TUNA. El color y la madurez los decide el mesher segun la
+            // posicion (ver getTexturaTuna); esta es la de respaldo, para el
+            // inventario y el item en el suelo. Se usa la verde tierna.
+            case BLOCK_TUNA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/Tuna verde.png"));
+
             // --- Bloques nuevos ---
             case BLOCK_LIMESTONE:
                 return getTexture("Piedra caliza.png");
@@ -3954,7 +3959,8 @@ struct Chunk {
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
                isRama(b) ||
-               b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO;
+               b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO ||
+               b == BLOCK_TUNA;
     }
 
     // ========================================================================
@@ -4018,6 +4024,10 @@ struct Chunk {
         // pero mucho menos que un cubo, asi que atenuan 2: se nota una sombra
         // suave bajo la penca sin que llegue a oscurecerla.
         if (b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO) return 2;
+
+        // La TUNA es un bulto de 4x4 pixeles: ocupa aun menos que la penca,
+        // asi que la luz la rodea igual que a una rama.
+        if (b == BLOCK_TUNA) return 1;
 
         // El TALLO y la BASE del nopal SI son bloques completos: opacos.
         if (b == BLOCK_NOPAL_TALLO ||
@@ -7378,6 +7388,39 @@ public:
                 // justamente lo que se veia flotando.
             }
         }
+
+        // --- TUNAS ---
+        // La tuna es un BLOQUE propio (BLOCK_TUNA): crece justo ENCIMA de un
+        // cladodio, apoyada en el, y el jugador la selecciona y la arranca por
+        // separado sin tocar la penca.
+        //
+        // Al exigir cladodio debajo, es imposible que quede flotando: si se
+        // rompe la penca que la sostiene, la tuna se queda sin soporte, que es
+        // el comportamiento natural de una fruta.
+        {
+            int tunas = 0;
+            const int maxTunas = 2 + rnd(613, 4);   // 2..5 por planta
+
+            for (int y = primerBrote; y <= topeTallo + 4 && tunas < maxTunas; ++y) {
+                for (int dx = -4; dx <= 4 && tunas < maxTunas; ++dx) {
+                    for (int dz = -4; dz <= 4 && tunas < maxTunas; ++dz) {
+                        const int cx = worldX + dx, cz = worldZ + dz;
+                        if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+
+                        // Justo encima de la penca, y solo si esta libre.
+                        const int fy = y + 1;
+                        if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
+                        if (getBlock(cx, fy, cz) != BLOCK_AIR) continue;
+
+                        // No todas las pencas dan fruto.
+                        if (rnd(cx * 31 + y * 17 + cz * 13, 100) >= 30) continue;
+
+                        setBlock(cx, fy, cz, BLOCK_TUNA);
+                        ++tunas;
+                    }
+                }
+            }
+        }
     }
 
     void generarArbol(int worldX, int baseY, int worldZ, int tipoArbol, int alturaVariante = 0) {
@@ -8570,7 +8613,8 @@ public:
                         }
 
                         if (block == BLOCK_NOPAL_CLADODIO ||
-                            block == BLOCK_NOPAL_FRUTO) {
+                            block == BLOCK_NOPAL_FRUTO ||
+                            block == BLOCK_TUNA) {
                             // ============================================
                             // CLADODIO Y FRUTO: CAJA ADAPTATIVA
                             // ============================================
@@ -8760,16 +8804,6 @@ public:
                             // escalon en la union.
                             constexpr float CURVA = 2.0f / 16.0f;   // los 2 px
 
-                            // Esta penca lleva fruto? Hace falta saberlo ANTES
-                            // de dibujarla, porque en ese caso se le rebaja el
-                            // filo de arriba para dejarle sitio a la tuna.
-                            bool llevaTuna = false;
-                            if (block == BLOCK_NOPAL_CLADODIO && !nf.uneArriba) {
-                                tunasDelCladodio((int)wx, (int)wy, (int)wz,
-                                                 bx0, bx1, by0, by1, bz0, bz1, EPS,
-                                    [&](int, float, float, float, float,
-                                        float, float) { llevaTuna = true; });
-                            }
 
                             // Alto de cada rodaja. Las de los extremos son las
                             // que se recortan.
@@ -8817,42 +8851,24 @@ public:
                             // salvo que la planta continue en esa direccion:
                             // entonces la union tiene que ser recta.
                             //
-                            // Si esta penca lleva fruto, su filo superior se
-                            // rebaja TUNA_HUECO: la tuna se planta ahi y asoma
-                            // por encima, que es lo que la hace verse en
-                            // relieve sin que la caja salga del voxel.
-                            const float pencaTop = llevaTuna ? (by1 - TUNA_HUECO) : by1;
-                            const float ah2 = (pencaTop - by0) / 3.0f;
-                            const float pyc0 = by0 + ah2;
-                            const float pyc1 = pencaTop - ah2;
-                            pushRodaja(by0, pyc0, nf.uneAbajo  ? 0.0f : CURVA);
-                            pushRodaja(pyc0, pyc1, 0.0f);
-                            pushRodaja(pyc1, pencaTop, nf.uneArriba ? 0.0f : CURVA);
+                            // La penca ya no cede sitio a ningun fruto: la tuna
+                            // es un bloque aparte, en su propio voxel, y se
+                            // dibuja mas abajo con su propia geometria.
+                            if (block != BLOCK_TUNA) {
+                                pushRodaja(by0, yc0, nf.uneAbajo  ? 0.0f : CURVA);
+                                pushRodaja(yc0, yc1, 0.0f);
+                                pushRodaja(yc1, by1, nf.uneArriba ? 0.0f : CURVA);
+                            }
 
                             // ============================================
-                            // LAS TUNAS, PEGADAS A LA PENCA
+                            // LA TUNA: BLOQUE PROPIO
                             // ============================================
-                            // La tuna NO es un bloque suelto: es un bulto que
-                            // sale de la penca, asi que se dibuja DENTRO del
-                            // mismo voxel y arrancando de la superficie de
-                            // esta. Al nacer del borde no puede flotar: si la
-                            // penca esta, la tuna esta pegada a ella.
-                            //
-                            // Mide 6 pixeles de alto por 4 de ancho, y se
-                            // solapa un poco con la penca (EMPOTRE) para que
-                            // no se vea una junta entre las dos: en la planta
-                            // real la tuna emerge de la piel del cladodio.
-                            //
-                            // Crecen DE PIE sobre el filo superior, con su eje
-                            // largo en vertical, que es como cuelga el fruto en
-                            // un nopal real.
-                            //
-                            // El reparto sale de tunasDelCladodio(), la MISMA
-                            // funcion que usa la caja de colision: asi el
-                            // fruto que se ve y el que se toca son el mismo.
-                            // Solo donde la planta NO continua hacia arriba:
-                            // ahi el filo esta libre y hay sitio para el fruto.
-                            if (llevaTuna) {
+                            // Ya no se dibuja aqui dentro: es un bloque con su
+                            // ID (BLOCK_TUNA), su caja y su dureza, que crece
+                            // en el voxel de encima de la penca. El jugador la
+                            // selecciona y la arranca por separado, y la penca
+                            // se queda intacta.
+                            if (block == BLOCK_TUNA) {
                                 // SIN AGUJEROS: el dibujo de la tuna es redondo
                                 // sobre fondo transparente, asi que mapear la
                                 // imagen entera dejaba ver a traves por las
@@ -8862,19 +8878,22 @@ public:
                                 // una zona 100% solida.
                                 uvZoom = 5.0f / 16.0f;
 
-                                tunasDelCladodio((int)wx, (int)wy, (int)wz,
-                                                 bx0, bx1, by0, by1, bz0, bz1, EPS,
-                                    [&](int i, float tx0, float tx1,
-                                        float ty0, float ty1,
-                                        float tz0, float tz1) {
-                                    // Color: la variedad es de la PLANTA (una
-                                    // rejilla de 8 la identifica) y la madurez
-                                    // de cada tuna.
-                                    const GLuint texT = g_textureManager->getTexturaTuna(
-                                        ((int)wx) >> 3, ((int)wz) >> 3,
-                                        (int)wx + i, (int)wy, (int)wz);
-                                    if (texT == 0) return;
+                                // Bulto de 6 de alto por 4x4, apoyado en el
+                                // fondo del voxel: descansa sobre la penca que
+                                // tiene debajo, sin flotar.
+                                const float a0 = 0.5f - TUNA_ANCHO * 0.5f;
+                                const float a1 = 0.5f + TUNA_ANCHO * 0.5f;
+                                const float tx0 = a0,  tx1 = a1;
+                                const float tz0 = a0,  tz1 = a1;
+                                const float ty0 = EPS, ty1 = EPS + TUNA_ALTO;
 
+                                // Color: la variedad es de la PLANTA (una
+                                // rejilla de 8 la identifica) y la madurez de
+                                // cada tuna.
+                                const GLuint texT = g_textureManager->getTexturaTuna(
+                                    ((int)wx) >> 3, ((int)wz) >> 3,
+                                    (int)wx, (int)wy, (int)wz);
+                                if (texT != 0) {
                                     // Las seis caras: es un volumen cerrado.
                                     pushCaraTex(texT, tx0,ty0,tz1, tx0,ty0,tz0,
                                                       tx0,ty1,tz0, tx0,ty1,tz1);
@@ -8888,7 +8907,7 @@ public:
                                                       tx1,ty1,tz1, tx0,ty1,tz1);
                                     pushCaraTex(texT, tx0,ty0,tz1, tx1,ty0,tz1,
                                                       tx1,ty0,tz0, tx0,ty0,tz0);
-                                });
+                                }
                                 uvZoom = 0.0f;   // el resto usa la textura entera
                             }
 
@@ -11827,6 +11846,10 @@ struct GameState {
             case BLOCK_RAMA_ENCINO:
             case BLOCK_RAMA_OYAMEL:
                 return BLOCK_STICK;
+
+            // La tuna se recoge entera: es fruta, se arranca y ya.
+            case BLOCK_TUNA:
+                return BLOCK_TUNA;
 
             case BLOCK_LEAVES:
                 // Las hojas pueden no soltar nada (20% de probabilidad de soltar)

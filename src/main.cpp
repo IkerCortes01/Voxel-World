@@ -9665,54 +9665,102 @@ public:
                                 tinte = ESP_TINTE;
                                 alfaCara = ESP_ALFA;
 
-                                for (int i = 0; i < RODAJAS; ++i) {
-                                    const float ya = by0 + alto * i;
-                                    const float yb = ya + alto;
-                                    const float yc = (ya + yb) * 0.5f;
+                                // ------------------------------------------
+                                // REPARTO AL AZAR
+                                // ------------------------------------------
+                                // Antes salian clavadas en la rejilla: una por
+                                // rodaja, en su centro exacto, en el centro del
+                                // grosor y siempre horizontales. Se leian como
+                                // un peine.
+                                //
+                                // Ahora cada espina tiene su propia altura, su
+                                // sitio en el grosor, su largo y su angulo. Se
+                                // sortean de un hash de la posicion, asi que
+                                // siguen siendo estables -- no bailan al
+                                // recargar el chunk -- pero ya no hay dos
+                                // iguales ni alineadas.
+                                //
+                                // Se dibuja UN quad cruzado por espina en vez
+                                // de una caja de 6 caras: a 1 px de grosor la
+                                // caja no aporta nada y cuesta seis veces mas.
+                                const int N_ESPINAS = 10;
+                                for (int k = 0; k < N_ESPINAS; ++k) {
+                                    unsigned he = (unsigned)((int)wx * 92837111)
+                                                ^ (unsigned)((int)wy * 689287499)
+                                                ^ (unsigned)((int)wz * 283923481)
+                                                ^ (unsigned)(k * 2654435761u);
+                                    he ^= he >> 13; he *= 1274126177u; he ^= he >> 16;
 
-                                    float m = (1.0f - PERFIL[i]) * anchoTotal * 0.5f;
+                                    // No todas prenden: asi el reparto queda
+                                    // irregular y cada penca lleva un numero
+                                    // distinto.
+                                    if ((int)(he % 100u) >= 62) continue;
+
+                                    // Sorteos independientes. Cada uno sale de
+                                    // volver a mezclar el hash, no de
+                                    // desplazarlo: a partir del bit 25 quedan
+                                    // menos de 128 valores posibles y el
+                                    // sorteo se repetia (medido: solo 27
+                                    // inclinaciones distintas en 200 pencas).
+                                    auto mezcla = [](unsigned v, unsigned s) {
+                                        v ^= s * 2654435761u;
+                                        v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
+                                        return v;
+                                    };
+                                    const float rAlt  = (float)(mezcla(he, 1u) % 1000u) / 1000.0f;
+                                    const float rProf = (float)(mezcla(he, 2u) % 1000u) / 1000.0f;
+                                    const float rLar  = (float)(mezcla(he, 3u) % 1000u) / 1000.0f;
+                                    const float rIncl = (float)(mezcla(he, 4u) % 1000u) / 1000.0f;
+                                    const bool  lado  = (mezcla(he, 5u) & 1u) != 0;
+
+                                    // Altura libre dentro de la penca, sin
+                                    // pegarse a los extremos.
+                                    const float yc = by0 + (by1 - by0) * (0.08f + 0.84f * rAlt);
+
+                                    // El ancho de la penca a ESA altura, para
+                                    // que la espina salga del borde real y no
+                                    // del rectangulo que la envuelve.
+                                    const float t = (yc - by0) / (by1 - by0);
+                                    int ri = (int)(t * RODAJAS);
+                                    if (ri < 0) ri = 0;
+                                    if (ri >= RODAJAS) ri = RODAJAS - 1;
+                                    float m = (1.0f - PERFIL[ri]) * anchoTotal * 0.5f;
                                     if (m > margenMax) m = margenMax;
                                     if (m < 0.0f) m = 0.0f;
 
-                                    // Dos espinas por rodaja, una por lado. No
-                                    // en todas: se saltan segun la posicion,
-                                    // para que no salga un peine regular.
-                                    for (int lado = 0; lado < 2; ++lado) {
-                                        unsigned he = (unsigned)((int)wx * 92837111)
-                                                    ^ (unsigned)((int)wy * 689287499)
-                                                    ^ (unsigned)((int)wz * 283923481)
-                                                    ^ (unsigned)(i * 2654435761u)
-                                                    ^ (unsigned)(lado * 40503u);
-                                        he ^= he >> 13; he *= 1274126177u; he ^= he >> 16;
-                                        if ((int)(he % 100u) >= 55) continue;
+                                    // Largo variable: unas asoman mucho y otras
+                                    // apenas se ven.
+                                    const float largo = ESP_LARGO * (0.45f + 0.55f * rLar);
+                                    // Inclinacion: la punta se desvia arriba o
+                                    // abajo, asi que no salen todas paralelas.
+                                    const float incl = (rIncl - 0.5f) * 0.20f;
+                                    const float g = ESP_GRUESO * 0.5f;
 
-                                        const float g = ESP_GRUESO * 0.5f;
-                                        const float e0 = yc - g, e1 = yc + g;
-                                        if (anchoEnX) {
-                                            const float x = (lado == 0) ? (bx0 + m) : (bx1 - m);
-                                            const float xa = (lado == 0) ? (x - ESP_LARGO) : x;
-                                            const float xb = (lado == 0) ? x : (x + ESP_LARGO);
-                                            if (xa < 0.0f || xb > 1.0f) continue;
-                                            const float zc = (bz0 + bz1) * 0.5f;
-                                            pushCara(xa,e0,zc+g, xa,e0,zc-g, xa,e1,zc-g, xa,e1,zc+g);
-                                            pushCara(xb,e0,zc-g, xb,e0,zc+g, xb,e1,zc+g, xb,e1,zc-g);
-                                            pushCara(xa,e0,zc-g, xb,e0,zc-g, xb,e1,zc-g, xa,e1,zc-g);
-                                            pushCara(xb,e0,zc+g, xa,e0,zc+g, xa,e1,zc+g, xb,e1,zc+g);
-                                            pushCara(xa,e1,zc-g, xb,e1,zc-g, xb,e1,zc+g, xa,e1,zc+g);
-                                            pushCara(xa,e0,zc+g, xb,e0,zc+g, xb,e0,zc-g, xa,e0,zc-g);
-                                        } else {
-                                            const float z = (lado == 0) ? (bz0 + m) : (bz1 - m);
-                                            const float za = (lado == 0) ? (z - ESP_LARGO) : z;
-                                            const float zb = (lado == 0) ? z : (z + ESP_LARGO);
-                                            if (za < 0.0f || zb > 1.0f) continue;
-                                            const float xc = (bx0 + bx1) * 0.5f;
-                                            pushCara(xc-g,e0,zb, xc-g,e0,za, xc-g,e1,za, xc-g,e1,zb);
-                                            pushCara(xc+g,e0,za, xc+g,e0,zb, xc+g,e1,zb, xc+g,e1,za);
-                                            pushCara(xc-g,e0,za, xc+g,e0,za, xc+g,e1,za, xc-g,e1,za);
-                                            pushCara(xc+g,e0,zb, xc-g,e0,zb, xc-g,e1,zb, xc+g,e1,zb);
-                                            pushCara(xc-g,e1,za, xc+g,e1,za, xc+g,e1,zb, xc-g,e1,zb);
-                                            pushCara(xc-g,e0,zb, xc+g,e0,zb, xc+g,e0,za, xc-g,e0,za);
-                                        }
+                                    if (anchoEnX) {
+                                        // Sale por el borde izquierdo o derecho.
+                                        const float x0e = lado ? (bx0 + m) : (bx1 - m);
+                                        const float x1e = lado ? (x0e - largo) : (x0e + largo);
+                                        if (x1e < 0.0f || x1e > 1.0f) continue;
+                                        // Profundidad libre dentro del grosor.
+                                        const float zc = bz0 + (bz1 - bz0) * (0.2f + 0.6f * rProf);
+                                        const float ya = yc, yb2 = yc + incl;
+                                        // Quad cruzado: dos planos en aspa, que
+                                        // es lo que hace que la espina se vea
+                                        // desde cualquier angulo.
+                                        pushCara(x0e, ya-g, zc-g, x1e, yb2-g, zc-g,
+                                                 x1e, yb2+g, zc+g, x0e, ya+g, zc+g);
+                                        pushCara(x0e, ya-g, zc+g, x1e, yb2-g, zc+g,
+                                                 x1e, yb2+g, zc-g, x0e, ya+g, zc-g);
+                                    } else {
+                                        const float z0e = lado ? (bz0 + m) : (bz1 - m);
+                                        const float z1e = lado ? (z0e - largo) : (z0e + largo);
+                                        if (z1e < 0.0f || z1e > 1.0f) continue;
+                                        const float xc = bx0 + (bx1 - bx0) * (0.2f + 0.6f * rProf);
+                                        const float ya = yc, yb2 = yc + incl;
+                                        pushCara(xc-g, ya-g, z0e, xc-g, yb2-g, z1e,
+                                                 xc+g, yb2+g, z1e, xc+g, ya+g, z0e);
+                                        pushCara(xc+g, ya-g, z0e, xc+g, yb2-g, z1e,
+                                                 xc-g, yb2+g, z1e, xc-g, ya+g, z0e);
                                     }
                                 }
 

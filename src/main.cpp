@@ -633,6 +633,87 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz) {
 // ============================================================================
 // HITBOX DE LOS BLOQUES CON FORMA PROPIA
 // ============================================================================
+// ============================================================================
+// GEOMETRIA DE LAS TUNAS
+// ============================================================================
+// La tuna no es un bloque: es un bulto de 6x4x4 pixeles que sale del filo
+// superior del cladodio. Como la dibuja el mesher Y ademas tiene colision,
+// las dos partes tienen que calcular EXACTAMENTE lo mismo o el jugador
+// chocaria donde no ve nada (o atravesaria lo que si ve).
+//
+// Por eso el reparto vive aqui, en un solo sitio, y lo llaman los dos.
+// `salida(i, tx0,tx1, ty0,ty1, tz0,tz1)` recibe cada tuna encontrada.
+constexpr float TUNA_ALTO    = 6.0f / 16.0f;
+constexpr float TUNA_ANCHO   = 4.0f / 16.0f;
+constexpr float TUNA_EMPOTRE = 1.5f / 16.0f;
+constexpr int   TUNA_MAX     = 3;
+
+template <typename TSalida>
+void tunasDelCladodio(int wx, int wy, int wz,
+                      float bx0, float bx1, float by0, float by1,
+                      float bz0, float bz1, float eps, TSalida salida) {
+    // La penca ocupa TODO el alto del voxel, asi que por el filo de arriba no
+    // queda hueco donde asomar: una tuna puesta ahi se recorta contra el techo
+    // y se ve aplastada. Sale, en cambio, de la CARA ANCHA (la plana), que es
+    // ademas donde las areolas dan fruto en la planta real.
+    //
+    // La cara ancha es la perpendicular al eje FINO de la losa.
+    const float grosorX = bx1 - bx0;
+    const float grosorZ = bz1 - bz0;
+    const bool  finaEnZ = grosorZ <= grosorX;   // losa vertical mirando N/S
+
+    // A lo largo de la cara caben varias tunas: se reparten por el eje largo
+    // y por la altura, que es donde hay sitio de sobra.
+    const float largo = finaEnZ ? grosorX : grosorZ;
+    int nTunas = (int)(largo / (TUNA_ANCHO * 1.6f));
+    if (nTunas > TUNA_MAX) nTunas = TUNA_MAX;
+    if (nTunas < 1) nTunas = 1;
+
+    for (int i = 0; i < nTunas; ++i) {
+        unsigned ht = (unsigned)(wx * 374761393) ^ (unsigned)(wy * 668265263)
+                    ^ (unsigned)(wz * 2246822519u) ^ (unsigned)(i * 83492791);
+        ht ^= ht >> 15; ht *= 2654435761u; ht ^= ht >> 13;
+        if ((int)(ht % 100u) >= 42) continue;   // no todos los sitios dan fruto
+
+        // Posicion a lo largo de la cara.
+        const float t = (nTunas == 1) ? 0.5f
+                                      : (0.22f + 0.56f * i / (float)(nTunas - 1));
+        // Altura: reparto por la cara, dejando sitio para los 6 px del fruto.
+        const float alturaLibre = (by1 - by0) - TUNA_ALTO;
+        const float u = (alturaLibre > 0.0f)
+                      ? (by0 + alturaLibre * (0.25f + 0.5f * ((ht >> 9) % 100u) / 100.0f))
+                      : by0;
+        const float ty0 = u;
+        float ty1 = ty0 + TUNA_ALTO;
+        if (ty1 > 1.0f - eps) ty1 = 1.0f - eps;
+        if (ty1 - ty0 < TUNA_ALTO * 0.5f) continue;   // sin sitio: sin fruto
+
+        // El fruto sale hacia FUERA de la cara ancha, empotrado un poco en la
+        // penca para que no se vea junta. Alterna de lado segun el hash.
+        const bool haciaPositivo = ((ht >> 3) & 1u) != 0;
+
+        if (finaEnZ) {
+            const float ex = bx0 + (bx1 - bx0) * t;
+            const float z0 = haciaPositivo ? (bz1 - TUNA_EMPOTRE)
+                                           : (bz0 + TUNA_EMPOTRE - TUNA_ANCHO);
+            float za = z0, zb = z0 + TUNA_ANCHO;
+            if (za < eps) { zb += eps - za; za = eps; }
+            if (zb > 1.0f - eps) { za -= zb - (1.0f - eps); zb = 1.0f - eps; }
+            salida(i, ex - TUNA_ANCHO * 0.5f, ex + TUNA_ANCHO * 0.5f,
+                      ty0, ty1, za, zb);
+        } else {
+            const float ez = bz0 + (bz1 - bz0) * t;
+            const float x0 = haciaPositivo ? (bx1 - TUNA_EMPOTRE)
+                                           : (bx0 + TUNA_EMPOTRE - TUNA_ANCHO);
+            float xa = x0, xb = x0 + TUNA_ANCHO;
+            if (xa < eps) { xb += eps - xa; xa = eps; }
+            if (xb > 1.0f - eps) { xa -= xb - (1.0f - eps); xb = 1.0f - eps; }
+            salida(i, xa, xb, ty0, ty1,
+                      ez - TUNA_ANCHO * 0.5f, ez + TUNA_ANCHO * 0.5f);
+        }
+    }
+}
+
 // Caja de colision en coordenadas LOCALES (0..1), o false si el bloque no
 // necesita una caja especial. Se calcula con la MISMA funcion que usa el
 // mesher, asi que la forma que se ve y la que se toca no pueden
@@ -648,6 +729,30 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     minX = f.uneXm ? 0.0f : f.minX;   maxX = f.uneXp ? 1.0f : f.maxX;
     minY = f.uneAbajo ? 0.0f : f.minY; maxY = f.uneArriba ? 1.0f : f.maxY;
     minZ = f.uneZm ? 0.0f : f.minZ;   maxZ = f.uneZp ? 1.0f : f.maxZ;
+
+    // --- LAS TUNAS TAMBIEN SE TOCAN ---
+    // Sobresalen por encima del filo del cladodio, asi que la caja se estira
+    // para abarcarlas: si no, el jugador atravesaria un fruto que esta viendo
+    // y no podria seleccionarlo. La caja crece justo lo que ocupan, ni mas.
+    if (type == BLOCK_NOPAL_CLADODIO) {
+        constexpr float EPS = 0.0005f;
+        // Se parte de la caja de la PENCA: si se fuera ampliando sobre la
+        // caja ya crecida, cada tuna moveria el punto de partida de la
+        // siguiente y el resultado no coincidiria con el del mesher.
+        const float pX0 = minX, pX1 = maxX;
+        const float pY0 = minY, pY1 = maxY;
+        const float pZ0 = minZ, pZ1 = maxZ;
+        tunasDelCladodio(wx, wy, wz, pX0, pX1, pY0, pY1, pZ0, pZ1, EPS,
+            [&](int, float tx0, float tx1, float ty0, float ty1,
+                float tz0, float tz1) {
+                if (tx0 < minX) minX = tx0;
+                if (tx1 > maxX) maxX = tx1;
+                if (ty0 < minY) minY = ty0;
+                if (ty1 > maxY) maxY = ty1;
+                if (tz0 < minZ) minZ = tz0;
+                if (tz1 > maxZ) maxZ = tz1;
+            });
+    }
     return true;
 }
 
@@ -8703,60 +8808,24 @@ public:
                             // Brotan del filo de ARRIBA, que es la zona joven,
                             // y solo si ese lado esta libre: donde la planta
                             // continua no hay sitio para fruto.
-                            if (block == BLOCK_NOPAL_CLADODIO && !nf.uneArriba) {
-                                constexpr float T_ALTO  = 6.0f / 16.0f;
-                                constexpr float T_ANCHO = 4.0f / 16.0f;
-                                constexpr float EMPOTRE = 1.5f / 16.0f;
-
-                                // Centro de la cara superior de la penca.
-                                const float cxm = (bx0 + bx1) * 0.5f;
-                                const float czm = (bz0 + bz1) * 0.5f;
-                                // Cuantas tunas caben a lo largo del filo.
-                                const float largoX = bx1 - bx0;
-                                const float largoZ = bz1 - bz0;
-                                const bool  filoEnX = largoX >= largoZ;
-                                const float largo  = filoEnX ? largoX : largoZ;
-                                int nTunas = (int)(largo / (T_ANCHO * 1.6f));
-                                if (nTunas > 3) nTunas = 3;
-
-                                for (int i = 0; i < nTunas; ++i) {
-                                    // Reparto a lo largo del filo, con un hash
-                                    // por posicion para que no salgan siempre
-                                    // las mismas ni en fila perfecta.
-                                    unsigned ht = (unsigned)((int)wx * 374761393)
-                                                ^ (unsigned)((int)wy * 668265263)
-                                                ^ (unsigned)((int)wz * 2246822519u)
-                                                ^ (unsigned)(i * 83492791);
-                                    ht ^= ht >> 15; ht *= 2654435761u; ht ^= ht >> 13;
-                                    // Solo una parte de los sitios da fruto.
-                                    if ((int)(ht % 100u) >= 42) continue;
-
-                                    const float t = (nTunas == 1)
-                                        ? 0.5f
-                                        : (0.22f + 0.56f * i / (float)(nTunas - 1));
-                                    float ex = cxm, ez = czm;
-                                    if (filoEnX) ex = bx0 + largoX * t;
-                                    else         ez = bz0 + largoZ * t;
-
-                                    const float tx0 = ex - T_ANCHO * 0.5f;
-                                    const float tx1 = ex + T_ANCHO * 0.5f;
-                                    const float tz0 = ez - T_ANCHO * 0.5f;
-                                    const float tz1 = ez + T_ANCHO * 0.5f;
-                                    // Arranca DENTRO de la penca y sobresale:
-                                    // asi queda soldada, sin junta visible.
-                                    const float ty0 = by1 - EMPOTRE;
-                                    float ty1 = ty0 + T_ALTO;
-                                    if (ty1 > 1.0f - EPS) ty1 = 1.0f - EPS;
-                                    if (ty1 <= ty0) continue;
-
+                            // El reparto sale de tunasDelCladodio(), la MISMA
+                            // funcion que usa la caja de colision: asi el
+                            // fruto que se ve y el que se toca son el mismo.
+                            if (block == BLOCK_NOPAL_CLADODIO) {
+                                tunasDelCladodio((int)wx, (int)wy, (int)wz,
+                                                 bx0, bx1, by0, by1, bz0, bz1, EPS,
+                                    [&](int i, float tx0, float tx1,
+                                        float ty0, float ty1,
+                                        float tz0, float tz1) {
                                     // Color: la variedad es de la PLANTA (una
                                     // rejilla de 8 la identifica) y la madurez
                                     // de cada tuna.
                                     const GLuint texT = g_textureManager->getTexturaTuna(
                                         ((int)wx) >> 3, ((int)wz) >> 3,
                                         (int)wx + i, (int)wy, (int)wz);
-                                    if (texT == 0) continue;
+                                    if (texT == 0) return;
 
+                                    // Las seis caras: es un volumen cerrado.
                                     pushCaraTex(texT, tx0,ty0,tz1, tx0,ty0,tz0,
                                                       tx0,ty1,tz0, tx0,ty1,tz1);
                                     pushCaraTex(texT, tx1,ty0,tz0, tx1,ty0,tz1,
@@ -8767,7 +8836,9 @@ public:
                                                       tx0,ty1,tz1, tx1,ty1,tz1);
                                     pushCaraTex(texT, tx0,ty1,tz0, tx1,ty1,tz0,
                                                       tx1,ty1,tz1, tx0,ty1,tz1);
-                                }
+                                    pushCaraTex(texT, tx0,ty0,tz1, tx1,ty0,tz1,
+                                                      tx1,ty0,tz0, tx0,ty0,tz0);
+                                });
                             }
 
                         } else {

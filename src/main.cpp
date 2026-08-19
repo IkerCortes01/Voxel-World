@@ -724,6 +724,49 @@ void tunasDelCladodio(int wx, int wy, int wz,
     }
 }
 
+// ============================================================================
+// CAJA DE LA TUNA, CONECTADA A LA PENCA
+// ============================================================================
+// La tuna mantiene su tamano de fruto (6 de alto x 4x4) pero se ESTIRA hacia
+// los cladodios que tiene al lado, para que las dos piezas se toquen y no
+// quede un hueco de aire entre el fruto y la planta.
+//
+// Se estira, no se mueve: asi el fruto conserva su volumen y su silueta, y
+// sigue siendo seleccionable con su propia caja. Como el estiramiento llega
+// justo al borde del voxel, la cara de la tuna queda pegada a la de la penca.
+//
+// El EPS impide que las dos caras caigan en el MISMO plano: dos superficies
+// coplanares pelean en el depth buffer y, segun el angulo de camara,
+// desaparece una u otra. Es el mismo motivo por el que la penca nunca toca
+// 0.0 ni 1.0 exactos.
+template <typename TGet>
+void tunaCajaCon(TGet get,
+                 float& minX, float& minY, float& minZ,
+                 float& maxX, float& maxY, float& maxZ) {
+    constexpr float EPS = 0.0005f;
+    const float a0 = 0.5f - TUNA_ANCHO * 0.5f;
+    const float a1 = 0.5f + TUNA_ANCHO * 0.5f;
+
+    minX = a0;   maxX = a1;
+    minZ = a0;   maxZ = a1;
+    minY = EPS;  maxY = EPS + TUNA_ALTO;
+
+    // Se une a cladodios y a otras tunas: un racimo queda continuo.
+    auto une = [&](int dx, int dy, int dz) {
+        const BlockType b = get(dx, dy, dz);
+        return b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO ||
+               b == BLOCK_TUNA;
+    };
+
+    if (une(-1, 0, 0)) minX = EPS;
+    if (une( 1, 0, 0)) maxX = 1.0f - EPS;
+    if (une( 0, 0,-1)) minZ = EPS;
+    if (une( 0, 0, 1)) maxZ = 1.0f - EPS;
+    // Hacia abajo ya se apoya en la penca (minY es la base del voxel).
+    // Hacia arriba solo si hay otra pieza: asi un racimo se ve de una pieza.
+    if (une( 0, 1, 0)) maxY = 1.0f - EPS;
+}
+
 // Caja de colision en coordenadas LOCALES (0..1), o false si el bloque no
 // necesita una caja especial. Se calcula con la MISMA funcion que usa el
 // mesher, asi que la forma que se ve y la que se toca no pueden
@@ -732,16 +775,16 @@ template <typename TGet>
 bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
                     float& minX, float& minY, float& minZ,
                     float& maxX, float& maxY, float& maxZ) {
-    // --- LA TUNA: bloque propio, con su caja de 6x4x4 ---
-    // Se apoya en la penca de abajo, asi que arranca en la base del voxel y
-    // se centra en planta. El jugador la selecciona y la rompe por separado.
+    // --- LA TUNA: bloque propio, conectado a la penca ---
+    // Sigue siendo un bulto de 6x4x4 con su propia caja: se selecciona y se
+    // arranca por separado. Pero NO queda suelta en medio del voxel: se
+    // ESTIRA hacia el cladodio con el que linda, de modo que las dos piezas
+    // se tocan y no se ve un hueco de aire entre el fruto y la penca.
+    //
+    // Se calcula igual aqui y en el mesher (esta funcion la usan los dos), de
+    // forma que lo que se ve y lo que se toca coinciden siempre.
     if (type == BLOCK_TUNA) {
-        constexpr float EPS = 0.0005f;
-        const float a0 = 0.5f - TUNA_ANCHO * 0.5f;
-        const float a1 = 0.5f + TUNA_ANCHO * 0.5f;
-        minX = a0;   maxX = a1;
-        minZ = a0;   maxZ = a1;
-        minY = EPS;  maxY = EPS + TUNA_ALTO;
+        tunaCajaCon(get, minX, minY, minZ, maxX, maxY, maxZ);
         return true;
     }
 
@@ -2571,6 +2614,20 @@ public:
 FIN GENERADOR ANTIGUO */
 
 // ============================================================================
+// RELOJ DEL MUNDO (para lo que crece con el tiempo)
+// ============================================================================
+// Copia del `tiempoJugadoSegundos` del GameState, accesible desde el mesher.
+// Es el MISMO reloj del sistema de vida y se guarda con el mundo, asi que lo
+// que madura no depende del reloj del ordenador y sobrevive a salir y volver
+// a entrar en la partida.
+double g_tiempoJugadoSegundos = 0.0;
+
+// Horas de juego en las que una tuna pasa de brote verde a fruto maduro. Las
+// maduraciones se reparten por ese rango, asi que la penca no cambia de golpe:
+// unos frutos maduran antes que otros, como en una planta real.
+constexpr float TUNA_HORAS_MADURAR = 3.0f;
+
+// ============================================================================
 // SISTEMA DE TEXTURAS - TextureManager
 // ============================================================================
 
@@ -3016,13 +3073,40 @@ public:
         hp ^= hp >> 13; hp *= 1274126177u; hp ^= hp >> 16;
         const int variedad = (int)(hp % 3u);      // 0 verde, 1 amarilla, 2 roja
 
-        // --- Madurez de ESTA tuna ---
+        // --- Madurez de ESTA tuna: CRECE CON EL TIEMPO ---
+        // Cada fruto tiene su propia "fecha de maduracion", repartida en las
+        // primeras horas de juego. Al superarla, la tuna pasa de brote verde a
+        // fruto maduro con el color de su variedad.
+        //
+        // El reloj es `tiempoJugadoSegundos`, el mismo del sistema de vida, que
+        // se guarda con el mundo: la maduracion sobrevive a salir y volver a
+        // entrar, y no depende del reloj del ordenador. Y como la fecha sale
+        // de la POSICION, no hace falta guardar nada por fruto: cada tuna
+        // recuerda su edad sola, sin ocupar un byte en el chunk.
         unsigned hf = (unsigned)(fx * 374761393) ^ (unsigned)(fy * 668265263)
                     ^ (unsigned)(fz * 2246822519u);
         hf ^= hf >> 15; hf *= 2654435761u; hf ^= hf >> 13;
-        // Un tercio siguen siendo brotes verdes: en una penca real conviven
-        // frutos de varias edades, no maduran todos a la vez.
-        const bool madura = (int)(hf % 100u) >= 33;
+
+        // Un tercio nacen ya maduras, para que un mundo recien creado no salga
+        // entero de frutos verdes. El resto van madurando repartidas POR IGUAL
+        // a lo largo de TUNA_HORAS_MADURAR.
+        //
+        // El reparto tiene que ser uniforme sobre las que faltan, no sobre el
+        // total: usando el hash en crudo, las que caian por debajo del umbral
+        // de "ya madura" se amontonaban al final y el nopal pasaba una hora
+        // sin cambiar y luego maduraba de golpe.
+        constexpr float YA_MADURAS = 0.33f;
+        const float r = (float)(hf % 1000u) / 1000.0f;      // 0..1
+        const float horas = (float)(g_tiempoJugadoSegundos / 3600.0);
+
+        bool madura;
+        if (r < YA_MADURAS) {
+            madura = true;                                   // nacio madura
+        } else {
+            // Se reescala 0.33..1 a 0..1 para que el plazo se cubra entero.
+            const float t = (r - YA_MADURAS) / (1.0f - YA_MADURAS);
+            madura = (horas >= t * TUNA_HORAS_MADURAR);
+        }
 
         const char* arch;
         if (!madura) {
@@ -4871,6 +4955,29 @@ private:
     }
 
 public:
+    // ------------------------------------------------------------------------
+    // MARCAR LOS CHUNKS QUE TIENEN TUNAS, PARA QUE MADUREN A LA VISTA
+    // ------------------------------------------------------------------------
+    // La madurez de un fruto la decide el mesher a partir del reloj del mundo,
+    // asi que el cambio de verde a maduro no se ve hasta que su chunk se
+    // reconstruye. Esto lo fuerza, pero SOLO en los chunks que de verdad
+    // tienen fruto: recorrer los bloques es mucho mas barato que remallar, y
+    // asi un mundo sin nopales no paga nada.
+    void marcarChunksConTunas() {
+        for (auto& par : chunks) {
+            Chunk* c = par.second;
+            if (c == nullptr || !c->isGenerated || c->needsRebuild) continue;
+
+            bool tiene = false;
+            for (int x = 0; x < CHUNK_SIZE && !tiene; ++x)
+                for (int z = 0; z < CHUNK_SIZE && !tiene; ++z)
+                    for (int y = 0; y < CHUNK_HEIGHT; ++y)
+                        if (c->getBlock(x, y, z) == BLOCK_TUNA) { tiene = true; break; }
+
+            if (tiene) c->needsRebuild = true;
+        }
+    }
+
     void startGenerationWorkers() {
         if (genRunning.load()) return;
         unsigned hw = std::thread::hardware_concurrency();
@@ -8879,13 +8986,19 @@ public:
                                 uvZoom = 5.0f / 16.0f;
 
                                 // Bulto de 6 de alto por 4x4, apoyado en el
-                                // fondo del voxel: descansa sobre la penca que
-                                // tiene debajo, sin flotar.
-                                const float a0 = 0.5f - TUNA_ANCHO * 0.5f;
-                                const float a1 = 0.5f + TUNA_ANCHO * 0.5f;
-                                const float tx0 = a0,  tx1 = a1;
-                                const float tz0 = a0,  tz1 = a1;
-                                const float ty0 = EPS, ty1 = EPS + TUNA_ALTO;
+                                // fondo del voxel y ESTIRADO hacia las pencas
+                                // vecinas para que las piezas se toquen.
+                                //
+                                // Sale de tunaCajaCon(), la MISMA funcion que
+                                // usa la caja de colision: lo que se ve y lo
+                                // que se toca no pueden desincronizarse.
+                                float tx0, ty0, tz0, tx1, ty1, tz1;
+                                tunaCajaCon(
+                                    [&](int ddx, int ddy, int ddz) {
+                                        return getNeighborBlockCached(x, y, z,
+                                                                      ddx, ddy, ddz);
+                                    },
+                                    tx0, ty0, tz0, tx1, ty1, tz1);
 
                                 // Color: la variedad es de la PLANTA (una
                                 // rejilla de 8 la identifica) y la madurez de
@@ -12475,6 +12588,11 @@ void prewarmItemTextures() {
         { BLOCK_COAL_ITEM,   "carbon.png"          },
         { BLOCK_RAW_ZINC,    "zinc crudo.png"      },
         { BLOCK_RAW_COPPER,  "cobre crudo.png"     },
+        // La TUNA se ve como item PLANO 2D (entra por isCrossSprite, que ya
+        // dibuja el icono como un quad y no como un cubo isometrico). Se
+        // registra aqui para que use la textura de fruto maduro, en vez de
+        // heredar la del bloque, que es la verde tierna.
+        { BLOCK_TUNA,        "Tuna roja crecida.png" },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -12715,6 +12833,32 @@ void actualizarVida(GameState* state, float deltaTime) {
     if (deltaTime <= 0.0f || deltaTime > 1.0f) return;
 
     state->tiempoJugadoSegundos += (double)deltaTime;
+
+    // El mesher lo necesita para saber que frutos ya maduraron, y no tiene
+    // acceso al GameState: se refleja aqui, que es donde el reloj avanza.
+    g_tiempoJugadoSegundos = state->tiempoJugadoSegundos;
+
+    // --- QUE LAS TUNAS MADUREN A LA VISTA ---
+    // La madurez la decide el mesher, asi que un fruto que acaba de madurar
+    // se seguiria viendo verde hasta que su chunk se reconstruyera por otro
+    // motivo. Cada cierto rato se marcan los chunks para rehacer, y el cambio
+    // aparece solo mientras el jugador juega.
+    //
+    // El intervalo se saca del propio rango de maduracion, dividido en pasos:
+    // suficientes para que el cambio se perciba gradual, y lo bastante
+    // espaciados para que remallar no cueste nada (una vez cada varios
+    // minutos, frente a 60 frames por segundo).
+    {
+        constexpr int PASOS = 12;
+        const double intervalo =
+            (double)TUNA_HORAS_MADURAR * 3600.0 / (double)PASOS;
+        static int ultimoPaso = -1;
+        const int paso = (int)(state->tiempoJugadoSegundos / intervalo);
+        if (paso != ultimoPaso) {
+            ultimoPaso = paso;
+            state->world.marcarChunksConTunas();
+        }
+    }
 
     constexpr double SEGUNDOS_POR_HORA = 3600.0;
     const int horasJugadas = (int)(state->tiempoJugadoSegundos / SEGUNDOS_POR_HORA);
@@ -17975,6 +18119,10 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
         // corazones ganados NO se pierden al salir y volver. Se reconstruye
         // el estado a partir del total guardado en level.dat.
         state->tiempoJugadoSegundos = (double)tempWorldInfo.totalPlaytime;
+        // Al cargar hay que reflejarlo YA, antes de mallar el primer chunk:
+        // si no, las tunas que llevaban horas maduras se dibujarian verdes
+        // hasta el siguiente frame.
+        g_tiempoJugadoSegundos = state->tiempoJugadoSegundos;
         {
             const int horas = (int)(state->tiempoJugadoSegundos / 3600.0);
             int corazones = GameState::CORAZONES_INICIALES + horas;

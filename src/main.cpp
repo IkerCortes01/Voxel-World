@@ -596,12 +596,45 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         enZ += diagZ / 2;
     }
 
-    // --- ORIENTACION ---
-    // Las pencas APILADAS mandan sobre todo lo demas: el jugador eligio al
-    // colocarlas si las juntaba a lo ancho (eje X) o a lo largo (eje Z), y esa
-    // decision no puede cambiarla el vecindario.
+    // ========================================================================
+    // ORIENTACION SEGUN EL SITIO DONDE ESTA
+    // ========================================================================
+    // La penca no siempre cuelga igual: se adapta a donde la pongas.
+    //
+    //   PEGADA A UNA PARED  -> se apoya contra ella como una repisa, con la
+    //                          cara ancha paralela al muro.
+    //   TIRADA EN EL SUELO  -> queda tumbada, como una penca caida.
+    //   COLGANDO DEL TECHO  -> igual que en el suelo pero por arriba.
+    //   AL AIRE             -> de pie, que es como crece en la planta.
+    //
+    // El apoyo se busca en CUALQUIER bloque solido, no solo en los del nopal:
+    // eso es lo que permite construir con ellas contra piedra, madera o lo
+    // que sea.
+    //
+    // Prioridad: manda la planta (si encadena con otras pencas, se alinea con
+    // ellas para no romper la mata) y solo si esta suelta decide el entorno.
+    // Un bloque sirve de apoyo si es macizo: aire, agua, lava y la propia
+    // vegetacion no sujetan nada. `isBlockSolid` esta definida mas abajo en el
+    // archivo, asi que aqui va el mismo criterio en corto.
+    auto esApoyo = [](BlockType b) {
+        return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
+               b != BLOCK_TALLGRASS && !isNopal(b) && !isRama(b) &&
+               b != BLOCK_LEAVES && b != BLOCK_LEAVES_ENCINO &&
+               b != BLOCK_LEAVES_OYAMEL;
+    };
+    const bool apoyoAbajo  = esApoyo(get( 0,-1, 0));
+    const bool apoyoArriba = esApoyo(get( 0, 1, 0));
+    const bool paredXm     = esApoyo(get(-1, 0, 0));
+    const bool paredXp     = esApoyo(get( 1, 0, 0));
+    const bool paredZm     = esApoyo(get( 0, 0,-1));
+    const bool paredZp     = esApoyo(get( 0, 0, 1));
+    const bool hayPared    = paredXm || paredXp || paredZm || paredZp;
+    const bool sueltaEnPlanta = (enX == 0 && enZ == 0 && enY == 0);
+
     if (pencasApiladas(f.tipo) > 1) {
-        // Apilado en X -> la losa es fina en X; en Z -> fina en Z.
+        // Las pencas APILADAS mandan sobre todo lo demas: el jugador eligio al
+        // colocarlas si las juntaba a lo ancho o a lo largo, y esa decision no
+        // puede cambiarla el vecindario.
         f.orientacion = apiladoEnX(f.tipo) ? 2 : 0;
     } else if (enX > enZ && enX >= enY) {
         f.orientacion = 2 + (int)(h & 1u);          // se alarga en X
@@ -609,6 +642,14 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         f.orientacion = (int)(h & 1u);              // se alarga en Z
     } else if (enY > enX && enY > enZ) {
         f.orientacion = 4;                          // columna: losa tumbada
+    } else if (sueltaEnPlanta && (apoyoAbajo || apoyoArriba) && !hayPared) {
+        // EN EL SUELO (o pegada al techo) y sin pared cerca: se tumba.
+        f.orientacion = 4;                          // losa horizontal
+    } else if (sueltaEnPlanta && hayPared) {
+        // CONTRA UNA PARED: la cara ancha se pone paralela al muro, como una
+        // plataforma que sale de el. Si el muro esta al este u oeste, la penca
+        // queda fina en X; si al norte o sur, fina en Z.
+        f.orientacion = (paredXm || paredXp) ? 2 : 0;
     } else {
         f.orientacion = (int)(h % (unsigned)NOPAL_ORIENTACIONES);
     }
@@ -834,9 +875,51 @@ void tunaCajaCon(TGet get,
     const float a0 = 0.5f - TUNA_ANCHO * 0.5f;
     const float a1 = 0.5f + TUNA_ANCHO * 0.5f;
 
-    minX = a0;   maxX = a1;
-    minZ = a0;   maxZ = a1;
-    minY = EPS;  maxY = EPS + TUNA_ALTO;
+    // ========================================================================
+    // ORIENTACION DE LA TUNA SEGUN DONDE ESTA APOYADA
+    // ========================================================================
+    // El fruto mide 6 px en su eje largo por 4x4 en los otros dos. Ese eje
+    // largo NO es siempre la vertical: apunta hacia AFUERA del bloque que lo
+    // sostiene, que es como cuelga una tuna de verdad.
+    //
+    //   apoyo debajo  -> de pie, creciendo hacia arriba (lo normal)
+    //   apoyo encima  -> colgando hacia abajo
+    //   apoyo al lado -> saliendo en horizontal de esa pared
+    auto sostiene = [&](int dx, int dy, int dz) {
+        const BlockType b = get(dx, dy, dz);
+        return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
+               !esTuna(b);
+    };
+
+    if (sostiene(0, -1, 0)) {                 // se apoya en el suelo: de pie
+        minX = a0;   maxX = a1;
+        minZ = a0;   maxZ = a1;
+        minY = EPS;  maxY = EPS + TUNA_ALTO;
+    } else if (sostiene(0, 1, 0)) {           // colgada del techo
+        minX = a0;   maxX = a1;
+        minZ = a0;   maxZ = a1;
+        maxY = 1.0f - EPS;  minY = maxY - TUNA_ALTO;
+    } else if (sostiene(-1, 0, 0)) {          // sale de una pared al oeste
+        minX = EPS;  maxX = EPS + TUNA_ALTO;
+        minY = a0;   maxY = a1;
+        minZ = a0;   maxZ = a1;
+    } else if (sostiene(1, 0, 0)) {           // pared al este
+        maxX = 1.0f - EPS;  minX = maxX - TUNA_ALTO;
+        minY = a0;   maxY = a1;
+        minZ = a0;   maxZ = a1;
+    } else if (sostiene(0, 0, -1)) {          // pared al sur
+        minZ = EPS;  maxZ = EPS + TUNA_ALTO;
+        minX = a0;   maxX = a1;
+        minY = a0;   maxY = a1;
+    } else if (sostiene(0, 0, 1)) {           // pared al norte
+        maxZ = 1.0f - EPS;  minZ = maxZ - TUNA_ALTO;
+        minX = a0;   maxX = a1;
+        minY = a0;   maxY = a1;
+    } else {                                   // sin apoyo: de pie, centrada
+        minX = a0;   maxX = a1;
+        minZ = a0;   maxZ = a1;
+        minY = EPS;  maxY = EPS + TUNA_ALTO;
+    }
 
     // Se une a cladodios y a otras tunas: un racimo queda continuo.
     auto une = [&](int dx, int dy, int dz) {
@@ -851,13 +934,29 @@ void tunaCajaCon(TGet get,
     // acabe pareciendo un bloque macizo en vez de frutos sueltos.
     //
     // Convencion del mesher del mundo (DIR_VEC): norte = +Z, sur = -Z.
-    if (une(-1, 0, 0)) minX = EPS;             // oeste
-    if (une( 1, 0, 0)) maxX = 1.0f - EPS;      // este
-    if (une( 0, 0, 1)) maxZ = 1.0f - EPS;      // norte
-    // -Z (polo sur): NO se conecta nunca.
-    // Hacia abajo ya se apoya en la penca (minY es la base del voxel).
-    // Hacia arriba solo si hay otra pieza: asi un racimo se ve de una pieza.
-    if (une( 0, 1, 0)) maxY = 1.0f - EPS;
+    //
+    // El estiramiento NO toca el eje largo del fruto: ese ya lo fijo la
+    // orientacion de arriba, y volver a estirarlo lo alargaria hasta llenar el
+    // voxel, con lo que la tuna dejaria de parecer un fruto. Solo se estiran
+    // los dos ejes cortos, que es lo que sirve para soldarla a la planta.
+    const float largoX = maxX - minX;
+    const float largoZ = maxZ - minZ;
+    const float largoY = maxY - minY;
+    const bool ejeEnX = (largoX > largoZ && largoX > largoY);
+    const bool ejeEnZ = (largoZ > largoX && largoZ > largoY);
+
+    if (!ejeEnX) {
+        if (une(-1, 0, 0)) minX = EPS;             // oeste
+        if (une( 1, 0, 0)) maxX = 1.0f - EPS;      // este
+    }
+    if (!ejeEnZ) {
+        if (une( 0, 0, 1)) maxZ = 1.0f - EPS;      // norte
+        // -Z (polo sur): NO se conecta nunca.
+    }
+    // Hacia arriba solo si hay otra pieza, y solo cuando el eje largo NO es
+    // la vertical: si lo fuera, estirarlo llenaria el voxel de punta a punta.
+    const bool ejeEnY = (largoY > largoX && largoY > largoZ);
+    if (!ejeEnY && une(0, 1, 0)) maxY = 1.0f - EPS;
 }
 
 // Caja de colision en coordenadas LOCALES (0..1), o false si el bloque no
@@ -9085,10 +9184,62 @@ public:
                                 const float PX[4] = { ax, bx_, cx_, dx_ };
                                 const float PY[4] = { ay, by_, cy_, dy_ };
                                 const float PZ[4] = { az, bz_, cz_, dz_ };
-                                const float a0 = U0 + (U1 - U0) * uvZoom;
-                                const float a1 = U1 - (U1 - U0) * uvZoom;
-                                const float U[4]  = { a0, a1, a1, a0 };
-                                const float V[4]  = { a0, a0, a1, a1 };
+
+                                // ============================================
+                                // UV POR POSICION: TEXTURA SIN DEFORMAR
+                                // ============================================
+                                // Antes cada cara recibia la textura ENTERA
+                                // (0..1), fuera del tamano que fuera. Como la
+                                // penca se dibuja en 8 rodajas de 2 px de alto,
+                                // cada una aplastaba los 16 px de la imagen en
+                                // 2: la textura salia estirada hasta 6.9 veces
+                                // mas en un eje que en el otro, y se repetia
+                                // ocho veces a lo alto.
+                                //
+                                // Ahora cada vertice toma su UV de DONDE ESTA
+                                // dentro del bloque. El resultado es que las
+                                // rodajas encajan entre si como trozos de una
+                                // misma imagen: la textura se ve identica a la
+                                // asignada, con sus pixeles cuadrados, y la
+                                // forma de la penca no cambia nada.
+                                //
+                                // El eje que se usa para U depende de la
+                                // orientacion de la cara: se toma el que mas
+                                // varia entre los cuatro vertices, que es
+                                // siempre el "horizontal" de esa cara.
+                                // Se mira que eje NO varia entre los cuatro
+                                // vertices: ese es la normal de la cara, y los
+                                // otros dos son los que llevan la textura.
+                                auto constante = [&](const float* P) {
+                                    return fabsf(P[0]-P[1]) < 1e-6f &&
+                                           fabsf(P[0]-P[2]) < 1e-6f &&
+                                           fabsf(P[0]-P[3]) < 1e-6f;
+                                };
+                                const bool planoX = constante(PX);   // cara -X/+X
+                                const bool planoY = constante(PY);   // cara -Y/+Y
+
+                                float U[4], V[4];
+                                for (int i = 0; i < 4; ++i) {
+                                    // U y V son siempre los dos ejes que SI
+                                    // varian en esta cara.
+                                    const float u = planoX ? PZ[i] : PX[i];
+                                    const float v = planoY ? PZ[i] : PY[i];
+                                    // Del rango 0..1 del bloque al 0..1 de la
+                                    // textura, con el margen de medio texel que
+                                    // evita que el borde derecho envuelva al
+                                    // izquierdo (GL_REPEAT + NEAREST).
+                                    U[i] = U0 + (U1 - U0) * u;
+                                    V[i] = U0 + (U1 - U0) * v;
+                                }
+
+                                // El zoom sigue disponible para las tunas: acerca
+                                // las UV al centro de la imagen.
+                                if (uvZoom != 0.0f) {
+                                    for (int i = 0; i < 4; ++i) {
+                                        U[i] = 0.5f + (U[i] - 0.5f) * (1.0f - 2.0f * uvZoom);
+                                        V[i] = 0.5f + (V[i] - 0.5f) * (1.0f - 2.0f * uvZoom);
+                                    }
+                                }
 
                                 auto& vv = verticesByTexture[tex];
                                 auto& cc = colorsByTexture[tex];

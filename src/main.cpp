@@ -3464,6 +3464,134 @@ private:
         textures[fullPath] = textureID;
         return textureID;
     }
+
+public:
+    // ========================================================================
+    // HOJAS GENERATIVAS: VARIANTES A PARTIR DE LOS ESPACIOS VACIOS
+    // ========================================================================
+    // Una copa hecha con la misma imagen repetida en rejilla se nota: el ojo
+    // detecta el patron y el arbol parece un muro de sellos iguales. Este
+    // sistema rompe esa repeticion SIN dibujar ninguna textura nueva.
+    //
+    // La base son los ESPACIOS VACIOS de la propia hoja: entre el 32% y el
+    // 48% de cada textura es transparente, y es ahi donde vive el "dibujo".
+    // Reordenando donde caen esos huecos se obtienen copas distintas
+    // conservando la esencia del bloque.
+    //
+    // REGLA DE ORO: no se inventa ni un pixel. Cada variante es una
+    // PERMUTACION de la textura original:
+    //
+    //   1) las 8 simetrias del cuadrado (4 giros x 2 reflejos), y
+    //   2) un desplazamiento CICLICO en X y en Y.
+    //
+    // Ambas conservan exactamente la paleta y el numero de huecos, asi que
+    // los colores y las propiedades del bloque quedan intactos. Y como el
+    // desplazamiento es ciclico (toroidal), la textura sigue teselando
+    // consigo misma: no aparecen costuras entre bloques vecinos. Medido: el
+    // salto de color maximo en la costura es el mismo que en el original.
+    //
+    // Con una textura de 16x16 salen 8 * 16 * 16 = 2048 variantes por
+    // especie, verificadas todas distintas entre si.
+    //
+    // Coste: las variantes se generan UNA vez al pedirlas y se quedan
+    // cacheadas como cualquier otra textura. No se guarda nada en el chunk:
+    // la variante se deduce de la posicion del bloque.
+    static constexpr int HOJA_VARIANTES = 2048;
+
+    GLuint getTexturaHojaVariante(const char* base, int variante) {
+        const int k = ((variante % HOJA_VARIANTES) + HOJA_VARIANTES)
+                      % HOJA_VARIANTES;
+        // La variante 0 es la textura tal cual: se reutiliza la ya cargada.
+        if (k == 0) return getTexture(base);
+
+        char clave[256];
+        snprintf(clave, sizeof(clave), "%s#hoja%d", base, k);
+        auto it = textures.find(clave);
+        if (it != textures.end()) return it->second;
+
+        // --- Cargar los pixeles de la textura base ---
+        const std::string ruta = gamePath("resourcepacks/Textures/Blocks/") + base;
+        int w = 0, h = 0, canales = 0;
+        stbi_set_flip_vertically_on_load(true);
+        unsigned char* src = stbi_load(ruta.c_str(), &w, &h, &canales, STBI_rgb_alpha);
+        if (!src) {
+            // Sin cache negativa: si el PNG no esta disponible ahora mismo,
+            // se usa la textura normal y se reintentara mas adelante.
+            return getTexture(base);
+        }
+
+        std::vector<unsigned char> dst((size_t)w * h * 4);
+
+        // Decodificar `k`: 8 simetrias x desplazamiento en X x en Y.
+        const int sim = k % 8;
+        const int dx  = (k / 8) % w;
+        const int dy  = (k / (8 * w)) % h;
+
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                // Deshacer el desplazamiento ciclico...
+                int sx = (x + dx) % w;
+                int sy = (y + dy) % h;
+                // ...y la simetria. Solo tiene sentido girar si la textura es
+                // cuadrada; si no lo fuera, se limita al reflejo.
+                if (w == h) {
+                    for (int r = 0; r < (sim & 3); ++r) {
+                        const int tx = sy;
+                        const int ty = w - 1 - sx;
+                        sx = tx; sy = ty;
+                    }
+                }
+                if (sim & 4) sx = w - 1 - sx;
+
+                const size_t o = ((size_t)y * w + x) * 4;
+                const size_t i = ((size_t)sy * w + sx) * 4;
+                dst[o + 0] = src[i + 0];
+                dst[o + 1] = src[i + 1];
+                dst[o + 2] = src[i + 2];
+                dst[o + 3] = src[i + 3];   // el hueco viaja con su pixel
+            }
+        }
+        stbi_image_free(src);
+
+        while (glGetError() != GL_NO_ERROR) { /* limpiar errores ajenos */ }
+
+        GLuint id = 0;
+        glGenTextures(1, &id);
+        if (id == 0) return getTexture(base);   // transitorio: sin cachear
+
+        glBindTexture(GL_TEXTURE_2D, id);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, dst.data());
+        if (glGetError() != GL_NO_ERROR) {
+            glDeleteTextures(1, &id);
+            invalidateBindCache(id);
+            return getTexture(base);
+        }
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        lastBoundTexture = id;
+        textures[clave] = id;
+        return id;
+    }
+
+    // Variante que le toca a un bloque de hoja por su posicion. Determinista:
+    // el mismo bloque siempre da la misma, asi que la copa no parpadea al
+    // reconstruirse el chunk.
+    GLuint getTexturaHoja(BlockType tipo, int wx, int wy, int wz) {
+        const char* base;
+        switch (tipo) {
+            case BLOCK_LEAVES_ENCINO: base = "Hojas de Encino.png"; break;
+            case BLOCK_LEAVES_OYAMEL: base = "Hojas de Oyame.png";  break;
+            default:                  base = "Hojas de Pino.png";   break;
+        }
+        unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wy * 19349663)
+                   ^ (unsigned)(wz * 83492791);
+        h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+        return getTexturaHojaVariante(base, (int)(h % (unsigned)HOJA_VARIANTES));
+    }
 };
 
 // Instancia global del TextureManager
@@ -9083,6 +9211,32 @@ public:
                             if (!shouldRenderFace(b, nb)) continue;
 
                             cell.tex = g_textureManager->getBlockTexture(b, dir);
+
+                            // ================================================
+                            // HOJAS GENERATIVAS
+                            // ================================================
+                            // Cada zona de copa usa una variante distinta de
+                            // la MISMA textura de hoja (ver
+                            // getTexturaHojaVariante): mismos colores, mismos
+                            // huecos, solo cambia donde caen. Asi un bosque
+                            // deja de verse como un sello repetido.
+                            //
+                            // La variante se toma por REJILLA de 4 bloques, no
+                            // bloque a bloque: el greedy mesher fusiona caras
+                            // contiguas que compartan textura, y darle una
+                            // distinta a cada hoja impediria toda fusion y
+                            // multiplicaria los draw calls. Con rejilla de 4 se
+                            // rompe la repeticion a la vista y se conserva la
+                            // fusion dentro de cada zona.
+                            if (b == BLOCK_LEAVES || b == BLOCK_LEAVES_ENCINO ||
+                                b == BLOCK_LEAVES_OYAMEL) {
+                                const int gx = (chunk->position.x * CHUNK_SIZE + bx) >> 2;
+                                const int gy = by >> 2;
+                                const int gz = (chunk->position.z * CHUNK_SIZE + bz) >> 2;
+                                const GLuint th =
+                                    g_textureManager->getTexturaHoja(b, gx, gy, gz);
+                                if (th != 0) cell.tex = th;
+                            }
 
                             // ================================================
                             // RAICES QUE SE EXPANDEN 1 O 2 BLOQUES

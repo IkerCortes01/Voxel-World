@@ -935,10 +935,16 @@ void tunasDelCladodio(int wx, int wy, int wz,
 // coplanares pelean en el depth buffer y, segun el angulo de camara,
 // desaparece una u otra. Es el mismo motivo por el que la penca nunca toca
 // 0.0 ni 1.0 exactos.
+// `empotrar` = true solo para DIBUJAR: mete el fruto 2 px dentro de la penca
+// para que la union no deje aire a la vista. Para colisionar y seleccionar va
+// en false, porque una caja que se sale del voxel no se detecta desde la celda
+// vecina (el motor recorre el mundo celda a celda) y el jugador la
+// atravesaria justo por donde sobresale.
 template <typename TGet>
 void tunaCajaCon(TGet get,
                  float& minX, float& minY, float& minZ,
-                 float& maxX, float& maxY, float& maxZ) {
+                 float& maxX, float& maxY, float& maxZ,
+                 bool empotrar = false) {
     constexpr float EPS = 0.0005f;
     const float a0 = 0.5f - TUNA_ANCHO * 0.5f;
     const float a1 = 0.5f + TUNA_ANCHO * 0.5f;
@@ -1008,12 +1014,29 @@ void tunaCajaCon(TGet get,
         return esCladodio(b) || b == BLOCK_NOPAL_FRUTO;
     };
 
-    if      (sostenido(0, -1, 0)) minY = EPS;            // nace del suelo
-    else if (sostenido(0,  1, 0)) maxY = 1.0f - EPS;     // cuelga del techo
-    else if (sostenido(-1, 0, 0)) minX = EPS;            // sale al oeste
-    else if (sostenido( 1, 0, 0)) maxX = 1.0f - EPS;     // sale al este
-    else if (sostenido(0, 0, -1)) minZ = EPS;            // sale al sur
-    else if (sostenido(0, 0,  1)) maxZ = 1.0f - EPS;     // sale al norte
+    // SIN HUECOS: el fruto no se queda en el borde de su voxel, se METE
+    // dentro del bloque que lo sostiene.
+    //
+    // Quedarse en el borde dejaba aire a la vista: la penca no llega a su
+    // propio borde -- su cuello obovado la estrecha hasta 2 px -- asi que
+    // entre las dos piezas quedaba un hueco que se veia desde los lados.
+    // Solapando 2 px, la union queda maciza desde cualquier angulo.
+    //
+    // El solape va hacia DENTRO del vecino, no hacia fuera del voxel propio,
+    // asi que la caja sigue sin invadir a nadie: solo se cruza con la penca,
+    // que es justo lo que se quiere.
+    // `empotrar` lo activa SOLO el mesher. La caja de colision no puede
+    // salirse del voxel: el motor recorre el mundo celda a celda, asi que lo
+    // que sobresale al vecino no se detecta desde el y el jugador lo
+    // atravesaria. Para tocar y seleccionar basta con llegar al borde.
+    const float E = empotrar ? (2.0f / 16.0f) : -EPS;
+
+    if      (sostenido(0, -1, 0)) minY = -E;        // nace del suelo
+    else if (sostenido(0,  1, 0)) maxY = 1.0f + E;  // cuelga del techo
+    else if (sostenido(-1, 0, 0)) minX = -E;        // sale al oeste
+    else if (sostenido( 1, 0, 0)) maxX = 1.0f + E;  // sale al este
+    else if (sostenido(0, 0, -1)) minZ = -E;        // sale al sur
+    else if (sostenido(0, 0,  1)) maxZ = 1.0f + E;  // sale al norte
 }
 
 // Caja de colision en coordenadas LOCALES (0..1), o false si el bloque no
@@ -9282,6 +9305,11 @@ public:
                             // Muestreando solo la zona opaca del centro, la
                             // caja queda maciza.
                             float uvZoom = 0.0f;
+                            // Tinte y transparencia de la cara que se emite.
+                            // 1.0 / 1.0 = tal cual; las espinas los bajan para
+                            // salir oscuras y semitransparentes.
+                            float tinte = 1.0f;
+                            float alfaCara = 1.0f;
                             auto pushCaraTex = [&](GLuint tex,
                                                 float ax, float ay, float az,
                                                 float bx_, float by_, float bz_,
@@ -9351,13 +9379,22 @@ public:
                                 auto& cc = colorsByTexture[tex];
                                 auto& uu = uvsByTexture[tex];
 
+                                // Color de la cara. `tinte` lo oscurece y
+                                // `alfa` lo hace translucido: se usa en las
+                                // ESPINAS, que van del color mas oscuro de la
+                                // propia textura y semitransparentes.
+                                const float fr = cr * tinte;
+                                const float fg = cg * tinte;
+                                const float fb = cb * tinte;
+                                const float fa = ca * alfaCara;
+
                                 // Sentido directo.
                                 for (int i = 0; i < 4; ++i) {
                                     vv.push_back(wx + PX[i]);
                                     vv.push_back(wy + PY[i]);
                                     vv.push_back(wz + PZ[i]);
-                                    cc.push_back(cr); cc.push_back(cg);
-                                    cc.push_back(cb); cc.push_back(ca);
+                                    cc.push_back(fr); cc.push_back(fg);
+                                    cc.push_back(fb); cc.push_back(fa);
                                     uu.push_back(U[i]);
                                     uu.push_back(V[i]);
                                 }
@@ -9367,8 +9404,8 @@ public:
                                     vv.push_back(wx + PX[i]);
                                     vv.push_back(wy + PY[i]);
                                     vv.push_back(wz + PZ[i]);
-                                    cc.push_back(cr); cc.push_back(cg);
-                                    cc.push_back(cb); cc.push_back(ca);
+                                    cc.push_back(fr); cc.push_back(fg);
+                                    cc.push_back(fb); cc.push_back(fa);
                                     uu.push_back(U[i]);
                                     uu.push_back(V[i]);
                                 }
@@ -9610,8 +9647,23 @@ public:
                                 // Salen del BORDE (los lados del ancho), no de
                                 // la cara plana, que es donde estan las
                                 // areolas fertiles de verdad.
+                                // Una espina es un pincho de 1 PIXEL de grueso,
+                                // del color mas oscuro de la propia textura de
+                                // la penca -- medido, rgb(18,16,6), el marron
+                                // casi negro de las areolas -- y semitranslucido
+                                // para que se vea fina y no como una barra.
+                                //
+                                // El color no se pinta a mano: se OSCURECE la
+                                // textura del bloque, asi que la espina siempre
+                                // pega con la penca aunque se cambie el
+                                // resourcepack.
                                 constexpr float ESP_LARGO = 2.5f / 16.0f;
                                 constexpr float ESP_GRUESO = 1.0f / 16.0f;
+                                constexpr float ESP_TINTE  = 0.22f;  // casi negro
+                                constexpr float ESP_ALFA   = 0.72f;  // se ve, pero fina
+
+                                tinte = ESP_TINTE;
+                                alfaCara = ESP_ALFA;
 
                                 for (int i = 0; i < RODAJAS; ++i) {
                                     const float ya = by0 + alto * i;
@@ -9663,6 +9715,10 @@ public:
                                         }
                                     }
                                 }
+
+                                // Se restaura: solo las espinas van tenidas.
+                                tinte = 1.0f;
+                                alfaCara = 1.0f;
                             }
 
                             // ============================================
@@ -9700,7 +9756,8 @@ public:
                                         return getNeighborBlockCached(x, y, z,
                                                                       ddx, ddy, ddz);
                                     },
-                                    tx0, ty0, tz0, tx1, ty1, tz1);
+                                    tx0, ty0, tz0, tx1, ty1, tz1,
+                                    /*empotrar=*/true);
 
                                 // Color: la variedad es de la PLANTA (una
                                 // rejilla de 8 la identifica) y la madurez de

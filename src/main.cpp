@@ -2882,6 +2882,63 @@ public:
     }
 
     // Obtener textura para un tipo de bloque y cara (con soporte de animación y rotación)
+    // ========================================================================
+    // VARIANTES VISUALES: SUELO CON RAICES
+    // ========================================================================
+    // Cuando un arbol o un nopal nace sobre pasto/tierra/arena, ese bloque de
+    // suelo se dibuja con raices asomando. NO es un bloque nuevo: es el mismo
+    // pasto o la misma tierra de siempre, solo que el mesher elige otra
+    // textura al ver que tiene un tronco encima.
+    //
+    // Ventajas de hacerlo asi:
+    //   - No gasta IDs de bloque ni ocupa sitio en el chunk.
+    //   - Si el jugador rompe el arbol, el suelo vuelve solo a su aspecto
+    //     normal: la variante depende del vecino, no de un dato guardado.
+    //   - Cada especie y cada suelo tienen 4 variantes, elegidas por la
+    //     posicion, asi que un bosque no se ve repetitivo.
+    //
+    // Devuelve 0 si ese suelo no lleva raices (y entonces se usa la textura
+    // normal del bloque).
+    GLuint getTexturaRaices(BlockType suelo, BlockType encima, int wx, int wz) {
+        // Solo la cara SUPERIOR del suelo lleva raices.
+        const char* base = nullptr;
+
+        switch (encima) {
+            case BLOCK_WOOD:            // pino
+                if (suelo == BLOCK_GRASS) base = "Pasto con raices de Pino v";
+                else if (suelo == BLOCK_DIRT) base = "Raices de Pino en Tierra v";
+                break;
+            case BLOCK_WOOD_ENCINO:
+                if (suelo == BLOCK_GRASS) base = "Raices de Encino en pasto v";
+                else if (suelo == BLOCK_DIRT) base = "Raices de Encino en tierra v";
+                break;
+            case BLOCK_WOOD_OYAMEL:
+                if (suelo == BLOCK_GRASS) base = "Raices de Oyame en pasto v";
+                else if (suelo == BLOCK_DIRT) base = "Raices de Oyame en tierra v";
+                break;
+            case BLOCK_NOPAL_BASE_PASTO:
+            case BLOCK_NOPAL_BASE_TIERRA:
+            case BLOCK_NOPAL_BASE_ARENA:
+            case BLOCK_NOPAL_BASE_T_ARCILLA:
+            case BLOCK_NOPAL_BASE_A_ARCILLA:
+                if (suelo == BLOCK_GRASS) base = "Pasto con raices de nopal v";
+                else if (suelo == BLOCK_SAND) base = "Arena con raices de nopal v";
+                break;
+            default:
+                break;
+        }
+        if (!base) return 0;
+
+        // Variante 1..4 por posicion: determinista, pero sin patron visible.
+        unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wz * 19349663);
+        h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+        const int v = 1 + (int)(h % 4u);
+
+        char ruta[192];
+        snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s%d.png", base, v);
+        return getTexture(ruta);
+    }
+
     GLuint getBlockTexture(BlockType type, int face) {
         // face: 0=top, 1=bottom, 2=north, 3=south, 4=east, 5=west
 
@@ -3411,8 +3468,11 @@ struct Chunk {
     // Las hojas NO están aquí: son un caso intermedio y se tratan aparte en
     // lightCost(), porque filtran la luz en vez de dejarla pasar o cortarla.
     static bool skyTransparent(BlockType b) {
+        // Bloques que no llenan su voxel: la luz del cielo los atraviesa.
         return b == BLOCK_AIR || b == BLOCK_WATER ||
-               b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER;
+               b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
+               isRama(b) ||
+               b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO;
     }
 
     // ========================================================================
@@ -3451,6 +3511,17 @@ struct Chunk {
     // 0 = no atraviesa (bloque sólido); 1 = aire; LEAF_ATTENUATION = hojas.
     static uint8_t lightCost(BlockType b) {
         if (isFoliage(b)) return LEAF_ATTENUATION;
+
+        // ⭐ RAMAS: un palo de 4x4 pixeles NO es un cubo macizo.
+        // Caian en el "return 0" de opaco, asi que cortaban la luz por
+        // completo: la propia rama y todo lo que quedaba debajo se veian
+        // NEGROS. Ocupan 1/16 del volumen del voxel, asi que apenas deben
+        // atenuar: coste 1, igual que el aire.
+        if (isRama(b)) return 1;
+
+        // El nopal tampoco llena su voxel (cladodio y fruto son losas).
+        if (b == BLOCK_NOPAL_CLADODIO || b == BLOCK_NOPAL_FRUTO) return 1;
+
         if (skyTransparent(b)) return 1;
         return 0;   // opaco
     }
@@ -8190,6 +8261,21 @@ public:
                             if (!shouldRenderFace(b, nb)) continue;
 
                             cell.tex = g_textureManager->getBlockTexture(b, dir);
+
+                            // VARIANTE CON RAICES: si es la cara de ARRIBA de
+                            // un suelo y justo encima arranca un arbol o un
+                            // nopal, se usa la textura con raices. Es solo un
+                            // cambio de dibujo: el bloque sigue siendo pasto,
+                            // tierra o arena.
+                            if (dir == 0 &&
+                                (b == BLOCK_GRASS || b == BLOCK_DIRT ||
+                                 b == BLOCK_SAND)) {
+                                const int wxr = chunk->position.x * CHUNK_SIZE + bx;
+                                const int wzr = chunk->position.z * CHUNK_SIZE + bz;
+                                const GLuint raices =
+                                    g_textureManager->getTexturaRaices(b, nb, wxr, wzr);
+                                if (raices != 0) cell.tex = raices;
+                            }
                             // Si la textura no resolvió, el mesh NO debe
                             // hornear ese 0: el batch quedaría descartado en
                             // el render ("textura nula") y el chunk perdería

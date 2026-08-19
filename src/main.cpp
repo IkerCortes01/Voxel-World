@@ -3175,9 +3175,19 @@ public:
             madura = (horas >= t * TUNA_HORAS_MADURAR);
         }
 
+        // TEXTURA COMPLETA, SIN DEFORMAR.
+        // Se usan solo las versiones "crecida": medido pixel a pixel, su
+        // dibujo ocupa la imagen ENTERA (margen vacio 0), asi que la caja de
+        // la tuna las muestra completas y sin agujeros por las esquinas. Las
+        // versiones pequenas dejan 2 px transparentes por lado, que sobre una
+        // caja 3D se veian como huecos.
+        //
+        // El fruto TIERNO se distingue por el color (verde), no por recortar
+        // la textura: recortarla deformaria el dibujo, que es justo lo que se
+        // queria evitar.
         const char* arch;
         if (!madura) {
-            arch = "tuna verde.png";
+            arch = "Tuna verde crecida.png";      // aun verde: sin madurar
         } else {
             switch (variedad) {
                 case 1:  arch = "Tuna amarilla crecida.png"; break;
@@ -7606,7 +7616,12 @@ public:
             };
 
             int pencas = 0;
-            const int maxPencas = 2 + rnd(919, 3);   // 2..4 por planta
+            // Se suben de 2-4 a 4-7. Las pencas son ahora el UNICO soporte de
+            // las tunas (antes tambien valia el cladodio), asi que con dos o
+            // tres por planta la mayoria de los nopales se quedaban casi sin
+            // fruto. Con este rango cada planta tiene donde fructificar sin
+            // que la mata se llene de pencas.
+            const int maxPencas = 4 + rnd(919, 4);   // 4..7 por planta
 
             for (int y = primerBrote; y <= topeTallo + 3 && pencas < maxPencas; ++y) {
                 for (int dx = -4; dx <= 4 && pencas < maxPencas; ++dx) {
@@ -7669,16 +7684,21 @@ public:
         }
 
         // --- TUNAS ---
-        // La tuna es un BLOQUE propio: crece justo ENCIMA de un cladodio,
-        // apoyada en el, y el jugador la selecciona y la arranca por separado
-        // sin tocar la penca.
+        // La tuna es un BLOQUE propio y crece SOLO sobre una PENCA, nunca
+        // sobre un cladodio: en la planta real la flor sale de las areolas del
+        // borde superior de las pencas de un ano, que es lo que aqui
+        // representa BLOCK_NOPAL_FRUTO.
         //
-        // Al exigir cladodio debajo, es imposible que quede flotando: si se
-        // rompe la penca que la sostiene, la tuna se queda sin soporte, que es
-        // el comportamiento natural de una fruta.
+        // Al exigir penca debajo o al lado, es imposible que quede flotando.
+        //
+        // VARIAS POR PENCA: lo normal en campo son ~5 frutos por cladodio,
+        // con un rango medido de 1 a 15 y hasta 32 en anos de carga alta
+        // (Agrociencia 35:159; SciELO MX 2014). Por eso una misma penca puede
+        // sacar mas de una tuna: se prueban las cuatro caras laterales y la
+        // de arriba.
         {
             int tunas = 0;
-            const int maxTunas = 2 + rnd(613, 4);   // 2..5 por planta
+            const int maxTunas = 4 + rnd(613, 6);   // 4..9 por planta
 
             // VARIEDAD DE LA PLANTA: un nopal da tunas de UN color, porque es
             // su variedad, no algo que cambie de fruto a fruto. Las tres se
@@ -7689,22 +7709,39 @@ public:
             };
             const BlockType variedad = VARIEDADES[rnd(451, 3)];
 
+            // Sitios donde puede nacer un fruto respecto a la penca. El de
+            // arriba va primero porque es el preferente: la fructificacion se
+            // concentra en el borde superior distal.
+            static const int SITIOS[5][3] = {
+                { 0, 1, 0},                       // encima (el mas comun)
+                { 1, 0, 0}, {-1, 0, 0},
+                { 0, 0, 1}, { 0, 0,-1},
+            };
+
             for (int y = primerBrote; y <= topeTallo + 4 && tunas < maxTunas; ++y) {
                 for (int dx = -4; dx <= 4 && tunas < maxTunas; ++dx) {
                     for (int dz = -4; dz <= 4 && tunas < maxTunas; ++dz) {
                         const int cx = worldX + dx, cz = worldZ + dz;
-                        if (!esCladodio(getBlock(cx, y, cz))) continue;
+                        // SOLO sobre PENCA, no sobre cladodio.
+                        if (getBlock(cx, y, cz) != BLOCK_NOPAL_FRUTO) continue;
 
-                        // Justo encima de la penca, y solo si esta libre.
-                        const int fy = y + 1;
-                        if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
-                        if (getBlock(cx, fy, cz) != BLOCK_AIR) continue;
+                        // Una misma penca puede dar VARIAS tunas.
+                        for (int s = 0; s < 5 && tunas < maxTunas; ++s) {
+                            const int fx = cx + SITIOS[s][0];
+                            const int fy = y  + SITIOS[s][1];
+                            const int fz = cz + SITIOS[s][2];
+                            if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
+                            if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
 
-                        // No todas las pencas dan fruto.
-                        if (rnd(cx * 31 + y * 17 + cz * 13, 100) >= 30) continue;
+                            // El borde de arriba fructifica mucho mas que los
+                            // laterales, como en la planta real.
+                            const int prob = (s == 0) ? 55 : 22;
+                            if (rnd(cx * 31 + y * 17 + cz * 13 + s * 7, 100) >= prob)
+                                continue;
 
-                        setBlock(cx, fy, cz, variedad);
-                        ++tunas;
+                            setBlock(fx, fy, fz, variedad);
+                            ++tunas;
+                        }
                     }
                 }
             }
@@ -9158,17 +9195,49 @@ public:
                                          rx1, y0, rz0,  rx0, y0, rz0);   // -Y
                             };
 
-                            // Las tres rodajas. Arriba y abajo van mordidas,
-                            // salvo que la planta continue en esa direccion:
-                            // entonces la union tiene que ser recta.
+                            // ============================================
+                            // SILUETA BOTANICA DE LA PENCA
+                            // ============================================
+                            // Una penca de nopal no es un rectangulo ni un
+                            // ovalo simetrico: es OBOVADA. Se estrecha mucho
+                            // en la base (por donde se une a la penca madre,
+                            // con un cuello muy marcado) y se ensancha hacia
+                            // arriba, con el punto mas ancho en el tercio
+                            // superior y el apice redondeado.
                             //
-                            // La penca ya no cede sitio a ningun fruto: la tuna
-                            // es un bloque aparte, en su propio voxel, y se
-                            // dibuja mas abajo con su propia geometria.
+                            // Se dibuja en RODAJAS a lo alto, y cada una se
+                            // estrecha segun el perfil. Mas rodajas que las
+                            // tres de antes: hacen falta para que la curva se
+                            // note en vez de verse como tres escalones.
+                            //
+                            // El estrechamiento solo se aplica por los lados
+                            // libres: donde la planta continua, la union tiene
+                            // que quedar recta o apareceria un escalon.
                             if (!esTuna(block)) {
-                                pushRodaja(by0, yc0, nf.uneAbajo  ? 0.0f : CURVA);
-                                pushRodaja(yc0, yc1, 0.0f);
-                                pushRodaja(yc1, by1, nf.uneArriba ? 0.0f : CURVA);
+                                constexpr int RODAJAS = 5;
+                                // Ancho relativo de cada rodaja, de abajo
+                                // arriba. La base es un cuello estrecho y el
+                                // maximo cae en el cuarto tramo (tercio alto).
+                                static const float PERFIL[RODAJAS] = {
+                                    0.45f,   // base: cuello de insercion
+                                    0.80f,
+                                    0.95f,
+                                    1.00f,   // punto mas ancho
+                                    0.72f,   // apice redondeado
+                                };
+                                const float alto = (by1 - by0) / (float)RODAJAS;
+                                for (int i = 0; i < RODAJAS; ++i) {
+                                    const float ya = by0 + alto * i;
+                                    const float yb = ya + alto;
+                                    // Cuanto se muerde: lo que le falta a esa
+                                    // rodaja para llegar al ancho maximo.
+                                    float m = (1.0f - PERFIL[i]) * CURVA * 2.5f;
+                                    // Si la planta sigue por arriba o por
+                                    // abajo, esa union va recta.
+                                    if (i == 0 && nf.uneAbajo) m = 0.0f;
+                                    if (i == RODAJAS - 1 && nf.uneArriba) m = 0.0f;
+                                    pushRodaja(ya, yb, m);
+                                }
                             }
 
                             // ============================================
@@ -9180,14 +9249,18 @@ public:
                             // selecciona y la arranca por separado, y la penca
                             // se queda intacta.
                             if (esTuna(block)) {
-                                // SIN AGUJEROS: el dibujo de la tuna es redondo
-                                // sobre fondo transparente, asi que mapear la
-                                // imagen entera dejaba ver a traves por las
-                                // cuatro esquinas vacias. Se muestrea solo el
-                                // nucleo opaco: medido en las seis texturas,
-                                // recortar 5 de los 16 pixeles por lado deja
-                                // una zona 100% solida.
-                                uvZoom = 5.0f / 16.0f;
+                                // TEXTURA COMPLETA Y SIN DEFORMAR.
+                                // Antes se recortaban las UV al nucleo de la
+                                // imagen para tapar las esquinas transparentes,
+                                // pero eso dejaba fuera la mayor parte del
+                                // dibujo. Ya no hace falta: las texturas
+                                // "crecida" que usa el bloque ocupan la imagen
+                                // entera (medido: 0 px de margen vacio), asi
+                                // que se ven completas y sin agujeros.
+                                //
+                                // El recorte se queda en 0: cualquier valor
+                                // distinto escalaria el dibujo y lo deformaria.
+                                uvZoom = 0.0f;
 
                                 // Bulto de 6 de alto por 4x4, apoyado en el
                                 // fondo del voxel y ESTIRADO hacia las pencas
@@ -13835,44 +13908,15 @@ void placeBlock(GameState* state) {
     if (result.hit) {
         Vec3i placePos = result.previousPos;
 
-        // ====================================================================
-        // APILAR PENCAS EN EL MISMO BLOQUE
-        // ====================================================================
-        // Si el jugador lleva una penca en la mano y apunta a otra, en vez de
-        // ocupar un voxel nuevo la ANADE a la que ya esta: caben hasta tres.
+        // NOTA: las pencas que coloca el jugador NO se combinan entre si.
+        // Se pueden poner pegadas, pero cada una ocupa su propio bloque y
+        // conserva su forma. Una penca suelta no esta plantada: no forma
+        // parte de una mata, asi que no tiene sentido que se fusione con la
+        // de al lado como si hubieran crecido juntas.
         //
-        // El eje lo decide POR DONDE apunta. Si golpea una cara este u oeste,
-        // las junta a lo ancho; si golpea norte o sur, a lo largo. Asi el
-        // jugador controla la forma sin menus: basta con rodear la penca y
-        // pegarle por el lado que quiera.
-        if (selectedBlock == BLOCK_NOPAL_CLADODIO) {
-            const BlockType objetivo = state->world.getBlock(
-                result.blockPos.x, result.blockPos.y, result.blockPos.z);
-
-            if (esCladodio(objetivo)) {
-                // La cara golpeada sale de comparar el bloque tocado con el
-                // hueco de delante: la diferencia es la normal.
-                const int nx = result.previousPos.x - result.blockPos.x;
-                const int nz = result.previousPos.z - result.blockPos.z;
-
-                // Si ya venia apilada, se respeta SU eje: mezclar ancho y
-                // largo en el mismo bloque no tiene representacion.
-                const bool enX = (pencasApiladas(objetivo) > 1)
-                                 ? apiladoEnX(objetivo)
-                                 : (nx != 0 || nz == 0);
-
-                const BlockType siguiente = apilarPenca(objetivo, enX);
-                if (siguiente != BLOCK_AIR) {
-                    state->world.setBlock(result.blockPos.x, result.blockPos.y,
-                                          result.blockPos.z, siguiente);
-                    state->inventory.consumeSelected();
-                    state->placeCooldown = 0.25f;
-                    return;
-                }
-                // Si ya esta llena (3 pencas), se sigue por el camino normal:
-                // la penca nueva se coloca en el hueco de al lado.
-            }
-        }
+        // Las matas de varias pencas siguen existiendo, pero solo donde de
+        // verdad crecen: en la GENERACION del nopal (ver "MATAS DE VARIAS
+        // PENCAS"), no al construir.
 
         // ⭐ VEGETACIÓN REEMPLAZABLE
         // Si se apunta directamente a un sprite en cruz (hierba, flor), el

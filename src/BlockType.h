@@ -101,18 +101,32 @@ enum BlockType {
     // dibuja distinto segun el vecino.
     BLOCK_NOPAL_FRUTO,           // 36 Nopal de Castilla (fruto)
 
+    // ------------------------------------------------------------------
+    // RAMAS DE LOS ARBOLES
+    // ------------------------------------------------------------------
+    // Una rama NO llena su voxel: es un palo de 4x4 pixeles (4/16 de bloque)
+    // que atraviesa la celda. Su forma la decide el mesher a partir de los
+    // vecinos, igual que el cladodio del nopal, asi que con UN solo bloque
+    // por especie salen decenas de miles de siluetas distintas sin gastar
+    // IDs ni memoria.
+    //
+    // Una por especie, para que cada arbol use la textura de SU tronco.
+    BLOCK_RAMA_PINO,             // 37 Rama de pino
+    BLOCK_RAMA_ENCINO,           // 38 Rama de encino
+    BLOCK_RAMA_OYAMEL,           // 39 Rama de oyamel
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 36 Polvo de tierra
-    BLOCK_STICK,            // 37 Palo
-    BLOCK_HOE,              // 38 Hoz
-    BLOCK_COAL_ITEM,        // 39 Carbón (item)
-    BLOCK_RAW_ZINC,         // 40 Zinc crudo
-    BLOCK_RAW_COPPER,       // 41 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 40 Polvo de tierra
+    BLOCK_STICK,            // 41 Palo
+    BLOCK_HOE,              // 42 Hoz
+    BLOCK_COAL_ITEM,        // 43 Carbón (item)
+    BLOCK_RAW_ZINC,         // 44 Zinc crudo
+    BLOCK_RAW_COPPER,       // 45 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -121,18 +135,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 42 (sin implementar)
-    BLOCK_BRICKS,           // 43 (sin implementar)
-    BLOCK_GLASS,            // 44 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 45 (retirado del juego)
+    BLOCK_IRON_ORE,         // 46 (sin implementar)
+    BLOCK_BRICKS,           // 47 (sin implementar)
+    BLOCK_GLASS,            // 48 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 49 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 46 (ya no se genera)
+    BLOCK_BEDROCK           // 50 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (cladodio de nopal).
+// Último bloque COLOCABLE de la lista ordenada (rama de oyamel).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_FRUTO;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_RAMA_OYAMEL;
 
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.

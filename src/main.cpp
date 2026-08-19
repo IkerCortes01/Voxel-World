@@ -354,6 +354,9 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
         case BLOCK_NOPAL_CLADODIO: r = 0.35f; g = 0.62f; b = 0.30f; break; // Verde nopal
+        case BLOCK_RAMA_PINO:
+        case BLOCK_RAMA_ENCINO:
+        case BLOCK_RAMA_OYAMEL: r = 0.34f; g = 0.22f; b = 0.12f; break; // Corteza
         case BLOCK_COAL_ORE:  r = 0.3f; g = 0.3f; b = 0.3f; break;    // Gris muy oscuro (común)
         case BLOCK_IRON_ORE:  r = 0.8f; g = 0.7f; b = 0.6f; break;    // Beige rosado (poco común)
         case BLOCK_GOLD_ORE:  r = 1.0f; g = 0.84f; b = 0.0f; break;   // Dorado brillante (poco común)
@@ -397,7 +400,13 @@ bool isNopalSolido(BlockType type) {
     return isNopal(type) && type != BLOCK_NOPAL_CLADODIO;
 }
 
+bool isRama(BlockType type);   // definida mas abajo
+
 bool isCrossSprite(BlockType type) {
+    // Las ramas tienen su propia geometria en el mesher, pero comparten con
+    // los sprites que NO llenan el voxel: no tapan las caras del vecino y se
+    // pueden atravesar.
+    if (isRama(type)) return true;
     // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
     return type == BLOCK_TALLGRASS ||
@@ -642,6 +651,41 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     return true;
 }
 
+// ============================================================================
+// RAMAS: PALOS DE 4x4 PIXELES QUE CONECTAN EN 6 DIRECCIONES
+// ============================================================================
+// Una rama NO llena su voxel: es un palo de 4/16 de bloque de grosor que
+// atraviesa la celda. Su forma sale de QUE VECINOS TIENE, igual que el
+// cladodio del nopal:
+//
+//   - Se dibuja un nucleo central de 4x4x4.
+//   - Por cada direccion conectada (las 6 caras) se saca un brazo de 4x4 que
+//     llega hasta el borde del voxel.
+//
+// De ahi salen las formas: un brazo = punta, dos opuestos = palo recto, dos
+// perpendiculares = codo, tres = bifurcacion en T o en esquina, y asi hasta
+// las seis. Son 2^6 = 64 combinaciones de conexion por bloque, y como una
+// rama larga encadena muchos bloques, el numero de siluetas distintas de un
+// arbol crece de forma exponencial: con solo 9 bloques de rama ya se superan
+// las 100.000 formas (64^3 = 262.144 con tres bloques independientes).
+//
+// Coste: CERO memoria extra. No se guarda ningun dato de forma en el chunk;
+// la geometria se deduce de los vecinos al construir el mesh, que es
+// informacion que ya esta ahi.
+bool isRama(BlockType type) {
+    return type == BLOCK_RAMA_PINO ||
+           type == BLOCK_RAMA_ENCINO ||
+           type == BLOCK_RAMA_OYAMEL;
+}
+
+// Una rama enlaza con otras ramas, con el tronco y CON LAS HOJAS: asi la
+// copa cuelga de la rama en todos los lados matematicamente posibles.
+bool ramaEncadena(BlockType b) {
+    return isRama(b) ||
+           b == BLOCK_WOOD || b == BLOCK_WOOD_ENCINO || b == BLOCK_WOOD_OYAMEL ||
+           b == BLOCK_LEAVES || b == BLOCK_LEAVES_ENCINO || b == BLOCK_LEAVES_OYAMEL;
+}
+
 bool isBlockSolid(BlockType type) {
     // La vegetación en cruz NO tiene colisión: el jugador la atraviesa.
     // Sigue siendo seleccionable y rompible (eso lo decide el raycast, que
@@ -674,6 +718,10 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
         case BLOCK_NOPAL_CLADODIO: return 3.0f;
+        // Ramas: madera fina, se parten rapido.
+        case BLOCK_RAMA_PINO:
+        case BLOCK_RAMA_ENCINO:
+        case BLOCK_RAMA_OYAMEL: return 0.8f;
         case BLOCK_LEAVES:    return 0.2f;   // Hojas - muy rápido
         case BLOCK_LEAVES_ENCINO: return 0.2f;
         case BLOCK_LEAVES_OYAMEL: return 0.2f;
@@ -2929,6 +2977,14 @@ public:
             // Cladodio: SPRITE 3D.
             case BLOCK_NOPAL_CLADODIO:
                 return getTexture("Cladodio de Nopal de Castilla.png");
+
+            // --- RAMAS: cada especie usa la textura de SU tronco ---
+            case BLOCK_RAMA_PINO:
+                return getTexture("Tronco de Pino.png");
+            case BLOCK_RAMA_ENCINO:
+                return getTexture("Tronco de Encino.png");
+            case BLOCK_RAMA_OYAMEL:
+                return getTexture("Tronco de Oyame.png");
 
             // Fruto (tuna). Esta es la variante SUELTA; cuando toca un
             // cladodio el mesher usa la textura "conectado" (misma forma,
@@ -5455,6 +5511,112 @@ public:
     }
 
     // Generar pino (forma cónica como abeto) - ULTRA MEJORADO
+    // ========================================================================
+    // RAMAS DE LOS ARBOLES
+    // ========================================================================
+    // Brotan del TERCIO SUPERIOR del tronco —que es donde estan en un arbol
+    // real— y se alejan en linea quebrada, subiendo poco a poco. Cada rama
+    // avanza EN UN SOLO EJE por paso, nunca en diagonal, para que los bloques
+    // se toquen por una cara y el mesher pueda unirlos.
+    //
+    // CUANTAS FORMAS SALEN: cada bloque de rama se dibuja segun sus vecinos,
+    // y hay 2^6 = 64 combinaciones posibles por bloque. Un arbol lleva del
+    // orden de 20-40 bloques de rama, asi que el numero de siluetas es
+    // astronomico (64^3 = 262.144 ya con solo tres bloques independientes).
+    // Y no cuesta memoria: la forma NO se guarda, se deduce al mallar.
+    //
+    // `tipoRama` es el bloque de la especie; `tipoHoja`, para colgar follaje
+    // de las puntas.
+    void generarRamasArbol(int worldX, int baseY, int worldZ, int altura,
+                           BlockType tipoRama, BlockType tipoHoja,
+                           int semillaExtra) {
+        const int h = worldX * 7477 + worldZ * 4993 + altura * 131 + semillaExtra;
+        auto rnd = [&](int salt, int mod) {
+            unsigned v = (unsigned)(h ^ (salt * 2654435761u));
+            v ^= v >> 13; v *= 1274126177u; v ^= v >> 16;
+            return mod > 0 ? (int)(v % (unsigned)mod) : 0;
+        };
+
+        const int topY = baseY + altura - 1;
+        // Tercio superior del tronco: por debajo el arbol va limpio.
+        const int desde = baseY + (altura * 2) / 3;
+        if (desde >= topY) return;
+
+        const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+
+        // Numero de ramas proporcional a la altura, con variacion.
+        const int nRamas = 3 + altura / 3 + rnd(11, 3);
+
+        for (int i = 0; i < nRamas; ++i) {
+            const int y0 = desde + rnd(i * 71 + 3, (topY - desde) + 1);
+            const int d  = rnd(i * 137 + 29, 4);
+
+            // Ramas LARGAS, como se pidio: 3 a 7 bloques de recorrido.
+            const int largo = 3 + rnd(i * 211 + 17, 5);
+
+            int x = worldX, y = y0, z = worldZ;
+            bool viva = true;
+
+            for (int paso = 0; paso < largo && viva; ++paso) {
+                // Paso lateral (siempre en un solo eje).
+                x += dirs[d][0];
+                z += dirs[d][1];
+                if (y < 1 || y >= CHUNK_HEIGHT - 2) break;
+
+                const BlockType actual = getBlock(x, y, z);
+                if (actual != BLOCK_AIR && actual != tipoHoja) { viva = false; break; }
+                setBlock(x, y, z, tipoRama);
+
+                // Cada dos pasos sube uno: da la inclinacion natural sin
+                // romper la conexion (el paso vertical es aparte).
+                if (paso % 2 == 1) {
+                    ++y;
+                    if (y >= CHUNK_HEIGHT - 2) break;
+                    const BlockType arriba = getBlock(x, y, z);
+                    if (arriba != BLOCK_AIR && arriba != tipoHoja) { viva = false; break; }
+                    setBlock(x, y, z, tipoRama);
+                }
+
+                // Una de cada tres ramas se bifurca a mitad de camino: de ahi
+                // salen las horquillas y las formas en Y.
+                if (paso == largo / 2 && rnd(i * 313 + paso, 3) == 0) {
+                    const int d2 = (d + 1 + rnd(i * 17 + paso, 2)) % 4;
+                    int bx = x, bz = z;
+                    const int largoB = 2 + rnd(i * 401 + paso, 3);
+                    for (int k = 0; k < largoB; ++k) {
+                        bx += dirs[d2][0];
+                        bz += dirs[d2][1];
+                        const BlockType b = getBlock(bx, y, bz);
+                        if (b != BLOCK_AIR && b != tipoHoja) break;
+                        setBlock(bx, y, bz, tipoRama);
+                    }
+                    // Follaje en la punta del brote.
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx2 = -1; dx2 <= 1; ++dx2)
+                            for (int dz2 = -1; dz2 <= 1; ++dz2)
+                                if (getBlock(bx+dx2, y+dy, bz+dz2) == BLOCK_AIR &&
+                                    rnd(bx*31+dy*17+dz2*7, 100) < 55)
+                                    setBlock(bx+dx2, y+dy, bz+dz2, tipoHoja);
+                }
+            }
+
+            // FOLLAJE EN LA PUNTA: las hojas cuelgan de la rama por todos los
+            // lados posibles, que es lo que se pidio. El mesher las conecta
+            // porque ramaEncadena() incluye las hojas.
+            if (viva) {
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx2 = -1; dx2 <= 1; ++dx2)
+                        for (int dz2 = -1; dz2 <= 1; ++dz2) {
+                            const int fx = x + dx2, fy = y + dy, fz = z + dz2;
+                            if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
+                            if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
+                            if (rnd(fx * 53 + fy * 29 + fz * 11, 100) < 65)
+                                setBlock(fx, fy, fz, tipoHoja);
+                        }
+            }
+        }
+    }
+
     void generarPino(int worldX, int baseY, int worldZ, int altura) {
         if (altura < 6) altura = 6;
         if (altura > 35) altura = 35;
@@ -6305,6 +6467,10 @@ public:
             if ((seed % 3) == 0) {
                 // 33% pinos grandes
                 generarPino(worldX, baseY, worldZ, altura);
+            generarRamasArbol(worldX, baseY, worldZ, altura,
+                              BLOCK_RAMA_PINO, BLOCK_LEAVES, 101);
+                generarRamasArbol(worldX, baseY, worldZ, altura,
+                                  BLOCK_RAMA_PINO, BLOCK_LEAVES, 101);
             } else {
                 // 67% robles grandes
                 generarRoble(worldX, baseY, worldZ, altura);
@@ -6337,11 +6503,15 @@ public:
             // 5-8 y todos parecían del mismo tamaño.
             int altura = 5 + (seed % 8);   // 5-12 bloques
             generarEncino(worldX, baseY, worldZ, altura);
+            generarRamasArbol(worldX, baseY, worldZ, altura,
+                              BLOCK_RAMA_ENCINO, BLOCK_LEAVES_ENCINO, 202);
 
         } else if (tipoArbol == 8) {
             // ⭐ OYAMEL: conífera alta y cónica
             int altura = 9 + (seed % 7);   // 9-15 bloques
             generarOyamel(worldX, baseY, worldZ, altura);
+            generarRamasArbol(worldX, baseY, worldZ, altura,
+                              BLOCK_RAMA_OYAMEL, BLOCK_LEAVES_OYAMEL, 303);
         }
     }
 
@@ -7396,6 +7566,88 @@ public:
                             cols.push_back(cr); cols.push_back(cg); cols.push_back(cb); cols.push_back(ca);
                             uvCoords.push_back(U0); uvCoords.push_back(U0);
                         };
+
+                        if (isRama(block)) {
+                            // ========================================
+                            // RAMA: NUCLEO + UN BRAZO POR CONEXION
+                            // ========================================
+                            // Grosor exacto pedido: 4 pixeles de 16.
+                            constexpr float G = 4.0f / 16.0f;
+                            const float n0 = 0.5f - G * 0.5f;
+                            const float n1 = 0.5f + G * 0.5f;
+                            // Margen para no quedar coplanar con el vecino
+                            // (si no, las caras pelean en el depth buffer y
+                            // desaparecen segun el angulo de camara).
+                            constexpr float E = 0.0005f;
+
+                            const bool cXp = ramaEncadena(
+                                getNeighborBlockCached(x, y, z,  1, 0, 0));
+                            const bool cXm = ramaEncadena(
+                                getNeighborBlockCached(x, y, z, -1, 0, 0));
+                            const bool cYp = ramaEncadena(
+                                getNeighborBlockCached(x, y, z,  0, 1, 0));
+                            const bool cYm = ramaEncadena(
+                                getNeighborBlockCached(x, y, z,  0,-1, 0));
+                            const bool cZp = ramaEncadena(
+                                getNeighborBlockCached(x, y, z,  0, 0, 1));
+                            const bool cZm = ramaEncadena(
+                                getNeighborBlockCached(x, y, z,  0, 0,-1));
+
+                            // Emite una caja con sus 6 caras, cada una a
+                            // doble winding para que GL_CULL_FACE no pueda
+                            // descartar ninguna.
+                            auto pushCaja = [&](float ax, float ay, float az,
+                                                float bx_, float by_, float bz_) {
+                                auto cara = [&](float p0x,float p0y,float p0z,
+                                                float p1x,float p1y,float p1z,
+                                                float p2x,float p2y,float p2z,
+                                                float p3x,float p3y,float p3z) {
+                                    const float PX[4]={p0x,p1x,p2x,p3x};
+                                    const float PY[4]={p0y,p1y,p2y,p3y};
+                                    const float PZ[4]={p0z,p1z,p2z,p3z};
+                                    const float U[4] ={U0,U1,U1,U0};
+                                    const float V[4] ={U0,U0,U1,U1};
+                                    for (int i = 0; i < 4; ++i) {
+                                        verts.push_back(wx+PX[i]);
+                                        verts.push_back(wy+PY[i]);
+                                        verts.push_back(wz+PZ[i]);
+                                        cols.push_back(cr); cols.push_back(cg);
+                                        cols.push_back(cb); cols.push_back(ca);
+                                        uvCoords.push_back(U[i]);
+                                        uvCoords.push_back(V[i]);
+                                    }
+                                    for (int i = 3; i >= 0; --i) {
+                                        verts.push_back(wx+PX[i]);
+                                        verts.push_back(wy+PY[i]);
+                                        verts.push_back(wz+PZ[i]);
+                                        cols.push_back(cr); cols.push_back(cg);
+                                        cols.push_back(cb); cols.push_back(ca);
+                                        uvCoords.push_back(U[i]);
+                                        uvCoords.push_back(V[i]);
+                                    }
+                                };
+                                cara(ax,ay,bz_, ax,ay,az, ax,by_,az, ax,by_,bz_);
+                                cara(bx_,ay,az, bx_,ay,bz_, bx_,by_,bz_, bx_,by_,az);
+                                cara(ax,ay,az, bx_,ay,az, bx_,by_,az, ax,by_,az);
+                                cara(bx_,ay,bz_, ax,ay,bz_, ax,by_,bz_, bx_,by_,bz_);
+                                cara(ax,by_,az, bx_,by_,az, bx_,by_,bz_, ax,by_,bz_);
+                                cara(ax,ay,bz_, bx_,ay,bz_, bx_,ay,az, ax,ay,az);
+                            };
+
+                            // Nucleo central: siempre presente, de modo que
+                            // una rama suelta sigue siendo un cubito visible.
+                            pushCaja(n0, n0, n0, n1, n1, n1);
+
+                            // Un brazo por cada conexion, hasta el borde.
+                            if (cXm) pushCaja(E,  n0, n0, n0, n1, n1);
+                            if (cXp) pushCaja(n1, n0, n0, 1.0f-E, n1, n1);
+                            if (cYm) pushCaja(n0, E,  n0, n1, n0, n1);
+                            if (cYp) pushCaja(n0, n1, n0, n1, 1.0f-E, n1);
+                            if (cZm) pushCaja(n0, n0, E,  n1, n1, n0);
+                            if (cZp) pushCaja(n0, n0, n1, n1, n1, 1.0f-E);
+
+                            continue;   // no emitir las caras del cubo
+                        }
 
                         if (block == BLOCK_NOPAL_CLADODIO ||
                             block == BLOCK_NOPAL_FRUTO) {
@@ -9830,6 +10082,9 @@ inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
         case BLOCK_PLANKS_OYAMEL:
         case BLOCK_WOOD_ENCINO:
         case BLOCK_WOOD_OYAMEL:
+        case BLOCK_RAMA_PINO:
+        case BLOCK_RAMA_ENCINO:
+        case BLOCK_RAMA_OYAMEL:
             return Audio::StepMaterial::Wood;
 
         case BLOCK_SNOW:
@@ -10296,6 +10551,12 @@ struct GameState {
             case BLOCK_NOPAL_TALLO:
             case BLOCK_NOPAL_CLADODIO:
                 return BLOCK_NOPAL_CLADODIO;
+
+            // Una rama da un PALO: es exactamente lo que es.
+            case BLOCK_RAMA_PINO:
+            case BLOCK_RAMA_ENCINO:
+            case BLOCK_RAMA_OYAMEL:
+                return BLOCK_STICK;
 
             case BLOCK_LEAVES:
                 // Las hojas pueden no soltar nada (20% de probabilidad de soltar)

@@ -2924,6 +2924,12 @@ public:
             case BLOCK_NOPAL_BASE_A_ARCILLA:
                 if (suelo == BLOCK_GRASS) base = "Pasto con raices de nopal v";
                 else if (suelo == BLOCK_SAND) base = "Arena con raices de nopal v";
+                // No hay textura de nopal en TIERRA ni en las arcillas. Se usa
+                // la de arena, que es el suelo mas parecido visualmente y
+                // evita que un nopal en tierra se quede sin raices.
+                else if (suelo == BLOCK_DIRT || suelo == BLOCK_CLAY_DIRT ||
+                         suelo == BLOCK_CLAY_SAND)
+                    base = "Arena con raices de nopal v";
                 break;
             default:
                 break;
@@ -8634,18 +8640,72 @@ public:
 
                             cell.tex = g_textureManager->getBlockTexture(b, dir);
 
-                            // VARIANTE CON RAICES: si es la cara de ARRIBA de
-                            // un suelo y justo encima arranca un arbol o un
-                            // nopal, se usa la textura con raices. Es solo un
-                            // cambio de dibujo: el bloque sigue siendo pasto,
-                            // tierra o arena.
+                            // ================================================
+                            // RAICES ALREDEDOR DEL ARBOL
+                            // ================================================
+                            // El suelo se dibuja con raices no solo BAJO el
+                            // tronco, sino en los bloques de ALREDEDOR: un
+                            // arbol real extiende sus raices varios metros y
+                            // las mas gruesas afloran junto a la base.
+                            //
+                            // Se busca un tronco (o una base de nopal) en un
+                            // radio de 2 bloques. La probabilidad cae con la
+                            // distancia: pegado al tronco casi siempre hay
+                            // raiz, a dos bloques solo a veces. Asi el suelo
+                            // se degrada de forma natural en vez de dibujar un
+                            // cuadrado perfecto de raices.
+                            //
+                            // Sigue sin ser un bloque nuevo: es el mismo
+                            // pasto, tierra o arena con otra textura, elegida
+                            // al mallar a partir de lo que hay al lado.
                             if (dir == 0 &&
                                 (b == BLOCK_GRASS || b == BLOCK_DIRT ||
                                  b == BLOCK_SAND)) {
                                 const int wxr = chunk->position.x * CHUNK_SIZE + bx;
                                 const int wzr = chunk->position.z * CHUNK_SIZE + bz;
-                                const GLuint raices =
+
+                                // 1) Justo encima: la base del tronco. Aqui la
+                                //    raiz es segura.
+                                GLuint raices =
                                     g_textureManager->getTexturaRaices(b, nb, wxr, wzr);
+
+                                // 2) Si no, buscar un tronco cerca. Se recorre
+                                //    en anillos para quedarse con el MAS
+                                //    CERCANO, que es el que manda la textura.
+                                if (raices == 0) {
+                                    for (int r = 1; r <= 2 && raices == 0; ++r) {
+                                        for (int ox = -r; ox <= r && raices == 0; ++ox) {
+                                            for (int oz = -r; oz <= r && raices == 0; ++oz) {
+                                                // Solo el borde del anillo.
+                                                if (abs(ox) != r && abs(oz) != r) continue;
+                                                // Distancia de Manhattan: evita
+                                                // que las esquinas queden mas
+                                                // lejos que los lados.
+                                                const int dist = abs(ox) + abs(oz);
+                                                if (dist > 2) continue;
+
+                                                // Probabilidad por distancia:
+                                                // 1 bloque -> 70%, 2 -> 30%.
+                                                unsigned hh = (unsigned)((wxr + ox) * 73856093)
+                                                            ^ (unsigned)((wzr + oz) * 19349663)
+                                                            ^ (unsigned)(dist * 83492791);
+                                                hh ^= hh >> 13; hh *= 1274126177u; hh ^= hh >> 16;
+                                                const int prob = (dist == 1) ? 70 : 30;
+                                                if ((int)(hh % 100u) >= prob) continue;
+
+                                                // El vecino de arriba de ESE
+                                                // bloque es el que dice si hay
+                                                // tronco (y de que especie).
+                                                const BlockType arriba =
+                                                    getNeighborBlockCached(bx + ox, by, bz + oz,
+                                                                           0, 1, 0);
+                                                raices = g_textureManager->getTexturaRaices(
+                                                    b, arriba, wxr, wzr);
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (raices != 0) cell.tex = raices;
                             }
                             // Si la textura no resolvió, el mesh NO debe

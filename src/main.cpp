@@ -519,9 +519,16 @@ inline bool nopalEncadena(BlockType b) {
     // La TUNA queda FUERA a proposito: es un bloque independiente que se
     // apoya en la penca, no una parte de ella. Si encadenara, la penca se
     // estiraria hacia el fruto y perderia su forma.
+    //
+    // Las BASES si entran: una penca que nace a ras de suelo tiene que
+    // soldarse con la base igual que con el tallo, o queda una costura de
+    // aire justo en el arranque de la planta.
     return esCladodio(b) ||
            b == BLOCK_NOPAL_FRUTO ||
-           b == BLOCK_NOPAL_TALLO;
+           b == BLOCK_NOPAL_TALLO ||
+           b == BLOCK_NOPAL_BASE_PASTO || b == BLOCK_NOPAL_BASE_TIERRA ||
+           b == BLOCK_NOPAL_BASE_ARENA || b == BLOCK_NOPAL_BASE_T_ARCILLA ||
+           b == BLOCK_NOPAL_BASE_A_ARCILLA;
 }
 
 constexpr int NOPAL_PATRONES      = 100;
@@ -555,9 +562,39 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
                  (unsigned)(wz * 83492791);
     h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
 
-    const int enX = (f.uneXp ? 1 : 0) + (f.uneXm ? 1 : 0);
-    const int enZ = (f.uneZp ? 1 : 0) + (f.uneZm ? 1 : 0);
+    int enX = (f.uneXp ? 1 : 0) + (f.uneXm ? 1 : 0);
+    int enZ = (f.uneZp ? 1 : 0) + (f.uneZm ? 1 : 0);
     const int enY = (f.uneArriba ? 1 : 0) + (f.uneAbajo ? 1 : 0);
+
+    // --- CONEXION EN DIAGONAL ---
+    // Antes la penca solo miraba sus 6 caras rectas, asi que una vecina en
+    // diagonal (arriba y al lado, que es como sale un brote real del borde
+    // superior) no contaba para nada: la penca se orientaba al azar y las dos
+    // quedaban cruzadas, sin continuidad.
+    //
+    // Ahora las diagonales tambien pesan, con la mitad de fuerza que una cara
+    // entera: no llegan a estirar la caja (dos cubos en diagonal solo comparten
+    // una arista y estirarlos dejaria un hueco), pero SI inclinan la
+    // orientacion hacia ese lado, que es lo que hace que la mata fluya en vez
+    // de verse a trozos.
+    {
+        int diagX = 0, diagZ = 0;
+        for (int dy = -1; dy <= 1; dy += 2) {
+            if (nopalEncadena(get( 1, dy, 0))) ++diagX;
+            if (nopalEncadena(get(-1, dy, 0))) ++diagX;
+            if (nopalEncadena(get( 0, dy, 1))) ++diagZ;
+            if (nopalEncadena(get( 0, dy,-1))) ++diagZ;
+        }
+        // Diagonales del plano horizontal: brotes que salen de una esquina.
+        if (nopalEncadena(get( 1, 0, 1)) || nopalEncadena(get(-1, 0,-1)) ||
+            nopalEncadena(get( 1, 0,-1)) || nopalEncadena(get(-1, 0, 1))) {
+            // Una esquina no decanta ningun eje por si sola; suma a los dos
+            // para que la penca prefiera alinearse antes que quedar suelta.
+            ++diagX; ++diagZ;
+        }
+        enX += diagX / 2;
+        enZ += diagZ / 2;
+    }
 
     // --- ORIENTACION ---
     // Las pencas APILADAS mandan sobre todo lo demas: el jugador eligio al
@@ -9138,13 +9175,30 @@ public:
 
                             // Emite una caja completa (6 caras) entre dos
                             // alturas, con el recorte lateral que se le pase.
+                            // El estrechamiento se aplica SOLO al eje ANCHO de
+                            // la penca, nunca al del GROSOR.
+                            //
+                            // Medido en 108 cladodios (Ramirez-Castano 2023):
+                            // el grosor es practicamente constante en todo el
+                            // cuerpo (1.13 apice, 1.15 derecha, 1.14 izquierda
+                            // cm) y solo se engrosa en la insercion (2.80). O
+                            // sea: una PLACA de grosor uniforme, no una cuna.
+                            //
+                            // Antes el mordisco se restaba a los dos ejes, y
+                            // como el grosor solo tiene 5 px, la rodaja de la
+                            // base se quedaba en -0.5 px: la penca se dibujaba
+                            // como un cubo con las esquinas apenas limadas.
+                            const bool anchoEnX = (nf.orientacion == 0 ||
+                                                   nf.orientacion == 1);
                             auto pushRodaja = [&](float y0, float y1, float mordisco) {
                                 // Solo se recorta el lado libre: por donde la
                                 // planta sigue, la caja llega al borde.
-                                float rx0 = bx0 + (nf.uneXm ? 0.0f : mordisco);
-                                float rx1 = bx1 - (nf.uneXp ? 0.0f : mordisco);
-                                float rz0 = bz0 + (nf.uneZm ? 0.0f : mordisco);
-                                float rz1 = bz1 - (nf.uneZp ? 0.0f : mordisco);
+                                const float mX = anchoEnX ? mordisco : 0.0f;
+                                const float mZ = anchoEnX ? 0.0f : mordisco;
+                                float rx0 = bx0 + (nf.uneXm ? 0.0f : mX);
+                                float rx1 = bx1 - (nf.uneXp ? 0.0f : mX);
+                                float rz0 = bz0 + (nf.uneZm ? 0.0f : mZ);
+                                float rz1 = bz1 - (nf.uneZp ? 0.0f : mZ);
 
                                 // PENCA DIAGONAL: cada rodaja se corre un poco
                                 // mas que la de abajo, asi que la penca sube
@@ -9214,24 +9268,48 @@ public:
                             // libres: donde la planta continua, la union tiene
                             // que quedar recta o apareceria un escalon.
                             if (!esTuna(block)) {
-                                constexpr int RODAJAS = 5;
-                                // Ancho relativo de cada rodaja, de abajo
-                                // arriba. La base es un cuello estrecho y el
-                                // maximo cae en el cuarto tramo (tercio alto).
+                                // PERFIL OBOVADO, con los numeros medidos:
+                                //
+                                //  - El cuello de insercion baja al 20-30% del
+                                //    ancho maximo (Ramirez-Castano 2023, n=108).
+                                //    Antes estaba en 45%: demasiado ancho, por
+                                //    eso la penca parecia un cubo.
+                                //  - El punto mas ancho cae a 0.58-0.60 del
+                                //    largo desde la base, no en el centro: eso
+                                //    es lo que la hace obovada y no eliptica.
+                                //  - El apice es redondeado y ANCHO, sin
+                                //    escotadura (Reyes-Aguero 2005).
+                                //
+                                // Ocho rodajas en vez de cinco: con pocas, la
+                                // curva se ve como escalones en vez de contorno.
+                                constexpr int RODAJAS = 8;
                                 static const float PERFIL[RODAJAS] = {
-                                    0.45f,   // base: cuello de insercion
-                                    0.80f,
-                                    0.95f,
-                                    1.00f,   // punto mas ancho
-                                    0.72f,   // apice redondeado
+                                    0.25f,   // cuello de insercion (20-30%)
+                                    0.55f,
+                                    0.78f,
+                                    0.92f,
+                                    1.00f,   // punto mas ancho: ~0.58 L
+                                    0.97f,
+                                    0.86f,
+                                    0.66f,   // apice redondeado y ancho
                                 };
                                 const float alto = (by1 - by0) / (float)RODAJAS;
+                                // Cuanto se puede morder como maximo: lo que
+                                // sobra del ancho, dejando siempre un minimo
+                                // para que la rodaja no desaparezca.
+                                const float anchoTotal = anchoEnX ? (bx1 - bx0)
+                                                                  : (bz1 - bz0);
+                                const float margenMax = anchoTotal * 0.5f - 0.03f;
+
                                 for (int i = 0; i < RODAJAS; ++i) {
                                     const float ya = by0 + alto * i;
                                     const float yb = ya + alto;
-                                    // Cuanto se muerde: lo que le falta a esa
-                                    // rodaja para llegar al ancho maximo.
-                                    float m = (1.0f - PERFIL[i]) * CURVA * 2.5f;
+                                    // Lo que le falta a esta rodaja para
+                                    // alcanzar el ancho maximo, repartido a
+                                    // los dos lados.
+                                    float m = (1.0f - PERFIL[i]) * anchoTotal * 0.5f;
+                                    if (m > margenMax) m = margenMax;
+                                    if (m < 0.0f) m = 0.0f;
                                     // Si la planta sigue por arriba o por
                                     // abajo, esa union va recta.
                                     if (i == 0 && nf.uneAbajo) m = 0.0f;

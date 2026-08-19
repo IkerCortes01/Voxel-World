@@ -648,26 +648,48 @@ constexpr float TUNA_ANCHO   = 4.0f / 16.0f;
 constexpr float TUNA_EMPOTRE = 1.5f / 16.0f;
 constexpr int   TUNA_MAX     = 3;
 
+// Cuanto se rebaja el filo superior de la penca cuando lleva fruto. La tuna
+// se planta en ese hueco y asoma por encima del filo: ese contraste es lo que
+// hace que se vea en relieve, sin que la caja tenga que salirse del voxel.
+constexpr float TUNA_HUECO   = 4.0f / 16.0f;
+
 template <typename TSalida>
 void tunasDelCladodio(int wx, int wy, int wz,
                       float bx0, float bx1, float by0, float by1,
                       float bz0, float bz1, float eps, TSalida salida) {
-    // La penca ocupa TODO el alto del voxel, asi que por el filo de arriba no
-    // queda hueco donde asomar: una tuna puesta ahi se recorta contra el techo
-    // y se ve aplastada. Sale, en cambio, de la CARA ANCHA (la plana), que es
-    // ademas donde las areolas dan fruto en la planta real.
+    // La tuna crece HACIA ARRIBA, de pie sobre el filo superior de la penca:
+    // es como cuelga el fruto en un nopal real, con su eje largo vertical.
     //
-    // La cara ancha es la perpendicular al eje FINO de la losa.
+    // El fruto ocupa 6 px de alto, asi que la penca le cede esos 6 px de su
+    // parte alta: la tuna arranca dentro de ella (empotrada, sin junta a la
+    // vista) y sobresale por encima del filo. Como el voxel mide 16 y la
+    // penca llega arriba del todo, el fruto se planta ligeramente mas abajo
+    // para que quepa entero sin recortarse contra el techo.
     const float grosorX = bx1 - bx0;
     const float grosorZ = bz1 - bz0;
     const bool  finaEnZ = grosorZ <= grosorX;   // losa vertical mirando N/S
 
-    // A lo largo de la cara caben varias tunas: se reparten por el eje largo
-    // y por la altura, que es donde hay sitio de sobra.
+    // Se reparten a lo largo del filo (el eje largo de la penca).
     const float largo = finaEnZ ? grosorX : grosorZ;
     int nTunas = (int)(largo / (TUNA_ANCHO * 1.6f));
     if (nTunas > TUNA_MAX) nTunas = TUNA_MAX;
     if (nTunas < 1) nTunas = 1;
+
+    // Altura: la tuna se planta DE PIE, con su tope en el techo del voxel.
+    //
+    // Podria pensarse en dejarla asomar al voxel de arriba para que
+    // sobresalga mas, pero seria un error: tanto la colision como el raycast
+    // recorren el mundo celda a celda y consultan la caja de CADA celda, asi
+    // que la parte que invadiera la celda vecina no se detectaria desde ella
+    // y el jugador la atravesaria justo por donde asoma. La caja tiene que
+    // quedarse dentro de su voxel.
+    //
+    // Para que aun asi se vea en relieve, quien dibuja la penca le recorta el
+    // filo superior (ver TUNA_HUECO) y ahi es donde se planta el fruto: la
+    // tuna sobresale sobre la penca, no sobre el bloque.
+    const float ty1 = 1.0f - eps;
+    const float ty0 = ty1 - TUNA_ALTO;
+    if (ty0 < by0) return;                      // penca sin sitio: sin fruto
 
     for (int i = 0; i < nTunas; ++i) {
         unsigned ht = (unsigned)(wx * 374761393) ^ (unsigned)(wy * 668265263)
@@ -675,40 +697,23 @@ void tunasDelCladodio(int wx, int wy, int wz,
         ht ^= ht >> 15; ht *= 2654435761u; ht ^= ht >> 13;
         if ((int)(ht % 100u) >= 42) continue;   // no todos los sitios dan fruto
 
-        // Posicion a lo largo de la cara.
+        // Posicion a lo largo del filo.
         const float t = (nTunas == 1) ? 0.5f
                                       : (0.22f + 0.56f * i / (float)(nTunas - 1));
-        // Altura: reparto por la cara, dejando sitio para los 6 px del fruto.
-        const float alturaLibre = (by1 - by0) - TUNA_ALTO;
-        const float u = (alturaLibre > 0.0f)
-                      ? (by0 + alturaLibre * (0.25f + 0.5f * ((ht >> 9) % 100u) / 100.0f))
-                      : by0;
-        const float ty0 = u;
-        float ty1 = ty0 + TUNA_ALTO;
-        if (ty1 > 1.0f - eps) ty1 = 1.0f - eps;
-        if (ty1 - ty0 < TUNA_ALTO * 0.5f) continue;   // sin sitio: sin fruto
 
-        // El fruto sale hacia FUERA de la cara ancha, empotrado un poco en la
-        // penca para que no se vea junta. Alterna de lado segun el hash.
-        const bool haciaPositivo = ((ht >> 3) & 1u) != 0;
-
+        // El fruto se centra en el grosor de la penca: al ser esta mas fina
+        // (5 px) que la tuna (4), queda montado sobre ella sin volar.
         if (finaEnZ) {
-            const float ex = bx0 + (bx1 - bx0) * t;
-            const float z0 = haciaPositivo ? (bz1 - TUNA_EMPOTRE)
-                                           : (bz0 + TUNA_EMPOTRE - TUNA_ANCHO);
-            float za = z0, zb = z0 + TUNA_ANCHO;
-            if (za < eps) { zb += eps - za; za = eps; }
-            if (zb > 1.0f - eps) { za -= zb - (1.0f - eps); zb = 1.0f - eps; }
+            const float ex = bx0 + grosorX * t;
+            const float cz = (bz0 + bz1) * 0.5f;
             salida(i, ex - TUNA_ANCHO * 0.5f, ex + TUNA_ANCHO * 0.5f,
-                      ty0, ty1, za, zb);
+                      ty0, ty1,
+                      cz - TUNA_ANCHO * 0.5f, cz + TUNA_ANCHO * 0.5f);
         } else {
-            const float ez = bz0 + (bz1 - bz0) * t;
-            const float x0 = haciaPositivo ? (bx1 - TUNA_EMPOTRE)
-                                           : (bx0 + TUNA_EMPOTRE - TUNA_ANCHO);
-            float xa = x0, xb = x0 + TUNA_ANCHO;
-            if (xa < eps) { xb += eps - xa; xa = eps; }
-            if (xb > 1.0f - eps) { xa -= xb - (1.0f - eps); xb = 1.0f - eps; }
-            salida(i, xa, xb, ty0, ty1,
+            const float ez = bz0 + grosorZ * t;
+            const float cx = (bx0 + bx1) * 0.5f;
+            salida(i, cx - TUNA_ANCHO * 0.5f, cx + TUNA_ANCHO * 0.5f,
+                      ty0, ty1,
                       ez - TUNA_ANCHO * 0.5f, ez + TUNA_ANCHO * 0.5f);
         }
     }
@@ -734,7 +739,10 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Sobresalen por encima del filo del cladodio, asi que la caja se estira
     // para abarcarlas: si no, el jugador atravesaria un fruto que esta viendo
     // y no podria seleccionarlo. La caja crece justo lo que ocupan, ni mas.
-    if (type == BLOCK_NOPAL_CLADODIO) {
+    // La misma condicion que usa el mesher: solo hay fruto donde la planta no
+    // continua hacia arriba. Si no coincidieran, el jugador chocaria con una
+    // tuna que no se dibuja (o atravesaria una que si se ve).
+    if (type == BLOCK_NOPAL_CLADODIO && !f.uneArriba) {
         constexpr float EPS = 0.0005f;
         // Se parte de la caja de la PENCA: si se fuera ampliando sobre la
         // caja ya crecida, cada tuna moveria el punto de partida de la
@@ -8655,6 +8663,14 @@ public:
                             // lo que hace que la marca de union con el
                             // cladodio se vea SOLO en el lado por el que de
                             // verdad conecta, y no envuelva la penca entera.
+                            // `zoom` recorta las UV hacia el centro de la
+                            // textura. Sirve para las TUNAS: su dibujo es
+                            // redondo sobre fondo transparente, asi que
+                            // mapeando la imagen entera las cuatro esquinas
+                            // vacias se veian como AGUJEROS en el fruto.
+                            // Muestreando solo la zona opaca del centro, la
+                            // caja queda maciza.
+                            float uvZoom = 0.0f;
                             auto pushCaraTex = [&](GLuint tex,
                                                 float ax, float ay, float az,
                                                 float bx_, float by_, float bz_,
@@ -8663,8 +8679,10 @@ public:
                                 const float PX[4] = { ax, bx_, cx_, dx_ };
                                 const float PY[4] = { ay, by_, cy_, dy_ };
                                 const float PZ[4] = { az, bz_, cz_, dz_ };
-                                const float U[4]  = { U0, U1, U1, U0 };
-                                const float V[4]  = { U0, U0, U1, U1 };
+                                const float a0 = U0 + (U1 - U0) * uvZoom;
+                                const float a1 = U1 - (U1 - U0) * uvZoom;
+                                const float U[4]  = { a0, a1, a1, a0 };
+                                const float V[4]  = { a0, a0, a1, a1 };
 
                                 auto& vv = verticesByTexture[tex];
                                 auto& cc = colorsByTexture[tex];
@@ -8742,6 +8760,17 @@ public:
                             // escalon en la union.
                             constexpr float CURVA = 2.0f / 16.0f;   // los 2 px
 
+                            // Esta penca lleva fruto? Hace falta saberlo ANTES
+                            // de dibujarla, porque en ese caso se le rebaja el
+                            // filo de arriba para dejarle sitio a la tuna.
+                            bool llevaTuna = false;
+                            if (block == BLOCK_NOPAL_CLADODIO && !nf.uneArriba) {
+                                tunasDelCladodio((int)wx, (int)wy, (int)wz,
+                                                 bx0, bx1, by0, by1, bz0, bz1, EPS,
+                                    [&](int, float, float, float, float,
+                                        float, float) { llevaTuna = true; });
+                            }
+
                             // Alto de cada rodaja. Las de los extremos son las
                             // que se recortan.
                             const float ah = (by1 - by0) / 3.0f;
@@ -8787,9 +8816,18 @@ public:
                             // Las tres rodajas. Arriba y abajo van mordidas,
                             // salvo que la planta continue en esa direccion:
                             // entonces la union tiene que ser recta.
-                            pushRodaja(by0, yc0, nf.uneAbajo  ? 0.0f : CURVA);
-                            pushRodaja(yc0, yc1, 0.0f);
-                            pushRodaja(yc1, by1, nf.uneArriba ? 0.0f : CURVA);
+                            //
+                            // Si esta penca lleva fruto, su filo superior se
+                            // rebaja TUNA_HUECO: la tuna se planta ahi y asoma
+                            // por encima, que es lo que la hace verse en
+                            // relieve sin que la caja salga del voxel.
+                            const float pencaTop = llevaTuna ? (by1 - TUNA_HUECO) : by1;
+                            const float ah2 = (pencaTop - by0) / 3.0f;
+                            const float pyc0 = by0 + ah2;
+                            const float pyc1 = pencaTop - ah2;
+                            pushRodaja(by0, pyc0, nf.uneAbajo  ? 0.0f : CURVA);
+                            pushRodaja(pyc0, pyc1, 0.0f);
+                            pushRodaja(pyc1, pencaTop, nf.uneArriba ? 0.0f : CURVA);
 
                             // ============================================
                             // LAS TUNAS, PEGADAS A LA PENCA
@@ -8805,13 +8843,25 @@ public:
                             // no se vea una junta entre las dos: en la planta
                             // real la tuna emerge de la piel del cladodio.
                             //
-                            // Brotan del filo de ARRIBA, que es la zona joven,
-                            // y solo si ese lado esta libre: donde la planta
-                            // continua no hay sitio para fruto.
+                            // Crecen DE PIE sobre el filo superior, con su eje
+                            // largo en vertical, que es como cuelga el fruto en
+                            // un nopal real.
+                            //
                             // El reparto sale de tunasDelCladodio(), la MISMA
                             // funcion que usa la caja de colision: asi el
                             // fruto que se ve y el que se toca son el mismo.
-                            if (block == BLOCK_NOPAL_CLADODIO) {
+                            // Solo donde la planta NO continua hacia arriba:
+                            // ahi el filo esta libre y hay sitio para el fruto.
+                            if (llevaTuna) {
+                                // SIN AGUJEROS: el dibujo de la tuna es redondo
+                                // sobre fondo transparente, asi que mapear la
+                                // imagen entera dejaba ver a traves por las
+                                // cuatro esquinas vacias. Se muestrea solo el
+                                // nucleo opaco: medido en las seis texturas,
+                                // recortar 5 de los 16 pixeles por lado deja
+                                // una zona 100% solida.
+                                uvZoom = 5.0f / 16.0f;
+
                                 tunasDelCladodio((int)wx, (int)wy, (int)wz,
                                                  bx0, bx1, by0, by1, bz0, bz1, EPS,
                                     [&](int i, float tx0, float tx1,
@@ -8839,6 +8889,7 @@ public:
                                     pushCaraTex(texT, tx0,ty0,tz1, tx1,ty0,tz1,
                                                       tx1,ty0,tz0, tx0,ty0,tz0);
                                 });
+                                uvZoom = 0.0f;   // el resto usa la textura entera
                             }
 
                         } else {

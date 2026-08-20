@@ -635,7 +635,24 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     const bool hayPared    = paredXm || paredXp || paredZm || paredZp;
     const bool sueltaEnPlanta = (enX == 0 && enZ == 0 && enY == 0);
 
-    if (pencasApiladas(f.tipo) > 1) {
+    // LA PENCA CAIDA MANDA SOBRE TODO.
+    //
+    // Una penca suelta apoyada en el suelo no se queda de pie: se cae. Es una
+    // pieza plana y pesada, sin nada que la sujete, asi que queda TUMBADA con
+    // su eje corto en vertical (orientacion 4, losa horizontal).
+    //
+    // Va lo primero porque tiene que ganar incluso a la pared: una penca en el
+    // suelo pegada a un muro sigue estando en el suelo, y quedaria absurdo que
+    // se levantara de canto solo por tener piedra al lado.
+    //
+    // Solo aplica a la PENCA suelta (BLOCK_NOPAL_FRUTO). Los cladodios de una
+    // mata siguen de pie aunque toquen el suelo: los sujeta la planta.
+    const bool pencaCaida = (f.tipo == BLOCK_NOPAL_FRUTO) &&
+                            sueltaEnPlanta && apoyoAbajo;
+
+    if (pencaCaida) {
+        f.orientacion = 4;                          // tumbada, fina en Y
+    } else if (pencasApiladas(f.tipo) > 1) {
         // Las pencas APILADAS mandan sobre todo lo demas: el jugador eligio al
         // colocarlas si las juntaba a lo ancho o a lo largo, y esa decision no
         // puede cambiarla el vecindario.
@@ -726,13 +743,18 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // voxel eso seria menos de un pixel, asi que 5 px es ya una concesion
     // generosa a la legibilidad; apilarlas es lo que acerca el volumen del
     // conjunto al de una mata real.
-    // Medidas de UNA penca: 8 px de ancho por 7 de grosor. Al apilar varias
-    // en el mismo voxel el grosor crece: 7 una, 14 dos, y tres ya no caben en
-    // los 16 px del bloque, asi que se limitan a 15.
+    // Al apilar varias pencas en el mismo voxel el grosor crece, con tope de
+    // 15 px para que tres nunca se salgan del bloque.
+    //
+    // La PENCA suelta es mas PLANA que el cladodio de la mata: es una pieza
+    // sola, no un grupo apretado de varias. El cladodio conserva sus 7 px.
     const int nPencas = pencasApiladas(f.tipo);
     constexpr float PENCA_ANCHO  = 8.0f / 16.0f;
-    constexpr float PENCA_GROSOR = 7.0f / 16.0f;
-    float GROSOR = PENCA_GROSOR * (float)nPencas;
+    constexpr float GROSOR_MATA  = 7.0f / 16.0f;   // cladodio de la planta
+    constexpr float GROSOR_PENCA = 3.0f / 16.0f;   // penca suelta: plana
+    const float grosorBase = (f.tipo == BLOCK_NOPAL_FRUTO) ? GROSOR_PENCA
+                                                           : GROSOR_MATA;
+    float GROSOR = grosorBase * (float)nPencas;
     if (GROSOR > 15.0f / 16.0f) GROSOR = 15.0f / 16.0f;
     const float c0 = 0.5f - GROSOR * 0.5f;
     const float c1 = 0.5f + GROSOR * 0.5f;

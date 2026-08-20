@@ -1341,6 +1341,20 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         return true;
     }
 
+    // --- TIRAS Y BABA: la losa tumbada ---
+    // Las mismas medidas que dibuja el mesher, para que el jugador toque y
+    // seleccione justo donde ve la pieza.
+    if (type == BLOCK_NOPAL_TIRAS || type == BLOCK_NOPAL_SIN_BABA ||
+        type == BLOCK_NOPAL_BABA) {
+        constexpr float EPS = 0.0005f;
+        constexpr float ALTO = 3.0f / 16.0f;
+        constexpr float M    = 1.0f / 16.0f;
+        minX = M;    maxX = 1.0f - M;
+        minY = EPS;  maxY = EPS + ALTO;
+        minZ = M;    maxZ = 1.0f - M;
+        return true;
+    }
+
     if (!esCladodio(type) && type != BLOCK_NOPAL_FRUTO &&
         type != BLOCK_NOPAL_MOJADO) return false;
 
@@ -9820,6 +9834,73 @@ public:
                             if (cYp) pushCaja(n0, n1, n0, n1, 1.0f-E, n1);
                             if (cZm) pushCaja(n0, n0, E,  n1, n1, n0);
                             if (cZp) pushCaja(n0, n0, n1, n1, n1, 1.0f-E);
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
+                        // ============================================
+                        // TIRAS Y BABA: LOSA TUMBADA MIRANDO AL SUR
+                        // ============================================
+                        // No son hierba: son piezas de cocina apoyadas en el
+                        // suelo. Se dibujan como una losa fina y horizontal,
+                        // con la textura de frente hacia el POLO SUR (-Z),
+                        // que es la cara por la que se leen.
+                        //
+                        // La losa es plana a proposito: unas tiras cortadas o
+                        // un charco de baba no tienen volumen, estan echados
+                        // sobre la superficie.
+                        if (block == BLOCK_NOPAL_TIRAS ||
+                            block == BLOCK_NOPAL_SIN_BABA ||
+                            block == BLOCK_NOPAL_BABA) {
+                            constexpr float EPS = 0.0005f;
+                            // 3 px de alto: lo justo para que se vea el canto.
+                            constexpr float ALTO = 3.0f / 16.0f;
+                            // Deja un margen para que no toque el borde del
+                            // voxel y pelee con el bloque de al lado.
+                            constexpr float M = 1.0f / 16.0f;
+
+                            const float x0 = M,        x1 = 1.0f - M;
+                            const float y0 = EPS,      y1 = EPS + ALTO;
+                            const float z0 = M,        z1 = 1.0f - M;
+
+                            auto cara = [&](float ax,float ay,float az,
+                                            float bx_,float by_,float bz_,
+                                            float cx_,float cy_,float cz_,
+                                            float dx_,float dy_,float dz_) {
+                                const float PX[4] = { ax, bx_, cx_, dx_ };
+                                const float PY[4] = { ay, by_, cy_, dy_ };
+                                const float PZ[4] = { az, bz_, cz_, dz_ };
+                                const float U[4]  = { U0, U1, U1, U0 };
+                                const float V[4]  = { U0, U0, U1, U1 };
+                                for (int i = 0; i < 4; ++i) {
+                                    verts.push_back(wx+PX[i]);
+                                    verts.push_back(wy+PY[i]);
+                                    verts.push_back(wz+PZ[i]);
+                                    cols.push_back(cr); cols.push_back(cg);
+                                    cols.push_back(cb); cols.push_back(ca);
+                                    uvCoords.push_back(U[i]);
+                                    uvCoords.push_back(V[i]);
+                                }
+                                for (int i = 3; i >= 0; --i) {
+                                    verts.push_back(wx+PX[i]);
+                                    verts.push_back(wy+PY[i]);
+                                    verts.push_back(wz+PZ[i]);
+                                    cols.push_back(cr); cols.push_back(cg);
+                                    cols.push_back(cb); cols.push_back(ca);
+                                    uvCoords.push_back(U[i]);
+                                    uvCoords.push_back(V[i]);
+                                }
+                            };
+
+                            // Las seis caras de la losa. La de ARRIBA y la del
+                            // SUR llevan la textura de frente, que son las dos
+                            // por las que se mira una pieza tumbada.
+                            cara(x0,y1,z0, x1,y1,z0, x1,y1,z1, x0,y1,z1); // +Y
+                            cara(x0,y0,z1, x1,y0,z1, x1,y0,z0, x0,y0,z0); // -Y
+                            cara(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0); // -Z sur
+                            cara(x1,y0,z1, x0,y0,z1, x0,y1,z1, x1,y1,z1); // +Z
+                            cara(x0,y0,z1, x0,y0,z0, x0,y1,z0, x0,y1,z1); // -X
+                            cara(x1,y0,z0, x1,y0,z1, x1,y1,z1, x1,y1,z0); // +X
 
                             continue;   // no emitir las caras del cubo
                         }

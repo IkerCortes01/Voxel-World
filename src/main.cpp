@@ -1666,6 +1666,47 @@ float getBlockBreakTime(BlockType type) {
 // es irrompible).
 constexpr float SURVIVAL_WOOD_BREAK_TIME = 480.0f;   // 8 minutos
 
+// ⭐ DIEZ MINUTOS A MANO
+//
+// Piedra, pasto, minerales y raices pasan a costar 600 segundos en
+// supervivencia. La idea es la misma que la de los troncos: arrancar estas
+// cosas con las manos desnudas no debe ser viable, y el jugador tiene que
+// buscarse una herramienta.
+//
+// En CREATIVO no aplica: ahi se construye, y esperar diez minutos por
+// bloque no tendria ningun sentido.
+constexpr float SURVIVAL_HARD_BREAK_TIME = 600.0f;   // 10 minutos
+
+// ¿Es uno de los bloques que cuestan 10 minutos a mano?
+inline bool esBloqueDuroASurvival(BlockType type) {
+    switch (type) {
+        // --- PIEDRA y sus formas labradas ---
+        case BLOCK_STONE:
+        case BLOCK_COBBLESTONE:
+        case BLOCK_LIMESTONE:
+
+        // --- PASTO (y la tierra que lleva debajo) ---
+        case BLOCK_GRASS:
+
+        // --- MINERALES ---
+        case BLOCK_COAL_ORE:
+        case BLOCK_IRON_ORE:
+        case BLOCK_GOLD_ORE:
+        case BLOCK_SILVER_ORE:
+        case BLOCK_DIAMOND_ORE:
+        case BLOCK_SCRAP_METAL:
+
+        // --- RAICES DE LOS ARBOLES (los cuatro grosores) ---
+        case BLOCK_RAIZ_PEQUENA:
+        case BLOCK_RAIZ_MEDIANA:
+        case BLOCK_RAIZ_GRANDE:
+        case BLOCK_RAIZ_ENORME:
+            return true;
+        default:
+            return false;
+    }
+}
+
 float getBlockBreakTimeForMode(BlockType type, int gameMode) {
     // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
     const bool isSurvival = (gameMode != 1);
@@ -1677,6 +1718,12 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode) {
                        type == BLOCK_WOOD_OYAMEL)) {
         return SURVIVAL_WOOD_BREAK_TIME;
     }
+
+    // Piedra, pasto, minerales y raices: diez minutos a mano.
+    if (isSurvival && esBloqueDuroASurvival(type)) {
+        return SURVIVAL_HARD_BREAK_TIME;
+    }
+
     return getBlockBreakTime(type);
 }
 
@@ -1701,15 +1748,23 @@ bool shouldRenderFace(BlockType currentBlock, BlockType neighborBlock) {
     // Si el vecino es agua y el bloque actual es sólido, renderizar
     if (neighborBlock == BLOCK_WATER && isBlockOpaque(currentBlock)) return true;
 
-    // No renderizar caras entre bloques solidos identicos
-    if (currentBlock == neighborBlock) return false;
-
-    // Bloques transparentes (hojas, pasto alto): renderizar si vecino es diferente
-    if (!isBlockOpaque(currentBlock)) return true;
-
-    // No renderizar si el vecino es un bloque solido diferente
-    if (isBlockOpaque(neighborBlock)) return false;
-
+    // ⭐ TODAS LAS CARAS SE DIBUJAN
+    //
+    // Antes se descartaban las caras tapadas por un vecino opaco: la que
+    // separa dos bloques de tierra no se ve nunca, asi que emitirla era
+    // trabajo tirado. Es la optimizacion clasica de un motor de voxeles.
+    //
+    // Se ha pedido dibujarlas todas, asi que aqui se devuelve `true` sin
+    // mas. Consecuencia a tener en cuenta: la geometria del mundo crece
+    // mucho -- un bloque enterrado pasa de 0 caras a 6 -- y con ella el
+    // gasto de memoria y de dibujado. Si el juego va a tirones, este es el
+    // sitio donde revertirlo: basta con restaurar las cuatro lineas de
+    // abajo.
+    //
+    //     if (currentBlock == neighborBlock) return false;
+    //     if (!isBlockOpaque(currentBlock)) return true;
+    //     if (isBlockOpaque(neighborBlock)) return false;
+    //
     return true;
 }
 
@@ -10021,11 +10076,19 @@ public:
                                    b != BLOCK_LAVA && !isCrossSprite(b);
                         };
 
-                        if (occludes(top) && occludes(bottom) &&
-                            occludes(north) && occludes(south) &&
-                            occludes(east) && occludes(west)) {
-                            continue; // Bloque completamente oculto, skip
-                        }
+                        // ⭐ YA NO SE DESCARTAN LOS BLOQUES RODEADOS
+                        //
+                        // Aqui se saltaba todo bloque con sus seis vecinos
+                        // opacos, porque no se le ve ninguna cara. Ahora que
+                        // se dibujan TODAS las caras, ese atajo dejaria el
+                        // cambio a medias: los bloques enterrados seguirian
+                        // sin emitir nada.
+                        //
+                        // Se conserva el calculo de los vecinos porque lo usa
+                        // el resto del bucle.
+                        (void)top; (void)bottom; (void)north;
+                        (void)south; (void)east; (void)west;
+                        (void)occludes;
                     }
 
                     int worldX = chunk->position.x * CHUNK_SIZE + x;

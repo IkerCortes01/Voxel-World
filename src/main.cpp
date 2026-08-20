@@ -8493,17 +8493,35 @@ public:
         vt ^= vt >> 13; vt *= 1274126177u; vt ^= vt >> 16;
         const unsigned dado = vt % 100u;
 
+        // ALTURA DE LA PUNTA, un bloque mas abajo que antes.
+        //
+        // La espina se colocaba en el techo de la mata, y en las grandes
+        // quedaba flotando por encima de las hojas: la roseta se dibuja
+        // ABIERTA -- las hojas se van hacia fuera segun suben -- asi que
+        // arriba del todo ya no hay planta donde apoyarla.
+        //
+        // Ahora cae un bloque mas abajo, justo donde las hojas todavia
+        // llegan. Se aplica a todos los tamaños por igual:
+        //
+        //     pequena  +0    mediana  +0    grande  +1    enorme  +2
+        //
+        // Las dos mas pequeñas comparten bloque con el cuerpo, asi que su
+        // espina va incluida en la propia roseta y no se coloca aparte: son
+        // matas de un solo bloque de alto.
         BlockType cuerpo;
-        int BLOQUES_HOJA;
+        int alturaPunta;   // en bloques sobre la base; -1 = sin pieza aparte
         if (dado < 30u) {            // 30% pequeñas: brotes
-            cuerpo = BLOCK_IXTLE_PEQUENA;  BLOQUES_HOJA = 0;
+            cuerpo = BLOCK_IXTLE_PEQUENA;  alturaPunta = -1;
         } else if (dado < 70u) {     // 40% medianas: lo normal
-            cuerpo = BLOCK_IXTLE_HOJA;     BLOQUES_HOJA = 1;
+            cuerpo = BLOCK_IXTLE_HOJA;     alturaPunta = -1;
         } else if (dado < 92u) {     // 22% grandes
-            cuerpo = BLOCK_IXTLE_GRANDE;   BLOQUES_HOJA = 2;
+            cuerpo = BLOCK_IXTLE_GRANDE;   alturaPunta = 1;
         } else {                     // 8% enormes: ejemplares viejos
-            cuerpo = BLOCK_IXTLE_ENORME;   BLOQUES_HOJA = 3;
+            cuerpo = BLOCK_IXTLE_ENORME;   alturaPunta = 2;
         }
+
+        // Hueco que hay que reservar: hasta donde llega la pieza mas alta.
+        const int BLOQUES_HOJA = (alturaPunta > 0) ? alturaPunta : 0;
 
         // Hace falta sitio libre para que la mata quepa entera. Si no lo
         // hay (una cueva baja, un saliente), la mata no crece: mejor eso
@@ -8519,11 +8537,22 @@ public:
         if (!cabe) return;
 
         setBlock(worldX, baseY, worldZ, cuerpo);
-        // La PUNTA remata la mata. En las pequeñas cae en el mismo bloque
-        // que el cuerpo, asi que se deja solo el cuerpo: un brote recien
-        // salido todavia no tiene espina que destaque.
-        if (BLOQUES_HOJA > 0) {
-            setBlock(worldX, baseY + BLOQUES_HOJA, worldZ, BLOCK_IXTLE_PUNTA);
+
+        // ⭐ LA PUNTA VA UN BLOQUE MAS ABAJO
+        //
+        // Antes se colocaba en el techo de la mata (baseY + BLOQUES_HOJA),
+        // asi que en las matas grandes quedaba flotando por encima de las
+        // hojas: la roseta se dibuja abierta y sus hojas ya no llegan tan
+        // arriba, de modo que la espina se veia despegada de la planta.
+        //
+        // Bajandola un bloque cae justo donde terminan las hojas, que es
+        // donde de verdad remata una lechuguilla. Se aplica a TODOS los
+        // tamaños por igual.
+        //
+        // La espina, un bloque por debajo de donde iba antes. En las matas
+        // de un solo bloque va dentro de la propia roseta.
+        if (alturaPunta > 0) {
+            setBlock(worldX, baseY + alturaPunta, worldZ, BLOCK_IXTLE_PUNTA);
         }
     }
 

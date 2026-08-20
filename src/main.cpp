@@ -370,6 +370,9 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_NOPAL_TIRAS:  r = 0.26f; g = 0.60f; b = 0.24f; break;
         case BLOCK_NOPAL_SIN_BABA: r = 0.30f; g = 0.66f; b = 0.28f; break;
         case BLOCK_NOPAL_BABA:   r = 0.55f; g = 0.80f; b = 0.45f; break;
+        case BLOCK_IXTLE_TALLO:  r = 0.22f; g = 0.42f; b = 0.14f; break;
+        case BLOCK_IXTLE_HOJA:
+        case BLOCK_IXTLE_PUNTA:  r = 0.18f; g = 0.36f; b = 0.11f; break;
         case BLOCK_TUNA:      r = 0.42f; g = 0.66f; b = 0.30f; break; // Tuna verde
         case BLOCK_TUNA_AMARILLA: r = 0.93f; g = 0.74f; b = 0.19f; break;
         case BLOCK_TUNA_ROJA: r = 0.78f; g = 0.20f; b = 0.20f; break;
@@ -427,6 +430,7 @@ bool isCrossSprite(BlockType type) {
     // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
     return type == BLOCK_TALLGRASS ||
+           esIxtle(type) ||
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
            type == BLOCK_NOPAL_MOJADO ||
@@ -1341,6 +1345,19 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         return true;
     }
 
+    // --- IXTLE: la roseta ---
+    // Una mata de lechuguilla es baja y no llena el voxel. La caja cubre el
+    // circulo que abarcan las hojas y llega hasta donde llegan las puntas,
+    // de modo que el jugador la selecciona donde la ve.
+    if (esIxtle(type)) {
+        constexpr float PX = 1.0f / 16.0f;
+        minX = 2.0f * PX;   maxX = 1.0f - 2.0f * PX;
+        minY = 0.0f;        maxY = (type == BLOCK_IXTLE_PUNTA)
+                                 ? 7.0f * PX : 10.0f * PX;
+        minZ = 2.0f * PX;   maxZ = 1.0f - 2.0f * PX;
+        return true;
+    }
+
     // --- TIRAS Y BABA: la losa tumbada ---
     // Las mismas medidas que dibuja el mesher, para que el jugador toque y
     // seleccione justo donde ve la pieza.
@@ -1468,6 +1485,11 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_NOPAL_TIRAS:
         case BLOCK_NOPAL_SIN_BABA:
         case BLOCK_NOPAL_BABA:   return 0.4f;
+        // Ixtle: la fibra es muy resistente, de ahi que se use para
+        // hacer cuerdas y costales.
+        case BLOCK_IXTLE_TALLO:  return 1.2f;
+        case BLOCK_IXTLE_HOJA:
+        case BLOCK_IXTLE_PUNTA:  return 0.8f;
         // La tuna se arranca de un tiron: es fruta, no carne de penca.
         case BLOCK_TUNA:
         case BLOCK_TUNA_AMARILLA:
@@ -4256,6 +4278,14 @@ public:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Baba de nopal.png"));
 
+            // --- IXTLE (lechuguilla) ---
+            case BLOCK_IXTLE_TALLO:
+                return getTexture("Tallo de ixtle.png");
+            case BLOCK_IXTLE_HOJA:
+                return getTexture("Ixtle.png");
+            case BLOCK_IXTLE_PUNTA:
+                return getTexture("Puntas de Ixtle.png");
+
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
             // inventario y el item en el suelo. Se usa la verde tierna.
@@ -6662,6 +6692,59 @@ public:
                         generarNopal(worldX, surfaceY + 1, worldZ);
                     }
                 }
+
+                // ---- IXTLE (LECHUGUILLA) ----
+                // Muy comun, como se pidio, y ademas por una razon real: la
+                // lechuguilla es el agave DOMINANTE del Desierto Chihuahuense
+                // y sus poblaciones "cubren vastas extensiones" del Altiplano.
+                //
+                // No brota suelta: se reproduce por RIZOMA, echando hijuelos
+                // que forman COLONIAS CLONALES. Por eso no se tira un dado
+                // por columna, sino que se siembra un FOCO y de el sale una
+                // mancha de matas. Eso da el aspecto de la planta real:
+                // manchones densos con claros entre ellos, no puntos sueltos
+                // repartidos por igual.
+                if (esSueloParaNopal(ground) &&
+                    chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
+                    // El foco de la colonia: una rejilla de 12x12 bloques.
+                    // Cada celda de la rejilla tiene su propio foco, y las
+                    // matas salen alrededor de el.
+                    const int fx = (worldX >= 0 ? worldX : worldX - 11) / 12;
+                    const int fz = (worldZ >= 0 ? worldZ : worldZ - 11) / 12;
+                    unsigned hf = (unsigned)(fx * 374761393) ^
+                                  (unsigned)(fz * 668265263);
+                    hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
+
+                    // 2 de cada 5 celdas tienen colonia: comun de verdad,
+                    // pero deja claros para que no sea un tapiz uniforme.
+                    if ((hf % 5u) < 2u) {
+                        // Centro del manchon dentro de su celda.
+                        const int cx = fx * 12 + (int)((hf >> 3) % 12u);
+                        const int cz = fz * 12 + (int)((hf >> 11) % 12u);
+                        const int dx = worldX - cx;
+                        const int dz = worldZ - cz;
+                        const int d2 = dx * dx + dz * dz;
+
+                        // Radio del manchon: de 2 a 5 bloques.
+                        const int radio = 2 + (int)((hf >> 19) % 4u);
+
+                        if (d2 <= radio * radio) {
+                            // Dentro del manchon la densidad baja hacia el
+                            // borde: tupido en el centro, disperso fuera.
+                            unsigned hm = (unsigned)(worldX * 4517) ^
+                                          (unsigned)(worldZ * 8291) ^ 0x5bf03635u;
+                            hm ^= hm >> 13; hm *= 2246822519u; hm ^= hm >> 16;
+
+                            const int borde = radio * radio;
+                            // 100% en el centro, ~35% en el borde.
+                            const unsigned prob = 100u -
+                                (unsigned)((65 * d2) / (borde > 0 ? borde : 1));
+                            if ((hm % 100u) < prob) {
+                                generarIxtle(worldX, surfaceY + 1, worldZ);
+                            }
+                        }
+                    }
+                }
             }
         }
         // ⭐ PUBLICAR los bloques que este chunk dejó para sus vecinos y
@@ -8178,6 +8261,55 @@ public:
             // Grava, arcilla y cualquier otro suelo blando: se usa la
             // variante de tierra, que es la mas neutra.
             default:               return BLOCK_NOPAL_BASE_TIERRA;
+        }
+    }
+
+    // ========================================================================
+    // IXTLE (LECHUGUILLA -- Agave lechuguilla)
+    // ========================================================================
+    // El agave del que se saca la fibra de ixtle. A diferencia del nopal NO
+    // tiene tronco: es una ROSETA de hojas rigidas que salen todas del mismo
+    // punto, a ras de suelo.
+    //
+    // Medidas reales: roseta de 30-50 cm de alto por 30-60 de ancho, con
+    // 11-30 hojas lineares-lanceoladas de 25-50 x 2.5-4 cm, erectas y con la
+    // punta endurecida en espina. A escala del juego (1 bloque = 1 m) eso es
+    // una planta de UN bloque de alto casi siempre, y de dos solo cuando le
+    // ha ido bien: por eso la mata no es una torre, es una mata baja.
+    //
+    // Las tres piezas:
+    //   TALLO  el cogollo del que brotan las hojas (siempre en la base)
+    //   HOJA   el cuerpo de la hoja, cuando la mata es alta
+    //   PUNTA  el remate en espina, arriba del todo
+    void generarIxtle(int worldX, int baseY, int worldZ) {
+        if (getBlock(worldX, baseY, worldZ) != BLOCK_AIR) return;
+
+        // El suelo tiene que sostenerla. La lechuguilla es planta de
+        // desierto: arraiga en suelos pobres y pedregosos, pero necesita
+        // suelo, no roca desnuda ni agua.
+        const BlockType suelo = getBlock(worldX, baseY - 1, worldZ);
+        if (!esSueloParaNopal(suelo)) return;
+
+        // Hash determinista: la misma mata en la misma posicion, siempre.
+        unsigned v = (unsigned)(worldX * 6421 + worldZ * 9187 + 7717);
+        v ^= v >> 13; v *= 1274126177u; v ^= v >> 16;
+
+        // La mayoria de las matas son de UN bloque (la roseta entera cabe
+        // ahi: 45 cm de alto). Una de cada cuatro es una planta vieja, ya
+        // crecida, y llega a dos.
+        const bool alta = ((v >> 5) % 4u) == 0u;
+
+        if (alta && getBlock(worldX, baseY + 1, worldZ) == BLOCK_AIR) {
+            // Cogollo abajo, cuerpo en medio y espinas rematando arriba.
+            setBlock(worldX, baseY,     worldZ, BLOCK_IXTLE_TALLO);
+            setBlock(worldX, baseY + 1, worldZ, BLOCK_IXTLE_PUNTA);
+        } else {
+            // Mata normal: la roseta entera en un bloque. Se alterna entre
+            // el tallo (con cogollo) y la hoja suelta para que el manchon
+            // no salga uniforme.
+            setBlock(worldX, baseY, worldZ,
+                     ((v >> 9) % 3u) == 0u ? BLOCK_IXTLE_HOJA
+                                           : BLOCK_IXTLE_TALLO);
         }
     }
 
@@ -9834,6 +9966,175 @@ public:
                             if (cYp) pushCaja(n0, n1, n0, n1, 1.0f-E, n1);
                             if (cZm) pushCaja(n0, n0, E,  n1, n1, n0);
                             if (cZp) pushCaja(n0, n0, n1, n1, n1, 1.0f-E);
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
+                        // ============================================
+                        // IXTLE (LECHUGUILLA): ROSETA DE HOJAS RIGIDAS
+                        // ============================================
+                        // El Agave lechuguilla no tiene tronco: las hojas
+                        // salen TODAS del mismo punto, a ras de suelo, y se
+                        // abren en abanico. Por eso no se dibuja como una
+                        // cruz de hierba (dos planos fijos) sino como una
+                        // ROSETA: N hojas repartidas alrededor del centro,
+                        // cada una un prisma largo y estrecho que sale del
+                        // cogollo y se inclina hacia fuera.
+                        //
+                        // MEDIDAS, de la planta real a pixeles.
+                        // Roseta de 30-50 cm de alto por 30-60 de ancho, con
+                        // hojas de 25-50 x 2.5-4 cm, lineares-lanceoladas.
+                        // Con 1 bloque = 1 m = 16 px:
+                        //     hoja  ~40 cm de largo -> 6.5 px
+                        //     hoja  ~3 cm de ancho  -> 0.5 px (se deja 1,
+                        //                              que es el minimo que
+                        //                              se ve)
+                        // Asi la mata entera ocupa poco mas de medio bloque
+                        // de alto, que es lo que mide de verdad: una planta
+                        // baja, no un arbusto.
+                        //
+                        // El numero de hojas (11-30 en la planta real) sale
+                        // del hash de la posicion, de modo que cada mata es
+                        // distinta y siempre la misma al recargar el chunk.
+                        if (esIxtle(block)) {
+                            constexpr float PX = 1.0f / 16.0f;
+
+                            // Semilla estable: la posicion en el mundo.
+                            unsigned hs = (unsigned)((int)wx * 73856093)
+                                        ^ (unsigned)((int)wy * 19349663)
+                                        ^ (unsigned)((int)wz * 83492791);
+                            hs ^= hs >> 13; hs *= 1274126177u; hs ^= hs >> 16;
+                            // Mezcla por atributo: si se usa el mismo hash a
+                            // trozos, los valores salen correlacionados.
+                            auto mezcla = [&](unsigned sal) {
+                                unsigned v = hs ^ (sal * 2654435761u);
+                                v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
+                                v *= 3266489917u; v ^= v >> 16;
+                                return v;
+                            };
+
+                            // 11 a 26 hojas, como la planta real.
+                            const int nHojas = 11 + (int)(mezcla(1) % 16u);
+
+                            // La PUNTA es la espina terminal: mas corta y
+                            // mas empinada, es el remate de la hoja. El
+                            // TALLO es el cogollo del centro.
+                            const bool esPunta = (block == BLOCK_IXTLE_PUNTA);
+                            const bool esTallo = (block == BLOCK_IXTLE_TALLO);
+
+                            // Largo de la hoja, con variacion por mata.
+                            const float largo = esPunta
+                                ? (4.0f + (float)(mezcla(2) % 3u)) * PX
+                                : (6.0f + (float)(mezcla(2) % 4u)) * PX;
+                            const float medio = 0.5f;
+
+                            // Emite un prisma entre dos puntos, con un
+                            // grosor dado. Es lo que dibuja cada hoja.
+                            auto pushCaja = [&](float ax,float ay,float az,
+                                                float bx_,float by_,float bz_){
+                                const float cx[8] = {ax,bx_,bx_,ax,ax,bx_,bx_,ax};
+                                const float cy[8] = {ay,ay,ay,ay,by_,by_,by_,by_};
+                                const float cz[8] = {az,az,bz_,bz_,az,az,bz_,bz_};
+                                // Las seis caras, cada una con la textura
+                                // completa y de frente.
+                                static const int F[6][4] = {
+                                    {4,5,6,7}, {3,2,1,0}, {0,1,5,4},
+                                    {2,3,7,6}, {3,0,4,7}, {1,2,6,5}
+                                };
+                                for (int f = 0; f < 6; ++f) {
+                                    const float UU[4] = { U0, U1, U1, U0 };
+                                    const float VV[4] = { U0, U0, U1, U1 };
+                                    for (int i = 0; i < 4; ++i) {
+                                        const int k = F[f][i];
+                                        verts.push_back(wx + cx[k]);
+                                        verts.push_back(wy + cy[k]);
+                                        verts.push_back(wz + cz[k]);
+                                        cols.push_back(cr); cols.push_back(cg);
+                                        cols.push_back(cb); cols.push_back(ca);
+                                        uvCoords.push_back(UU[i]);
+                                        uvCoords.push_back(VV[i]);
+                                    }
+                                }
+                            };
+
+                            // El COGOLLO: la base carnosa de la que brotan
+                            // todas las hojas. Solo la lleva el tallo.
+                            if (esTallo) {
+                                pushCaja(medio - 2.5f*PX, 0.0f,  medio - 2.5f*PX,
+                                         medio + 2.5f*PX, 3.0f*PX, medio + 2.5f*PX);
+                            }
+
+                            // LAS HOJAS. Se reparten en circulo alrededor
+                            // del centro con un desfase por mata, de modo
+                            // que dos matas vecinas no salen calcadas.
+                            const float giro0 =
+                                (float)(mezcla(3) % 360u) * 3.14159265f / 180.0f;
+
+                            for (int h = 0; h < nHojas; ++h) {
+                                const float ang = giro0 +
+                                    6.28318531f * (float)h / (float)nHojas;
+
+                                // Inclinacion: las hojas de dentro salen
+                                // casi verticales y las de fuera mas
+                                // abiertas, que es la silueta de embudo de
+                                // la lechuguilla. La espina terminal es la
+                                // mas erecta de todas.
+                                unsigned mi = mezcla(100u + (unsigned)h);
+                                const float abre = esPunta
+                                    ? 0.15f + (float)(mi % 20u) * 0.005f
+                                    : 0.35f + (float)(mi % 45u) * 0.010f;
+
+                                // Punta de la hoja: hacia fuera y hacia
+                                // arriba. El seno/coseno reparten el
+                                // desplazamiento horizontal.
+                                const float dx = cosf(ang) * largo * abre;
+                                const float dz = sinf(ang) * largo * abre;
+                                const float dy = largo;
+
+                                // Grosor: 1 px, que es lo que mide una hoja
+                                // de lechuguilla a esta escala.
+                                const float G = 0.5f * PX;
+
+                                // La hoja se dibuja como una escalera de
+                                // tramos rectos: asi se ve el arco de la
+                                // hoja sin necesidad de rotar vertices.
+                                constexpr int TRAMOS = 3;
+                                float px0 = medio, py0 = esTallo ? 2.0f*PX : 0.0f,
+                                      pz0 = medio;
+                                for (int t = 1; t <= TRAMOS; ++t) {
+                                    const float f = (float)t / (float)TRAMOS;
+                                    // La hoja sube deprisa al principio y se
+                                    // abre al final: se curva hacia fuera.
+                                    const float px1 = medio + dx * f * f;
+                                    const float py1 = py0 + dy / (float)TRAMOS;
+                                    const float pz1 = medio + dz * f * f;
+
+                                    // min/max propios: en Windows.h min y
+                                    // max son MACROS y rompen std::min.
+                                    auto mn = [](float u, float w) {
+                                        return u < w ? u : w; };
+                                    auto mx = [](float u, float w) {
+                                        return u > w ? u : w; };
+
+                                    const float ax  = mn(px0, px1) - G;
+                                    const float bx_ = mx(px0, px1) + G;
+                                    const float az  = mn(pz0, pz1) - G;
+                                    const float bz_ = mx(pz0, pz1) + G;
+
+                                    // Sin salirse del voxel: una hoja que
+                                    // asoma al bloque vecino se veria
+                                    // flotando dentro de el.
+                                    pushCaja(mx(0.0f, ax),
+                                             py0,
+                                             mx(0.0f, az),
+                                             mn(1.0f, bx_),
+                                             mn(1.0f, py1),
+                                             mn(1.0f, bz_));
+
+                                    px0 = px1; py0 = py1; pz0 = pz1;
+                                    if (py0 >= 1.0f) break;
+                                }
+                            }
 
                             continue;   // no emitir las caras del cubo
                         }

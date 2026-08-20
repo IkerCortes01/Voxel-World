@@ -189,18 +189,31 @@ enum BlockType {
     BLOCK_NOPAL_SIN_BABA,        // 54 Tiras sin baba, mojadas
     BLOCK_NOPAL_BABA,            // 55 Baba de nopal
 
+    // ------------------------------------------------------------------
+    // IXTLE (lechuguilla)
+    // ------------------------------------------------------------------
+    // Agave de roseta que crece en el desierto mexicano, del que se saca la
+    // fibra de ixtle. Se compone de tres piezas:
+    //
+    //   TALLO   la base carnosa de la que salen las hojas
+    //   HOJA    el cuerpo de la hoja, rigido y erecto
+    //   PUNTA   el remate en espina de cada hoja
+    BLOCK_IXTLE_TALLO,           // 56 Base de la roseta
+    BLOCK_IXTLE_HOJA,            // 57 Cuerpo de la hoja
+    BLOCK_IXTLE_PUNTA,           // 58 Punta en espina
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 56 Polvo de tierra
-    BLOCK_STICK,            // 57 Palo
-    BLOCK_HOE,              // 58 Hoz
-    BLOCK_COAL_ITEM,        // 59 Carbón (item)
-    BLOCK_RAW_ZINC,         // 60 Zinc crudo
-    BLOCK_RAW_COPPER,       // 61 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 59 Polvo de tierra
+    BLOCK_STICK,            // 60 Palo
+    BLOCK_HOE,              // 61 Hoz
+    BLOCK_COAL_ITEM,        // 62 Carbón (item)
+    BLOCK_RAW_ZINC,         // 63 Zinc crudo
+    BLOCK_RAW_COPPER,       // 64 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -209,18 +222,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 62 (sin implementar)
-    BLOCK_BRICKS,           // 63 (sin implementar)
-    BLOCK_GLASS,            // 64 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 65 (retirado del juego)
+    BLOCK_IRON_ORE,         // 65 (sin implementar)
+    BLOCK_BRICKS,           // 66 (sin implementar)
+    BLOCK_GLASS,            // 67 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 68 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 66 (ya no se genera)
+    BLOCK_BEDROCK           // 69 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (la baba de nopal).
+// Último bloque COLOCABLE de la lista ordenada (la punta de ixtle).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_BABA;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_IXTLE_PUNTA;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {
@@ -237,6 +250,12 @@ inline int grosorRaiz(BlockType t) {
         case BLOCK_RAIZ_ENORME:  return 16;
         default:                 return 0;
     }
+}
+
+// ¿Es una pieza de ixtle (lechuguilla), de cualquiera de las tres?
+inline bool esIxtle(BlockType t) {
+    return t == BLOCK_IXTLE_TALLO || t == BLOCK_IXTLE_HOJA ||
+           t == BLOCK_IXTLE_PUNTA;
 }
 
 // ¿Es una tuna, de cualquiera de las tres variedades? Se usa en todos los

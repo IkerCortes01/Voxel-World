@@ -1,0 +1,340 @@
+================================================================================
+07 - ASTRONOMÍA, CALENDARIO Y ESCRITURA
+================================================================================
+
+--------------------------------------------------------------------------------
+ADVERTENCIA DE ENTRADA: LA TRAMPA CRONOLÓGICA
+--------------------------------------------------------------------------------
+
+Este es el capítulo donde la divulgación se equivoca con más frecuencia, y
+conviene empezar por ahí.
+
+Se lee constantemente que "los olmecas inventaron el calendario", "los
+olmecas inventaron el cero" y "los olmecas inventaron la escritura". El
+problema es de fechas:
+
+  Las inscripciones calendáricas y los textos escritos más antiguos de la
+  región son EPI-OLMECAS: posteriores al abandono de La Venta (400 a.C.),
+  en algunos casos por varios siglos.
+
+  La Estela C de Tres Zapotes es de 32 a.C. La Venta llevaba casi cuatro
+  siglos abandonada.
+
+Eso no significa que los olmecas no supieran nada de astronomía o de cómputo
+del tiempo. Significa que la evidencia DIRECTA (inscripciones) es posterior,
+y que lo olmeca propiamente dicho se limita a evidencia INDIRECTA:
+orientaciones de edificios, que sí son medibles y sí son olmecas.
+
+Mantener esa distinción es lo que separa la documentación de la leyenda.
+
+================================================================================
+1. ASTRONOMÍA OLMECA: LO QUE SÍ ES OLMECA
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 LA ORIENTACIÓN DE LA VENTA
+--------------------------------------------------------------------------------
+
+EL DATO: el eje principal de La Venta está orientado aproximadamente 8° al
+oeste del norte astronómico. El Complejo A se dispone simétricamente
+respecto a ese eje. [CONSENSO en la medida]
+
+POR QUÉ IMPORTA: no es una orientación casual ni impuesta por el terreno.
+Es una decisión, mantenida a lo largo de cuatro fases constructivas y
+varios siglos. Alguien decidió que el mundo se construía mirando ahí.
+
+QUÉ SIGNIFICA: aquí empieza el debate.
+
+  - Hipótesis astronómica general: la orientación se vincula a puestas o
+    salidas de un astro en una fecha significativa. [PROBABLE]
+  - Hipótesis de Venus: Ivan Šprajc ha estudiado sistemáticamente las
+    orientaciones arquitectónicas mesoamericanas y ha señalado la
+    importancia de los extremos norte de Venus vespertino, que anuncian o
+    coinciden con el inicio de la temporada de lluvias y del ciclo
+    agrícola. Ha argumentado que la presencia de este tipo de orientación
+    en La Venta sugiere el uso de un calendario ya hacia 1000 a.C.
+    [PROBABLE — es la línea de trabajo más sólida disponible]
+  - Hipótesis magnética: John Carlson vinculó la orientación con el
+    artefacto de hematita M-160 de San Lorenzo y un posible conocimiento
+    del magnetismo. [ESPECULATIVO — ver archivo 05]
+
+LO IMPORTANTE PARA EL JUEGO: si las orientaciones marcan el inicio de la
+temporada de lluvias, entonces la astronomía olmeca era AGRÍCOLA antes que
+ninguna otra cosa. No se miraba el cielo por curiosidad: se miraba para
+saber cuándo sembrar. Ese es el vínculo real entre astronomía y
+supervivencia.
+
+--------------------------------------------------------------------------------
+1.2 QUÉ OBSERVABAN (reconstrucción razonada)
+--------------------------------------------------------------------------------
+
+Con base en las orientaciones documentadas y en la continuidad
+mesoamericana posterior:
+
+  EL SOL
+    - Solsticios (los extremos del recorrido anual del punto de salida).
+    - Equinoccios.
+    - PASOS CENITALES: en latitudes tropicales, dos días al año el sol pasa
+      exactamente por el cenit y los objetos verticales no proyectan
+      sombra. Es un fenómeno espectacular, fácil de observar sin
+      instrumentos, y marca fechas fijas del año. En la latitud olmeca
+      (~18° N) ocurre. Es de los marcadores más probables. [PROBABLE]
+
+  VENUS
+    - El astro más brillante después del Sol y la Luna, con un ciclo
+      sinódico de 584 días que se puede seguir a simple vista.
+    - Sus extremos norte como marcador del inicio de lluvias (Šprajc).
+    - En toda Mesoamérica posterior, Venus tiene una carga simbólica
+      enorme. [PROBABLE para los olmecas]
+
+  LA LUNA
+    - Ciclo de 29,5 días; base natural de cualquier cómputo mensual.
+    [PROBABLE]
+
+  LAS PLÉYADES
+    - Cúmulo estelar cuya salida helíaca marca estaciones en muchas
+      culturas agrícolas, incluida la mesoamericana posterior.
+    [ESPECULATIVO para los olmecas]
+
+  LA VÍA LÁCTEA y la orientación general del cielo.
+    [ESPECULATIVO]
+
+INSTRUMENTOS: no se conserva ninguno. La observación de horizonte no
+requiere instrumentos: basta con marcar el punto de salida del sol contra
+un accidente del terreno o contra un poste, y registrar el ciclo. Los
+propios edificios funcionan como instrumento. [PROBABLE]
+
+================================================================================
+2. LOS CALENDARIOS MESOAMERICANOS
+================================================================================
+
+Descritos aquí porque son el sistema en el que desemboca la región, con la
+advertencia constante de que su documentación es posterior a los olmecas.
+
+--------------------------------------------------------------------------------
+2.1 EL CICLO DE 260 DÍAS
+--------------------------------------------------------------------------------
+
+  Combinación de 13 números con 20 signos de día: 13 x 20 = 260 días.
+  Es el calendario ritual y adivinatorio, el más extendido y probablemente
+  el más antiguo de Mesoamérica. Nombres posteriores: tzolk'in (maya),
+  tonalpohualli (náhuatl), pije (zapoteco).
+
+  ¿Por qué 260? Se han propuesto: el periodo de gestación humana (~9
+  meses), el intervalo entre pasos cenitales en ciertas latitudes, y
+  ciclos agrícolas. Ninguna explicación es concluyente. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+2.2 EL CICLO DE 365 DÍAS
+--------------------------------------------------------------------------------
+
+  18 "meses" de 20 días = 360, más 5 días adicionales considerados
+  aciagos. Es el año solar aproximado, el calendario agrícola y civil.
+  Nombres posteriores: haab' (maya), xiuhpohualli (náhuatl).
+
+  No hay año bisiesto: el calendario se desfasa lentamente respecto al año
+  trópico real, y los mesoamericanos lo sabían y lo asumían.
+
+--------------------------------------------------------------------------------
+2.3 LA RUEDA CALENDÁRICA
+--------------------------------------------------------------------------------
+
+  Los ciclos de 260 y 365 días engranan y vuelven a coincidir cada 52 años
+  (18.980 días). Ese "siglo" de 52 años es una unidad fundamental en toda
+  Mesoamérica.
+
+--------------------------------------------------------------------------------
+2.4 LA CUENTA LARGA
+--------------------------------------------------------------------------------
+
+  Cómputo absoluto: cuenta los días transcurridos desde una fecha de origen
+  mítica (correlacionada con el 11 de agosto de 3114 a.C. en el calendario
+  gregoriano proléptico, según la correlación GMT más aceptada).
+
+  UNIDADES:
+    k'in      = 1 día
+    winal     = 20 k'in       = 20 días
+    tun       = 18 winal      = 360 días
+    k'atun    = 20 tun        = 7.200 días (~19,7 años)
+    b'ak'tun  = 20 k'atun     = 144.000 días (~394 años)
+
+  Es un sistema POSICIONAL de base 20 (con la irregularidad del tun, que
+  usa 18 en vez de 20 para aproximarse al año solar), y REQUIERE UN CERO
+  posicional para funcionar. De ahí la afirmación de que Mesoamérica
+  desarrolló el cero de forma independiente. [CONSENSO]
+
+  LAS INSCRIPCIONES MÁS ANTIGUAS CONOCIDAS:
+
+    Estela 2 de Chiapa de Corzo (Chiapas) .......... 36 a.C.
+    Estela C de Tres Zapotes (Veracruz) ............ 32 a.C.
+    Estela 1 de La Mojarra (Veracruz) .............. 143 y 156 d.C.
+    Estatuilla de Tuxtla (Veracruz) ................ 162 d.C.
+
+  TODAS están en la zona istmeña, al oeste del territorio maya, y en estilo
+  EPI-OLMECA, no maya. Por eso la mayoría de investigadores considera que
+  la Cuenta Larga es anterior a los mayas y de origen istmeño. [PROBABLE-
+  CONSENSO]
+
+  Y todas son POSTERIORES a la cultura olmeca. [CONSENSO]
+
+  SOBRE 2012: el final del 13º b'ak'tun (21 de diciembre de 2012) marcaba
+  el cierre de un ciclo calendárico, no del mundo — como un cuentakilómetros
+  que vuelve a cero. No existe ninguna profecía olmeca al respecto, entre
+  otras cosas porque la Cuenta Larga es posterior a ellos. [RECHAZADO como
+  profecía]
+
+================================================================================
+3. ESCRITURA
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 EL BLOQUE DE CASCAJAL — el candidato discutido
+--------------------------------------------------------------------------------
+
+EL OBJETO
+  Losa de serpentinita.
+  Medidas: 36 x 21 x 13 cm. Peso: ~11,5 kg.
+  62 signos incisos, de los cuales una parte se repite en secuencias.
+  Hallado a finales de los años 90 en escombros removidos por maquinaria,
+  cerca de Lomas de Tacamichapan (Veracruz), en pleno territorio olmeca.
+  Registrado ante las autoridades mexicanas por Carmen Rodríguez y
+  Ponciano Ortiz.
+  Publicado en Science el 15 de septiembre de 2006 (Rodríguez Martínez,
+  Ortiz Ceballos, Houston, Taube y Delgado Calderón).
+  Fechado por cerámica y figurillas asociadas hacia 900 a.C., fase San
+  Lorenzo.
+  [CONSENSO en la descripción física]
+
+SI FUERA ESCRITURA, sería el sistema de escritura más antiguo de América,
+unos 400 años anterior a la escritura zapoteca.
+
+ARGUMENTOS A FAVOR
+  - Stephen Houston (Brown): los signos muestran sintaxis y orden de
+    palabras propios de una lengua concreta, no un patrón decorativo.
+  - William Saturno: "texto legítimo y completo, símbolos escritos
+    ocupando el lugar de palabras habladas".
+  - Hay secuencias de signos que se repiten, patrón característico de
+    escritura.
+  - Estudio de 2019 (Englehardt et al.): mapeo de textura polinómica,
+    fluorescencia de rayos X y microscopía electrónica de barrido. La
+    serpentinita coincide con canteras usadas por los olmecas
+    (Tehuitzingo, Puebla); las incisiones son compatibles con herramientas
+    de obsidiana y abrasión con arenisca; el desgaste es asimétrico y
+    coherente con antigüedad. Esto respalda que la pieza es auténtica y
+    olmeca.
+
+ARGUMENTOS EN CONTRA
+  - SIN CONTEXTO ESTRATIGRÁFICO. Apareció en escombros de cantera movidos
+    por maquinaria. La fecha depende de material asociado hallado suelto.
+  - DISPOSICIÓN HORIZONTAL de los signos, mientras que todos los demás
+    sistemas mesoamericanos conocidos se escriben en columnas verticales.
+    David Grove señaló esto como sospechoso.
+  - ES ÚNICO. No existe ningún otro objeto olmeca comparable. En
+    arqueología, lo único siempre levanta sospechas (Christopher Pool).
+  - Karen Bruhns y Nancy Kelker publicaron cinco objeciones formales en
+    Science (9 de marzo de 2007), incluida la duda directa sobre la
+    autenticidad. Los autores originales replicaron punto por punto,
+    señalando entre otras cosas que la propia Piedra de Rosetta tiene una
+    procedencia problemática.
+  - Los signos no muestran un patrón organizativo claro; aparecen como
+    "unidades independientes de información".
+
+INTERPRETACIÓN ALTERNATIVA
+  Freidel y Reilly (2010): no sería texto fonético, sino la representación
+  de tres bultos sagrados dispuestos para adivinación ritual — un
+  inventario simbólico, no un enunciado lingüístico.
+
+ESTADO ACTUAL
+  La autenticidad material está razonablemente respaldada tras el estudio
+  de 2019. Que sea ESCRITURA en sentido pleno (representación sistemática
+  de una lengua) sigue sin consenso. [DEBATIDO]
+
+  Y no está descifrado. Circulan "traducciones" por internet; ninguna es
+  aceptada. Con un único texto de 62 signos, sin bilingüe y sin lengua
+  conocida, el desciframiento es técnicamente imposible en el estado
+  actual del conocimiento. [RECHAZADO cualquier desciframiento propuesto]
+
+--------------------------------------------------------------------------------
+3.2 EL SELLO DE SAN ANDRÉS
+--------------------------------------------------------------------------------
+
+  Sello cilíndrico de cerámica hallado en San Andrés (Tabasco), cerca de La
+  Venta, fechado hacia 650 a.C. Mary Pohl y colaboradores propusieron que
+  los signos que imprime constituyen escritura temprana, con una posible
+  lectura calendárica.
+
+  Como en Cascajal, la interpretación es discutida: la frontera entre
+  iconografía compleja y escritura propiamente dicha es exactamente el
+  punto en disputa. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+3.3 LA ESCRITURA EPI-OLMECA (ISTMEÑA) — esta sí es escritura
+--------------------------------------------------------------------------------
+
+  Aquí no hay duda: es un sistema de escritura completo, logosilábico,
+  emparentado estructuralmente con el maya.
+
+  TEXTOS PRINCIPALES:
+    - ESTELA 1 DE LA MOJARRA (Veracruz): el texto más largo, con más de
+      500 signos y dos fechas de Cuenta Larga (143 y 156 d.C.).
+    - ESTATUILLA DE TUXTLA: texto más breve, fecha de 162 d.C.
+
+  EL DESCIFRAMIENTO DISCUTIDO
+    John Justeson y Terrence Kaufman publicaron en 1993 y 1997 un
+    desciframiento parcial, leyendo la lengua subyacente como zoqueana
+    (familia mixe-zoque). Su lectura describe rituales, sangrías y
+    accesiones al poder de un gobernante.
+
+    OBJECIONES: Stephen Houston y Michael Coe han cuestionado el
+    desciframiento, señalando que aplicado a otros textos no produce
+    resultados coherentes, y que el corpus es demasiado pequeño para
+    validarlo.
+
+    ESTADO: el desciframiento de Justeson y Kaufman es la propuesta más
+    desarrollada que existe, pero NO está aceptado universalmente.
+    [DEBATIDO]
+
+  IMPORTANCIA: si la lectura zoqueana es correcta, refuerza la hipótesis
+  mixe-zoque sobre la lengua olmeca, porque implicaría continuidad
+  lingüística en la región.
+
+================================================================================
+4. NUMERACIÓN
+================================================================================
+
+  Sistema mesoamericano estándar, documentado en el periodo epi-olmeca y
+  después:
+
+    punto        = 1
+    barra        = 5
+    concha/óvalo = 0 (cero posicional)
+
+  Base 20 (vigesimal), posicional. Con tres símbolos se escribe cualquier
+  número. [CONSENSO para lo epi-olmeca y posterior]
+
+  ¿Lo usaban los olmecas? Plausible pero no demostrado por inscripción.
+  [ESPECULATIVO]
+
+================================================================================
+5. RESUMEN HONESTO
+================================================================================
+
+LO QUE SE PUEDE AFIRMAR DE LOS OLMECAS:
+  - Orientaron sus centros ceremoniales de forma deliberada y sostenida
+    (La Venta, 8° al oeste del norte). [CONSENSO]
+  - Esa orientación probablemente responde a fenómenos astronómicos
+    vinculados al ciclo agrícola. [PROBABLE]
+  - Por tanto, observaban el cielo con propósito y probablemente llevaban
+    algún cómputo del tiempo. [PROBABLE]
+
+LO QUE NO SE PUEDE AFIRMAR:
+  - Que tuvieran la Cuenta Larga. [las inscripciones son posteriores]
+  - Que inventaran el cero. [documentado en epi-olmeca]
+  - Que tuvieran escritura plena. [Cascajal es discutido]
+  - Cualquier desciframiento concreto de signos olmecas. [imposible hoy]
+
+PARA EL JUEGO: dar a la cultura del juego un calendario y una escritura es
+perfectamente legítimo como licencia creativa — y de hecho la región SÍ
+desarrolló ambas cosas, solo que un poco después. Basta con saber que se
+está mezclando olmeca con epi-olmeca, que es una licencia menor y muy
+defendible.

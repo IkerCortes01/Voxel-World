@@ -1,0 +1,762 @@
+================================================================================
+03 - ARQUITECTURA E INGENIERÍA
+================================================================================
+
+--------------------------------------------------------------------------------
+LA CLAVE DE TODO: NO HAY PIEDRA
+--------------------------------------------------------------------------------
+
+Antes de cualquier detalle, esto: San Lorenzo y La Venta están en la llanura
+aluvial del Golfo, un ambiente SIN AFLORAMIENTOS DE PIEDRA. La Venta está a
+menos de 10 m sobre el nivel del mar, sobre una isla de sedimentos. No hay
+cantera local. Cada piedra que aparece en estos sitios fue IMPORTADA.
+[CONSENSO]
+
+Consecuencia: la piedra nunca se usó como material estructural de muros. Se
+reservó para cuatro cosas:
+
+  1. Escultura monumental (cabezas colosales, tronos).
+  2. Elementos de prestigio puntuales (columnas y bancas del Palacio Rojo).
+  3. Infraestructura hidráulica (los drenajes en U — aquí sí se justificó
+     el gasto).
+  4. Ofrendas enterradas (serpentina).
+
+LA MONUMENTALIDAD OLMECA DEL GOLFO ES MONUMENTALIDAD DE TIERRA. Las grandes
+obras son movimiento de tierra a escala industrial, no mampostería. Y eso
+explica por qué las formas hoy son cónicas y erosionadas en vez de
+escalonadas y nítidas: sin revestimiento pétreo, la tierra no conserva
+aristas durante 2.500 años. [CONSENSO]
+
+EL CONTRASTE QUE LO CONFIRMA: Teopantecuanitlán (Guerrero) y Chalcatzingo
+(Morelos), ambos en zonas CON piedra disponible, SÍ tienen arquitectura de
+piedra — muros, bloques, muros de contención, canales de caliza. La
+diferencia no es cultural ni de "nivel de desarrollo": es disponibilidad de
+materia prima. [CONSENSO]
+
+================================================================================
+1. SAN LORENZO TENOCHTITLÁN
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 LA MESETA: ¿NATURAL O ARTIFICIAL?
+--------------------------------------------------------------------------------
+
+La respuesta académica actual es AMBAS COSAS, no una u otra.
+
+Ann Cyphers (IIA-UNAM), con un programa masivo de barrenación y SIG,
+sostiene que es un promontorio natural MASIVAMENTE REMODELADO, no un
+montículo construido desde cero. Su proyecto recuperó 25.820 estratos,
+documentando pisos, rellenos y estructuras hasta 20 m bajo la superficie
+actual. [CONSENSO]
+
+DATOS:
+  - Se eleva ~50 m sobre la llanura de inundación del Coatzacoalcos.
+  - 700 ha de tierra alta total; ~55 ha de núcleo con modificación
+    intensiva.
+  - Área de estudio regional: 77 km².
+
+VOLUMEN DE TIERRA MOVIDA — CIFRA FUERTEMENTE DEBATIDA. Hay una discrepancia
+de más de un orden de magnitud entre fuentes, y conviene NO mezclarlas:
+
+  - 500.000 a 2.000.000 m³ movidos a cesto (estimación clásica, Coe y
+    Diehl; es la que circula en la literatura de manual).
+  - 7.000.000 m³ de relleno artificial, equivalentes a "50 templos de Tikal
+    o 7 pirámides del Sol", con 14-18 millones de horas-hombre (declaración
+    de Cyphers en prensa y boletín UNAM).
+
+  ⚠️ La cifra de 7 millones procede de declaraciones y boletines, no de un
+  artículo revisado por pares verificable. Usar la primera para texto
+  conservador. [DEBATIDO]
+
+HIPÓTESIS DESCARTADA: la vieja idea de que la meseta era una EFIGIE GIGANTE
+DE AVE está abandonada. Se demostró que los "lóbulos" son barrancas
+erosivas de tres milenios. [RECHAZADO]
+
+  Nota de método: este caso es directamente análogo al de la Pirámide C-1 de
+  La Venta (ver 2.1). Patrón recurrente en arqueología olmeca: FORMA
+  LOBULADA = EROSIÓN, NO DISEÑO. Conviene tenerlo presente antes de aceptar
+  la hipótesis del cono intencional.
+
+INTERPRETACIÓN SIMBÓLICA: la meseta como réplica gigante de la montaña
+sagrada, en honor al monstruo de la Tierra. [PROBABLE]
+
+--------------------------------------------------------------------------------
+1.2 TERRAZAS
+--------------------------------------------------------------------------------
+
+Anillos múltiples de terrazas artificiales rodean la meseta. Una está
+sostenida por un muro de contención de 7 m de altura. [CONSENSO]
+
+DEBATE ABIERTO: si esa inversión de trabajo fue ORDENADA por gobernantes o
+de INICIATIVA COMUNAL. No resuelto. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+1.3 LOS DRENAJES DE BASALTO EN U
+--------------------------------------------------------------------------------
+
+DESCRIPCIÓN FÍSICA [CONSENSO]:
+  - Canaletas de basalto labradas en sección de U.
+  - Tapadas con losas planas, formando un tubo continuo.
+  - Enterradas.
+  - Pendiente del 2%.
+  - Un conducto continuo de 170 m QUE TODAVÍA CONDUCE AGUA tras tres
+    milenios.
+  - Red total estimada en ~1,5 km de canalización.
+  - Selladas con chapopote (ver archivo 04).
+
+EL DEBATE DE FUNCIÓN — tres posturas, no excluyentes:
+
+  DRENAJE (clásica, Coe y Diehl 1967): evacuar agua pluvial de la meseta;
+  control de inundación estacional. Hoy se considera insuficiente por sí
+  sola.
+
+  ACUEDUCTO (revisionista): conducían AGUA POTABLE desde acuíferos
+  subsuperficiales hacia las distintas áreas del asentamiento. Ganando
+  terreno.
+
+  RITUAL/SIMBÓLICA: control del caos, purificación, conexión con el
+  inframundo; gobierno ligado a un patrono sobrenatural del agua; posible
+  baño ritual.
+
+  LECTURA MÁS SÓLIDA HOY: MULTIFUNCIONAL — hidráulica y simbólica a la vez.
+  [DEBATIDO, con tendencia a la síntesis]
+
+  Dato clave de ingeniería: el sistema alimentaba o desaguaba LAGUNAS
+  ARTIFICIALES, lo que implica gestión de almacenamiento, no solo
+  evacuación.
+
+--------------------------------------------------------------------------------
+1.4 EL PALACIO ROJO
+--------------------------------------------------------------------------------
+
+Excavado en 1990-1996 y 2012-2014. Publicado por Cyphers en "El Palacio
+Rojo: Herencia de gobernantes olmecas" (2021).
+
+ELEMENTOS CONSTRUCTIVOS [CONSENSO]:
+  - Pisos de tierra ROJOS: arena teñida con hematita IMPORTADA, en
+    múltiples pisos superpuestos. (De ahí el nombre.)
+  - Columnas de basalto de 4 m de altura.
+  - Bancas de basalto en forma de L.
+  - Muros de tierra apisonada de 40 cm de espesor.
+  - Acueducto de basalto integrado y drenaje pétreo sinuoso.
+  - Taller de RECICLAJE DE MONUMENTOS anexo.
+
+ESCALA: era TRES VECES MAYOR que cualquier otra estructura de élite
+contemporánea en Mesoamérica.
+
+  El taller de reciclaje es un dato de primer orden: el basalto era tan caro
+  de conseguir que los monumentos viejos se RE-TALLABAN en vez de
+  desecharse. Y se hacía bajo supervisión de los dueños del palacio, lo que
+  implica control de élite sobre la producción escultórica.
+
+--------------------------------------------------------------------------------
+1.5 CRONOLOGÍA DE CYPHERS (8 fases)
+--------------------------------------------------------------------------------
+
+  Ojochi        1750-1550 a.C.   Aldea inicial (pre-olmeca)
+  Bajío         1550-1450 a.C.   Inicio de modificación del terreno
+  Chicharras    1450-1400 a.C.   Primeros artefactos olmecas
+  SAN LORENZO   1400-1000 a.C.   APOGEO; escultura monumental
+  Nacaste       1000-800 a.C.    Declive; sin monumentos nuevos
+  Palangana      800-400 a.C.    Reocupación; cancha de pelota rudimentaria
+  Remplás        300-50 a.C.
+  Villa Alta     800-1000 d.C.   Reocupación postclásica
+
+Cyphers estableció fechas de radiocarbono en torno a 1700 a.C., empujando
+los orígenes hacia atrás. [CONSENSO]
+
+  ⚠️ Esta secuencia local CONTINUA E ININTERRUMPIDA es, por sí sola, el
+  argumento arqueológico más fuerte contra todas las teorías difusionistas
+  de origen externo. Los rasgos olmecas emergen GRADUALMENTE sobre sustrato
+  local, sin ninguna "aparición súbita" que requiera explicación foránea.
+
+--------------------------------------------------------------------------------
+1.6 EL HALLAZGO LiDAR DE 2021 — lo más novedoso
+--------------------------------------------------------------------------------
+
+El LiDAR reveló en San Lorenzo un ESPACIO CENTRAL RECTANGULAR previamente
+no reconocido:
+
+  - ~1.000 x 275 m.
+  - Flanqueado por 20 PLATAFORMAS PERIMETRALES de ~0,9 m de altura, en los
+    lados este y oeste.
+  - Este arreglo funcionó como PLANTILLA replicada después en Aguada Fénix,
+    a ~400 km al este.
+  [CONSENSO — publicado en Nature Human Behaviour, 2021]
+
+Por qué se descubrió tan tarde, en palabras de Inomata: los sitios son
+grandes horizontalmente pero no verticalmente. Alguien puede caminar sobre
+uno sin notar su forma rectangular; el LiDAR sí la ve.
+
+--------------------------------------------------------------------------------
+1.7 POBLACIÓN
+--------------------------------------------------------------------------------
+
+Las cifras se revisaron drásticamente al alza gracias al proyecto de
+Cyphers:
+
+  Estimación antigua:   sitio de 50 ha, no más de 5.000 habitantes.
+  Estimación revisada:  ~800 ha, ~11.000 habitantes (rango 4.900-10.500).
+  Otras lecturas:       hasta ~20.000 sobre ~775 ha.
+  Densidad temprana:    pico de 21 personas/ha (1800-1600 a.C.).
+  Potencial agrícola:   ~500 toneladas de maíz/año.
+
+METODOLOGÍA: 2.602 pozos de barreno a intervalos de 20 m (2005-2007), de
+los cuales 1.609 dieron pisos arquitectónicos, sobre 25.820 estratos, más
+SIG y un estudio etnográfico en la comunidad moderna para calibrar
+habitantes por vivienda.
+
+PATRÓN RESIDENCIAL: espaciamiento entre unidades domésticas de 25-50 m en
+el centro, 100-150 m en las terrazas, 200 m en la periferia — un gradiente
+de densidad que es en sí mismo indicador de jerarquía espacial.
+
+  ⚠️ Todas las cifras de población son [DEBATIDO]. Dependen de densidad de
+  material superficial y son muy sensibles a supuestos sobre contemporaneidad
+  de ocupación. Trátense como órdenes de magnitud.
+
+  Cyphers refutó explícitamente la caracterización previa de San Lorenzo
+  como cacicazgo menor de 53 ha, argumentando que fue LA PRIMERA URBE de
+  Mesoamérica. El estatus "urbano" sigue siendo [DEBATIDO]: algunos autores
+  mantienen que era un centro ceremonial con población dispersa.
+
+================================================================================
+2. LA VENTA
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 LA GRAN PIRÁMIDE C-1 Y EL DEBATE DEL CONO ESTRIADO
+--------------------------------------------------------------------------------
+
+DATOS FÍSICOS [CONSENSO]:
+  - Altura: 34 m (algunas fuentes ~30 m).
+  - Volumen: ~100.000 m³ de relleno de tierra.
+  - Construida ENTERAMENTE de arcilla compactada.
+  - Forma actual: cono estriado con 10 crestas verticales y barrancas
+    intermedias, aproximadamente circular en planta.
+  - Fechamiento C-14 de superficie quemada: 394 ± 30 a.C.
+
+EL DEBATE [DEBATIDO, no resuelto]:
+
+  POSICIÓN "DISEÑO INTENCIONAL": Drucker y Heizer, en 1967, concluyeron que
+  la forma no era la pirámide rectangular escalonada que habían supuesto,
+  sino un cono redondo estriado con 10 crestas — posiblemente imitando un
+  CONO VOLCÁNICO de los Tuxtlas.
+
+  POSICIÓN "EROSIÓN": la forma cónica resulta de ~2.500 años de erosión
+  sobre una pirámide originalmente rectangular escalonada con esquinas
+  entrantes.
+
+  A FAVOR DE LA INTENCIONALIDAD: existe un caso publicado de una pirámide
+  prehistórica con forma de cono de escoria volcánica en el valle de Nepeña
+  (Perú), lo que da plausibilidad tipológica.
+
+  CAUTELA: nótese el paralelo con San Lorenzo (1.1), donde una hipótesis de
+  "forma lobulada intencional" (el ave) fue derrotada por la explicación
+  erosiva. Eso debería inducir prudencia.
+
+ANOMALÍA MAGNETOMÉTRICA (1967): detectada en el lado sur. Interpretaciones
+desde arcilla quemada hasta una ofrenda o tumba. NUNCA HA SIDO EXCAVADA.
+
+--------------------------------------------------------------------------------
+2.2 COMPLEJO A: CUATRO FASES
+--------------------------------------------------------------------------------
+
+  - Cuatro fases (I-IV) abarcando ~1000-600 a.C., con ~100 años entre
+    cada fase.
+  - Las fases se definen por la secuencia de modificaciones iniciadas por
+    los depósitos masivos de serpentina.
+  - Contenía CINCO TUMBAS formales.
+  - Cercado por columnas de basalto: ARQUITECTURA DE EXCLUSIÓN, restringía
+    físicamente el acceso.
+  [CONSENSO]
+
+  ⚠️ NOTA HISTORIOGRÁFICA IMPORTANTE: el Complejo A FUE DESTRUIDO, y los
+  registros de excavación de los años 40-50 son inconsistentes. Gillespie y
+  Volk (2014) construyeron un modelo 3D precisamente para intentar
+  reconciliar documentación contradictoria. Cualquier cifra sobre el
+  Complejo A arrastra esa incertidumbre.
+
+  ⚠️ PROBLEMA TAFONÓMICO CRÍTICO: la preservación orgánica está severamente
+  limitada por el suelo ácido y húmedo. Muchos "entierros" se infieren de
+  manchas y ajuares, no de hueso conservado. Ver 2.7.
+
+--------------------------------------------------------------------------------
+2.3 COLUMNAS DE BASALTO
+--------------------------------------------------------------------------------
+
+  - Rodeaban el Complejo A formando un cerco.
+  - Procedencia: Punta Roca Partida, costa del Golfo al norte del volcán
+    San Andrés Tuxtla.
+  - Distancia de transporte: MÁS DE 80 KM.
+  [CONSENSO]
+
+--------------------------------------------------------------------------------
+2.4 LOS MOSAICOS DE SERPENTINA
+--------------------------------------------------------------------------------
+
+  - TRES mosaicos rectangulares, todos del mismo diseño.
+  - Dimensiones: ~4,5 x 6 m cada uno (15 x 20 pies).
+  - Composición: hasta 485 BLOQUES de serpentina pulida cada uno.
+  - FUERON CUBIERTOS CON ARCILLA DE COLOR Y ENTERRADOS INMEDIATAMENTE tras
+    terminarse. Nunca estuvieron a la vista.
+  [CONSENSO]
+
+  Ese último punto es el más importante: el PROCESO de hacerlos importaba
+  más que cualquier acto posterior de contemplación. La ofrenda es para la
+  tierra, no para el público.
+
+DEBATE ICONOGRÁFICO [DEBATIDO]: se ha leído como ornamento de barra y
+cuatro puntos, como el Dragón Olmeca, como máscara abstracta de jaguar,
+como cosmograma, y como mapa simbólico de La Venta. Cinco lecturas
+incompatibles. La multiplicidad es en sí un dato sobre lo abstracto del
+diseño.
+
+--------------------------------------------------------------------------------
+2.5 LAS OFRENDAS MASIVAS
+--------------------------------------------------------------------------------
+
+Cinco grandes depósitos: los tres mosaicos con diseño más dos depósitos de
+bloques sin formar diseño. Todos colocados en fosas y cubiertos
+inmediatamente con relleno de arcilla. [CONSENSO]
+
+"Nada comparable a estas cinco ofrendas masivas se conoce en ninguna otra
+parte de Mesoamérica" — son ÚNICAS en el mundo prehispánico.
+
+CIFRAS (con cautela, hay discrepancias):
+  - Total agregado: hasta ~1.000 toneladas de bloques de serpentina
+    enterrados (cifra INAH).
+  - OFRENDA MASIVA 3: ~50 toneladas de serpentina labrada, cubiertas por
+    4.000 TONELADAS de relleno de arcilla.
+
+  Esa relación 80:1 entre material de sepultamiento y material ofrendado es
+  el dato de ingeniería más impresionante de La Venta: el 98,8% del
+  esfuerzo de excavación y relleno es arcilla, no piedra verde. La obra
+  pública consistía en gran medida en ENTERRAR TRABAJO, no en exhibirlo.
+
+  Más de 50 depósitos discretos descubiertos en total en el Complejo A.
+
+LA OFRENDA 4: 16 figurillas masculinas, cada una de una piedra verde
+distinta, enmarcadas por una hilera de hachas. Hoy en el Museo Nacional de
+Antropología.
+
+  DETALLE EXTRAORDINARIO: la Ofrenda 4 fue enterrada y, GENERACIONES
+  DESPUÉS, reexcavada con precisión quirúrgica — se abrió una fosa
+  exactamente sobre ella para inspeccionarla, y se volvió a cubrir. Eso
+  implica que la ubicación se transmitió con exactitud posicional a lo largo
+  de mucho tiempo, o que existía algún sistema de registro. [CONSENSO]
+
+--------------------------------------------------------------------------------
+2.6 LA ORIENTACIÓN DE 8° AL OESTE DEL NORTE
+--------------------------------------------------------------------------------
+
+CONSENSO: el eje largo del sitio está a 8° al oeste del norte verdadero,
+con eje principal norte-sur y simetría bilateral este-oeste.
+
+DEBATE SOBRE LA CAUSA [DEBATIDO], propuestas:
+  - Alineación a Polaris / norte verdadero (interpretación tradicional, hoy
+    vista como débil: 8° NO es norte verdadero).
+  - Alineación solar (puesta de sol del 28 de febrero).
+  - PASO CENITAL y fechas 40/60/80/100 días antes del paso cenital (10 de
+    mayo). Esta es la línea de Šprajc, Inomata y Aveni en Science Advances
+    (2023), que vincula orientaciones con el calendario de 260 días. ES LA
+    LÍNEA SÓLIDA.
+  - Alineación a una montaña a 11° al oeste del norte.
+  - Conocimiento del magnetismo (Carlson, vinculado al artefacto M-160).
+    [ESPECULATIVO]
+
+  ⚠️ Las cifras del "28 de febrero", la "montaña a 11°" y la "reconstrucción
+  tras 685 a.C." provienen de fuentes de baja calidad y NO están verificadas
+  en fuente académica primaria. No reproducir sin comprobar.
+
+Ver archivo 07 para el desarrollo completo del asunto astronómico.
+
+--------------------------------------------------------------------------------
+2.7 LAS "TUMBAS REALES": UN DEBATE RECIENTE E IMPORTANTE
+--------------------------------------------------------------------------------
+
+Las cinco tumbas del Complejo A (excavadas por Stirling y Drucker,
+1942-43 y 1955) fueron reevaluadas por Susan Gillespie y Michael Volk
+(2022) en Ancient Mesoamerica. Lo que encontraron es notable:
+
+  TUMBA A: columnas de basalto (2,2 m), dos bultos funerarios, figurillas
+           de jade, espejos, espinas de mantarraya.
+           RESTOS: solo fragmentos de huesos largos descompuestos y dientes
+           deciduales, teñidos color chocolate por lixiviación.
+  TUMBA B (sarcófago): caja de arenisca zoomorfa de 2,81 m; figurilla de
+           serpentina, dos espejos de jade, orejeras. RESTOS: NINGUNO.
+  TUMBA C: estructura de arenisca 5,2 x 1,8 m, capa de cinabrio, 37 celtas
+           de jade (~300 artefactos). RESTOS: NINGUNO.
+  TUMBA D: depósito 30 x 50 cm, cama de cinabrio de 22-25 cm.
+           RESTOS: NINGUNO.
+  TUMBA E: capa de cinabrio 3,5 x 1,2 m, 108 objetos de jade.
+           RESTOS: NINGUNO.
+
+EL ARGUMENTO DE GILLESPIE Y VOLK es tafonómico y elegante: la explicación
+tradicional (los cuerpos se disolvieron por acidez del suelo) NO EXPLICA LA
+DISPOSICIÓN DE LOS OBJETOS. Un cuerpo en descomposición produce desorden
+característico — ornamentos desplazados, artefactos dispersos verticalmente.
+Aquí, en cambio, los objetos yacen EN UN ÚNICO PLANO HORIZONTAL, lo que
+sugiere que nunca hubo un cadáver descomponiéndose debajo.
+
+Añaden dos observaciones: huesos de animales SÍ sobrevivieron en los
+márgenes de La Venta y en San Lorenzo (luego la conservación no es
+imposible); y las tumbas se construyeron SIMULTÁNEAMENTE en un solo
+episodio constructivo de la Fase IV (~600-400 a.C.), no acumuladas a lo
+largo de décadas conforme morían gobernantes sucesivos.
+
+CONCLUSIÓN PROPUESTA: serían "entierros sustitutos" o evocaciones rituales
+de cuerpos ausentes, no sepulturas dinásticas.
+
+IMPLICACIÓN DE PESO: cuestiona directamente si La Venta tardía estuvo
+dominada por gobernantes dinásticos individuales.
+
+ESTADO: debate abierto y reciente, NO consenso. La lectura tradicional
+sigue siendo la de manual, pero la relectura de 2022 es metodológicamente
+sólida y aún está siendo asimilada. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+2.8 ESTRATIGRAFÍA DE ARCILLAS DE COLORES
+--------------------------------------------------------------------------------
+
+Técnica distintiva de La Venta: uso deliberado de arcillas IMPORTADAS de
+colores diferenciados (rojas, amarillas, moradas, azul-verdosas) en capas
+discretas, tanto en rellenos de plataforma como para SELLAR OFRENDAS. Los
+mosaicos se cubrían con arcilla de color específico antes de enterrarse.
+
+Esto implica selección, extracción y transporte de arcillas POR CRITERIO
+CROMÁTICO-SIMBÓLICO, no por disponibilidad. Es ingeniería simbólica sin
+equivalente contemporáneo claro. [CONSENSO]
+
+  PARA EL JUEGO: esto es muy aprovechable. Implica bloques de tierra de
+  varios colores con valor ritual, no solo decorativo.
+
+--------------------------------------------------------------------------------
+2.9 ESCALA Y POBLACIÓN
+--------------------------------------------------------------------------------
+
+  - Zona urbanizada: ~2 km².
+  - Isla de La Venta: ~5,2 km², a menos de 10 m sobre el nivel del mar.
+  - Sitio original: ~200 ha con estructuras de hasta ~30 m de altura.
+  - Población mínima de soporte: al menos 18.000 personas.
+  - Ocupación principal: ~800-400 a.C.
+
+  ⚠️ La cifra de "20 km de extensión norte-sur" que circula se refiere al
+  EJE REGIONAL, no al sitio monumental. Usar 2 km² de zona urbanizada.
+
+================================================================================
+3. OTROS SITIOS
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 EL MANATÍ — la ventana a lo perecedero
+--------------------------------------------------------------------------------
+
+Santuario en manantiales naturales al pie del Cerro Manatí. Descubierto en
+1988 por campesinos de Hidalgotitlán; rescate del INAH desde mayo de 1988.
+Proyecto de Ponciano Ortiz y María del Carmen Rodríguez.
+
+POR QUÉ IMPORTA PARA LA INGENIERÍA: es el único sitio olmeca con
+CONSERVACIÓN ANAERÓBICA. Da acceso a la tecnología perecedera que es
+invisible en todo el resto del área. [CONSENSO]
+
+BUSTOS DE MADERA:
+  - Entre 20 y 37 bustos recuperados según la fuente (10 hallados por el
+    equipo, más los entregados por la comunidad tras saqueo).
+  - Madera de CEIBA y JOBO.
+  - Preservados por condiciones anaeróbicas y temperatura estable del agua.
+  - Acompañados de hachas ceremoniales de jadeíta, cerámica y ocre rojo.
+
+FASES:
+  Manatí A   1700-1500 a.C.   Primeras pelotas de hule depositadas
+  Manatí B   1500-1200 a.C.   Sedimento fino de pantano sella las pelotas
+  Macayal    1200-900 a.C.    Máxima complejidad ritual
+
+RESTOS ÓSEOS: cráneos y fémures desarticulados, más esqueletos completos de
+neonatos o fetos, algunos con desarticulación intencional.
+
+  ⚠️ DISTINCIÓN CRÍTICA: la asociación contextual entre restos infantiles y
+  depósito ritual es FUERTE. La CAUSA DE MUERTE no está determinada
+  osteológicamente. "Sacrificio infantil" es hipótesis plausible, NO hecho
+  establecido. [DEBATIDO]
+
+CONSERVACIÓN MODERNA: el INAH implementó ANOXIA PASIVA — vitrinas con
+captadores de oxígeno — porque el hule de Castilla elastica se oxida.
+
+--------------------------------------------------------------------------------
+3.2 TRES ZAPOTES
+--------------------------------------------------------------------------------
+
+Patrón arquitectónico: CUATRO GRUPOS DE MONTÍCULOS, cada uno con una gran
+plaza rodeada de montículos, con un montículo piramidal/cónico en el
+extremo oeste y un montículo largo al norte.
+
+  Montículos largos = edificios administrativos y/o residencias de élite.
+  Montículos pequeños = residencias de élite menor y templos.
+
+ESE PATRÓN REPETIDO CUATRO VECES sugiere organización MULTI-FACCIÓN /
+DESCENTRALIZADA, contrastando con el poder centralizado de San Lorenzo y
+La Venta. Christopher Pool propone un "gobierno de asamblea entre facciones
+confederadas". [PROBABLE]
+
+Ocupación continúa más allá de 400 a.C. pero sin los rasgos distintivos
+olmecas: es el sitio de la transición epi-olmeca. [CONSENSO]
+
+--------------------------------------------------------------------------------
+3.3 LAGUNA DE LOS CERROS
+--------------------------------------------------------------------------------
+
+  - 95 montículos.
+  - TRAZADO BIAXIAL O CRUCIFORME: basamentos piramidales alargados y
+    edificios de planta cuadrada dispuestos a lo largo de los ejes o
+    alrededor de plazas.
+  - Orden básico: montículos largos paralelos flanqueando grandes plazas
+    rectangulares, con montículos cónicos marcando los límites.
+  - Considerado precursor formal de Monte Albán y Teotihuacán.
+  [CONSENSO]
+
+  Dato de urbanismo de primer orden: LA PLAZA RECTANGULAR FLANQUEADA POR
+  MONTÍCULOS LARGOS PARALELOS es el "gen" arquitectónico olmeca que
+  reaparece en el patrón detectado por LiDAR.
+
+--------------------------------------------------------------------------------
+3.4 CHALCATZINGO (Morelos)
+--------------------------------------------------------------------------------
+
+  - Secuencia desde ~1500 a.C.; relieves en cerros fechados ~700 a.C.
+  - Hacia 800 a.C. el terreno deslizado al pie del Cerro Chalcatzingo se
+    transformó en GRANDES TERRAZAS RESIDENCIALES: ingeniería de ladera, no
+    de llanura.
+  - Las estelas se erigieron frente a plataformas rectangulares de tierra
+    CON MUROS DE CONTENCIÓN DE PIEDRA (aquí sí hay piedra disponible).
+  - Terraza 6: la plataforma más grande y el mayor número de estelas.
+  - Proyecto Arqueológico Chalcatzingo: Jorge Angulo, Raúl Arana y David
+    Grove, 1972-1976; tres estelas más en 1995 y 1998.
+
+DEBATE: ¿enclave étnico olmeca, o centro local que ADOPTÓ el estilo? La
+tendencia actual favorece la segunda. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+3.5 TEOPANTECUANITLÁN (Guerrero)
+--------------------------------------------------------------------------------
+
+El sitio clave para "arquitectura olmeca EN PIEDRA".
+
+CRONOLOGÍA: Fase 1 (1400-900 a.C.), Fase 2 (900-800), Fase 3 (800-600).
+
+RECINTO HUNDIDO: patio deprimido rodeado de muros y bloques de piedra, con
+CUATRO MONOLITOS de ~3 toneladas cada uno, en forma de T invertida,
+representando personajes rechonchos con mandíbulas de jaguar y ojos de
+serpiente, cada uno sosteniendo UNA MAZORCA DE MAÍZ: deidades agrícolas.
+
+CANCHA DE JUEGO DE PELOTA: en el patio hundido, custodiada por las cuatro
+esculturas felinas en los muros este y oeste. Campo limitado por dos
+construcciones laterales con cuerpos en talud. El INAH señala que la
+posición "posiblemente se correlaciona con fenómenos astronómicos como los
+equinoccios" — marcado como "posiblemente" por el propio INAH, NO
+confirmado. [ESPECULATIVO]
+
+SISTEMA HIDRÁULICO: canales de grandes bloques de PIEDRA CALIZA, de más de
+1 m de altura y ~0,90 m de ancho.
+
+Excavadores: Guadalupe Martínez Donjuán, Christine Niederberger, Rosa María
+Reina Robles.
+
+================================================================================
+4. EL LiDAR DE 2021: EL HALLAZGO QUE LO REORDENA TODO
+================================================================================
+
+REFERENCIA: Inomata, T. et al., "Origins and spread of formal ceremonial
+complexes in the Olmec and Maya regions revealed by airborne lidar",
+NATURE HUMAN BEHAVIOUR 5, 1487-1501 (2021).
+
+DATOS [CONSENSO]:
+  - 478 COMPLEJOS CEREMONIALES rectangulares y cuadrados detectados.
+  - 33.935 grupos de montículos identificados en total.
+  - Área analizada: 85.000 km² (del tamaño de Irlanda).
+  - Fuente de datos: LiDAR de baja resolución DE LIBRE ACCESO del gobierno
+    mexicano (INEGI). Punto metodológico importante: no fue un levantamiento
+    propio caro, sino explotación de datos públicos.
+  - Cronología de los complejos: 1100/1050 - 400 a.C.
+
+EL PATRÓN MFU (Middle Formative Usumacinta):
+  Formaciones rectangulares extensas que incorporan un conjunto tipo Grupo E
+  (pirámide + plataforma alargada encerrando una plaza). Complejos excavados
+  y fechados: Aguada Fénix, Buenavista y La Carmelita, 1050-750 a.C.
+
+  AGUADA FÉNIX, meseta principal: 1.413 m norte-sur x 399 m este-oeste. Es
+  la construcción monumental MÁS GRANDE Y MÁS ANTIGUA del área maya.
+
+EL HALLAZGO CENTRAL: el diseño NO se originó en La Venta sino en SAN
+LORENZO. El espacio rectangular de San Lorenzo es la plantilla que
+reaparece en Aguada Fénix a 400 km al este y en cientos de sitios
+intermedios.
+
+IMPLICACIÓN TEÓRICA [DEBATIDO]: desafía la visión de que olmecas y mayas se
+desarrollaron independientemente, demostrando convenciones arquitectónicas
+compartidas ~1.000 años antes del Clásico maya. Reabre —sin resolverlo— el
+debate "cultura madre" vs "cultura hermana". Inomata NO argumenta dominación
+olmeca, sino interacción y difusión de un formato ceremonial.
+
+ORIENTACIONES: el estudio documenta LÍNEAS CUATRI-DIRECCIONALES y
+alineaciones al amanecer en fechas específicas, con sitios orientados a
+direcciones correspondientes a 40, 60, 80 o 100 días antes del paso cenital
+(10 de mayo) — es decir, MÚLTIPLOS DE 20 DÍAS, la unidad del calendario
+mesoamericano. Es la evidencia más fuerte de intencionalidad
+astronómico-calendárica en orientaciones olmecas. Conecta con Šprajc et al.
+(Science Advances, 2023).
+
+CALZADAS: documentados sistemas extensos de calzadas conectando complejos.
+Longitudes y anchuras específicas no verificadas en fuente primaria.
+
+================================================================================
+5. TÉCNICAS CONSTRUCTIVAS: REPERTORIO
+================================================================================
+
+EL EDIFICIO OLMECA TÍPICO, descripción canónica: "una construcción con
+materiales perecederos: postes de madera, muros de carrizo repellado con
+lodo, techos de palma y pisos de tierra apisonada". Es BAJAREQUE, y es la
+técnica dominante para toda la arquitectura no monumental, y también para
+las superestructuras sobre las plataformas. [CONSENSO]
+
+REPERTORIO COMPLETO DOCUMENTADO:
+  - Tierra apisonada (muros de 40 cm en el Palacio Rojo).
+  - Adobe (bloques de lodo secados al sol).
+  - Bajareque (carrizo repellado con lodo).
+  - Arcillas de colores en capas diferenciadas.
+  - Pisos de arena, incluida arena teñida con hematita importada.
+  - Plataformas de arcilla compactada.
+  - BENTONITA como impermeabilizante (ver abajo — dato notable).
+  - Drenajes de basalto en U con tapa, sellados con chapopote.
+  - Techos perecederos de palma.
+  - Columnas y bancas de basalto (solo en máxima élite).
+
+LA BENTONITA — conocimiento técnico de primer orden [CONSENSO]:
+  Mampostería de bentonita fijada con mortero de lodo; pisos pavimentados
+  con bloques de bentonita. Se empleó para crear un SUBSUELO IMPERMEABLE
+  bajo el pavimento.
+
+  Por qué importa: la bentonita es una arcilla esmectítica que SE EXPANDE AL
+  HIDRATARSE Y SELLA. La ingeniería moderna aún explota esa propiedad
+  (barreras geosintéticas, lodos de perforación). Que los olmecas la
+  seleccionaran deliberadamente para impermeabilizar en un entorno de lluvia
+  tropical intensa implica comprensión empírica de su comportamiento hídrico
+  diferencial frente a otras arcillas. No es "usar el barro que había":
+  es elegir ESTE barro por lo que hace.
+
+PROCESAMIENTO DE MONUMENTOS EN CANTERA: las excavaciones en Llano del Jícaro
+revelaron que los monumentos se DESBASTABAN EN SU FORMA BÁSICA EN EL SITIO
+DE EXTRACCIÓN, y luego se transportaban a los centros para su acabado.
+Reducción de masa en cantera para abaratar el transporte: ingeniería
+logística deliberada. [CONSENSO]
+
+================================================================================
+6. EL JUEGO DE PELOTA Y LA PARADOJA OLMECA
+================================================================================
+
+LAS CANCHAS MÁS ANTIGUAS — Y POR QUÉ NO SON OLMECAS:
+
+PASO DE LA AMADA (Chiapas, Soconusco):
+  - ~1400 a.C. (algunas fuentes: construida ~1600 a.C. y remodelada
+    durante 150 años).
+  - ~79 m de largo, dos montículos paralelos flanqueando un campo de ~8 m
+    de ancho.
+  - Descubierta por Warren Hill, Michael Blake y John Clark.
+
+  ¿ES OLMECA? NO. La cultura material de Paso de la Amada es
+  predominantemente MOKAYA, PRE-OLMECA. De hecho, el declive de Paso de la
+  Amada coincide con la adopción local del estilo olmeca temprano — la
+  cancha es anterior E INDEPENDIENTE de lo olmeca. [CONSENSO]
+
+ETLATONGO (Oaxaca): cancha más antigua de las tierras altas, publicada en
+Science Advances. El juego se difundió tempranamente por múltiples regiones.
+
+LAS PELOTAS DE EL MANATÍ:
+  - ~12 a 14 pelotas recuperadas entre 1988 y 1996.
+  - Diámetros de 8 a 25 cm.
+  - Fechas: 1700-1200 a.C.; cinco fechadas a ~1700-1600 a.C.
+  - Material: hule de Castilla elastica.
+  - Contexto: OFRENDA RITUAL, no deportivo.
+  - Son las pelotas de hule más antiguas de Mesoamérica. [CONSENSO]
+
+LA PARADOJA — merece destacarse:
+
+  Los olmecas tienen LA ICONOGRAFÍA DE JUGADORES MÁS ANTIGUA (figurillas de
+  San Lorenzo fechadas por radiocarbono a 1250-1150 a.C., algunas con equipo
+  protector) y LAS PELOTAS MÁS ANTIGUAS (El Manatí, 1700 a.C.) — pero NO
+  TIENEN CANCHAS FORMALES TEMPRANAS. En San Lorenzo solo se ha identificado
+  una cancha RUDIMENTARIA de una ocupación TARDÍA, 600-400 a.C.
+
+  Explicaciones posibles [DEBATIDO]:
+    1. El juego olmeca temprano se practicaba en espacios no formalizados
+       (plazas, terrenos planos sin arquitectura dedicada).
+    2. Las canchas de arquitectura formal se desarrollaron en la PERIFERIA
+       (Soconusco, Oaxaca, Guerrero), no en el núcleo del Golfo.
+    3. Las canchas olmecas eran de TIERRA SIN REVESTIR y son
+       arqueológicamente invisibles — coherente con todo lo dicho en el
+       apartado 5.
+
+  Esto DEBILITA el modelo simple de "cultura madre": el núcleo olmeca tiene
+  el juego pero no la arquitectura del juego, y la arquitectura aparece
+  antes fuera.
+
+================================================================================
+7. URBANISMO: SÍNTESIS
+================================================================================
+
+ELEMENTOS RECURRENTES DE LA PLANIFICACIÓN [CONSENSO]:
+  - Eje norte-sur dominante.
+  - Plaza rectangular central flanqueada simétricamente.
+  - Pirámide o montículo cónico en un extremo (frecuentemente oeste o sur).
+  - Montículos largos paralelos en los flancos.
+  - Trazado biaxial/cruciforme.
+  - Gradiente de acceso restringido (columnas de basalto del Complejo A).
+
+SECUENCIA DE DESARROLLO DEL PATRÓN (según el LiDAR de 2021):
+
+  San Lorenzo (~1400-1000 a.C.)
+     plaza rectangular 1000 x 275 m + 20 plataformas perimetrales
+                |
+                | (plantilla)
+                v
+  La Venta (~800-400)  <-->  Complejos MFU (1050-750 a.C.)
+     eje N-S, 8° O del N        Aguada Fénix 1413 x 399 m
+                                Buenavista, La Carmelita
+                |
+                v
+        478 complejos sobre 85.000 km²
+
+JERARQUÍA DE ASENTAMIENTOS — cuatro niveles [CONSENSO]:
+  1. Centro primario (San Lorenzo; después La Venta).
+  2. Centros secundarios (Laguna de los Cerros, Tres Zapotes, El Azuzul).
+  3. Aldeas.
+  4. Caseríos y sitios de actividad especializada (El Manatí = santuario;
+     Llano del Jícaro = cantera-taller).
+
+  EL AZUZUL / LOMA DEL ZAPOTE: a 4 km del centro de San Lorenzo, con una
+  "Acrópolis" y el conjunto de los dos gemelos antropomorfos y dos felinos,
+  estudiado en 1992 por el IIA-UNAM. Demuestra que el núcleo de San Lorenzo
+  era un PAISAJE MONUMENTAL EXTENDIDO, no un punto.
+
+EL FACTOR DETERMINANTE ES FLUVIAL:
+  - San Lorenzo está sobre una isla dentro de la llanura de inundación del
+    Coatzacoalcos, a ~50 km de la costa.
+  - La Venta está sobre una isla de ~5,2 km².
+  - LOS RÍOS ERAN LA INFRAESTRUCTURA DE TRANSPORTE: el basalto se arrastró
+    o FLOTÓ decenas de km. Sin balsas fluviales, la escultura monumental
+    olmeca sería imposible.
+  - La ubicación en isla o promontorio resuelve simultáneamente: defensa,
+    drenaje, acceso a recursos acuáticos y acceso a la red fluvial.
+  [CONSENSO]
+
+RUTA RECONSTRUIDA DEL BASALTO desde los Tuxtlas a La Venta:
+  arrastre terrestre >40 km hasta punto navegable -> balsas por arroyos
+  afluentes hasta el río Coatzacoalcos -> navegación costera del Golfo hasta
+  la boca del río Tonalá -> remonte del río Blasillo hasta La Venta,
+  aprovechando la TEMPORADA DE LLUVIAS. [PROBABLE]
+
+ESTIMACIÓN DE ESFUERZO: ~1.500 personas durante 3-4 meses por cabeza
+colosal.
+  ⚠️ Es una estimación moderna de ingeniería experimental (fricción, peso,
+  rodillos, pendiente), NO un dato arqueológico directo. Varía mucho según
+  supuestos. Trátese como orden de magnitud. [ESPECULATIVO en la cifra
+  exacta; CONSENSO en que fue una empresa colectiva enorme]

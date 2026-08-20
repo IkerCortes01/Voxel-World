@@ -10604,9 +10604,25 @@ public:
                             // Un canto: caja achatada, mas ancha que alta,
                             // como el monton de la textura (14 x 9 px).
                             auto canto = [&](float cx, float cz, float ancho,
-                                             float alto, float giro) {
+                                             float alto, float giro,
+                                             unsigned semillaCara) {
                                 const float co = cosf(giro), si = sinf(giro);
                                 const float h = ancho * 0.5f;
+
+                                // SEIS CELDAS DISTINTAS de la rejilla 3x3.
+                                // Se barajan las nueve y se toman las seis
+                                // primeras, de modo que NINGUNA cara repite
+                                // el trozo de otra.
+                                int baraja[9] = {0,1,2,3,4,5,6,7,8};
+                                unsigned r = semillaCara | 1u;
+                                for (int i = 8; i > 0; --i) {
+                                    r ^= r << 13; r ^= r >> 17; r ^= r << 5;
+                                    const int j = (int)(r % (unsigned)(i + 1));
+                                    const int t = baraja[i];
+                                    baraja[i] = baraja[j];
+                                    baraja[j] = t;
+                                }
+                                const int* celdaCara = baraja;
 
                                 // Cuatro esquinas giradas en el plano del
                                 // suelo: el giro es lo que hace que dos
@@ -10635,12 +10651,38 @@ public:
                                 // guijarros salen en el 4% de las columnas
                                 // del mundo y duplicar sus triangulos se
                                 // notaba en los FPS (medido: -7 de media).
+                                // ⭐ CADA CARA, UN TROZO DISTINTO
+                                //
+                                // Antes las seis caras usaban la textura
+                                // ENTERA (U0..U1), asi que lo que estuviera
+                                // dibujado -- la mancha blanca del pedernal,
+                                // por ejemplo -- salia repetido seis veces y
+                                // el canto parecia un calco de si mismo.
+                                //
+                                // Ahora la imagen se reparte en una rejilla
+                                // de 3x3 y cada cara toma UNA celda distinta,
+                                // elegida por el hash del canto. Asi ninguna
+                                // cara repite el trozo de otra, y como la
+                                // celda es cuadrada la textura tampoco se
+                                // estira.
+                                const float PASO = (U1 - U0) / 3.0f;
+                                auto trozo = [&](int celda, float* uu, float* vv) {
+                                    const int cx3 = celda % 3, cy3 = (celda / 3) % 3;
+                                    const float u0c = U0 + (float)cx3 * PASO;
+                                    const float v0c = U0 + (float)cy3 * PASO;
+                                    uu[0] = u0c;        vv[0] = v0c;
+                                    uu[1] = u0c + PASO; vv[1] = v0c;
+                                    uu[2] = u0c + PASO; vv[2] = v0c + PASO;
+                                    uu[3] = u0c;        vv[3] = v0c + PASO;
+                                };
+
                                 auto cara = [&](int a,int b,int c,int d,
                                                 bool arriba) {
                                     const float QX[4] = { px_[a],px_[b],px_[c],px_[d] };
                                     const float QZ[4] = { pz_[a],pz_[b],pz_[c],pz_[d] };
-                                    const float U_[4] = { U0,U1,U1,U0 };
-                                    const float V_[4] = { U0,U0,U1,U1 };
+                                    float U_[4], V_[4];
+                                    trozo(arriba ? celdaCara[0] : celdaCara[1],
+                                          U_, V_);
                                     const float yy = arriba ? y1 : y0;
                                     for (int i = 0; i < 4; ++i) {
                                         vP.push_back(wx + QX[i]);
@@ -10680,8 +10722,9 @@ public:
                                     const float LX[4] = { px_[a],px_[b],px_[b],px_[a] };
                                     const float LZ[4] = { pz_[a],pz_[b],pz_[b],pz_[a] };
                                     const float LY[4] = { y0,y0,y1,y1 };
-                                    const float U_[4] = { U0,U1,U1,U0 };
-                                    const float V_[4] = { U0,U0,U1,U1 };
+                                    // Cada costado, su propia celda.
+                                    float U_[4], V_[4];
+                                    trozo(celdaCara[2 + e], U_, V_);
                                     for (int i = 0; i < 4; ++i) {
                                         vP.push_back(wx + LX[i]);
                                         vP.push_back(wy + LY[i]);
@@ -10715,7 +10758,7 @@ public:
                                 const float dz = ((float)((m >> 16) % 5u) - 2.0f) * PXL * 0.5f;
 
                                 canto(CX[casilla] + dx, CZ[casilla] + dz,
-                                      ancho, alto, giro);
+                                      ancho, alto, giro, m ^ 0x9E3779B9u);
                             }
 
                             continue;   // no emitir las caras del cubo

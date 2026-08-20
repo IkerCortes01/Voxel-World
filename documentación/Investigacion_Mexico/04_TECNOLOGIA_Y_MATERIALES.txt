@@ -1,0 +1,301 @@
+================================================================================
+04 - TECNOLOGÍA Y MATERIALES
+================================================================================
+
+La clave para entender la tecnología olmeca es una restricción: NO tenían
+metal, ni rueda de uso práctico, ni animales de tiro. Todo lo que hicieron
+—incluido mover bloques de 24 toneladas cien kilómetros— se hizo con piedra,
+madera, fibra, agua y una cantidad enorme de trabajo humano organizado.
+
+Eso no es una carencia: es el marco que hace admirable el resultado.
+
+================================================================================
+1. TRABAJO DE LA PIEDRA
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 EL BASALTO Y LAS CABEZAS COLOSALES
+--------------------------------------------------------------------------------
+
+LA MATERIA PRIMA
+  Basalto de Cerro Cintepec, en las laderas sudorientales de la Sierra de
+  los Tuxtlas (Veracruz). [CONSENSO]
+
+  Detalle importante y poco conocido: NO se extraía de cantera de roca
+  madre. Se aprovechaban CANTOS RODADOS ESFÉRICOS depositados naturalmente
+  por lahares — flujos de lodo volcánico prehistóricos que arrastraron
+  bloques ladera abajo y los redondearon. Los olmecas seleccionaban
+  deliberadamente los cantos cuya forma ya se parecía a una cabeza humana.
+  [CONSENSO]
+
+  Es decir: la forma del monumento estaba en parte dictada por la forma que
+  el volcán ya le había dado a la piedra.
+
+LA CADENA DE TRABAJO
+  1. Selección del canto rodado esférico adecuado.
+  2. Desbaste inicial: percusión directa, arrancando lascas grandes y
+     pequeñas.
+  3. Modelado con percutores de mano — cantos rodados redondeados, a menudo
+     del mismo basalto que el monumento.
+  4. Refinado de superficie por abrasión.
+  5. Pulido con abrasivos (arena, polvo de piedra) y agua.
+  6. Probablemente PINTURA en colores vivos, hoy perdida. [PROBABLE]
+  [CONSENSO en la secuencia técnica]
+
+EL TRANSPORTE — el problema de ingeniería de verdad
+  Distancias: hasta 100 km o más desde los Tuxtlas hasta San Lorenzo o
+  La Venta. Pesos: entre 6 y 24 toneladas. Sin rueda, sin bueyes.
+
+  Métodos reconstruidos:
+    - Trineos de madera y rodillos de tronco en tierra firme.
+    - BALSAS FLUVIALES en la extensa red de ríos y lagunas. Casi con
+      seguridad la parte principal del trayecto: mover 20 toneladas por
+      agua es infinitamente más barato que por tierra.
+    - Rampas y calzadas preparadas.
+    - Posible uso de la estación de lluvias, cuando los terrenos inundados
+      facilitan el traslado por agua.
+  [PROBABLE en el detalle; CONSENSO en que combinaba tierra y agua]
+
+  LA CIFRA QUE IMPORTA: se ha estimado que mover UNA sola cabeza colosal
+  desde los Tuxtlas hasta un centro ceremonial requería un mínimo de unas
+  1.500 personas trabajando de tres a cuatro meses. [PROBABLE — es una
+  estimación, no una medición]
+
+  Lo interesante de esa cifra no es la ingeniería: es la POLÍTICA. Una
+  sociedad capaz de retirar 1.500 personas de la producción de alimentos
+  durante un trimestre, para mover una piedra, tiene una organización
+  social y un excedente considerables. El monumento es la prueba del poder
+  tanto por lo que representa como por lo que costó traerlo.
+
+--------------------------------------------------------------------------------
+1.2 EL JADE Y LA PIEDRA VERDE
+--------------------------------------------------------------------------------
+
+Aquí está la mayor sofisticación técnica olmeca.
+
+MATERIALES
+  - JADEÍTA: la piedra verde de más prestigio. La fuente conocida en
+    Mesoamérica es el valle del río Motagua, en Guatemala — a cientos de
+    kilómetros del territorio olmeca. [CONSENSO]
+  - "JADE AZUL" olmeca: variedad de jadeíta azul-verdosa característica de
+    sus piezas más finas. [CONSENSO]
+  - SERPENTINA: más blanda y abundante; el material más usado para
+    escultura portátil y para las ofrendas masivas. [CONSENSO]
+
+EL PROBLEMA
+  La jadeíta tiene dureza 6,5-7 en la escala de Mohs y es extremadamente
+  tenaz (resiste la fractura). No hay metal para cortarla. Es, con
+  diferencia, el material más difícil que trabajaron.
+
+LA SOLUCIÓN: ABRASIÓN, NO CORTE
+  No se corta el jade: se DESGASTA. Todas las técnicas se basan en frotar
+  con un abrasivo más duro que la piedra:
+
+    - SIERRAS DE CUERDA: una cuerda o tira de cuero tensada, con arena
+      húmeda de cuarzo como abrasivo, movida en vaivén durante horas o
+      días. La cuerda no corta; el cuarzo sí.
+    - SIERRAS DE LÁMINA: lascas de piedra dura usadas igual, con abrasivo.
+    - TALADRO DE CAÑA O ARCO: un tubo de caña hueca girado con un arco,
+      alimentado con arena y agua, produce perforaciones cilíndricas
+      limpias. El testigo cilíndrico que queda dentro de la caña es una
+      firma reconocible de la técnica.
+    - INCISIÓN CON PUNTA DE CUARZO: experimentos sobre jade del Motagua
+      muestran que incidir con punta de cuarzo cristalino es
+      sorprendentemente fácil ANTES del pulido, porque la superficie aún
+      rugosa "agarra" la punta.
+    - PULIDO FINAL: abrasivos cada vez más finos —arena, polvo de piedra,
+      quizá cuero y vegetales— hasta el brillo espejo característico.
+  [CONSENSO en las técnicas; los detalles exactos de cada taller son
+  [PROBABLE], reconstruidos por arqueología experimental]
+
+  IMPLICACIÓN PARA EL JUEGO: el jade no debería obtenerse "picando" como
+  la piedra. Su cadena natural es: conseguir el bloque -> abrasivo (arena
+  de cuarzo) -> agua -> tiempo. Es un material de proceso lento, no de
+  extracción.
+
+OBJETOS DE JADE Y SERPENTINA
+  Hachas votivas (ceremoniales, no funcionales), figurillas antropomorfas,
+  máscaras, pectorales, orejeras, cuentas, cetros, punzones. La "hacha
+  votiva" característica tiene cabeza grande y cuerpo pequeño que se
+  estrecha hasta acabar en filo. [CONSENSO]
+
+--------------------------------------------------------------------------------
+1.3 LA OBSIDIANA
+--------------------------------------------------------------------------------
+
+Vidrio volcánico. Da el filo más agudo que puede producir la tecnología
+lítica — a nivel de arista, más afilado que un bisturí de acero.
+
+NO HAY OBSIDIANA EN EL TERRITORIO OLMECA. Toda es importada, y por eso es
+un trazador magnífico de rutas comerciales. [CONSENSO]
+
+LO QUE DICE LA CIENCIA DE PROCEDENCIA
+  Un estudio analizó 852 artefactos de San Lorenzo mediante activación
+  neutrónica de alta precisión y fluorescencia de rayos X, cubriendo el
+  periodo de 1800 a 800 a.C. — una de las muestras más grandes de obsidiana
+  procedente de un sitio mesoamericano. [CONSENSO]
+
+  Resultados principales:
+    - En la fase San Lorenzo (Formativo Temprano), la obsidiana venía
+      predominantemente de GUADALUPE VICTORIA (Puebla), a unos 300 km al
+      noreste: la fuente más cercana al sitio.
+    - EL CHAYAL (Guatemala) fue con diferencia la fuente guatemalteca más
+      común, tanto en el Formativo Temprano como en el Medio.
+    - Se usaron múltiples fuentes simultáneamente.
+
+  Que llegara obsidiana de Guatemala a Veracruz en el segundo milenio a.C.
+  implica redes de intercambio de más de 700 km en línea recta. [CONSENSO]
+
+OTRAS FUENTES documentadas en Mesoamérica y relevantes para la época:
+  Otumba y Pachuca (centro de México), Pico de Orizaba, Zaragoza,
+  San Martín Jilotepeque (Guatemala).
+
+USOS: navajas prismáticas, lascas cortantes, puntas, perforadores,
+raspadores, y —crucialmente— las herramientas con las que se incidía el
+jade y la serpentinita. El análisis del Bloque de Cascajal identificó
+incisiones compatibles con herramientas de obsidiana. [CONSENSO]
+
+================================================================================
+2. EL HULE
+================================================================================
+
+Tratado en detalle en el archivo 05 (química). Resumen técnico:
+
+  - Materia prima: látex de Castilla elastica.
+  - Transformación mediante mezcla con jugo de Ipomoea alba, cuyos
+    compuestos azufrados entrecruzan las cadenas de poliisopreno: una
+    vulcanización rudimentaria, 3.500 años antes de Goodyear. [PROBABLE
+    para Mesoamérica; el análisis de 2023 NO la detectó en las pelotas
+    concretas de El Manatí — ver archivo 05]
+  - La proporción de la mezcla se ajustaba según el uso: más elástico para
+    pelotas, más resistente para suelas y bandas. [PROBABLE]
+  - Objetos de hule más antiguos del mundo: 12 pelotas de El Manatí,
+    1700-1600 a.C. [CONSENSO]
+
+================================================================================
+3. EL CHAPOPOTE (BITUMEN)
+================================================================================
+
+Tratado en detalle en el archivo 05. Resumen técnico:
+
+  - Recurso de superficie: brota en escurrimientos naturales de la llanura
+    costera, se recoge de manaderos, de la superficie de ríos o como
+    nódulos en la playa. No se perforaba nada. [CONSENSO]
+  - Procesado: calentado y mezclado con carga orgánica (pastos, hojas de
+    palma, olotes) que modifica sus propiedades. Se almacenaba en trozos
+    para uso o intercambio. [CONSENSO]
+  - Usos: impermeabilizar embarcaciones (el más importante), sellar
+    acueductos de basalto y recipientes, adhesivo para mangos de
+    herramienta, decoración facial en figurillas, recubrimiento de pisos.
+    [CONSENSO]
+  - Análisis GC-MS de biomarcadores identifica el yacimiento de origen:
+    San Lorenzo recibía chapopote de al menos TRES fuentes regionales
+    distintas. [CONSENSO]
+
+================================================================================
+4. CERÁMICA
+================================================================================
+
+  - Cocción a cielo abierto u hornos simples, 700-900 °C aproximadamente.
+  - Control de atmósfera: oxidante da rojizos/anaranjados; reductora
+    (con humo) da grises y negros. Los olmecas produjeron ambas de forma
+    diferenciada. [PROBABLE-CONSENSO]
+  - Caolín (arcilla blanca) para piezas finas; engobes para acabados.
+  - Sin torno (no existe en Mesoamérica precolombina): modelado a mano,
+    por rollos, o con moldes simples.
+  - Sin vidriado.
+  [CONSENSO]
+
+  Tipos característicos: cerámica blanca y negra diferenciada, vasijas con
+  iconografía incisa (motivos de garra-ala, hombre-jaguar), botellones,
+  cajetes, figurillas huecas de bebé ("baby-face"), figurillas sólidas.
+
+  EL DEBATE DE LA PROCEDENCIA CERÁMICA: ver archivo 10, apartado A.1. Es el
+  frente empírico central de la disputa "cultura madre" vs "cultura
+  hermana".
+
+================================================================================
+5. TECNOLOGÍA ORGÁNICA (la gran invisible)
+================================================================================
+
+Esta es la parte más importante y la peor conocida, por una razón simple: en
+suelo tropical ácido y húmedo, la materia orgánica se destruye. Casi todo lo
+que los olmecas usaban a diario ha desaparecido del registro.
+
+EL MANATÍ es la excepción que lo demuestra: el ambiente anaeróbico del
+manantial conservó BUSTOS DE MADERA TALLADA, pelotas de hule, semillas y
+restos vegetales que en cualquier otro sitio no existirían. [CONSENSO]
+
+Es decir: sabemos que trabajaban la madera con gran calidad escultórica
+únicamente porque un manantial concreto lo preservó. Todo lo demás que
+hicieran en madera es invisible.
+
+LO QUE CASI CON SEGURIDAD EXISTIÓ, aunque no se conserve:
+  - CANOAS. En un paisaje de ríos, lagunas y pantanos, y con el chapopote
+    documentado como impermeabilizante de embarcaciones, la navegación
+    fluvial era la infraestructura básica. [PROBABLE-CONSENSO por
+    inferencia]
+  - CESTERÍA y cordelería de fibras vegetales.
+  - TEXTILES de algodón y de fibras duras (agave/ixtle). Se infiere por
+    malacates (pesas de huso) cuando aparecen y por la iconografía del
+    vestido. [PROBABLE]
+  - Estructuras de bajareque: entramado de varas revestido de barro, con
+    techo de palma. Es la vivienda común. [PROBABLE-CONSENSO]
+  - Herramientas de madera: coas (palos plantadores), mazos, palancas,
+    trineos, rodillos.
+  - Objetos de calabaza (guaje) como recipientes.
+  - Redes, anzuelos, trampas de pesca.
+
+NOTA DE MÉTODO: todo este apartado está construido por inferencia, no por
+hallazgo directo. Es razonable, pero conviene no confundirlo con lo
+excavado.
+
+================================================================================
+6. INSTRUMENTOS MUSICALES
+================================================================================
+
+Documentados o inferidos en el ámbito mesoamericano temprano:
+  - Silbatos y flautas de barro con orificios.
+  - Sonajas.
+  - Trompetas de caracol marino (documentadas en contextos funerarios de
+    Tlatilco, contemporáneo).
+  - Tambores de tronco ahuecado (tipo teponaztli) y tambores de parche
+    (tipo huehuetl) — estos nombres son náhuatl y posteriores; el
+    instrumento es más antiguo.
+  - Raspadores.
+  [PROBABLE; los instrumentos de barro son [CONSENSO] donde aparecen]
+
+================================================================================
+7. RESUMEN: LA CADENA TECNOLÓGICA OLMECA
+================================================================================
+
+Ordenada por dificultad creciente, útil como progresión de juego:
+
+  NIVEL 1 — Recolección directa
+    Chapopote de manadero. Arcilla. Arena. Fibras. Madera. Caña.
+    Cantos rodados.
+
+  NIVEL 2 — Transformación simple
+    Cerámica cocida. Cestería. Cordelería. Bajareque. Coas y mazos.
+    Sal por evaporación.
+
+  NIVEL 3 — Transformación con control de proceso
+    Cerámica con control de atmósfera. Chapopote calentado y cargado.
+    Nixtamalización. Cal por calcinación. Pigmentos minerales.
+
+  NIVEL 4 — Abrasión de larga duración
+    Pulido de serpentina. Perforación con taladro de caña.
+    Talla de basalto.
+
+  NIVEL 5 — Máxima especialización
+    Jadeíta trabajada por abrasión. Espejos cóncavos de magnetita con
+    curvatura funcional. Hule vulcanizado con proporción ajustada.
+
+  NIVEL 6 — Organización social como tecnología
+    Transporte de monumentos de 24 toneladas a 100 km.
+    Movimiento de miles de toneladas de tierra para plataformas.
+    Redes de intercambio de 700+ km.
+
+  Ese nivel 6 es el que suele olvidarse. La mayor tecnología olmeca no fue
+  una herramienta: fue la capacidad de coordinar a mucha gente durante
+  mucho tiempo hacia un objetivo que no daba de comer a nadie.

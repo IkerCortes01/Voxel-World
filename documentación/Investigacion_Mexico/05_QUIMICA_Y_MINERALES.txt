@@ -193,17 +193,51 @@ POR QUÉ SON DIFÍCILES
   Pulir una superficie plana ya requiere paciencia. Pulir una curvatura
   cóncava regular, en un mineral duro, sin herramientas de metal y sin
   instrumentos de medida, y conseguir que enfoque, es un nivel de control
-  técnico muy alto. Algunos tienen distancias focales consistentes.
-  [CONSENSO en la dificultad; los detalles de la técnica son [ESPECULATIVO]]
+  técnico muy alto.
+
+  DATOS TÉCNICOS [CONSENSO]:
+    - Las superficies cóncavas fueron molidas con precisión COMPARABLE A
+      LENTES ÓPTICAS MODERNAS.
+    - Reflectividad de hasta ~55% cuando están pulidos.
+
+  El estudio de referencia es el catálogo de John B. Carlson, "Olmec Concave
+  Iron-Ore Mirrors: The Aesthetics of a Lithic Technology and the Lord of
+  the Mirror".
 
 PARA QUÉ SERVÍAN
-  - ENCENDER FUEGO concentrando la luz solar en el foco. Demostrado como
-    posible experimentalmente. [PROBABLE]
+  - ENCENDER FUEGO concentrando la luz solar en el foco. Esto NO es
+    especulación: de cuatro espejos grandes hallados en ARROYO PESQUERO
+    (Veracruz), DOS circulares demostraron ser muy eficaces para encender
+    fuego en pruebas sobre las piezas reales. [CONSENSO en que es posible;
+    que fuera LA función primaria es ESPECULATIVO]
+  - Adivinación / escrutinio ritual (scrying). Es el uso mejor respaldado
+    por la iconografía y por la analogía con culturas posteriores.
+    [PROBABLE]
   - Proyectar imágenes o puntos de luz. [PROBABLE]
-  - Adivinación / instrumento chamánico: mirar en el espejo como práctica
-    ritual. Es el uso mejor respaldado por la iconografía y por la analogía
-    con culturas mesoamericanas posteriores. [PROBABLE]
-  - Insignia de rango: aparecen en contextos de élite. [PROBABLE]
+  - Insignia de rango: se llevaban colgados sobre el pecho, como muestra la
+    escultura. [PROBABLE]
+
+UN EJEMPLAR DOCUMENTADO CON MÉTRICA PRECISA
+  Espejo de jade PC.B.529, Dumbarton Oaks:
+    - 8 cm alto x 7,5 cm ancho x 1,1 cm grosor; 149,4 g.
+    - Jadeíta azul-verde claro moteada.
+    - Frente suavemente cóncavo y altamente pulido; esquinas rectangulares
+      redondeadas.
+    - Reverso ligeramente convexo, con dos surcos paralelos (cortes
+      abortados del desbaste) y PERFORACIONES BICÓNICAS en el borde superior
+      para suspensión.
+    - Formativo Medio (900-300 a.C.).
+    - Interpretación de Carlson: es una COPIA-EFIGIE EN JADE de un espejo de
+      mena de hierro — las dimensiones de la superficie cóncava son
+      prácticamente idénticas a las de los espejos metálicos conocidos.
+
+  Las perforaciones bicónicas confirman técnicamente el taladro
+  bidireccional descrito en el archivo 04.
+
+CAMBIO DIACRÓNICO INTERESANTE: los espejos de magnetita/hematita/ilmenita
+dominan el Formativo Temprano; los espejos de JADE azul-verde dominan el
+Formativo Medio, y se han vinculado a una preocupación por el maíz y la
+riqueza vegetal. El material del espejo cambia con lo que la sociedad valora.
 
 LA HIPÓTESIS DE LA BRÚJULA  [ESPECULATIVO — pero fascinante]
   John B. Carlson propuso en 1975 (Science) que un artefacto de hematita de
@@ -220,13 +254,53 @@ LA HIPÓTESIS DE LA BRÚJULA  [ESPECULATIVO — pero fascinante]
   aquí porque es una hipótesis seria publicada en una revista seria, no
   pseudoarqueología — pero sigue siendo una hipótesis sin confirmar.
 
-LAS CUENTAS DE ILMENITA
-  En San Lorenzo se han recuperado cientos de miles de cuentas perforadas de
-  ilmenita. La cifra es tan alta que plantea preguntas sin respuesta: ¿para
-  qué? ¿un material de intercambio estandarizado? ¿un tipo de cuenta ritual?
-  Cada una está perforada, lo que implica una cantidad enorme de trabajo
-  acumulado. [CONSENSO en la existencia y cantidad; la función es
-  [DEBATIDO]]
+LAS CUENTAS DE ILMENITA — el fenómeno menos explicado de la cultura olmeca
+
+  Ann Cyphers halló concentraciones masivas de artefactos de ilmenita
+  (FeTiO3) pulida y MULTIPERFORADA en San Lorenzo.
+
+  CIFRAS (con la cautela que se indica abajo):
+    - Taller del sector SE de la meseta: ~8 TONELADAS de cuentas pulidas y
+      perforadas, fechado hacia 1100 a.C.
+    - Sitio "ilmenitas A4", en tres concentraciones: ~150.000 piezas o más
+      de 4,5 toneladas.
+    - Loma del Zapote (a ~4 km del centro): ~10.000 piezas completas.
+    - Longitud media de las cuentas: ~3 cm.
+
+    ⚠️ La cifra de 8 toneladas aparece atribuida a Cyphers en varias fuentes
+    secundarias. Las de 150.000 piezas / 4,5 t / 10.000 provienen de sitios
+    web NO académicos y deben verificarse en las publicaciones originales de
+    Cyphers antes de citarse en firme.
+
+  EL DATO TÉCNICO QUE SÍ ES SÓLIDO [CONSENSO]: las cuentas presentan
+  múltiples perforaciones hechas con ÚTIL ROTATORIO, no percutidas. La
+  evidencia decisiva son las ESTRÍAS CIRCULARES a lo largo de las paredes de
+  los barrenos, que demuestran inequívocamente rotación. Se empleó
+  probablemente arena fina como abrasivo.
+
+  La ilmenita tiene dureza 5-6 Mohs. Perforar decenas de miles de piezas con
+  taladro rotatorio y abrasivo representa una inversión de trabajo colosal
+  en objetos cuya función se desconoce.
+
+  Lo desconcertante: las perforaciones son MÚLTIPLES, no una sola como
+  esperaría una cuenta ensartada. Eso es lo que resiste la explicación
+  simple.
+
+  HIPÓTESIS DE FUNCIÓN [todas DEBATIDO, ninguna con consenso]:
+    joyería; componentes de vestimenta compuesta o "cota de malla";
+    herramientas miniatura enmangadas; elementos de conteo o registro;
+    material de intercambio o proto-moneda; sonajas.
+
+  PROCEDENCIA [CONSENSO — hay estudio arqueométrico sólido]:
+    Alva-Valdivia, Cyphers et al. (2017), European Journal of Mineralogy
+    29(5), determinaron mediante petrografía, SEM, susceptibilidad magnética
+    a alta temperatura, histéresis, IRM y puntos de Curie que los artefactos
+    proceden de las ANORTOSITAS DE HUITZO, OAXACA, en el complejo Precámbrico
+    de Oaxaquia septentrional. Firma diagnóstica: alto MgO (1,3 % en peso) y
+    granos grandes de apatito.
+
+  Tres sitios procesaron mena de ilmenita a escala industrial: San Lorenzo
+  (Veracruz), Mirador-Plumajillo y Amatal (ambos en Chiapas).
 
 ================================================================================
 5. LA NIXTAMALIZACIÓN

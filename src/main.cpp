@@ -8375,19 +8375,18 @@ public:
         // LA HOJA sube desde ese suelo, y la PUNTA la remata SIEMPRE: la
         // espina terminal es parte de la hoja, ninguna hoja acaba en seco.
         //
-        // La hoja mide 50 px de alto, que son mas de TRES bloques. El bloque
-        // de HOJA dibuja esos 50 px de una pieza, asi que la mata ocupa:
+        // La mata es una PIRAMIDE: las hojas de fuera salen casi tumbadas y
+        // las de dentro cada vez mas empinadas, hasta que las centrales
+        // rematan en punta. Medido sobre fotos reales, la planta es mas
+        // ANCHA que alta, asi que ocupa poco en vertical:
         //
-        //     baseY      HOJA   (dibuja los 50 px enteros hacia arriba)
-        //     baseY+3    PUNTA  (el remate, justo donde acaba la hoja)
+        //     baseY      HOJA   los anillos tumbados y medios
+        //     baseY+1    PUNTA  el anillo central, que hace la cuspide
         //
-        // Los bloques de en medio se quedan en AIRE a proposito: la hoja ya
-        // pasa por ahi dibujada, y llenarlos obligaria al jugador a picar
-        // tres veces lo que es una sola hoja.
-        //
-        // Altura de la mata: 50 px = 3.125 bloques, asi que la punta va en
-        // el cuarto bloque, que es donde de verdad termina la hoja.
-        constexpr int BLOQUES_HOJA = 3;
+        // Las hojas se dibujan en coordenadas de mundo, asi que la roseta se
+        // ve entera aunque desborde su voxel: no hace falta un bloque por
+        // cada tramo de hoja.
+        constexpr int BLOQUES_HOJA = 1;
 
         // Hace falta sitio libre para que la mata quepa entera. Si no lo
         // hay (una cueva baja, un saliente), la mata no crece: mejor eso
@@ -10156,76 +10155,92 @@ public:
 
                             const bool punta = (block == BLOCK_IXTLE_PUNTA);
 
-                            // CUANTAS HOJAS.
-                            // Antes se dibujaban 26 hojas de 1 px de ancho: a
-                            // esa escala cada hoja era un hilo y la textura
-                            // no se llegaba a ver, que es lo que hacia que la
-                            // mata se viese pequena y rara. Ahora son POCAS y
-                            // ANCHAS, cada una con su textura entera y
-                            // legible, que es como se ve un agave de verdad.
-                            const int nHojas = 5 + (int)(mezcla(1) % 3u);
-
                             // ------------------------------------------------
-                            // MEDIDAS DE LA HOJA: 50 x 10 x 8 PIXELES
+                            // LA ROSETA ES UNA PIRAMIDE
                             // ------------------------------------------------
-                            // 10 px de ancho de frente y 8 de grosor de
-                            // canto: una hoja carnosa, no una lamina.
-                            const float ANCHO = 10.0f * PXL;
-                            const float CANTO =  8.0f * PXL;
-
-                            // 50 px de ALTO son mas de TRES BLOQUES (16 px
-                            // cada uno), asi que una hoja no cabe en su
-                            // voxel: mide 3.125 bloques.
+                            // Medido sobre fotos reales de la planta: la mata
+                            // es MAS ANCHA QUE ALTA (relacion 1.3 a 2.0) y su
+                            // parte mas gruesa cae en el tercio inferior. No
+                            // es un manojo de lanzas verticales: es una copa.
                             //
-                            // Se resuelve dibujando la hoja ENTERA desde el
-                            // bloque en el que arranca. El voxel no recorta
-                            // lo que se dibuja -- el mesher emite geometria
-                            // en coordenadas de mundo -- asi que la hoja sube
-                            // los 50 px completos y se ve de una pieza.
+                            // Se consigue con una sola idea: la inclinacion
+                            // depende de en que ANILLO esta la hoja.
                             //
-                            // El bloque de PUNTA no repite la hoja entera:
-                            // es el remate, y dibuja solo el tramo final con
-                            // su textura en triangulo.
-                            constexpr float ALTO_HOJA = 50.0f * PXL;   // 3.125 bloques
-                            constexpr float ALTO_PUNTA = 16.0f * PXL;  // el remate
+                            //   anillo exterior -> casi tumbada, rozando el
+                            //                      suelo
+                            //   anillos medios  -> cada vez mas empinada
+                            //   anillo central  -> vertical: hace la PUNTA
+                            //
+                            // De ahi sale la silueta piramidal, y como cada
+                            // anillo se aleja mas del centro, las hojas
+                            // quedan bien separadas entre si.
+                            constexpr int ANILLOS = 4;
 
-                            const float ALTO = punta ? ALTO_PUNTA : ALTO_HOJA;
+                            // Hojas por anillo: muchas fuera, pocas dentro.
+                            // Es lo que da la base ancha y la cuspide fina.
+                            static const int PORANILLO[ANILLOS] = { 9, 7, 5, 3 };
 
-                            // Emite un quad de DOS CARAS con la textura
-                            // entera. Cada hoja son dos quads cruzados: se ve
-                            // bien desde cualquier angulo sin gastar seis
-                            // caras por hoja.
-                            auto hoja = [&](float cx, float cz,
-                                            float dx, float dz,
-                                            float y0, float y1,
-                                            float incX, float incZ) {
-                                const float ax = cx - dx, az = cz - dz;
-                                const float bx2 = cx + dx, bz2 = cz + dz;
-                                const float tax = ax + incX, taz = az + incZ;
-                                const float tbx = bx2 + incX, tbz = bz2 + incZ;
+                            // 2 PX DE VOLUMEN: la hoja es un prisma, no un
+                            // plano. Ancha de frente y de 2 px de canto.
+                            constexpr float VOL = 2.0f * PXL;
 
-                                const float PXs[8] = { ax, bx2, tbx, tax,
-                                                       tax, tbx, bx2, ax };
-                                const float PYs[8] = { y0, y0, y1, y1,
-                                                       y1, y1, y0, y0 };
-                                const float PZs[8] = { az, bz2, tbz, taz,
-                                                       taz, tbz, bz2, az };
-                                // Base de la hoja en V=0 y punta en V=1, la
-                                // misma convencion que las caras laterales
-                                // del cubo. Asi la textura sale derecha y la
-                                // espina de "Puntas de Ixtle" queda ARRIBA.
-                                const float Us[8] = { U0, U1, U1, U0,
-                                                      U0, U1, U1, U0 };
-                                const float Vs[8] = { U0, U0, U1, U1,
-                                                      U1, U1, U0, U0 };
-                                for (int i = 0; i < 8; ++i) {
-                                    verts.push_back(wx + PXs[i]);
-                                    verts.push_back(wy + PYs[i]);
-                                    verts.push_back(wz + PZs[i]);
-                                    cols.push_back(cr); cols.push_back(cg);
-                                    cols.push_back(cb); cols.push_back(ca);
-                                    uvCoords.push_back(Us[i]);
-                                    uvCoords.push_back(Vs[i]);
+                            // Emite un prisma de 6 caras entre una base y una
+                            // punta, con el grosor VOL. Esto es lo que hace
+                            // que la hoja sea 3D de verdad.
+                            auto prisma = [&](float ax, float ay, float az,
+                                              float bx2, float by2, float bz2,
+                                              float anchoBase, float anchoAlto,
+                                              float dirX, float dirZ) {
+                                // Perpendicular horizontal a la direccion de
+                                // la hoja: define su cara ancha.
+                                const float pxn = -dirZ, pzn = dirX;
+
+                                // 8 vertices: 4 en la base y 4 en la punta.
+                                // La hoja se estrecha hacia la punta, como
+                                // una hoja lanceolada de agave.
+                                const float hb = anchoBase * 0.5f;
+                                const float ha = anchoAlto * 0.5f;
+                                const float v = VOL * 0.5f;
+
+                                const float VX[8] = {
+                                    ax - pxn*hb - dirX*v, ax + pxn*hb - dirX*v,
+                                    ax + pxn*hb + dirX*v, ax - pxn*hb + dirX*v,
+                                    bx2 - pxn*ha - dirX*v, bx2 + pxn*ha - dirX*v,
+                                    bx2 + pxn*ha + dirX*v, bx2 - pxn*ha + dirX*v
+                                };
+                                const float VY[8] = {
+                                    ay, ay, ay, ay, by2, by2, by2, by2
+                                };
+                                const float VZ[8] = {
+                                    az - pzn*hb - dirZ*v, az + pzn*hb - dirZ*v,
+                                    az + pzn*hb + dirZ*v, az - pzn*hb + dirZ*v,
+                                    bz2 - pzn*ha - dirZ*v, bz2 + pzn*ha - dirZ*v,
+                                    bz2 + pzn*ha + dirZ*v, bz2 - pzn*ha + dirZ*v
+                                };
+
+                                // Las seis caras del prisma. Las dos anchas
+                                // (0-1-5-4 y 3-2-6-7) llevan la textura de
+                                // frente, que es por donde se mira la hoja.
+                                static const int CARA[6][4] = {
+                                    {0,1,5,4}, {2,3,7,6}, {1,2,6,5},
+                                    {3,0,4,7}, {4,5,6,7}, {3,2,1,0}
+                                };
+                                for (int f = 0; f < 6; ++f) {
+                                    // V=0 en la base y V=1 en la punta: la
+                                    // textura sale derecha y la espina de
+                                    // "Puntas de Ixtle" queda ARRIBA.
+                                    const float U_[4] = { U0, U1, U1, U0 };
+                                    const float V_[4] = { U0, U0, U1, U1 };
+                                    for (int i = 0; i < 4; ++i) {
+                                        const int k = CARA[f][i];
+                                        verts.push_back(wx + VX[k]);
+                                        verts.push_back(wy + VY[k]);
+                                        verts.push_back(wz + VZ[k]);
+                                        cols.push_back(cr); cols.push_back(cg);
+                                        cols.push_back(cb); cols.push_back(ca);
+                                        uvCoords.push_back(U_[i]);
+                                        uvCoords.push_back(V_[i]);
+                                    }
                                 }
                             };
 
@@ -10233,43 +10248,77 @@ public:
                             const float giro0 =
                                 (float)(mezcla(3) % 360u) * 3.14159265f / 180.0f;
 
-                            for (int i = 0; i < nHojas; ++i) {
-                                const float ang = giro0 +
-                                    6.28318531f * (float)i / (float)nHojas;
-                                const float ca2 = cosf(ang), sa = sinf(ang);
+                            // Largo de la hoja. Es lo que abre la mata: una
+                            // hoja tumbada de este largo llega lejos, que es
+                            // lo que hace la planta mas ancha que alta.
+                            // 26 px de hoja dan una mata de 2.3 x 1.5
+                            // bloques: el tamano de un agave adulto, y con
+                            // la proporcion de las fotos.
+                            const float LARGO = 26.0f * PXL;
 
-                                const unsigned mi = mezcla(200u + (unsigned)i);
+                            for (int a = 0; a < ANILLOS; ++a) {
+                                // La PUNTA solo dibuja el anillo central: es
+                                // el remate de la piramide, no otra roseta.
+                                if (punta && a != ANILLOS - 1) continue;
+                                // Y la HOJA no dibuja el central, que es de
+                                // la punta: asi las dos piezas encajan sin
+                                // solaparse.
+                                if (!punta && a == ANILLOS - 1) continue;
 
-                                // CUANTO SE ABRE.
-                                // La hoja nace ENROLLADA en el centro y se va
-                                // abriendo hacia fuera segun sube: la base
-                                // pegada al eje y la punta separada. Ese es
-                                // el porte del agave.
-                                const float abre = punta
-                                    ? (1.0f + (float)(mi % 3u)) * PXL
-                                    : (2.5f + (float)(mi % 4u)) * PXL;
+                                const int n = PORANILLO[a];
 
-                                // Arranque, casi en el centro: la parte
-                                // enrollada de la que habla el diseno.
-                                const float bx0 = c + ca2 * 1.0f * PXL;
-                                const float bz0 = c + sa * 1.0f * PXL;
+                                // INCLINACION PROGRESIVA.
+                                // t = 0 en el anillo exterior, 1 en el
+                                // central. La hoja pasa de casi tumbada
+                                // (0.12) a casi vertical (0.95).
+                                const float t = (float)a / (float)(ANILLOS - 1);
+                                const float subida = 0.25f + t * 0.65f;
+                                // Lo que no sube, se va hacia fuera: una
+                                // hoja tumbada se aleja mucho del centro.
+                                //
+                                // El 0.85 esta medido: con el, la mata sale
+                                // con la proporcion ANCHO/ALTO de 1.5 que
+                                // tienen las fotos reales de la planta. Sin
+                                // el, la roseta salia demasiado aplastada
+                                // (llegaba a 2.9 de proporcion).
+                                const float salida = (1.0f - subida) * 0.85f;
 
-                                // Media anchura, perpendicular a la
-                                // direccion de la hoja: la cara ancha mira
-                                // hacia fuera de la roseta.
-                                const float pxw = -sa * ANCHO * 0.5f;
-                                const float pzw =  ca2 * ANCHO * 0.5f;
+                                // Cada anillo gira un poco respecto al de
+                                // dentro, para que las hojas no se tapen
+                                // unas a otras y queden bien separadas.
+                                const float desfase = giro0 +
+                                    (float)a * 0.7f;
 
-                                const float y0 = EPS;
-                                const float y1 = ALTO - EPS;
+                                for (int i = 0; i < n; ++i) {
+                                    const float ang = desfase +
+                                        6.28318531f * (float)i / (float)n;
+                                    const float dx = cosf(ang), dz = sinf(ang);
 
-                                // Cara ancha.
-                                hoja(bx0, bz0, pxw, pzw, y0, y1,
-                                     ca2 * abre, sa * abre);
-                                // Y su canto, cruzado: da volumen y hace que
-                                // la hoja se vea desde cualquier lado.
-                                hoja(bx0, bz0, ca2 * CANTO, sa * CANTO,
-                                     y0, y1, ca2 * abre, sa * abre);
+                                    const unsigned mi =
+                                        mezcla(400u + (unsigned)(a*16 + i));
+                                    // Variacion por hoja: ni dos iguales.
+                                    const float var =
+                                        0.85f + (float)(mi % 30u) * 0.01f;
+
+                                    const float largo = LARGO * var;
+
+                                    // Arranque: todas nacen del cogollo, en
+                                    // el centro y a ras de suelo.
+                                    const float ax = c + dx * 1.5f * PXL;
+                                    const float az = c + dz * 1.5f * PXL;
+                                    const float ay = EPS;
+
+                                    // Punta de la hoja: sube `subida` y sale
+                                    // `salida`. Esa mezcla es la piramide.
+                                    const float by2 = ay + largo * subida;
+                                    const float bx2 = ax + dx * largo * salida;
+                                    const float bz2 = az + dz * largo * salida;
+
+                                    // Ancha en la base y afilada en la punta,
+                                    // como una hoja de agave.
+                                    prisma(ax, ay, az, bx2, by2, bz2,
+                                           7.0f * PXL, 2.0f * PXL, dx, dz);
+                                }
                             }
 
                             continue;   // no emitir las caras del cubo

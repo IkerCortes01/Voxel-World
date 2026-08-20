@@ -362,6 +362,10 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
         case BLOCK_RAMA_OYAMEL: r = 0.34f; g = 0.22f; b = 0.12f; break; // Corteza
+        case BLOCK_RAIZ_PEQUENA:
+        case BLOCK_RAIZ_MEDIANA:
+        case BLOCK_RAIZ_GRANDE:
+        case BLOCK_RAIZ_ENORME: r = 0.28f; g = 0.19f; b = 0.10f; break; // Raiz
         case BLOCK_TUNA:      r = 0.42f; g = 0.66f; b = 0.30f; break; // Tuna verde
         case BLOCK_TUNA_AMARILLA: r = 0.93f; g = 0.74f; b = 0.19f; break;
         case BLOCK_TUNA_ROJA: r = 0.78f; g = 0.20f; b = 0.20f; break;
@@ -414,7 +418,7 @@ bool isCrossSprite(BlockType type) {
     // Las ramas tienen su propia geometria en el mesher, pero comparten con
     // los sprites que NO llenan el voxel: no tapan las caras del vecino y se
     // pueden atravesar.
-    if (isRama(type)) return true;
+    if (isRama(type) || esRaiz(type)) return true;
     // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
     return type == BLOCK_TALLGRASS ||
@@ -737,6 +741,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     auto esApoyo = [](BlockType b) {
         return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
                b != BLOCK_TALLGRASS && !isNopal(b) && !isRama(b) &&
+               !esRaiz(b) &&
                b != BLOCK_LEAVES && b != BLOCK_LEAVES_ENCINO &&
                b != BLOCK_LEAVES_OYAMEL;
     };
@@ -1357,6 +1362,22 @@ bool ramaEncadena(BlockType b) {
            b == BLOCK_LEAVES || b == BLOCK_LEAVES_ENCINO || b == BLOCK_LEAVES_OYAMEL;
 }
 
+// Una RAIZ enlaza con otras raices, con el tronco del que nace y CON EL SUELO
+// que la rodea. Lo del suelo es lo que la hace parecer enterrada: sus brazos
+// llegan hasta la tierra en vez de quedarse cortados en el aire, que es como
+// se ve una raiz de verdad al descubrirla.
+//
+// Con las HOJAS no encadena: una raiz esta bajo tierra, no toca la copa.
+bool raizEncadena(BlockType b) {
+    if (esRaiz(b)) return true;
+    if (b == BLOCK_WOOD || b == BLOCK_WOOD_ENCINO || b == BLOCK_WOOD_OYAMEL)
+        return true;
+    // Suelo en el que se agarra.
+    return b == BLOCK_DIRT || b == BLOCK_GRASS || b == BLOCK_SAND ||
+           b == BLOCK_GRAVEL || b == BLOCK_CLAY || b == BLOCK_CLAY_DIRT ||
+           b == BLOCK_CLAY_SAND || b == BLOCK_STONE;
+}
+
 bool isBlockSolid(BlockType type) {
     // La HIERBA no tiene colision: es una brizna, el jugador la atraviesa.
     // Las ramas y el nopal SI frenan: son madera y carne de planta. Su caja
@@ -1404,6 +1425,11 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
         case BLOCK_RAMA_OYAMEL: return 0.8f;
+        // Raices: madera, y cuanto mas gruesa mas cuesta.
+        case BLOCK_RAIZ_PEQUENA: return 0.6f;
+        case BLOCK_RAIZ_MEDIANA: return 0.9f;
+        case BLOCK_RAIZ_GRANDE:  return 1.3f;
+        case BLOCK_RAIZ_ENORME:  return 1.8f;
         case BLOCK_LEAVES:    return 0.2f;   // Hojas - muy rápido
         case BLOCK_LEAVES_ENCINO: return 0.2f;
         case BLOCK_LEAVES_OYAMEL: return 0.2f;
@@ -4142,6 +4168,17 @@ public:
             case BLOCK_RAMA_OYAMEL:
                 return getTexture("Tronco de Oyame.png");
 
+            // --- RAICES: corteza de encino ---
+            // Es la mas oscura y neutra de las tres, y una raiz bajo tierra
+            // se ve mas apagada que la rama que le da el sol. Los cuatro
+            // grosores comparten textura: lo que cambia es el tamano, no la
+            // madera.
+            case BLOCK_RAIZ_PEQUENA:
+            case BLOCK_RAIZ_MEDIANA:
+            case BLOCK_RAIZ_GRANDE:
+            case BLOCK_RAIZ_ENORME:
+                return getTexture("Tronco de Encino.png");
+
             // PENCA de Nopal de Castilla. Es la penca en si, NO la tuna: la
             // tuna es el fruto que le crece encima y tiene su propia textura
             // (ver getTexturaTuna). Cuando la penca toca un cladodio, el
@@ -4713,7 +4750,7 @@ struct Chunk {
         // Bloques que no llenan su voxel: la luz del cielo los atraviesa.
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
-               isRama(b) ||
+               isRama(b) || esRaiz(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
                esTuna(b);
     }
@@ -4774,6 +4811,8 @@ struct Chunk {
         // Rama: 4x4 pixeles de seccion. Ocupa tan poco que la luz la rodea
         // casi por completo; atenua 1, como el aire.
         if (isRama(b)) return 1;
+        // Raiz: cuanto mas gruesa, mas tapa. La de 16 px llena el voxel.
+        if (esRaiz(b)) return (grosorRaiz(b) >= 16) ? 0 : 1;
 
         // Cladodio y fruto: losas de 5/16 de grosor. Tapan mas que una rama
         // pero mucho menos que un cubo, asi que atenuan 2: se nota una sombra
@@ -6940,6 +6979,83 @@ public:
     // astronomico sin gastar memoria.
     enum EspecieRama { RAMA_OYAMEL_ = 0, RAMA_PINO_ = 1, RAMA_ENCINO_ = 2 };
 
+    // ========================================================================
+    // RAICES DEL ARBOL
+    // ========================================================================
+    // Bajo el tronco crece un sistema de raices con los cuatro grosores,
+    // adelgazando a medida que se aleja: ENORME pegada a la base, GRANDE en
+    // el primer tramo, MEDIANA despues y PEQUENA en las puntas. Es como se
+    // ramifica una raiz real, que reparte su seccion al dividirse.
+    //
+    // Se usa el mismo sistema de las ramas -- nucleo con brazos hacia los
+    // vecinos -- asi que no cuesta memoria: la forma se deduce al mallar.
+    void generarRaicesArbol(int worldX, int baseY, int worldZ, int altura,
+                            int semillaExtra) {
+        const int h = worldX * 8419 + worldZ * 6151 + altura * 197 + semillaExtra;
+        auto rnd = [&](int salt, int mod) {
+            unsigned v = (unsigned)(h ^ (salt * 2654435761u));
+            v ^= v >> 13; v *= 1274126177u; v ^= v >> 16;
+            return mod > 0 ? (int)(v % (unsigned)mod) : 0;
+        };
+
+        // Solo se sustituye tierra o piedra: la raiz va ENTERRADA, nunca
+        // borra el tronco ni deja un hueco de aire donde deberia haber suelo.
+        auto ponerRaiz = [&](int x, int y, int z, BlockType tipo) {
+            if (y < 1 || y >= CHUNK_HEIGHT - 1) return false;
+            const BlockType a = getBlock(x, y, z);
+            if (a != BLOCK_DIRT && a != BLOCK_STONE && a != BLOCK_GRASS &&
+                a != BLOCK_SAND && a != BLOCK_GRAVEL && a != BLOCK_CLAY_DIRT &&
+                a != BLOCK_CLAY_SAND) return false;
+            setBlock(x, y, z, tipo);
+            return true;
+        };
+
+        // El arranque: justo bajo el tronco, del grosor maximo.
+        ponerRaiz(worldX, baseY - 1, worldZ, BLOCK_RAIZ_ENORME);
+
+        // Un arbol mas alto sujeta mas raiz.
+        const int nRaices = 3 + rnd(11, 3);          // 3..5 principales
+        const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+
+        for (int i = 0; i < nRaices; ++i) {
+            // Reparto por los cuatro rumbos, con giro para que no salgan
+            // siempre en cruz.
+            const int d = (i + rnd(i * 71 + 3, 4)) % 4;
+            int x = worldX, z = worldZ;
+            int y = baseY - 1;
+
+            // Cuanto se aleja esta raiz. Las largas llegan a las puntas finas.
+            const int largo = 3 + rnd(i * 137 + 29, 4);   // 3..6 bloques
+
+            for (int paso = 0; paso < largo; ++paso) {
+                x += dirs[d][0];
+                z += dirs[d][1];
+
+                // Baja de vez en cuando: una raiz se hunde al alejarse.
+                if (paso % 2 == 1 && rnd(i * 313 + paso * 17, 100) < 60) --y;
+
+                // GROSOR SEGUN LA DISTANCIA: se adelgaza al alejarse del
+                // tronco, como reparte su seccion una raiz de verdad.
+                const float t = (float)paso / (float)largo;
+                const BlockType grosor =
+                      (t < 0.25f) ? BLOCK_RAIZ_ENORME
+                    : (t < 0.50f) ? BLOCK_RAIZ_GRANDE
+                    : (t < 0.75f) ? BLOCK_RAIZ_MEDIANA
+                                  : BLOCK_RAIZ_PEQUENA;
+
+                if (!ponerRaiz(x, y, z, grosor)) break;
+
+                // Bifurcacion: al llegar a la mitad puede salir una raicilla
+                // lateral, siempre del grosor mas fino.
+                if (paso == largo / 2 && rnd(i * 517 + paso, 100) < 45) {
+                    const int dl = (d + 1 + rnd(i * 29, 2)) % 4;
+                    ponerRaiz(x + dirs[dl][0], y, z + dirs[dl][1],
+                              BLOCK_RAIZ_PEQUENA);
+                }
+            }
+        }
+    }
+
     void generarRamasArbol(int worldX, int baseY, int worldZ, int altura,
                            BlockType tipoRama, BlockType tipoHoja,
                            int semillaExtra) {
@@ -8390,8 +8506,14 @@ public:
             if ((seed % 3) == 0) {
                 // 33% pinos grandes
                 generarPino(worldX, baseY, worldZ, altura);
+            // RAICES: se generan antes que las ramas, para que la raiz
+            // enorme quede bajo el tronco antes de nada mas.
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 97);
             generarRamasArbol(worldX, baseY, worldZ, altura,
                               BLOCK_RAMA_PINO, BLOCK_LEAVES, 101);
+                // RAICES: se generan antes que las ramas, para que la raiz
+                // enorme quede bajo el tronco antes de nada mas.
+                generarRaicesArbol(worldX, baseY, worldZ, altura, 194);
                 generarRamasArbol(worldX, baseY, worldZ, altura,
                                   BLOCK_RAMA_PINO, BLOCK_LEAVES, 101);
             } else {
@@ -8426,6 +8548,9 @@ public:
             // 5-8 y todos parecían del mismo tamaño.
             int altura = 5 + (seed % 8);   // 5-12 bloques
             generarEncino(worldX, baseY, worldZ, altura);
+            // RAICES: se generan antes que las ramas, para que la raiz
+            // enorme quede bajo el tronco antes de nada mas.
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 291);
             generarRamasArbol(worldX, baseY, worldZ, altura,
                               BLOCK_RAMA_ENCINO, BLOCK_LEAVES_ENCINO, 202);
 
@@ -8433,6 +8558,9 @@ public:
             // ⭐ OYAMEL: conífera alta y cónica
             int altura = 9 + (seed % 7);   // 9-15 bloques
             generarOyamel(worldX, baseY, worldZ, altura);
+            // RAICES: se generan antes que las ramas, para que la raiz
+            // enorme quede bajo el tronco antes de nada mas.
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 388);
             generarRamasArbol(worldX, baseY, worldZ, altura,
                               BLOCK_RAMA_OYAMEL, BLOCK_LEAVES_OYAMEL, 303);
         }
@@ -9467,12 +9595,21 @@ public:
                             uvCoords.push_back(U0); uvCoords.push_back(U0);
                         };
 
-                        if (isRama(block)) {
+                        if (isRama(block) || esRaiz(block)) {
                             // ========================================
-                            // RAMA: NUCLEO + UN BRAZO POR CONEXION
+                            // RAMA Y RAIZ: NUCLEO + UN BRAZO POR CONEXION
                             // ========================================
-                            // Grosor exacto pedido: 4 pixeles de 16.
-                            constexpr float G = 4.0f / 16.0f;
+                            // La rama es de 4 px. La RAIZ usa el mismo sistema
+                            // pero viene en cuatro grosores -- 4, 8, 12 y 16 --
+                            // porque una raiz real se engrosa al acercarse al
+                            // tronco: fina en la punta, gruesa en el arranque.
+                            //
+                            // Con 16 px la raiz llena el voxel entero, que es
+                            // justo lo que se quiere para el tramo pegado a la
+                            // base del arbol.
+                            const float G = esRaiz(block)
+                                          ? (float)grosorRaiz(block) / 16.0f
+                                          : 4.0f / 16.0f;
                             const float n0 = 0.5f - G * 0.5f;
                             const float n1 = 0.5f + G * 0.5f;
                             // Margen para no quedar coplanar con el vecino
@@ -9480,18 +9617,23 @@ public:
                             // desaparecen segun el angulo de camara).
                             constexpr float E = 0.0005f;
 
-                            const bool cXp = ramaEncadena(
-                                getNeighborBlockCached(x, y, z,  1, 0, 0));
-                            const bool cXm = ramaEncadena(
-                                getNeighborBlockCached(x, y, z, -1, 0, 0));
-                            const bool cYp = ramaEncadena(
-                                getNeighborBlockCached(x, y, z,  0, 1, 0));
-                            const bool cYm = ramaEncadena(
-                                getNeighborBlockCached(x, y, z,  0,-1, 0));
-                            const bool cZp = ramaEncadena(
-                                getNeighborBlockCached(x, y, z,  0, 0, 1));
-                            const bool cZm = ramaEncadena(
-                                getNeighborBlockCached(x, y, z,  0, 0,-1));
+                            // La raiz encadena con lo suyo: otras raices, el
+                            // tronco del que nace y el suelo en el que se
+                            // agarra. Asi se ve enterrada de verdad en vez de
+                            // flotando en un hueco.
+                            auto conecta = [&](int dx, int dy, int dz) {
+                                const BlockType v =
+                                    getNeighborBlockCached(x, y, z, dx, dy, dz);
+                                if (esRaiz(block)) return raizEncadena(v);
+                                return ramaEncadena(v);
+                            };
+
+                            const bool cXp = conecta( 1, 0, 0);
+                            const bool cXm = conecta(-1, 0, 0);
+                            const bool cYp = conecta( 0, 1, 0);
+                            const bool cYm = conecta( 0,-1, 0);
+                            const bool cZp = conecta( 0, 0, 1);
+                            const bool cZm = conecta( 0, 0,-1);
 
                             // Emite una caja con sus 6 caras, cada una a
                             // doble winding para que GL_CULL_FACE no pueda
@@ -19686,8 +19828,12 @@ bool nopalHitboxMundo(BlockType type, int x, int y, int z,
     // encadenado. La colision usa EXACTAMENTE el mismo criterio, asi que
     // el jugador choca justo donde ve la madera: si la rama se prolonga
     // hacia el este, su caja llega hasta el borde este del voxel.
-    if (isRama(type)) {
-        constexpr float G = 4.0f / 16.0f;
+    // La RAIZ usa el mismo criterio, con su propio grosor (4, 8, 12 o 16) y
+    // su propia regla de conexion: se agarra al suelo, no a las hojas.
+    if (isRama(type) || esRaiz(type)) {
+        const bool raiz = esRaiz(type);
+        const float G = raiz ? (float)grosorRaiz(type) / 16.0f
+                             : 4.0f / 16.0f;
         const float n0 = 0.5f - G * 0.5f;
         const float n1 = 0.5f + G * 0.5f;
 
@@ -19695,12 +19841,17 @@ bool nopalHitboxMundo(BlockType type, int x, int y, int z,
         minY = n0; maxY = n1;
         minZ = n0; maxZ = n1;
 
-        if (ramaEncadena(vecino( 1, 0, 0))) maxX = 1.0f;
-        if (ramaEncadena(vecino(-1, 0, 0))) minX = 0.0f;
-        if (ramaEncadena(vecino( 0, 1, 0))) maxY = 1.0f;
-        if (ramaEncadena(vecino( 0,-1, 0))) minY = 0.0f;
-        if (ramaEncadena(vecino( 0, 0, 1))) maxZ = 1.0f;
-        if (ramaEncadena(vecino( 0, 0,-1))) minZ = 0.0f;
+        auto une = [&](int dx, int dy, int dz) {
+            const BlockType v = vecino(dx, dy, dz);
+            return raiz ? raizEncadena(v) : ramaEncadena(v);
+        };
+
+        if (une( 1, 0, 0)) maxX = 1.0f;
+        if (une(-1, 0, 0)) minX = 0.0f;
+        if (une( 0, 1, 0)) maxY = 1.0f;
+        if (une( 0,-1, 0)) minY = 0.0f;
+        if (une( 0, 0, 1)) maxZ = 1.0f;
+        if (une( 0, 0,-1)) minZ = 0.0f;
         return true;
     }
 

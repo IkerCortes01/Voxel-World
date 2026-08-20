@@ -152,18 +152,35 @@ enum BlockType {
     // planta las formas dobladas y en codo de un nopal real.
     BLOCK_NOPAL_CLADODIO_DIAG,   // 47 Penca en diagonal
 
+    // ------------------------------------------------------------------
+    // RAICES 3D
+    // ------------------------------------------------------------------
+    // Funcionan como las ramas -- un nucleo con brazos hacia los vecinos
+    // conectados -- pero crecen HACIA ABAJO, agarradas al suelo, y vienen en
+    // cuatro grosores. Una raiz real se engrosa al acercarse al tronco, asi
+    // que la fina va en la punta y la gruesa junto a la base del arbol.
+    //
+    //   PEQUENA   4x4 px   las raicillas del extremo
+    //   MEDIANA   8x8 px   el tramo intermedio
+    //   GRANDE   12x12 px  las principales
+    //   ENORME   16x16 px  el arranque, pegado al tronco
+    BLOCK_RAIZ_PEQUENA,          // 48 Raiz de 4x4
+    BLOCK_RAIZ_MEDIANA,          // 49 Raiz de 8x8
+    BLOCK_RAIZ_GRANDE,           // 50 Raiz de 12x12
+    BLOCK_RAIZ_ENORME,           // 51 Raiz de 16x16
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 48 Polvo de tierra
-    BLOCK_STICK,            // 49 Palo
-    BLOCK_HOE,              // 50 Hoz
-    BLOCK_COAL_ITEM,        // 51 Carbón (item)
-    BLOCK_RAW_ZINC,         // 52 Zinc crudo
-    BLOCK_RAW_COPPER,       // 53 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 52 Polvo de tierra
+    BLOCK_STICK,            // 53 Palo
+    BLOCK_HOE,              // 54 Hoz
+    BLOCK_COAL_ITEM,        // 55 Carbón (item)
+    BLOCK_RAW_ZINC,         // 56 Zinc crudo
+    BLOCK_RAW_COPPER,       // 57 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -172,18 +189,35 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 54 (sin implementar)
-    BLOCK_BRICKS,           // 55 (sin implementar)
-    BLOCK_GLASS,            // 56 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 57 (retirado del juego)
+    BLOCK_IRON_ORE,         // 58 (sin implementar)
+    BLOCK_BRICKS,           // 59 (sin implementar)
+    BLOCK_GLASS,            // 60 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 61 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 58 (ya no se genera)
+    BLOCK_BEDROCK           // 62 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (la penca diagonal).
+// Último bloque COLOCABLE de la lista ordenada (la raíz enorme).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_CLADODIO_DIAG;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_RAIZ_ENORME;
+
+// ¿Es una raíz, de cualquiera de los cuatro grosores?
+inline bool esRaiz(BlockType t) {
+    return t == BLOCK_RAIZ_PEQUENA || t == BLOCK_RAIZ_MEDIANA ||
+           t == BLOCK_RAIZ_GRANDE  || t == BLOCK_RAIZ_ENORME;
+}
+
+// Grosor de la raíz en píxeles (4, 8, 12 o 16).
+inline int grosorRaiz(BlockType t) {
+    switch (t) {
+        case BLOCK_RAIZ_PEQUENA: return 4;
+        case BLOCK_RAIZ_MEDIANA: return 8;
+        case BLOCK_RAIZ_GRANDE:  return 12;
+        case BLOCK_RAIZ_ENORME:  return 16;
+        default:                 return 0;
+    }
+}
 
 // ¿Es una tuna, de cualquiera de las tres variedades? Se usa en todos los
 // sitios donde el comportamiento es el mismo (forma, colisión, luz) y solo

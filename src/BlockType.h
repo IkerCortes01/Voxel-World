@@ -179,23 +179,28 @@ enum BlockType {
     // Se rompe en 1.5 s, mucho mas rapido que la penca con espinas.
     BLOCK_NOPAL_MOJADO,          // 52 Nopal mojado, sin espinas
 
+    // Nopal cortado en TIRAS. Se craftea a partir del nopal mojado (uno da
+    // cuatro) y SI se puede colocar en el mundo: dejandolo en agua 10
+    // segundos se le va la baba, que es lo que se hace al cocinarlo.
+    BLOCK_NOPAL_TIRAS,           // 53 Penca en tiras
+
+    // Lo que sale de desbabar las tiras en agua: las tiras ya limpias y la
+    // baba por separado. Cada tira da una desbabada y dos babas.
+    BLOCK_NOPAL_SIN_BABA,        // 54 Tiras sin baba, mojadas
+    BLOCK_NOPAL_BABA,            // 55 Baba de nopal
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    // Nopal cortado en TIRAS, listo para cocinar. Sale de craftear un nopal
-    // mojado: uno da cuatro tiras. Es un item de cocina, no un bloque que se
-    // pueda poner en el mundo, por eso va en esta seccion.
-    BLOCK_NOPAL_TIRAS,      // 53 Penca en tiras
-
-    BLOCK_DIRT_POWDER,      // 54 Polvo de tierra
-    BLOCK_STICK,            // 55 Palo
-    BLOCK_HOE,              // 56 Hoz
-    BLOCK_COAL_ITEM,        // 57 Carbón (item)
-    BLOCK_RAW_ZINC,         // 58 Zinc crudo
-    BLOCK_RAW_COPPER,       // 59 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 56 Polvo de tierra
+    BLOCK_STICK,            // 57 Palo
+    BLOCK_HOE,              // 58 Hoz
+    BLOCK_COAL_ITEM,        // 59 Carbón (item)
+    BLOCK_RAW_ZINC,         // 60 Zinc crudo
+    BLOCK_RAW_COPPER,       // 61 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -204,18 +209,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 60 (sin implementar)
-    BLOCK_BRICKS,           // 61 (sin implementar)
-    BLOCK_GLASS,            // 62 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 63 (retirado del juego)
+    BLOCK_IRON_ORE,         // 62 (sin implementar)
+    BLOCK_BRICKS,           // 63 (sin implementar)
+    BLOCK_GLASS,            // 64 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 65 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 64 (ya no se genera)
+    BLOCK_BEDROCK           // 66 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (el nopal mojado).
+// Último bloque COLOCABLE de la lista ordenada (la baba de nopal).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_MOJADO;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_BABA;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {

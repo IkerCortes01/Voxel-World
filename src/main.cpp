@@ -367,6 +367,9 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_RAIZ_GRANDE:
         case BLOCK_RAIZ_ENORME: r = 0.28f; g = 0.19f; b = 0.10f; break; // Raiz
         case BLOCK_NOPAL_MOJADO: r = 0.24f; g = 0.55f; b = 0.22f; break; // Mojado
+        case BLOCK_NOPAL_TIRAS:  r = 0.26f; g = 0.60f; b = 0.24f; break;
+        case BLOCK_NOPAL_SIN_BABA: r = 0.30f; g = 0.66f; b = 0.28f; break;
+        case BLOCK_NOPAL_BABA:   r = 0.55f; g = 0.80f; b = 0.45f; break;
         case BLOCK_TUNA:      r = 0.42f; g = 0.66f; b = 0.30f; break; // Tuna verde
         case BLOCK_TUNA_AMARILLA: r = 0.93f; g = 0.74f; b = 0.19f; break;
         case BLOCK_TUNA_ROJA: r = 0.78f; g = 0.20f; b = 0.20f; break;
@@ -427,6 +430,9 @@ bool isCrossSprite(BlockType type) {
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
            type == BLOCK_NOPAL_MOJADO ||
+           type == BLOCK_NOPAL_TIRAS ||
+           type == BLOCK_NOPAL_SIN_BABA ||
+           type == BLOCK_NOPAL_BABA ||
            esTuna(type);
 }
 
@@ -613,6 +619,24 @@ struct PencaCayendo {
     double t0;          // cuando empezo, en segundos de juego
 };
 std::vector<PencaCayendo> g_pencasCayendo;
+
+// ============================================================================
+// TIRAS DESBABANDOSE
+// ============================================================================
+// Unas tiras de nopal metidas en agua sueltan la baba: es el paso que se hace
+// al cocinarlo, dejarlas en remojo para que pierdan la viscosidad.
+//
+// Tarda 10 segundos, asi que no basta con mojarlas de pasada. Al cumplirse el
+// plazo el bloque se convierte en TIRAS SIN BABA y ademas suelta la baba
+// aparte, que queda como item recogible.
+struct TirasDesbabando {
+    int x, y, z;
+    double t0;          // cuando se metieron en agua
+};
+std::vector<TirasDesbabando> g_tirasDesbabando;
+
+// Cuanto tarda el desbabado, en segundos.
+constexpr double TIRAS_DESBABAR_SEG = 10.0;
 
 // Cuanto dura la caida. Corta a proposito: es un gesto, no una escena.
 constexpr double PENCA_CAIDA_SEG = 0.40;
@@ -1397,7 +1421,8 @@ bool isBlockOpaque(BlockType type) {
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
     if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
-        type == BLOCK_NOPAL_MOJADO ||
+        type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
+        type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
         esTuna(type)) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
@@ -1426,6 +1451,9 @@ float getBlockBreakTime(BlockType type) {
         // El nopal MOJADO ya esta limpio y blando: 1.5 s, la mitad que una
         // penca con espinas (3 s).
         case BLOCK_NOPAL_MOJADO: return 1.5f;
+        case BLOCK_NOPAL_TIRAS:
+        case BLOCK_NOPAL_SIN_BABA:
+        case BLOCK_NOPAL_BABA:   return 0.4f;
         // La tuna se arranca de un tiron: es fruta, no carne de penca.
         case BLOCK_TUNA:
         case BLOCK_TUNA_AMARILLA:
@@ -4201,10 +4229,18 @@ public:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Nopal mojado sin espinas.png"));
 
-            // Nopal cortado en tiras: item de cocina.
+            // Nopal cortado en tiras: se puede colocar, y en agua se desbaba.
             case BLOCK_NOPAL_TIRAS:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Penca de Nopal de Castilla en tiras.png"));
+
+            // Lo que sale del desbabado.
+            case BLOCK_NOPAL_SIN_BABA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/Penca de Nopal sin baba mojado.png"));
+            case BLOCK_NOPAL_BABA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/Baba de nopal.png"));
 
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
@@ -4775,7 +4811,9 @@ struct Chunk {
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
                isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
-               b == BLOCK_NOPAL_MOJADO || esTuna(b);
+               b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
+               b == BLOCK_NOPAL_SIN_BABA || b == BLOCK_NOPAL_BABA ||
+               esTuna(b);
     }
 
     // ========================================================================
@@ -14072,6 +14110,8 @@ void prewarmItemTextures() {
         { BLOCK_TUNA_AMARILLA, "Tuna amarilla crecida.png" },
         { BLOCK_TUNA_ROJA,     "Tuna roja crecida.png"     },
         { BLOCK_NOPAL_TIRAS,   "Penca de Nopal de Castilla en tiras.png" },
+        { BLOCK_NOPAL_SIN_BABA,"Penca de Nopal sin baba mojado.png"      },
+        { BLOCK_NOPAL_BABA,    "Baba de nopal.png"                       },
         { BLOCK_NOPAL_MOJADO,  "Nopal mojado sin espinas.png"            },
     };
 
@@ -14317,6 +14357,39 @@ void actualizarVida(GameState* state, float deltaTime) {
     // El mesher lo necesita para saber que frutos ya maduraron, y no tiene
     // acceso al GameState: se refleja aqui, que es donde el reloj avanza.
     g_tiempoJugadoSegundos = state->tiempoJugadoSegundos;
+
+    // --- TIRAS EN REMOJO: A LOS 10 SEGUNDOS SUELTAN LA BABA ---
+    // Cada tira da UNA desbabada y DOS babas. Las tiras se quedan en su sitio
+    // ya limpias, y la baba sale como item para recogerla.
+    if (!g_tirasDesbabando.empty()) {
+        for (size_t i = 0; i < g_tirasDesbabando.size(); ) {
+            const TirasDesbabando& t = g_tirasDesbabando[i];
+            const double dt = state->tiempoJugadoSegundos - t.t0;
+
+            // Si ya no hay tiras ahi (el jugador las rompio o las movio), se
+            // descarta el temporizador en vez de convertir un bloque ajeno.
+            const BlockType actual = state->world.getBlock(t.x, t.y, t.z);
+            if (actual != BLOCK_NOPAL_TIRAS) {
+                g_tirasDesbabando[i] = g_tirasDesbabando.back();
+                g_tirasDesbabando.pop_back();
+                continue;
+            }
+
+            if (dt >= TIRAS_DESBABAR_SEG) {
+                // Las tiras quedan limpias...
+                state->world.setBlock(t.x, t.y, t.z, BLOCK_NOPAL_SIN_BABA);
+                // ...y sueltan DOS babas, que caen como item.
+                const Vec3 pos(t.x + 0.5f, t.y + 0.5f, t.z + 0.5f);
+                state->spawnItem(pos, BLOCK_NOPAL_BABA);
+                state->spawnItem(pos, BLOCK_NOPAL_BABA);
+
+                g_tirasDesbabando[i] = g_tirasDesbabando.back();
+                g_tirasDesbabando.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
 
     // --- ANIMAR LAS PENCAS QUE ESTAN CAYENDO ---
     // Mientras dura la caida hay que rehacer el mesh para que se vea girar.
@@ -15097,7 +15170,6 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_COAL_ITEM:    // Carbón - item puro
         case BLOCK_RAW_ZINC:     // Zinc crudo - item puro
         case BLOCK_RAW_COPPER:   // Cobre crudo - item puro
-        case BLOCK_NOPAL_TIRAS:  // Nopal en tiras - comida, no se coloca
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable
@@ -15214,6 +15286,31 @@ void placeBlock(GameState* state) {
                     }
                 }
                 if (enAgua) blockToPlace = BLOCK_NOPAL_MOJADO;
+            }
+
+            // TIRAS EN REMOJO: si se colocan tocando agua, empiezan a
+            // desbabarse. A los 10 segundos sueltan la baba y quedan limpias.
+            if (blockToPlace == BLOCK_NOPAL_TIRAS) {
+                bool enAgua = state->world.getBlock(
+                    placePos.x, placePos.y, placePos.z) == BLOCK_WATER;
+                if (!enAgua) {
+                    static const int L[6][3] = {
+                        { 1,0,0}, {-1,0,0}, {0, 1,0},
+                        { 0,-1,0}, {0,0,1}, {0,0,-1}
+                    };
+                    for (int i = 0; i < 6 && !enAgua; ++i) {
+                        if (state->world.getBlock(
+                                placePos.x + L[i][0],
+                                placePos.y + L[i][1],
+                                placePos.z + L[i][2]) == BLOCK_WATER)
+                            enAgua = true;
+                    }
+                }
+                if (enAgua) {
+                    g_tirasDesbabando.push_back({ placePos.x, placePos.y,
+                                                  placePos.z,
+                                                  g_tiempoJugadoSegundos });
+                }
             }
 
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);

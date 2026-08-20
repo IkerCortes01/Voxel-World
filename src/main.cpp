@@ -3597,12 +3597,13 @@ public:
             madura = (horas >= t * TUNA_HORAS_MADURAR);
         }
 
-        // TEXTURA COMPLETA, SIN DEFORMAR.
-        // Se usan solo las versiones "crecida": medido pixel a pixel, su
-        // dibujo ocupa la imagen ENTERA (margen vacio 0), asi que la caja de
-        // la tuna las muestra completas y sin agujeros por las esquinas. Las
-        // versiones pequenas dejan 2 px transparentes por lado, que sobre una
-        // caja 3D se veian como huecos.
+        // TEXTURA COMPLETA, SIN DEFORMAR NI AGUJEROS.
+        // Se usan las versiones "crecida" porque su dibujo llena mas la
+        // imagen: 28% de pixeles vacios frente al 58% de las pequenas.
+        //
+        // Pero ese 28% seguia viendose como agujeros en la caja 3D, asi que
+        // la textura pasa por cargarTunaSinHuecos(), que rellena las zonas
+        // transparentes expandiendo el pixel opaco mas cercano.
         //
         // El fruto TIERNO se distingue por el color (verde), no por recortar
         // la textura: recortarla deformaria el dibujo, que es justo lo que se
@@ -3619,7 +3620,87 @@ public:
         }
         char ruta[224];
         snprintf(ruta, sizeof(ruta), "resourcepacks/Textures/Items/%s", arch);
-        return loadTextureFromPath(gamePath(ruta));
+        return cargarTunaSinHuecos(arch, gamePath(ruta));
+    }
+
+    // ========================================================================
+    // TEXTURA DE TUNA SIN ZONAS TRANSPARENTES
+    // ========================================================================
+    // El dibujo de la tuna es redondo sobre fondo transparente: medido, las
+    // versiones "crecida" tienen un 28% de pixeles vacios y las pequenas un
+    // 58%. Sobre un item plano eso esta bien -- recorta la silueta -- pero
+    // sobre la caja 3D de la tuna esas esquinas se ven como AGUJEROS por los
+    // que se mira a traves del fruto.
+    //
+    // Aqui se rellenan: cada pixel transparente toma el color del pixel
+    // OPACO MAS CERCANO. Asi el fruto queda macizo sin inventar ningun color
+    // -- todo sale de la propia textura -- y el dibujo del centro no se toca,
+    // porque solo se rellena lo que estaba vacio.
+    //
+    // Se hace una sola vez al cargar y se cachea como cualquier otra textura.
+    GLuint cargarTunaSinHuecos(const char* clave, const std::string& ruta) {
+        char id[256];
+        snprintf(id, sizeof(id), "%s#macizo", clave);
+        auto it = textures.find(id);
+        if (it != textures.end()) return it->second;
+
+        int w = 0, h = 0, canales = 0;
+        stbi_set_flip_vertically_on_load(true);
+        unsigned char* px = stbi_load(ruta.c_str(), &w, &h, &canales, STBI_rgb_alpha);
+        if (!px) return loadTextureFromPath(ruta);   // sin cache negativa
+
+        // Para cada pixel vacio, buscar el opaco mas cercano y copiarle el
+        // color. La imagen es de 16x16, asi que la busqueda directa cuesta
+        // nada y se hace una sola vez en toda la partida.
+        std::vector<unsigned char> out(px, px + (size_t)w * h * 4);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const size_t o = ((size_t)y * w + x) * 4;
+                if (px[o + 3] >= 250) continue;      // ya es opaco
+
+                int mejorD = 1 << 30;
+                size_t mejor = 0;
+                bool hay = false;
+                for (int sy = 0; sy < h; ++sy) {
+                    for (int sx = 0; sx < w; ++sx) {
+                        const size_t s = ((size_t)sy * w + sx) * 4;
+                        if (px[s + 3] < 250) continue;
+                        const int dx = sx - x, dy = sy - y;
+                        const int d = dx * dx + dy * dy;
+                        if (d < mejorD) { mejorD = d; mejor = s; hay = true; }
+                    }
+                }
+                if (!hay) continue;   // textura vacia entera: se deja igual
+                out[o + 0] = px[mejor + 0];
+                out[o + 1] = px[mejor + 1];
+                out[o + 2] = px[mejor + 2];
+                out[o + 3] = 255;     // ya no hay transparencia
+            }
+        }
+        stbi_image_free(px);
+
+        while (glGetError() != GL_NO_ERROR) { /* limpiar errores ajenos */ }
+
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        if (tex == 0) return loadTextureFromPath(ruta);   // transitorio
+
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, out.data());
+        if (glGetError() != GL_NO_ERROR) {
+            glDeleteTextures(1, &tex);
+            invalidateBindCache(tex);
+            return loadTextureFromPath(ruta);
+        }
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        lastBoundTexture = tex;
+        textures[id] = tex;
+        return tex;
     }
 
     // ========================================================================

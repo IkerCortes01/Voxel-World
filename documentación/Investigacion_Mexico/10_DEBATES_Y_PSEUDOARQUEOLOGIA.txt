@@ -1,0 +1,335 @@
+================================================================================
+10 - DEBATES ABIERTOS Y PSEUDOARQUEOLOGÍA
+================================================================================
+
+Este archivo existe por una razón práctica: la petición original pedía
+buscar en "miles de foros, redes e imágenes". Esos espacios SÍ hablan mucho
+de los olmecas — y una parte grande de lo que dicen es falso.
+
+Aquí van las dos categorías separadas:
+
+  PARTE A. Debates REALES entre arqueólogos serios. No hay respuesta
+           cerrada, y las dos posturas son defendibles.
+
+  PARTE B. Afirmaciones que circulan mucho y que la arqueología ha
+           RECHAZADO. Se incluyen para poder reconocerlas.
+
+================================================================================
+PARTE A — DEBATES ACADÉMICOS REALES
+================================================================================
+
+--------------------------------------------------------------------------------
+A.1 ¿"CULTURA MADRE" O "CULTURA HERMANA"?
+--------------------------------------------------------------------------------
+
+Es EL debate de la olmequística.
+
+POSTURA "CULTURA MADRE" (Michael Coe, Richard Diehl, y antes Alfonso Caso):
+  Los olmecas inventaron el paquete civilizatorio mesoamericano y lo
+  difundieron. Las demás culturas derivan de ese impulso inicial. El arte
+  olmeca aparece en Morelos, Guerrero, Oaxaca, Chiapas y Centroamérica
+  porque irradió desde el Golfo.
+
+POSTURA "CULTURA HERMANA" (Joyce Marcus, Kent Flannery, y otros):
+  Varias regiones desarrollaron complejidad social simultáneamente y en
+  contacto mutuo. El Golfo parece dominante por dos sesgos: se ha excavado
+  más, y su arte monumental es más llamativo. El "estilo olmeca" sería una
+  koiné compartida — un lenguaje visual de prestigio usado por élites de
+  varias regiones — más que una exportación desde un centro.
+
+EL FRENTE EMPÍRICO: LA CERÁMICA
+  Jeffrey Blomster, Hector Neff y Michael Glascock (2005, Science) aplicaron
+  activación neutrónica a cerámica del Formativo y concluyeron que San
+  Lorenzo EXPORTABA cerámica a otras regiones sin recibir apenas a cambio:
+  un flujo unidireccional, coherente con "cultura madre".
+
+  La réplica (Flannery, Marcus, Sharer y otros) cuestionó el muestreo y la
+  metodología, y sostuvo que el intercambio era BIDIRECCIONAL. El
+  intercambio de artículos en revistas fue notablemente áspero.
+
+ESTADO: sin resolver. Hoy la mayoría de especialistas ocupa posiciones
+intermedias — el Golfo tuvo un papel destacado y temprano, pero no fue el
+único foco ni un imperio difusor. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+A.2 ¿DE QUÉ VIVÍAN? EL DEBATE DEL MAÍZ
+--------------------------------------------------------------------------------
+
+POSTURA TRADICIONAL: agricultura de maíz intensiva en las vegas fértiles de
+  los ríos, con excedente suficiente para sostener élites, artesanos
+  especializados y obras monumentales.
+
+POSTURA REVISIONISTA (Amber VanDerwarker, Philip Arnold III, y otros): el
+  maíz NO fue el motor de la complejidad temprana. Los recursos de la
+  llanura aluvial — pesca, fauna acuática, plantas de humedal, recolección —
+  eran tan productivos que permitieron sedentarismo y complejidad sin
+  depender de agricultura intensiva. La expresión que usan es "cultivo no
+  agrícola" (nonagricultural cultivation).
+
+  El apoyo empírico viene de isótopos en huesos humanos, que en algunos
+  contextos tempranos muestran menos consumo de maíz del que la hipótesis
+  tradicional supone.
+
+POR QUÉ IMPORTA: si la segunda postura tiene razón, se cae el modelo clásico
+  de "excedente agrícola => civilización" que se enseña en todas partes.
+
+ESTADO: activo. La evidencia varía por sitio y por periodo, y probablemente
+la respuesta sea mixta y cambiante en el tiempo. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+A.3 ¿ES ESCRITURA EL BLOQUE DE CASCAJAL?
+--------------------------------------------------------------------------------
+
+EL OBJETO: losa de serpentinita de 36 x 21 x 13 cm, unos 11,5 kg, con 62
+signos incisos. Publicado en Science el 15 de septiembre de 2006 por Carmen
+Rodríguez, Ponciano Ortiz, Stephen Houston, Karl Taube y Alfredo Delgado.
+Fechado por cerámica asociada hacia 900 a.C. Si es escritura, es la más
+antigua de América.
+
+A FAVOR:
+  - Houston: los signos muestran sintaxis y orden de palabras propios de
+    una lengua, no decoración.
+  - Hay signos que se repiten en secuencias, patrón típico de escritura.
+  - Un estudio de 2019 (Englehardt et al.) aplicó mapeo de textura
+    polinómica, fluorescencia de rayos X y microscopía electrónica: la
+    serpentinita coincide con canteras usadas por los olmecas (Tehuitzingo,
+    Puebla) y las incisiones son compatibles con herramientas de obsidiana
+    y abrasión con arenisca. Es decir: la pieza es antigua y olmeca.
+
+EN CONTRA:
+  - Apareció en escombros removidos por maquinaria de una cantera, SIN
+    contexto estratigráfico. La fecha depende de material asociado
+    encontrado suelto.
+  - La disposición de los signos es HORIZONTAL, mientras que todos los
+    demás sistemas mesoamericanos conocidos se escriben en columnas
+    verticales.
+  - No existe ningún otro objeto olmeca comparable. Es único, y en
+    arqueología lo único siempre es sospechoso.
+  - Karen Bruhns y Nancy Kelker publicaron cinco objeciones formales en
+    Science (marzo de 2007), incluida la duda directa sobre autenticidad.
+  - David Grove y Christopher Pool expresaron reservas serias.
+
+INTERPRETACIÓN ALTERNATIVA: Freidel y Reilly (2010) proponen que no es texto
+fonético sino la representación de tres bultos sagrados dispuestos para
+adivinación ritual.
+
+ESTADO: la autenticidad material está razonablemente respaldada tras 2019;
+que sea ESCRITURA en sentido pleno sigue sin consenso. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+A.4 ¿QUIÉN INVENTÓ EL CALENDARIO DE CUENTA LARGA?
+--------------------------------------------------------------------------------
+
+Las fechas de Cuenta Larga más antiguas conocidas NO son mayas:
+
+  Estela 2 de Chiapa de Corzo (Chiapas) ....... 36 a.C.
+  Estela C de Tres Zapotes (Veracruz) ......... 32 a.C.
+  Estela 1 de La Mojarra ...................... 143 y 156 d.C.
+  Estatuilla de Tuxtla ........................ 162 d.C.
+
+Todas están en zona epi-olmeca o istmeña, al oeste del territorio maya, y en
+estilo epi-olmeca, no maya. De ahí que la mayoría de investigadores considere
+que la Cuenta Larga es anterior a los mayas y de origen istmeño.
+
+EL MATIZ CRUCIAL: estas inscripciones son POSTERIORES al colapso de La Venta
+(~400 a.C.). Son epi-olmecas, no olmecas. Atribuir el calendario de Cuenta
+Larga "a los olmecas" sin más es un salto que las fuentes de divulgación dan
+constantemente y que la evidencia no sostiene.
+
+Que los olmecas tuvieran alguna forma de cómputo calendárico es plausible
+—las orientaciones arquitectónicas lo sugieren— pero no hay inscripción
+olmeca que lo demuestre. [DEBATIDO / PROBABLE según qué se afirme]
+
+--------------------------------------------------------------------------------
+A.5 LOS DRENAJES DE SAN LORENZO: ¿PARA QUÉ?
+--------------------------------------------------------------------------------
+
+Existen: canales de basalto tallados en sección de U, con tapa, enterrados y
+con ramificaciones. Son reales, están excavados y son técnicamente notables.
+Para qué servían, no está claro:
+
+  - Drenaje pluvial de la meseta. [PROBABLE]
+  - Suministro de agua a las lagunas artificiales / abastecimiento.
+  - Sistema ritual vinculado al agua y a los baños ceremoniales.
+  - Alcantarillado.
+
+Las tres primeras no se excluyen entre sí. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+A.6 LA MUTILACIÓN DE MONUMENTOS
+--------------------------------------------------------------------------------
+
+Muchos monumentos olmecas aparecen dañados deliberadamente: cabezas con
+perforaciones, esculturas decapitadas, piezas enterradas boca abajo.
+
+  - Interpretación antigua: revuelta social, iconoclasia contra los
+    gobernantes derrocados.
+  - Interpretación actual dominante: "ritual de terminación" — desactivar
+    la carga sagrada de un monumento al final de su ciclo, práctica bien
+    documentada en Mesoamérica posterior.
+  - Tercera opción: reciclaje de materia prima. El basalto era carísimo de
+    conseguir; hay evidencia de monumentos re-tallados a partir de otros.
+
+Hoy predominan la segunda y la tercera. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+A.7 LA HIPÓTESIS MIXE-ZOQUE
+--------------------------------------------------------------------------------
+
+Lyle Campbell y Terrence Kaufman propusieron que los olmecas hablaban una
+lengua mixe-zoque, basándose en préstamos léxicos que desde el mixe-zoque
+pasaron a otras familias lingüísticas mesoamericanas, muchos referidos a
+cultivos y elementos rituales (el caso más citado es "cacao").
+
+A favor: la distribución geográfica del mixe-zoque coincide con el área
+olmeca; los préstamos apuntan a una lengua de prestigio temprana.
+
+En contra: la cronología lingüística es imprecisa, y algunos préstamos
+podrían proceder del periodo epi-olmeca y no del olmeca.
+
+ESTADO: es la hipótesis más aceptada, sin ser prueba. [PROBABLE]
+
+--------------------------------------------------------------------------------
+A.8 ¿ESTADO O JEFATURA?
+--------------------------------------------------------------------------------
+
+¿Fue San Lorenzo un estado temprano con aparato administrativo, o una
+jefatura compleja (chiefdom) organizada en torno al prestigio personal de un
+linaje? La ausencia de tumbas reales inequívocas, de palacios claramente
+identificables y de administración escrita complica la respuesta. Christopher
+Pool ha argumentado además que Tres Zapotes tuvo una organización más
+colectiva. [DEBATIDO]
+
+--------------------------------------------------------------------------------
+A.9 LA DEFORMACIÓN CRANEAL
+--------------------------------------------------------------------------------
+
+Las cabezas achatadas y alargadas del arte olmeca se han interpretado como
+representación de deformación craneal intencional, práctica documentada en
+Tlatilco y entre los mayas.
+
+Problema: NO se ha encontrado evidencia ósea directa de la práctica en el
+territorio nuclear olmeca. Las condiciones del suelo tropical ácido destruyen
+el hueso, así que la ausencia de evidencia no es evidencia de ausencia — pero
+tampoco permite afirmarlo. [DEBATIDO]
+
+================================================================================
+PARTE B — LO QUE CIRCULA EN FOROS Y REDES, Y ESTÁ RECHAZADO
+================================================================================
+
+--------------------------------------------------------------------------------
+B.1 "LAS CABEZAS COLOSALES TIENEN RASGOS AFRICANOS => LOS OLMECAS VINIERON
+     DE ÁFRICA"                                                  [RECHAZADO]
+--------------------------------------------------------------------------------
+
+Es, con diferencia, la afirmación más extendida en internet sobre los
+olmecas. Se asocia sobre todo a Ivan van Sertima ("They Came Before
+Columbus", 1976).
+
+POR QUÉ LA ARQUEOLOGÍA LO RECHAZA:
+
+  1. GENÉTICA. Los estudios de ADN antiguo y moderno de poblaciones
+     americanas precolombinas no muestran componente africano subsahariano
+     anterior a la Conquista. Si hubiera habido una población africana
+     fundadora, se vería.
+
+  2. CONTINUIDAD ARQUEOLÓGICA. La cultura olmeca no aparece de la nada:
+     hay una secuencia local continua de aldeas, cerámica y ocupación que
+     conduce a ella. No hay ruptura ni intrusión.
+
+  3. LOS RASGOS. Nariz ancha y labios gruesos son rasgos presentes en
+     poblaciones indígenas americanas, y además son características
+     ESTILÍSTICAS del arte olmeca — aparecen igual en figurillas de jade,
+     en máscaras y en relieves, no solo en las cabezas. Leer una convención
+     artística como un retrato racial es un error de método.
+
+  4. AUSENCIA TOTAL DE CULTURA MATERIAL AFRICANA. Ni una cerámica, ni una
+     técnica, ni un cultivo, ni una herramienta, ni un enterramiento de
+     tipo africano. Una migración transatlántica no deja solo caras.
+
+  5. LOS CULTIVOS. Los cultivos africanos (sorgo, mijo, ñame africano) no
+     aparecen en América precolombina, ni los americanos en África antes
+     del siglo XVI.
+
+Vale la pena decirlo con cuidado: rechazar esta hipótesis no es negar la
+historia africana ni su grandeza. Es que la evidencia apunta a que la
+civilización olmeca fue un logro INDÍGENA AMERICANO, y atribuirla a
+forasteros le quita el mérito a sus autores reales. Ese patrón — negar que
+los pueblos no europeos construyeran sus propios monumentos — tiene una
+historia larga y poco honrosa.
+
+--------------------------------------------------------------------------------
+B.2 "LOS OLMECAS VINIERON DE CHINA / DE LA ATLÁNTIDA / DE FENICIA"
+                                                              [RECHAZADO]
+--------------------------------------------------------------------------------
+
+Mismas objeciones que B.1: sin evidencia genética, sin cultura material
+foránea, con secuencia local continua. La variante china (Betty Meggers y
+otros, vía Shang) tampoco tiene respaldo.
+
+--------------------------------------------------------------------------------
+B.3 "LOS CASCOS DE LAS CABEZAS SON DE ASTRONAUTA"          [RECHAZADO]
+--------------------------------------------------------------------------------
+
+Los tocados de las cabezas colosales llevan diseños distintos en cada pieza,
+y la interpretación arqueológica es que son cascos del juego de pelota o
+tocados de identificación personal — probablemente el "nombre" del
+gobernante representado. La lectura de "casco espacial" no explica por qué
+cada uno es diferente ni por qué el resto de la iconografía olmeca es
+plenamente terrestre.
+
+--------------------------------------------------------------------------------
+B.4 "LOS OLMECAS PREDIJERON EL FIN DEL MUNDO EN 2012"      [RECHAZADO]
+--------------------------------------------------------------------------------
+
+Doble error. Primero, el fin de un ciclo de 13 b'ak'tunes en la Cuenta Larga
+marca el final de un ciclo calendárico, no del mundo — como que un cuentakiló-
+metros vuelva a cero. Segundo, la Cuenta Larga documentada es EPI-OLMECA y
+maya, posterior a la cultura olmeca. No hay ninguna profecía olmeca sobre
+2012 ni sobre nada.
+
+--------------------------------------------------------------------------------
+B.5 "TENÍAN ELECTRICIDAD / TECNOLOGÍA PERDIDA"             [RECHAZADO]
+--------------------------------------------------------------------------------
+
+No hay ni un solo artefacto que lo sugiera. Lo que sí tenían —mover 24
+toneladas de basalto 100 km sin rueda ni animales, pulir espejos cóncavos
+funcionales, controlar la química del hule— es admirable precisamente porque
+se hizo con tecnología lítica y orgánica y una organización social enorme.
+Suponer "tecnología perdida" es, otra vez, quitarles el mérito.
+
+--------------------------------------------------------------------------------
+B.6 "EL BLOQUE DE CASCAJAL ESTÁ DESCIFRADO"                [RECHAZADO]
+--------------------------------------------------------------------------------
+
+Circulan "traducciones". Ninguna es aceptada. Con un solo texto de 62 signos,
+sin bilingüe y sin lengua conocida, el desciframiento es técnicamente
+imposible en el estado actual. Ver A.3.
+
+--------------------------------------------------------------------------------
+B.7 "LOS OLMECAS INVENTARON EL CERO"                       [MATIZAR]
+--------------------------------------------------------------------------------
+
+No es del todo falso ni del todo cierto. El concepto de cero posicional
+aparece en el sistema de Cuenta Larga, que es epi-olmeca/istmeño en sus
+ejemplos más antiguos, y luego maya. Atribuirlo a la cultura olmeca del
+periodo de San Lorenzo y La Venta es un salto cronológico de varios siglos.
+Lo correcto es: surge en el ámbito istmeño, en el periodo epi-olmeca.
+
+================================================================================
+CÓMO USAR ESTO EN EL JUEGO
+================================================================================
+
+Nada impide tomar libertades creativas — es un videojuego, no una tesis. La
+recomendación es simplemente saber CUÁNDO se están tomando:
+
+  - Usar la vulcanización del hule: bien fundamentado, adelante.
+  - Usar el chapopote como material de construcción y sellado: documentado,
+    adelante.
+  - Usar espejos que encienden fuego: plausible y espectacular, adelante.
+  - Usar una "brújula de hematita": hipótesis publicada pero no aceptada.
+    Divertidísima como objeto de juego; conviene saber que es especulación.
+  - Usar escritura olmeca legible: es licencia creativa. La escritura
+    olmeca no está demostrada ni descifrada.
+  - Usar "los olmecas vinieron de otro continente": mejor no. Es falso y
+    además está cargado políticamente.

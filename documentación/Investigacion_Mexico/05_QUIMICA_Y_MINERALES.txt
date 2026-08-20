@@ -1,0 +1,332 @@
+================================================================================
+05 - CONOCIMIENTOS QUÍMICOS Y MINERALES
+================================================================================
+
+--------------------------------------------------------------------------------
+ACLARACIÓN PREVIA: ¿"QUÍMICA" OLMECA?
+--------------------------------------------------------------------------------
+
+Los olmecas no tenían química como disciplina. No hay teoría, no hay
+nomenclatura, no hay nadie escribiendo una receta. Lo que sí hay —y es
+notable— es un conjunto de procesos que transforman materiales mediante
+reacciones controladas, transmitidos por práctica y aprendidos por ensayo.
+
+Es química en el sentido de que funciona y es reproducible, no en el sentido
+de que se entendiera el porqué. Esa distinción se mantiene en todo el
+archivo. [CONSENSO]
+
+Los cuatro procesos químicos mejor documentados son:
+
+  1. La transformación del látex en hule utilizable.
+  2. El procesado del chapopote (bitumen).
+  3. La preparación de pigmentos minerales.
+  4. La cocción cerámica con control de atmósfera.
+
+Y uno probable pero discutido en su fecha: la nixtamalización del maíz.
+
+================================================================================
+1. EL HULE: LA PRIMERA QUÍMICA DE POLÍMEROS DEL MUNDO
+================================================================================
+
+Es el logro químico más impresionante y el que da nombre a la cultura.
+
+LA MATERIA PRIMA
+  Árbol: Castilla elastica (hule, palo de hule). Nativo de las tierras bajas
+  tropicales del Golfo. Se sangra la corteza con incisiones diagonales y se
+  recoge el látex, una emulsión acuosa de poliisopreno. [CONSENSO]
+
+EL PROBLEMA
+  El látex crudo no sirve: es pegajoso, se degrada, se vuelve quebradizo al
+  frío y blando al calor. Para hacer una pelota que bote y dure hay que
+  entrecruzar las cadenas del polímero. [CONSENSO]
+
+LA SOLUCIÓN ATRIBUIDA
+  Mezclar el látex de Castilla elastica con el jugo de una enredadera,
+  Ipomoea alba (quiebraplatos, campanilla de noche). Los compuestos
+  azufrados de la Ipomoea entrecruzarían las cadenas de poliisopreno,
+  produciendo un material elástico y duradero. Es, en efecto, una
+  vulcanización rudimentaria — 3.500 años antes de que Charles Goodyear
+  patentara la suya en 1839. [PROBABLE para la técnica mesoamericana en
+  general; ver la corrección de abajo]
+
+  El proceso fue caracterizado experimentalmente por Dorothy Hosler, Sandra
+  Burkett y Michael Tarkanian (MIT), publicado en Science en 1999. Sus
+  experimentos mostraron que la proporción de la mezcla cambia las
+  propiedades del material resultante:
+
+    ~50% látex / 50% Ipomoea  ->  máxima elasticidad (pelotas)
+    proporciones distintas     ->  material más resistente al desgaste
+                                   (suelas de sandalia, bandas, adhesivos)
+
+  Es decir: no una receta, sino un ajuste deliberado de proporciones según
+  el uso final. Eso es control de proceso. [PROBABLE]
+
+LA CORRECCIÓN IMPORTANTE (2023)
+  Un análisis técnico y composicional de las pelotas concretas de El Manatí,
+  publicado en Archaeological and Anthropological Sciences (2023), NO
+  encontró evidencia de que se aplicara vulcanización con Ipomoea alba en
+  esas piezas.
+
+  Esto NO invalida que la técnica existiera en Mesoamérica — está bien
+  documentada en fuentes posteriores y los experimentos del MIT funcionan.
+  Lo que sugiere es que las pelotas más antiguas conocidas pudieron
+  fabricarse por otro procedimiento, y que la narrativa de "los olmecas
+  vulcanizaban desde 1600 a.C." necesita matizarse. [DEBATIDO — es un
+  frente abierto y reciente]
+
+  Para el juego: se puede usar la vulcanización con enredadera sin problema,
+  marcándola como técnica mesoamericana documentada, pero no conviene
+  afirmar que está probada en El Manatí.
+
+LAS PELOTAS DE EL MANATÍ
+  Doce pelotas de hule recuperadas del manantial de El Manatí, conservadas
+  por el ambiente anaeróbico y saturado de agua. Las más antiguas fechadas
+  entre 1700 y 1600 a.C. Son los objetos de hule más antiguos del mundo.
+  Diámetros de entre 10 y 22 cm aproximadamente. [CONSENSO]
+
+USOS DEL HULE
+  - Pelotas para el juego ritual. [CONSENSO]
+  - Ofrendas rituales (es su contexto en El Manatí). [CONSENSO]
+  - Figurillas y bandas. [PROBABLE]
+  - Adhesivo e impermeabilizante. [PROBABLE]
+  - Suelas y recubrimientos. [PROBABLE, por analogía con usos posteriores]
+  - Quemado como incienso en ofrendas (documentado en épocas posteriores).
+    [PROBABLE para los olmecas]
+
+================================================================================
+2. EL CHAPOPOTE: LOS PRIMEROS PETROLEROS DE MESOAMÉRICA
+================================================================================
+
+Este es, para efectos de juego, uno de los materiales más aprovechables, y
+está sorprendentemente poco divulgado.
+
+QUÉ ES
+  Chapopote (del náhuatl "chapopotli"), es decir bitumen o asfalto natural:
+  petróleo crudo que lleva mucho tiempo expuesto al aire, perdiendo sus
+  fracciones volátiles hasta quedar como una masa negra, viscosa y pegajosa.
+  [CONSENSO]
+
+DE DÓNDE SALE
+  Brota espontáneamente de escurrimientos naturales en la llanura costera
+  del Golfo. En la zona olmeca los depósitos se concentran en las zonas
+  bajas del este — justo donde están San Lorenzo (Veracruz) y La Venta
+  (Tabasco). Se recogía directamente de los manaderos, de la superficie de
+  los ríos, o en forma de nódulos arrastrados a la playa. [CONSENSO]
+
+  Es decir: era un recurso de superficie, recolectable, no extraído. Nadie
+  perforaba nada.
+
+CÓMO SE PROCESABA
+  Calentándolo, en estado líquido y semisólido, y mezclándolo con materiales
+  orgánicos: pastos, hojas de palma, olotes (mazorcas desgranadas). Esa
+  carga orgánica funciona como agregado — cambia la viscosidad y las
+  propiedades mecánicas del material, igual que un árido en el asfalto
+  moderno. Los trozos procesados se almacenaban para uso o intercambio
+  posterior. [CONSENSO]
+
+USOS DOCUMENTADOS
+  - IMPERMEABILIZAR EMBARCACIONES. Descrito como el uso más importante. Con
+    canoas como principal medio de transporte pesado, esto es infraestructura
+    crítica. [PROBABLE-CONSENSO]
+  - Sellar los acueductos y drenajes de basalto. [CONSENSO]
+  - Sellar recipientes. [CONSENSO]
+  - Adhesivo: fijar mangos de cuchillos y herramientas. [CONSENSO]
+  - Decoración facial y corporal en figurillas — hay piezas con chapopote
+    aplicado como pintura negra sobre el rostro. [CONSENSO]
+  - Recubrimiento de pisos, y posiblemente de muros y techos. [PROBABLE]
+
+LA PARTE QUÍMICAMENTE INTERESANTE
+  Análisis por cromatografía de gases / espectrometría de masas (GC-MS) han
+  identificado biomarcadores moleculares que funcionan como "huella digital"
+  de cada yacimiento de chapopote. Aplicados al material arqueológico,
+  revelan que San Lorenzo contenía chapopote de al menos TRES fuentes
+  regionales distintas — es decir, redes de intercambio diferenciadas para
+  un material que además tenían a mano. [CONSENSO]
+
+  Esto es un dato precioso: significa que el chapopote no era solo un
+  recurso local de aprovechamiento oportunista, sino un bien que circulaba.
+
+================================================================================
+3. PIGMENTOS Y MINERALES DE COLOR
+================================================================================
+
+CINABRIO (sulfuro de mercurio, HgS)
+  Rojo intenso. Se encuentra cerca de depósitos volcánicos. En La Venta se
+  hallaron entierros de entre 900 y 400 a.C. cubiertos de cinabrio: tanto
+  los cuerpos como las ofrendas que los acompañaban estaban pintados de
+  rojo. También hay objetos de jade con restos de cinabrio adheridos.
+  [CONSENSO]
+
+  El rojo asociado a la muerte y al renacimiento es un patrón que recorre
+  toda Mesoamérica después. Nota moderna: el cinabrio es tóxico por su
+  contenido de mercurio; no hay forma de saber si ellos lo sabían.
+
+HEMATITA (óxido de hierro, Fe2O3)
+  Rojo terroso. Mucho más común y accesible que el cinabrio. Usada como
+  pigmento y, pulida, como material especular. [CONSENSO]
+
+MAGNETITA e ILMENITA
+  Ver el apartado de espejos, más abajo — es donde está lo interesante.
+
+OCRES y ARCILLAS DE COLOR
+  Los olmecas usaron arcillas de distintos colores como material
+  CONSTRUCTIVO diferenciado, no solo como pigmento: en La Venta hay
+  estratigrafías con capas de arcillas de colores deliberadamente
+  distintos. Es decir, elegían el color de la tierra con la que
+  construían. [CONSENSO]
+
+  Para el juego esto es oro: implica bloques de tierra de varios colores con
+  valor simbólico, no solo decorativo.
+
+================================================================================
+4. LOS ESPEJOS CÓNCAVOS: ÓPTICA DE PRECISIÓN
+================================================================================
+
+Uno de los objetos más sofisticados de toda la cultura.
+
+QUÉ SON
+  Discos de mineral de hierro — magnetita, ilmenita o hematita — pulidos
+  hasta obtener una superficie especular de curvatura CÓNCAVA. Se llevaban
+  colgados al pecho, según muestra la iconografía. [CONSENSO]
+
+POR QUÉ SON DIFÍCILES
+  Pulir una superficie plana ya requiere paciencia. Pulir una curvatura
+  cóncava regular, en un mineral duro, sin herramientas de metal y sin
+  instrumentos de medida, y conseguir que enfoque, es un nivel de control
+  técnico muy alto. Algunos tienen distancias focales consistentes.
+  [CONSENSO en la dificultad; los detalles de la técnica son [ESPECULATIVO]]
+
+PARA QUÉ SERVÍAN
+  - ENCENDER FUEGO concentrando la luz solar en el foco. Demostrado como
+    posible experimentalmente. [PROBABLE]
+  - Proyectar imágenes o puntos de luz. [PROBABLE]
+  - Adivinación / instrumento chamánico: mirar en el espejo como práctica
+    ritual. Es el uso mejor respaldado por la iconografía y por la analogía
+    con culturas mesoamericanas posteriores. [PROBABLE]
+  - Insignia de rango: aparecen en contextos de élite. [PROBABLE]
+
+LA HIPÓTESIS DE LA BRÚJULA  [ESPECULATIVO — pero fascinante]
+  John B. Carlson propuso en 1975 (Science) que un artefacto de hematita de
+  San Lorenzo, conocido como M-160, pudo haber funcionado como brújula o
+  indicador magnético. La pieza es una barra de hematita magnetizada
+  ("lodestone") con una ranura, y flotada sobre agua se orienta.
+
+  Si fuera cierto, sería el uso más antiguo conocido del magnetismo,
+  anterior a China. Carlson vinculaba la idea con la orientación de 8° al
+  oeste del norte de La Venta.
+
+  ESTADO REAL: no ha sido aceptado. Es una pieza única, sin contexto
+  comparativo, y no hay forma de demostrar que se usara así. Se menciona
+  aquí porque es una hipótesis seria publicada en una revista seria, no
+  pseudoarqueología — pero sigue siendo una hipótesis sin confirmar.
+
+LAS CUENTAS DE ILMENITA
+  En San Lorenzo se han recuperado cientos de miles de cuentas perforadas de
+  ilmenita. La cifra es tan alta que plantea preguntas sin respuesta: ¿para
+  qué? ¿un material de intercambio estandarizado? ¿un tipo de cuenta ritual?
+  Cada una está perforada, lo que implica una cantidad enorme de trabajo
+  acumulado. [CONSENSO en la existencia y cantidad; la función es
+  [DEBATIDO]]
+
+================================================================================
+5. LA NIXTAMALIZACIÓN
+================================================================================
+
+QUÉ ES
+  Cocer el maíz en una solución alcalina — agua con cal (hidróxido de
+  calcio) o con ceniza de madera (que aporta hidróxido de potasio) — y
+  dejarlo reposar.
+
+POR QUÉ IMPORTA QUÍMICAMENTE
+  Es una de las transformaciones alimentarias más ingeniosas de la
+  humanidad, y lo que hace es real y verificable:
+
+  - Disuelve el pericarpio (la cáscara), permitiendo moler el grano.
+  - LIBERA LA NIACINA (vitamina B3), que en el maíz crudo está en forma
+    ligada e inasimilable. Sin este paso, una dieta basada en maíz produce
+    pelagra. Las poblaciones europeas que adoptaron el maíz SIN la técnica
+    de nixtamalizar sufrieron pelagra masivamente en los siglos XVIII-XIX.
+    Los mesoamericanos nunca la tuvieron.
+  - Aumenta el calcio biodisponible (del propio hidróxido de calcio).
+  - Mejora la digestibilidad de las proteínas y el balance de aminoácidos.
+  - Gelatiniza el almidón, haciendo posible la masa.
+
+  Es decir: sin nixtamalización, una civilización basada en el maíz es
+  nutricionalmente inviable a largo plazo. [CONSENSO en la química]
+
+¿LO HACÍAN LOS OLMECAS?
+  Aquí está la trampa. Muchas fuentes de divulgación lo afirman sin más.
+  La evidencia arqueológica directa para el Formativo del Golfo es
+  indirecta: se apoya en la presencia de metates y manos de moler, y en la
+  lógica nutricional.
+
+  El origen de la técnica se ha propuesto para Guatemala/Mesoamérica hacia
+  1500-1200 a.C., pero fechar el momento exacto es difícil porque el
+  proceso no deja un residuo inequívoco.
+
+  VEREDICTO: [PROBABLE, no [CONSENSO]]. Es muy razonable que la conocieran
+  — sobre todo porque la dieta dependía del maíz y no hay evidencia de
+  pelagra — pero no está demostrado con la solidez que sugieren muchas
+  divulgaciones.
+
+================================================================================
+6. CERÁMICA: CONTROL DE ATMÓSFERA Y TEMPERATURA
+================================================================================
+
+Cocer cerámica es química de estado sólido, aunque nadie lo llamara así.
+
+  - Requiere alcanzar y sostener temperaturas de 700-900 °C aproximadamente.
+  - El COLOR final depende de la atmósfera del horno: una atmósfera
+    oxidante (con oxígeno abundante) da tonos rojizos y anaranjados por
+    oxidación del hierro; una atmósfera reductora (con oxígeno limitado, con
+    humo) da grises y negros.
+  - Los olmecas produjeron cerámicas negras y blancas diferenciadas, lo que
+    implica control deliberado de esa atmósfera. [PROBABLE-CONSENSO]
+  - Usaron caolín (arcilla blanca) para piezas finas, y engobes
+    (recubrimientos de arcilla líquida) para acabados. [CONSENSO]
+
+  La cocción olmeca era a cielo abierto o en hornos simples, no en hornos
+  cerrados de alta temperatura. No hay vidriados: el vidriado requiere
+  fundentes y temperaturas que Mesoamérica no alcanzó nunca antes de la
+  Conquista. [CONSENSO]
+
+================================================================================
+7. OTROS PROCESOS
+================================================================================
+
+SAL
+  Recurso crítico y no evidente en zona tropical húmeda. Se obtenía por
+  evaporación de salmuera en la costa y, probablemente, hirviendo agua
+  salada en recipientes cerámicos. [PROBABLE]
+
+CAL
+  Se obtiene calcinando piedra caliza o conchas a alta temperatura
+  (CaCO3 -> CaO + CO2), y luego apagándola con agua (CaO + H2O ->
+  Ca(OH)2). Necesaria para la nixtamalización y, más tarde en Mesoamérica,
+  para estucos. En la zona olmeca la caliza no abunda, lo que hace más
+  probable la vía de las conchas quemadas o la ceniza vegetal como
+  alternativa alcalina. [PROBABLE]
+
+COPAL
+  Resina aromática de árboles del género Bursera y otros. La evidencia más
+  antigua de copal se encontró precisamente en El Manatí. Se quema como
+  incienso; el humo tiene un papel ritual central en toda Mesoamérica
+  posterior. [CONSENSO]
+
+FERMENTACIÓN
+  Bebidas fermentadas están documentadas en Mesoamérica. Para el contexto
+  olmeca concreto la evidencia es débil. Residuos de teobromina (cacao) en
+  cerámica indican consumo de cacao, posiblemente en bebida. [PROBABLE para
+  el cacao; [ESPECULATIVO] para bebidas alcohólicas olmecas]
+
+VENENOS Y PSICOACTIVOS
+  El sapo Bufo marinus (hoy Rhinella marina) contiene bufotoxinas en las
+  glándulas parótidas, y durante años se citó su presencia en San Lorenzo
+  como evidencia de uso psicoactivo olmeco. Investigación posterior del
+  propio Proyecto Arqueológico San Lorenzo Tenochtitlán puso en duda el
+  contexto arqueológico de esos restos de sapo, y con ello la
+  interpretación. [DEBATIDO, tirando a no demostrado]
+
+  Vale la pena señalar además que las bufotoxinas son cardiotóxicas y su
+  consumo es peligroso; la idea del "sapo alucinógeno" mesoamericano está
+  bastante más presente en la divulgación que en la evidencia.

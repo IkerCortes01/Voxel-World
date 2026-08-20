@@ -4466,14 +4466,28 @@ public:
             case BLOCK_PEDAZO_GRAVA:
                 return getTexture("Grava.png");
             case BLOCK_PEDAZO_PEDERNAL:
-                return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/pedernal.png"));
+                // ⭐ SIN ZONAS INVISIBLES
+                //
+                // La textura del pedernal es un canto dibujado sobre fondo
+                // transparente: solo el 44% de la imagen tiene pixel. Al
+                // envolver con ella un guijarro 3D, ese 56% vacio se veia
+                // como AGUJEROS -- se miraba a traves del canto.
+                //
+                // cargarTunaSinHuecos() rellena cada pixel vacio con el
+                // color del opaco mas cercano, asi que la imagen queda
+                // maciza y el canto se ve solido desde cualquier lado. Es la
+                // misma solucion que ya usaban las tunas.
+                return cargarTunaSinHuecos("pedernal",
+                    gamePath("resourcepacks/Textures/Items/pedernal.png"));
             case BLOCK_PEDAZO_CALIZA:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/pedazo de piedra caliza.png"));
             case BLOCK_PEDAZO_TIERRA:
-                return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/polvo de tierra.png"));
+                // Igual que el pedernal: solo el 37% tiene pixel, y ademas
+                // esta textura tiene huecos EN MEDIO del dibujo. Rellenada,
+                // el terron se ve macizo.
+                return cargarTunaSinHuecos("polvo de tierra",
+                    gamePath("resourcepacks/Textures/Items/polvo de tierra.png"));
             case BLOCK_PEDAZO_COBRE:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/cobre crudo.png"));

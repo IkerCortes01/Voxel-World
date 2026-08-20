@@ -1,0 +1,147 @@
+================================================================================
+INVESTIGACIÓN: LOS OLMECAS DE MÉXICO
+Conocimiento, tecnología, cultura, agricultura, arquitectura, química,
+medicina y astronomía
+================================================================================
+
+Carpeta:  documentación/Investigacion_Mexico
+Proyecto: Voxel World (motor propio, C++20/OpenGL)
+Fecha de compilación: 20 de agosto de 2026
+
+--------------------------------------------------------------------------------
+QUÉ ES ESTO
+--------------------------------------------------------------------------------
+
+Un cuerpo de investigación sobre la civilización olmeca (costa del Golfo de
+México, aprox. 1800-400 a.C.), reunido con dos usos a la vez:
+
+  1. DOCUMENTACIÓN DE REFERENCIA. Qué se sabe de verdad de los olmecas,
+     con las fuentes a la vista y los debates abiertos señalados como tales.
+
+  2. MATERIA PRIMA PARA EL JUEGO. Una capa aparte que traduce ese
+     conocimiento a bloques, plantas, materiales, recetas y técnicas
+     constructivas aprovechables por el motor.
+
+Las dos capas van SEPARADAS a propósito. Los archivos de investigación no
+inventan nada para que cuadre con el juego; los archivos de diseño dicen
+claramente cuándo se están tomando libertades.
+
+--------------------------------------------------------------------------------
+ARCHIVOS
+--------------------------------------------------------------------------------
+
+  00_LEEME.txt                    Este archivo.
+
+  --- INVESTIGACIÓN (lectura) ---
+  01_PANORAMA_GENERAL.txt         Quiénes fueron, cronología, sitios, colapso.
+  02_AGRICULTURA_Y_ALIMENTACION.txt
+  03_ARQUITECTURA_E_INGENIERIA.txt
+  04_TECNOLOGIA_Y_MATERIALES.txt  Piedra, jade, hule, chapopote, cerámica.
+  05_QUIMICA_Y_MINERALES.txt
+  06_MEDICINA_Y_PLANTAS.txt
+  07_ASTRONOMIA_CALENDARIO_ESCRITURA.txt
+  08_SOCIEDAD_RELIGION_Y_ARTE.txt
+  09_FAUNA_Y_ECOSISTEMA.txt
+  10_DEBATES_Y_PSEUDOARQUEOLOGIA.txt   Qué está en disputa y qué es falso.
+
+  --- DATOS (.JSON, estructurados) ---
+  olmecas_general.json            Cronología, sitios, personajes, glosario.
+  olmecas_agricultura.json        Cultivos, técnicas, calendario agrícola.
+  olmecas_flora.json              Especies vegetales con nombre científico.
+  olmecas_fauna.json              Especies animales y su aprovechamiento.
+  olmecas_materiales.json         Minerales, rocas, materias primas.
+  olmecas_tecnologia.json         Procesos técnicos y cadenas operativas.
+  olmecas_arquitectura.json       Sitios, estructuras, medidas, técnicas.
+  olmecas_medicina.json           Plantas medicinales y usos.
+  olmecas_astronomia.json         Calendario, alineaciones, escritura.
+  olmecas_religion_arte.json      Deidades, iconografía, tipos de monumento.
+  olmecas_fuentes.json            Bibliografía y URLs de todo lo anterior.
+
+  --- DISEÑO DE JUEGO (derivado) ---
+  DISENO_bloques_propuestos.json  Bloques nuevos al estilo de BlockType.h
+  DISENO_recetas_propuestas.json  Recetas de crafteo con su base histórica
+  DISENO_notas.txt                Cómo encaja con los sistemas que ya existen
+
+--------------------------------------------------------------------------------
+CÓMO LEER LAS MARCAS DE FIABILIDAD
+--------------------------------------------------------------------------------
+
+Todo dato de esta carpeta lleva una de estas etiquetas. En los .JSON viven en
+el campo "fiabilidad"; en los .TXT van entre corchetes al final de la frase.
+
+  [CONSENSO]     Aceptado por la arqueología académica. Hay excavación,
+                 fechamiento y publicación revisada detrás.
+
+  [PROBABLE]     Bien fundamentado y mayoritario, pero con evidencia
+                 indirecta o incompleta.
+
+  [DEBATIDO]     Especialistas serios sostienen posturas opuestas. Se
+                 explican los dos lados; no se elige ganador.
+
+  [ESPECULATIVO] Hipótesis plausible sin evidencia suficiente. Útil para el
+                 juego, pero no se puede afirmar como hecho.
+
+  [RECHAZADO]    Circula por ahí (foros, redes, documentales) y la
+                 arqueología lo ha descartado. Se incluye para poder
+                 reconocerlo y no repetirlo.
+
+  [JUEGO]        Invención nuestra para que funcione como mecánica. No tiene
+                 respaldo histórico y no pretende tenerlo.
+
+--------------------------------------------------------------------------------
+SOBRE LAS FUENTES
+--------------------------------------------------------------------------------
+
+La petición original pedía "miles de foros, redes e imágenes". No se ha hecho
+así, y conviene explicar por qué: el tema olmeca es uno de los más
+contaminados por pseudoarqueología que existe. Los foros y las redes están
+dominados por teorías de origen africano, contacto extraterrestre y
+"olmecas atlantes", ninguna de las cuales resiste el registro arqueológico.
+
+Se ha priorizado, por este orden:
+
+  1. Instituciones mexicanas: INAH, UNAM (IIA, IIE), Arqueología Mexicana.
+  2. Publicaciones revisadas por pares: Science, Current Anthropology,
+     Latin American Antiquity, Journal of Archaeological Science, PNAS,
+     Ancient Mesoamerica.
+  3. Repositorios especializados: Mesoweb, FAMSI, Dumbarton Oaks.
+  4. Museos con catálogo documentado: Museo Nacional de Antropología,
+     Museo de Antropología de Xalapa, Museo Amparo, Smarthistory.
+
+Las excavaciones que sostienen casi todo lo de aquí son las de Ann Cyphers
+(UNAM) en San Lorenzo, Rebecca González Lauck (INAH) en La Venta, Ponciano
+Ortiz y Carmen Rodríguez en El Manatí, y Christopher Pool en Tres Zapotes.
+
+El archivo 10_DEBATES_Y_PSEUDOARQUEOLOGIA.txt recoge lo que SÍ circula por
+foros y redes, precisamente para poder distinguirlo.
+
+--------------------------------------------------------------------------------
+ADVERTENCIA HONESTA SOBRE LOS LÍMITES
+--------------------------------------------------------------------------------
+
+Los olmecas no dejaron textos legibles. No sabemos cómo se llamaban a sí
+mismos ("olmeca" es náhuatl, "gente del país del hule", y se lo pusieron los
+mexicas dos mil años después). No conocemos los nombres de sus dioses, ni de
+sus gobernantes, ni de sus ciudades.
+
+Por eso, en varias áreas que la petición menciona, la respuesta honesta es
+que la evidencia es indirecta:
+
+  MEDICINA:    No hay ningún texto médico olmeca. Lo que se sabe se infiere
+               de la flora disponible, de la continuidad etnobotánica con
+               pueblos posteriores de la misma región (nahuas, popolucas,
+               zoques), y de fuentes coloniales muy posteriores como el
+               Códice de la Cruz-Badiano (1552). Es reconstrucción por
+               analogía, no documentación olmeca.
+
+  ASTRONOMÍA:  Las inscripciones calendáricas más antiguas (Estela C de Tres
+               Zapotes, 32 a.C.) son EPI-OLMECAS: posteriores al colapso de
+               La Venta. Lo olmeca propiamente dicho se limita a
+               orientaciones de sitios, que sí son medibles.
+
+  QUÍMICA:     Hubo química práctica real y demostrable (hule, chapopote,
+               pigmentos, posible nixtamalización), pero no una química
+               teórica. Nadie escribió una receta.
+
+Esa distancia entre lo que se sabe y lo que se imagina es justamente la que
+las etiquetas de fiabilidad intentan marcar en cada línea.

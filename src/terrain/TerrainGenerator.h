@@ -114,7 +114,13 @@ public:
         // ---- CAPA 5: COLINAS ----
         // Frecuencia media. Moduladas por erosion: el terreno erosionado es
         // mas plano, el joven mas ondulado.
-        const float hillAmplitude = Noise::lerp(11.0f, 2.5f, c.erosion);
+        // ⭐ COLINAS MAS SUAVES
+        //
+        // Iban de 11 bloques de amplitud, que junto con las montanas daba
+        // desniveles de golpe dentro de un mismo bioma. Bajadas a 4, el
+        // terreno sigue ondulando -- no es una mesa de billar -- pero ya no
+        // levanta paredes donde no tocan.
+        const float hillAmplitude = Noise::lerp(4.0f, 1.5f, c.erosion);
         const float hills = Noise::fbmSimplex2D(seedHills(),
                                                 x * 0.0042f,
                                                 z * 0.0042f, 4, 2.0f, 0.5f);

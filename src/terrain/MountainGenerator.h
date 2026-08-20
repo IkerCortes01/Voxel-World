@@ -44,7 +44,28 @@ public:
     // ========================================================================
     // Devuelve los bloques a SUMAR a la altura base.
     // Devuelve 0 donde no hay montanas (transicion continua garantizada).
+    // ========================================================================
+    // MONTANAS Y CORDILLERAS: DESACTIVADAS
+    // ========================================================================
+    // Levantaban hasta 58 bloques de golpe, y eso rompia la jugabilidad: en
+    // un bioma ya cargado aparecian paredes y elevaciones que no encajaban
+    // con el terreno de alrededor.
+    //
+    // En vez de arrancar el generador entero -- que se usa desde varios
+    // sitios y arrastraria mas cambios de los necesarios -- se corta en la
+    // SALIDA: la funcion devuelve 0 y el terreno queda con el relieve suave
+    // del generador base, sin escalones.
+    //
+    // Todo el calculo de abajo se conserva intacto y comentado. Para
+    // recuperar las montanas basta con quitar el `return 0.0f` de aqui.
+    static constexpr bool MONTANAS_ACTIVAS = false;
+
     float GetMountainHeight(float x, float z, const ClimateData& c) const {
+        if (!MONTANAS_ACTIVAS) {
+            (void)x; (void)z; (void)c;
+            return 0.0f;   // terreno sin cordilleras ni acantilados
+        }
+
         // --------------------------------------------------------------------
         // 1. FACTOR DE MONTANA: cuanta montana corresponde a este punto.
         // --------------------------------------------------------------------

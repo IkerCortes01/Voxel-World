@@ -625,7 +625,15 @@ inline float pencaCaidaProgreso(int x, int y, int z) {
 
 // ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
 // la planta, para que una penca pegada al tallo no deje costura.
-inline bool nopalEncadena(BlockType b) {
+// `propio` es el bloque que PREGUNTA. Hace falta porque una penca no encadena
+// con otra penca: cada una es una pieza suelta y tiene que conservar su forma.
+// Si se unieran, la caja se estiraria hacia la vecina y las dos acabarian
+// pareciendo un solo bloque verde.
+inline bool nopalEncadena(BlockType b, BlockType propio = BLOCK_AIR) {
+    // PENCA CON PENCA: NO. Se pueden poner pegadas, pero cada una mantiene su
+    // silueta en vez de fundirse con la de al lado.
+    if (propio == BLOCK_NOPAL_FRUTO && b == BLOCK_NOPAL_FRUTO) return false;
+
     // La TUNA queda FUERA a proposito: es un bloque independiente que se
     // apoya en la penca, no una parte de ella. Si encadenara, la penca se
     // estiraria hacia el fruto y perderia su forma.
@@ -661,12 +669,12 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     NopalForma f{};
     f.tipo = tipo;
 
-    f.uneXp     = nopalEncadena(get( 1, 0, 0));
-    f.uneXm     = nopalEncadena(get(-1, 0, 0));
-    f.uneZp     = nopalEncadena(get( 0, 0, 1));
-    f.uneZm     = nopalEncadena(get( 0, 0,-1));
-    f.uneArriba = nopalEncadena(get( 0, 1, 0));
-    f.uneAbajo  = nopalEncadena(get( 0,-1, 0));
+    f.uneXp     = nopalEncadena(get( 1, 0, 0), tipo);
+    f.uneXm     = nopalEncadena(get(-1, 0, 0), tipo);
+    f.uneZp     = nopalEncadena(get( 0, 0, 1), tipo);
+    f.uneZm     = nopalEncadena(get( 0, 0,-1), tipo);
+    f.uneArriba = nopalEncadena(get( 0, 1, 0), tipo);
+    f.uneAbajo  = nopalEncadena(get( 0,-1, 0), tipo);
 
     unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wy * 19349663) ^
                  (unsigned)(wz * 83492791);
@@ -690,14 +698,14 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     {
         int diagX = 0, diagZ = 0;
         for (int dy = -1; dy <= 1; dy += 2) {
-            if (nopalEncadena(get( 1, dy, 0))) ++diagX;
-            if (nopalEncadena(get(-1, dy, 0))) ++diagX;
-            if (nopalEncadena(get( 0, dy, 1))) ++diagZ;
-            if (nopalEncadena(get( 0, dy,-1))) ++diagZ;
+            if (nopalEncadena(get( 1, dy, 0), tipo)) ++diagX;
+            if (nopalEncadena(get(-1, dy, 0), tipo)) ++diagX;
+            if (nopalEncadena(get( 0, dy, 1), tipo)) ++diagZ;
+            if (nopalEncadena(get( 0, dy,-1), tipo)) ++diagZ;
         }
         // Diagonales del plano horizontal: brotes que salen de una esquina.
-        if (nopalEncadena(get( 1, 0, 1)) || nopalEncadena(get(-1, 0,-1)) ||
-            nopalEncadena(get( 1, 0,-1)) || nopalEncadena(get(-1, 0, 1))) {
+        if (nopalEncadena(get( 1, 0, 1), tipo) || nopalEncadena(get(-1, 0,-1), tipo) ||
+            nopalEncadena(get( 1, 0,-1), tipo) || nopalEncadena(get(-1, 0, 1), tipo)) {
             // Una esquina no decanta ningun eje por si sola; suma a los dos
             // para que la penca prefiera alinearse antes que quedar suelta.
             ++diagX; ++diagZ;
@@ -804,17 +812,17 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         // diagonal cuenta para su lado).
         int pN = 0, pS = 0, pE = 0, pO = 0;
         for (int dy = -1; dy <= 1; ++dy) {
-            if (nopalEncadena(get( 0, dy, 1))) pN += (dy == 0) ? 2 : 1;
-            if (nopalEncadena(get( 0, dy,-1))) pS += (dy == 0) ? 2 : 1;
-            if (nopalEncadena(get( 1, dy, 0))) pE += (dy == 0) ? 2 : 1;
-            if (nopalEncadena(get(-1, dy, 0))) pO += (dy == 0) ? 2 : 1;
+            if (nopalEncadena(get( 0, dy, 1), tipo)) pN += (dy == 0) ? 2 : 1;
+            if (nopalEncadena(get( 0, dy,-1), tipo)) pS += (dy == 0) ? 2 : 1;
+            if (nopalEncadena(get( 1, dy, 0), tipo)) pE += (dy == 0) ? 2 : 1;
+            if (nopalEncadena(get(-1, dy, 0), tipo)) pO += (dy == 0) ? 2 : 1;
         }
         // Las esquinas del plano reparten su peso entre los dos rumbos que
         // las forman: asi una vecina al noreste inclina hacia el noreste.
-        if (nopalEncadena(get( 1, 0, 1))) { ++pN; ++pE; }
-        if (nopalEncadena(get( 1, 0,-1))) { ++pS; ++pE; }
-        if (nopalEncadena(get(-1, 0, 1))) { ++pN; ++pO; }
-        if (nopalEncadena(get(-1, 0,-1))) { ++pS; ++pO; }
+        if (nopalEncadena(get( 1, 0, 1), tipo)) { ++pN; ++pE; }
+        if (nopalEncadena(get( 1, 0,-1), tipo)) { ++pS; ++pE; }
+        if (nopalEncadena(get(-1, 0, 1), tipo)) { ++pN; ++pO; }
+        if (nopalEncadena(get(-1, 0,-1), tipo)) { ++pS; ++pO; }
 
         const int ejeNS = pN - pS;    // >0 mira al norte, <0 al sur
         const int ejeEO = pE - pO;    // >0 mira al este,  <0 al oeste
@@ -999,17 +1007,38 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // fino coincide con uno de esos, la penca se queda estrecha justo por
     // donde deberia unirse y aparece un escalon o un hueco.
     //
-    // Solucion: en cualquier eje que tenga vecino, la caja pasa a ocupar el
-    // ancho completo. Asi el bloque SIEMPRE llega a tocar a su vecino, sea
-    // cual sea la orientacion que le haya tocado, y la planta queda continua.
-    const float ANCHO0 = 0.07f, ANCHO1 = 1.0f - 0.07f;
-    if (f.uneXp || f.uneXm) { f.minX = ANCHO0; f.maxX = ANCHO1; }
-    if (f.uneZp || f.uneZm) { f.minZ = ANCHO0; f.maxZ = ANCHO1; }
-    if (f.uneArriba || f.uneAbajo) {
-        // En vertical se ocupa TODO el alto (menos el epsilon que evita el
-        // z-fighting con el bloque de arriba/abajo).
-        f.minY = 0.0005f; f.maxY = 1.0f - 0.0005f;
-    }
+    // Solucion: la caja se ESTIRA hasta el borde por el lado que tiene
+    // vecino, para que las dos piezas se toquen.
+    //
+    // BUG QUE ESTO CORRIGE: antes se ensanchaba el EJE ENTERO, poniendo los
+    // dos extremos en 0.07 y 0.93 en cuanto hubiera vecino por UN lado. Una
+    // penca rodeada acababa midiendo 13.8 x 16 x 13.8 px, o sea el voxel casi
+    // completo: se veia como un CUBO VERDE liso, sin silueta ni espinas.
+    //
+    // Ahora la pieza se DESPLAZA hacia el vecino en vez de estirarse: se
+    // corre hasta que su cara toca el borde, conservando su tamano. La union
+    // se ve igual de continua -- lo que importa es que la cara TOQUE -- y la
+    // penca sigue midiendo lo que debe.
+    //
+    // Solo cuando hay vecino a AMBOS lados del mismo eje hay que estirar, y
+    // ahi no queda otra: la pieza tiene que cubrir el hueco entero.
+    constexpr float BORDE = 0.0005f;
+
+    // Estira o desplaza un eje segun por donde tenga vecinos.
+    auto ajustar = [BORDE](bool haciaMenos, bool haciaMas, float& lo, float& hi) {
+        const float tam = hi - lo;
+        if (haciaMenos && haciaMas) {          // los dos lados: hay que estirar
+            lo = BORDE; hi = 1.0f - BORDE;
+        } else if (haciaMenos) {               // solo uno: se desplaza
+            lo = BORDE; hi = BORDE + tam;
+        } else if (haciaMas) {
+            hi = 1.0f - BORDE; lo = hi - tam;
+        }
+    };
+
+    ajustar(f.uneXm,    f.uneXp,     f.minX, f.maxX);
+    ajustar(f.uneZm,    f.uneZp,     f.minZ, f.maxZ);
+    ajustar(f.uneAbajo, f.uneArriba, f.minY, f.maxY);
 
     // Compatibilidad con el codigo que razona en "eje largo".
     f.ejeX     = (f.orientacion == 2 || f.orientacion == 3);

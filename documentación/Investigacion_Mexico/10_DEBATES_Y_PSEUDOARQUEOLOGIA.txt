@@ -37,19 +37,90 @@ POSTURA "CULTURA HERMANA" (Joyce Marcus, Kent Flannery, y otros):
   koiné compartida — un lenguaje visual de prestigio usado por élites de
   varias regiones — más que una exportación desde un centro.
 
-EL FRENTE EMPÍRICO: LA CERÁMICA
-  Jeffrey Blomster, Hector Neff y Michael Glascock (2005, Science) aplicaron
-  activación neutrónica a cerámica del Formativo y concluyeron que San
-  Lorenzo EXPORTABA cerámica a otras regiones sin recibir apenas a cambio:
-  un flujo unidireccional, coherente con "cultura madre".
+EL FRENTE EMPÍRICO: LA CERÁMICA — vale la pena el detalle, porque es un
+caso de manual sobre los límites de la inferencia arqueométrica.
 
-  La réplica (Flannery, Marcus, Sharer y otros) cuestionó el muestreo y la
-  metodología, y sostuvo que el intercambio era BIDIRECCIONAL. El
-  intercambio de artículos en revistas fue notablemente áspero.
+  POSICIÓN A — Blomster, Neff y Glascock (2005), Science 307:1068-1072.
+  Método: INAA (activación neutrónica) sobre 725 tiestos de siete
+  localidades. Resultado: la cerámica de estilo olmeca hallada en seis
+  regiones se originó químicamente en SAN LORENZO, y el Golfo NO recibió a
+  cambio cerámica tallada gris ni caolín. Flujo UNIDIRECCIONAL, coherente
+  con "cultura madre".
+
+  POSICIÓN B — Stoltman, Marcus, Flannery, Burton y Moyle (2005), PNAS
+  102:11213-11218. Método: PETROGRAFÍA DE LÁMINA DELGADA — análisis
+  mineralógico bajo microscopio polarizante de los desgrasantes de arena.
+
+    La base geológica del argumento es elegante: San Lorenzo se asienta
+    sobre roca sedimentaria (caliza, arenisca); Oaxaca y las zonas altas
+    sobre roca metamórfica. La "firma" geológica del lugar de manufactura
+    queda impresa en la arena del desgrasante, INDEPENDIENTEMENTE de la
+    química de la arcilla. Stoltman recibió los tiestos para análisis ciego.
+
+    Resultado: algunas muestras eran INEQUÍVOCAMENTE de Oaxaca pese a estar
+    catalogadas como "estilo olmeca". Es decir, cerámica hecha en Oaxaca
+    apareció en San Lorenzo. Intercambio BIDIRECCIONAL.
+
+  LAS CUATRO CRÍTICAS METODOLÓGICAS AL INAA (del artículo de PNAS):
+
+    1. QUÍMICO NO ES MINERAL. El INAA detecta elementos, pero no puede
+       discriminar entre las cinco fuentes de composición de una vasija:
+       arcilla, desgrasante, agua, contenido y diagénesis. La petrografía sí
+       separa arcilla de desgrasante.
+    2. RIESGO DE MALA CLASIFICACIÓN. Los propios BNG reconocieron "una
+       problemática similitud" entre cierta loza gris de Oaxaca y el grupo
+       de referencia de San Lorenzo. El INAA no logró separarlas; la
+       petrografía sí, con facilidad (el gneis oaxaqueño es inconfundible
+       frente a la arena cuarcítica de San Lorenzo).
+    3. DESCARTE DE OUTLIERS. El uso de distancias de Mahalanobis llevó a
+       clasificar el 26-30% de los tiestos como "no asignados", lo que
+       SUPRIMIÓ SISTEMÁTICAMENTE la evidencia de intercambio interregional
+       — precisamente las piezas anómalas son las candidatas a ser
+       importaciones.
+    4. La conclusión lapidaria de los autores: "POTS ARE NOT ROCKS" (las
+       ollas no son rocas). El análisis químico, adecuado para obsidiana
+       (roca homogénea de fuente única), es insuficiente para cerámica, que
+       es un material COMPUESTO ARTIFICIAL.
+
+  POSICIÓN C — la crítica epistemológica. Sharer, Balkansky, Flannery,
+  Grove, Marcus, Stoltman y otros (2006), Latin American Antiquity, "On the
+  Logic of Archaeological Inference". Tres objeciones NO analíticas:
+
+    - Sesgo de muestreo: la composición de la muestra predetermina el
+      resultado.
+    - INVEROSIMILITUD ANTROPOLÓGICA: el intercambio en sociedades de rango
+      es recíproco por definición estructural (don/contradon). Un flujo
+      unidireccional sostenido de bienes no es intercambio, es TRIBUTO — y
+      no hay evidencia de un aparato tributario olmeca.
+    - NON SEQUITUR LÓGICO: "no existe argumento puente" que vincule motivos
+      sobre cerámica con las instituciones sociales, políticas y religiosas.
+      Que una vasija lleve iconografía olmeca no prueba dominación.
+
+  DÓNDE QUEDÓ. David Cheetham (2010), Ancient Mesoamerica, comparó San
+  Lorenzo y Cantón Corralito: la mayor parte de la cerámica temprana se
+  manufacturó LOCALMENTE en cada sitio, pero hay loza importada tanto del
+  sur como del Golfo. Patrón consistente con intercambio bidireccional MÁS
+  producción local paralela del mismo estilo, reconociendo un liderazgo
+  estilístico temprano de San Lorenzo.
+
+  UN DATO QUE RELATIVIZA TODO EL DEBATE: los tipos Calzadas Carved y Limón
+  Carved-Incised aparecen solo en cantidades MÍNIMAS (<1%) en los conjuntos
+  domésticos. Toda la controversia gira en torno a un subconjunto
+  minoritario y de alto valor simbólico, no sobre el grueso de la vajilla.
 
 ESTADO: sin resolver. Hoy la mayoría de especialistas ocupa posiciones
 intermedias — el Golfo tuvo un papel destacado y temprano, pero no fue el
-único foco ni un imperio difusor. [DEBATIDO]
+único foco ni un imperio difusor. El caso se usa en cursos de metodología
+como ejemplo de los límites de la inferencia arqueométrica. [DEBATIDO]
+
+UN DATO QUE COMPLICA EL MODELO DE "CULTURA MADRE": el "brasero anular",
+primera manifestación de esa tradición cerámica, aparece PRIMERO entre los
+mokaya de Mazatán (Chiapas) y DESPUÉS se distribuye hacia el Golfo.
+Dirección de difusión invertida.
+
+OTRO: el LiDAR de 2021 mostró que la plantilla arquitectónica se originó en
+San Lorenzo — pero también que las CANCHAS de juego de pelota formales
+aparecen antes FUERA del núcleo olmeca (ver A.10).
 
 --------------------------------------------------------------------------------
 A.2 ¿DE QUÉ VIVÍAN? EL DEBATE DEL MAÍZ
@@ -208,10 +279,100 @@ Las cabezas achatadas y alargadas del arte olmeca se han interpretado como
 representación de deformación craneal intencional, práctica documentada en
 Tlatilco y entre los mayas.
 
-Problema: NO se ha encontrado evidencia ósea directa de la práctica en el
-territorio nuclear olmeca. Las condiciones del suelo tropical ácido destruyen
-el hueso, así que la ausencia de evidencia no es evidencia de ausencia — pero
-tampoco permite afirmarlo. [DEBATIDO]
+Dos tipos principales (referencia de campo: Vera Tiesler, "The
+Bioarchaeology of Artificial Cranial Modifications"):
+  - TABULAR ERECTO: compresión con tabla fija, forma corta y ancha,
+    asociado a cuna.
+  - TABULAR OBLICUO: dos planos antagónicos, crecimiento dirigido hacia
+    atrás y arriba, con tablillas libres.
+
+EL PROBLEMA: NO se ha encontrado evidencia ÓSEA DIRECTA de la práctica en el
+territorio nuclear olmeca. Las series craneales que documentan claramente la
+práctica son de TLATILCO (Cuenca de México) y Monte Negro/Monte Albán
+(Oaxaca). En La Venta la deformación aparece REPRESENTADA
+ICONOGRÁFICAMENTE (por ejemplo en la Ofrenda 4).
+
+El vínculo entre las cabezas colosales y la práctica real es INFERENCIA
+ANALÓGICA CON OTRAS REGIONES, no prueba bioarqueológica in situ. El suelo
+tropical ácido destruye el hueso, así que la ausencia de evidencia no es
+evidencia de ausencia — pero tampoco permite afirmarlo. [DEBATIDO]
+
+NOTA RELACIONADA — el limado dentario: Javier Romero y Samuel Fastlicht
+propusieron llamarlo "limado" y no "mutilación", dado su fin estético. Las
+primeras apariciones en América son de los siglos XIV-X a.C. en el Valle de
+México. Hay 54 tipos diferentes de decorado dental documentados en
+Mesoamérica. Técnicas: limado con láminas de pedernal y obsidiana,
+abrasivos en polvo con agua. En TLATILCO los restos óseos SÍ muestran
+evidencia directa (más de 500 entierros recuperados; en la campaña de
+1947-1950, 221 entierros). Investigador clave: Román Piña Chán. Pero, de
+nuevo, es fuera del Golfo.
+
+--------------------------------------------------------------------------------
+A.10 LA PARADOJA DEL JUEGO DE PELOTA
+--------------------------------------------------------------------------------
+
+Un debate poco divulgado y muy interesante.
+
+LOS HECHOS:
+  - Los olmecas tienen LAS PELOTAS MÁS ANTIGUAS del mundo (El Manatí,
+    1700-1600 a.C.).
+  - Tienen LA ICONOGRAFÍA DE JUGADORES MÁS ANTIGUA (figurillas de San
+    Lorenzo fechadas por radiocarbono a 1250-1150 a.C., algunas con equipo
+    protector).
+  - Pero NO TIENEN CANCHAS FORMALES TEMPRANAS. En San Lorenzo solo hay una
+    cancha rudimentaria de una ocupación tardía, 600-400 a.C.
+  - La cancha más antigua conocida está en PASO DE LA AMADA (Chiapas),
+    ~1400 a.C. (algunas fuentes: construida ~1600 a.C.), de ~79 m de largo.
+    Y NO ES OLMECA: su cultura material es predominantemente MOKAYA,
+    PRE-OLMECA.
+
+EXPLICACIONES POSIBLES [DEBATIDO]:
+  1. El juego olmeca temprano se practicaba en espacios no formalizados
+     (plazas, terrenos planos sin arquitectura dedicada).
+  2. Las canchas de arquitectura formal se desarrollaron en la PERIFERIA
+     (Soconusco, Oaxaca, Guerrero), no en el núcleo del Golfo.
+  3. Las canchas olmecas eran de TIERRA SIN REVESTIR y son
+     arqueológicamente invisibles — coherente con el hecho de que toda su
+     arquitectura no monumental lo es.
+
+POR QUÉ IMPORTA: debilita el modelo simple de "cultura madre". El núcleo
+olmeca tiene el juego pero no la arquitectura del juego, y la arquitectura
+aparece antes fuera.
+
+--------------------------------------------------------------------------------
+A.11 LAS "TUMBAS REALES" DE LA VENTA: ¿HUBO ALGUIEN DENTRO?
+--------------------------------------------------------------------------------
+
+Debate reciente (2022) y de consecuencias grandes. Desarrollado en el
+archivo 03, apartado 2.7. En resumen:
+
+Susan Gillespie y Michael Volk reevaluaron las cinco "tumbas" del Complejo
+A. Cuatro de las cinco NO CONTIENEN NINGÚN RESTO ÓSEO. Su argumento es que
+la disolución por acidez del suelo no explica que los objetos yazcan en un
+ÚNICO PLANO HORIZONTAL — un cuerpo descomponiéndose produce desorden
+característico. Además, las cinco se construyeron en un solo episodio
+constructivo, no acumuladas conforme morían gobernantes sucesivos.
+
+Propuesta: serían "entierros sustitutos" o evocaciones rituales de cuerpos
+ausentes.
+
+IMPLICACIÓN: cuestiona si La Venta tardía estuvo dominada por gobernantes
+dinásticos individuales. [DEBATIDO — reciente, metodológicamente sólido,
+aún siendo asimilado]
+
+--------------------------------------------------------------------------------
+A.12 LAS CUENTAS DE ILMENITA: ¿PARA QUÉ SERVÍAN?
+--------------------------------------------------------------------------------
+
+El fenómeno menos explicado de la arqueología olmeca. Toneladas de cuentas
+de ilmenita MULTIPERFORADAS con taladro rotatorio en San Lorenzo. La
+procedencia está resuelta (anortositas de Huitzo, Oaxaca; Alva-Valdivia,
+Cyphers et al. 2017). La FUNCIÓN no.
+
+Hipótesis: joyería; vestimenta compuesta; herramientas miniatura
+enmangadas; elementos de conteo; proto-moneda; sonajas. Ninguna con
+consenso. Lo que resiste la explicación simple es que las perforaciones son
+MÚLTIPLES, no una sola como esperaría una cuenta ensartada. [DEBATIDO]
 
 ================================================================================
 PARTE B — LO QUE CIRCULA EN FOROS Y REDES, Y ESTÁ RECHAZADO

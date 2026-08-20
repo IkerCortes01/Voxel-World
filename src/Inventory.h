@@ -55,6 +55,27 @@ struct InventorySlot {
 
     bool isEmpty() const { return blockType == BLOCK_AIR || count <= 0; }
 
+    // ⭐ VACIAR DE VERDAD
+    //
+    // Un slot con count = 0 pero blockType sin limpiar SIGUE contando como
+    // "hay un bloque aqui" en todo el codigo que mira blockType sin pasar
+    // por isEmpty(): la hotbar, lo que el jugador lleva en la mano, el
+    // crafteo... De ahi que un hueco vacio se comportara como si tuviera
+    // algo.
+    //
+    // Esto lo deja limpio: sin tipo, sin cuenta y sin vida de herramienta.
+    void vaciar() {
+        blockType = BLOCK_AIR;
+        count = 0;
+        vidaMedios = 0;
+    }
+
+    // Deja el slot coherente: si se ha quedado sin unidades, se vacia del
+    // todo en vez de conservar el tipo.
+    void normalizar() {
+        if (count <= 0) vaciar();
+    }
+
     bool canStack(BlockType type) const {
         // Un slot infinito no admite más: sumarle destruiría el centinela.
         if (isInfiniteStack(count)) return false;
@@ -80,10 +101,11 @@ struct InventorySlot {
 
         if (count >= amount) {
             count -= amount;
-            if (count <= 0) {
-                blockType = BLOCK_AIR;
-                count = 0;
-            }
+            // Al quedarse sin unidades, el slot se vacia DEL TODO: si se
+            // dejara el blockType puesto, el hueco seguiria contando como
+            // "hay un bloque aqui" en el codigo que mira el tipo sin pasar
+            // por isEmpty().
+            if (count <= 0) vaciar();
             return true;
         }
         return false;

@@ -15346,6 +15346,28 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
     std::vector<BlockDrop> drops;
 
     switch (blockType) {
+        // ⭐ LOS GUIJARROS SUELTAN SU ITEM, NO EL BLOQUE
+        //
+        // El bloque del suelo es un monton de cantos 3D; el ITEM es el
+        // dibujo plano que ya existia en Items/. Sin esto se recogia el
+        // bloque, y en la mano se veia como un cubo deformado con la
+        // textura del canto envuelta.
+        case BLOCK_PEDAZO_PEDERNAL:
+            // (el pedernal no tenia item propio: se le da el suyo)
+            drops.push_back({BLOCK_PEDAZO_PEDERNAL, 1, 1.0f});
+            break;
+
+        case BLOCK_PEDAZO_TIERRA:
+            // Los terrones sueltos son POLVO DE TIERRA, que ya es un item
+            // del juego y se usa en crafteos.
+            drops.push_back({BLOCK_DIRT_POWDER, 1, 1.0f});
+            break;
+
+        case BLOCK_PEDAZO_COBRE:
+            // El cobre crudo del suelo es el mismo item que sale de fundir.
+            drops.push_back({BLOCK_RAW_COPPER, 1, 1.0f});
+            break;
+
         case BLOCK_COAL_ORE:
             // Carbón mineral → dropea 1 carbón item
             drops.push_back({BLOCK_COAL_ITEM, 1, 1.0f});
@@ -15763,6 +15785,10 @@ void prewarmItemTextures() {
         // sobre fondo transparente, que es lo que identifica al item de un
         // vistazo.
         { BLOCK_PEDAZO_PIEDRA, "pedazo de piedra.png"                    },
+        { BLOCK_PEDAZO_PEDERNAL,"pedernal.png"                           },
+        { BLOCK_PEDAZO_TIERRA, "polvo de tierra.png"                     },
+        { BLOCK_PEDAZO_CALIZA, "pedazo de piedra caliza.png"             },
+        { BLOCK_PEDAZO_COBRE,  "cobre crudo.png"                         },
         { BLOCK_HILO_IXTLE,    "Hilo de Ixtle.png"                       },
         { BLOCK_HACHA_PIEDRA,  "Hacha de piedra.png"                     },
     };
@@ -15782,6 +15808,23 @@ void prewarmItemTextures() {
 
         const GLuint h = g_textureManager->getBlockTexture(bt, 0);
         g_itemTextures.registerItemHandle(id, (UI::TextureHandle)h);
+    }
+
+    // ⭐ PRECARGA DE LAS TEXTURAS RELLENADAS
+    //
+    // cargarTunaSinHuecos() sube la textura a la GPU, y eso SOLO funciona en
+    // el hilo principal. El mesher corre en otro hilo: al pedirla desde alli
+    // devolvia 0 y el guijarro se quedaba sin dibujar -- un bloque invisible
+    // con su caja de seleccion, que es el bug que se veia en la arena.
+    //
+    // Cargandolas aqui, con el contexto GL activo, cuando el mesher las pida
+    // ya estan en cache y solo se devuelve el handle.
+    if (g_textureManager) {
+        g_textureManager->getBlockTexture(BLOCK_PEDAZO_PEDERNAL, 0);
+        g_textureManager->getBlockTexture(BLOCK_PEDAZO_TIERRA, 0);
+        g_textureManager->getBlockTexture(BLOCK_TUNA, 0);
+        g_textureManager->getBlockTexture(BLOCK_TUNA_AMARILLA, 0);
+        g_textureManager->getBlockTexture(BLOCK_TUNA_ROJA, 0);
     }
 
     std::cout << "ItemTextureManager: " << g_itemTextures.getValidCount()
@@ -18206,6 +18249,12 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
             InventorySlot temp = slot1;
             slot1 = slot2;
             slot2 = temp;
+            // Tras el intercambio, cualquiera de los dos puede haberse
+            // quedado con un tipo puesto y cero unidades. Eso hace que un
+            // hueco vacio siga contando como bloque en el resto del juego,
+            // asi que aqui se deja limpio.
+            slot1.normalizar();
+            slot2.normalizar();
         };
 
         // Lambda para mover items entre slots

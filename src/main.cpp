@@ -13635,11 +13635,66 @@ void updateMining(GameState* state, float deltaTime) {
         // ⭐ VEGETACIÓN SIN SOPORTE
         // Un sprite en cruz necesita un bloque debajo. Al romper el soporte,
         // la planta quedaría flotando en el aire, así que se retira también.
-        // No suelta nada (getBlockDrops devuelve vacío para vegetación).
-        if (by + 1 < CHUNK_HEIGHT) {
-            BlockType above = state->world.getBlock(bx, by + 1, bz);
-            if (isCrossSprite(above)) {
-                state->world.setBlock(bx, by + 1, bz, BLOCK_AIR);
+        //
+        // BUG QUE ESTO CORRIGE: antes solo se miraba UN bloque hacia arriba y
+        // se borraba sin mas. Con tres cladodios apilados, al romper el de
+        // abajo el segundo desaparecia SIN SOLTAR NADA y el tercero se quedaba
+        // flotando. Lo mismo con pencas y tunas.
+        //
+        // Ahora se recorre la columna entera hacia arriba, y cada pieza que se
+        // queda sin soporte SUELTA SU ITEM antes de irse. La hierba sigue sin
+        // soltar nada, porque getBlockDrops ya devuelve vacio para ella: la
+        // diferencia la marca el propio bloque, no este bucle.
+        // Las tunas pegadas al bloque que se acaba de romper: si era una penca
+        // o un cladodio, sus frutos laterales se quedan sin soporte.
+        if (isCrossSprite(blockType)) {
+            static const int LAT[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+            for (int k = 0; k < 4; ++k) {
+                const int tx = bx + LAT[k][0], tz = bz + LAT[k][1];
+                const BlockType lat = state->world.getBlock(tx, by, tz);
+                if (!esTuna(lat)) continue;
+
+                const Vec3 pt(tx + 0.5f, by + 0.5f, tz + 0.5f);
+                for (const auto& d : getBlockDrops(lat)) {
+                    if (d.chance < 1.0f) continue;
+                    for (int i = 0; i < d.count; ++i)
+                        state->spawnItem(pt, d.itemType);
+                }
+                state->world.setBlock(tx, by, tz, BLOCK_AIR);
+            }
+        }
+
+        for (int ny = by + 1; ny < CHUNK_HEIGHT; ++ny) {
+            const BlockType arriba = state->world.getBlock(bx, ny, bz);
+            if (!isCrossSprite(arriba)) break;   // fin de la cadena
+
+            // Antes de quitarla, se sueltan sus drops en su propia posicion.
+            const Vec3 posCaida(bx + 0.5f, ny + 0.5f, bz + 0.5f);
+            const std::vector<BlockDrop> caidos = getBlockDrops(arriba);
+            for (const auto& d : caidos) {
+                if (d.chance < 1.0f) continue;
+                for (int i = 0; i < d.count; ++i)
+                    state->spawnItem(posCaida, d.itemType);
+            }
+
+            state->world.setBlock(bx, ny, bz, BLOCK_AIR);
+
+            // Las TUNAS no siempre cuelgan encima: salen por las seis caras
+            // de la penca. Al caer esta, las de los lados se quedarian
+            // flotando, asi que se recogen tambien.
+            static const int LADOS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+            for (int k = 0; k < 4; ++k) {
+                const int tx = bx + LADOS[k][0], tz = bz + LADOS[k][1];
+                const BlockType lat = state->world.getBlock(tx, ny, tz);
+                if (!esTuna(lat)) continue;
+
+                const Vec3 pt(tx + 0.5f, ny + 0.5f, tz + 0.5f);
+                for (const auto& d : getBlockDrops(lat)) {
+                    if (d.chance < 1.0f) continue;
+                    for (int i = 0; i < d.count; ++i)
+                        state->spawnItem(pt, d.itemType);
+                }
+                state->world.setBlock(tx, ny, tz, BLOCK_AIR);
             }
         }
 

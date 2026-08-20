@@ -4748,9 +4748,13 @@ struct Chunk {
     // lightCost(), porque filtran la luz en vez de dejarla pasar o cortarla.
     static bool skyTransparent(BlockType b) {
         // Bloques que no llenan su voxel: la luz del cielo los atraviesa.
+        // La raiz ENORME (16 px) llena el voxel entero, asi que corta el sol
+        // como un bloque macizo. Las mas finas si lo dejan pasar.
+        if (esRaiz(b)) return grosorRaiz(b) < 16;
+
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
-               isRama(b) || esRaiz(b) ||
+               isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
                esTuna(b);
     }
@@ -4811,8 +4815,24 @@ struct Chunk {
         // Rama: 4x4 pixeles de seccion. Ocupa tan poco que la luz la rodea
         // casi por completo; atenua 1, como el aire.
         if (isRama(b)) return 1;
-        // Raiz: cuanto mas gruesa, mas tapa. La de 16 px llena el voxel.
-        if (esRaiz(b)) return (grosorRaiz(b) >= 16) ? 0 : 1;
+        // RAIZ: la luz se atenua segun SU GROSOR, no por ser raiz.
+        //
+        // Una raiz fina de 4 px deja pasar casi toda la luz, igual que una
+        // rama; una de 16 llena el voxel entero y lo tapa como un bloque
+        // macizo. Los grosores intermedios quedan en medio, asi que la sombra
+        // que proyecta una raiz se corresponde con lo gruesa que se ve.
+        //
+        //   4 px  -> 1   (la luz la rodea)
+        //   8 px  -> 2   (sombra suave)
+        //  12 px  -> 3   (tapa bastante)
+        //  16 px  -> 0   (opaca: llena el voxel)
+        if (esRaiz(b)) {
+            const int g = grosorRaiz(b);
+            if (g >= 16) return 0;          // opaca
+            if (g >= 12) return 3;
+            if (g >= 8)  return 2;
+            return 1;
+        }
 
         // Cladodio y fruto: losas de 5/16 de grosor. Tapan mas que una rama
         // pero mucho menos que un cubo, asi que atenuan 2: se nota una sombra
@@ -6998,41 +7018,80 @@ public:
             return mod > 0 ? (int)(v % (unsigned)mod) : 0;
         };
 
-        // Solo se sustituye tierra o piedra: la raiz va ENTERRADA, nunca
-        // borra el tronco ni deja un hueco de aire donde deberia haber suelo.
+        // LAS RAICES NO ROMPEN NADA.
+        //
+        // Antes sustituian tierra, piedra o arena: la raiz se comia el terreno
+        // y dejaba el suelo agujereado. Ahora solo ocupan AIRE, asi que
+        // aparecen donde el terreno ya esta abierto -- una ladera, la boca de
+        // una cueva, el hueco bajo un talud -- que es justo donde se ven las
+        // raices de verdad, al descubierto.
+        //
+        // Si no hay hueco, sencillamente no crece raiz ahi: es preferible a
+        // destrozar el suelo del jugador.
         auto ponerRaiz = [&](int x, int y, int z, BlockType tipo) {
             if (y < 1 || y >= CHUNK_HEIGHT - 1) return false;
-            const BlockType a = getBlock(x, y, z);
-            if (a != BLOCK_DIRT && a != BLOCK_STONE && a != BLOCK_GRASS &&
-                a != BLOCK_SAND && a != BLOCK_GRAVEL && a != BLOCK_CLAY_DIRT &&
-                a != BLOCK_CLAY_SAND) return false;
+            if (getBlock(x, y, z) != BLOCK_AIR) return false;
             setBlock(x, y, z, tipo);
             return true;
         };
 
-        // El arranque: justo bajo el tronco, del grosor maximo.
+        // ¿Este bloque sirve de suelo? La raiz repta pegada a el.
+        auto esSuelo = [&](int x, int y, int z) {
+            const BlockType b = getBlock(x, y, z);
+            return b == BLOCK_DIRT || b == BLOCK_GRASS || b == BLOCK_STONE ||
+                   b == BLOCK_SAND || b == BLOCK_GRAVEL || b == BLOCK_CLAY ||
+                   b == BLOCK_CLAY_DIRT || b == BLOCK_CLAY_SAND;
+        };
+
+        // El arranque, justo bajo el tronco. Si ahi hay tierra no se toca: la
+        // raiz empieza donde encuentre hueco.
         ponerRaiz(worldX, baseY - 1, worldZ, BLOCK_RAIZ_ENORME);
 
-        // Un arbol mas alto sujeta mas raiz.
         const int nRaices = 3 + rnd(11, 3);          // 3..5 principales
         const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
 
         for (int i = 0; i < nRaices; ++i) {
-            // Reparto por los cuatro rumbos, con giro para que no salgan
-            // siempre en cruz.
             const int d = (i + rnd(i * 71 + 3, 4)) % 4;
             int x = worldX, z = worldZ;
             int y = baseY - 1;
+            int dirActual = d;
 
-            // Cuanto se aleja esta raiz. Las largas llegan a las puntas finas.
-            const int largo = 3 + rnd(i * 137 + 29, 4);   // 3..6 bloques
+            const int largo = 4 + rnd(i * 137 + 29, 5);   // 4..8 bloques
 
             for (int paso = 0; paso < largo; ++paso) {
-                x += dirs[d][0];
-                z += dirs[d][1];
+                // ====================================================
+                // LA RAIZ REPTA, NO SE RAMIFICA COMO UNA RAMA
+                // ====================================================
+                // Una rama sale del tronco y se lanza al aire en linea
+                // recta. Una raiz hace lo contrario: se arrastra pegada
+                // al suelo, siguiendo su relieve, y se retuerce al
+                // encontrar resistencia.
+                //
+                // De ahi salen sus formas propias:
+                //   - SERPENTEA: cambia de rumbo con frecuencia, asi que
+                //     nunca sale un tramo recto largo.
+                //   - BUSCA EL SUELO: si debajo hay hueco baja, y si el
+                //     paso esta tapado sube para rodearlo.
+                //   - SE PEGA: prefiere las celdas que tienen suelo al
+                //     lado, que es lo que la hace parecer agarrada.
 
-                // Baja de vez en cuando: una raiz se hunde al alejarse.
-                if (paso % 2 == 1 && rnd(i * 313 + paso * 17, 100) < 60) --y;
+                // Serpenteo: gira a menudo, mucho mas que una rama.
+                if (rnd(i * 911 + paso * 37, 100) < 45) {
+                    dirActual = (dirActual + 1 + rnd(i * 53 + paso, 2)) % 4;
+                }
+
+                const int nx = x + dirs[dirActual][0];
+                const int nz = z + dirs[dirActual][1];
+                int ny = y;
+
+                // Busca el suelo: si bajo el siguiente paso hay hueco, la
+                // raiz desciende para seguir pegada al terreno.
+                if (!esSuelo(nx, ny - 1, nz) && ny > 2) --ny;
+                // Y si el paso esta bloqueado, sube a rodearlo en vez de
+                // atravesarlo: no rompe nada.
+                else if (getBlock(nx, ny, nz) != BLOCK_AIR) ++ny;
+
+                x = nx; z = nz; y = ny;
 
                 // GROSOR SEGUN LA DISTANCIA: se adelgaza al alejarse del
                 // tronco, como reparte su seccion una raiz de verdad.
@@ -7043,14 +7102,20 @@ public:
                     : (t < 0.75f) ? BLOCK_RAIZ_MEDIANA
                                   : BLOCK_RAIZ_PEQUENA;
 
-                if (!ponerRaiz(x, y, z, grosor)) break;
+                // Si no cabe, la raiz no fuerza el paso: prueba a bajar un
+                // bloque y, si tampoco, se acaba ahi.
+                if (!ponerRaiz(x, y, z, grosor)) {
+                    if (!ponerRaiz(x, y - 1, z, grosor)) break;
+                    --y;
+                }
 
-                // Bifurcacion: al llegar a la mitad puede salir una raicilla
-                // lateral, siempre del grosor mas fino.
-                if (paso == largo / 2 && rnd(i * 517 + paso, 100) < 45) {
-                    const int dl = (d + 1 + rnd(i * 29, 2)) % 4;
-                    ponerRaiz(x + dirs[dl][0], y, z + dirs[dl][1],
-                              BLOCK_RAIZ_PEQUENA);
+                // Bifurcacion: mas frecuente que en una rama, porque una
+                // raiz se divide mucho al repartirse por el suelo.
+                if (paso >= 1 && rnd(i * 517 + paso * 13, 100) < 38) {
+                    const int dl = (dirActual + 1 + rnd(i * 29 + paso, 2)) % 4;
+                    const BlockType fino = (t < 0.5f) ? BLOCK_RAIZ_MEDIANA
+                                                      : BLOCK_RAIZ_PEQUENA;
+                    ponerRaiz(x + dirs[dl][0], y, z + dirs[dl][1], fino);
                 }
             }
         }

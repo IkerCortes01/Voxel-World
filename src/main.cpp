@@ -4396,8 +4396,16 @@ public:
 
             // --- IXTLE (lechuguilla) ---
             case BLOCK_PEDAZO_PIEDRA:
-                return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/pedazo de piedra.png"));
+                // La textura de PIEDRA, no la del item. El item es el
+                // monton dibujado sobre fondo transparente -- sirve para el
+                // icono del inventario, pero al envolver con el un canto 3D
+                // se veria el dibujo entero repetido en cada cara, con sus
+                // bordes redondeados marcados.
+                //
+                // "Piedra.png" es una superficie de roca que llena el cuadro
+                // entero, asi que cada cara del canto muestra roca y el
+                // guijarro se ve macizo.
+                return getTexture("Piedra.png");
 
             case BLOCK_IXTLE_TALLO:
             case BLOCK_IXTLE_TALLO_ARENA:
@@ -15300,6 +15308,12 @@ void prewarmItemTextures() {
         { BLOCK_NOPAL_SIN_BABA,"Penca de Nopal sin baba mojado.png"      },
         { BLOCK_NOPAL_BABA,    "Baba de nopal.png"                       },
         { BLOCK_NOPAL_MOJADO,  "Nopal mojado sin espinas.png"            },
+        // Los PEDAZOS DE PIEDRA se dibujan en el mundo con la textura de
+        // roca (que llena el cuadro, y por eso el canto 3D se ve macizo),
+        // pero en el INVENTARIO conservan su dibujo propio: el montoncito
+        // sobre fondo transparente, que es lo que identifica al item de un
+        // vistazo.
+        { BLOCK_PEDAZO_PIEDRA, "pedazo de piedra.png"                    },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {

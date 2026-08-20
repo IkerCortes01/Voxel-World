@@ -19526,22 +19526,68 @@ bool nopalHitboxMundo(BlockType type, int x, int y, int z,
 // ============================================================================
 // DIBUJAR EL SOL Y LA LUNA
 // ============================================================================
-// Los dos giran alrededor del jugador en el mismo circulo, opuestos entre si:
-// cuando uno esta arriba el otro esta debajo del horizonte. El sol marca la
-// hora -- sale a las 6, culmina a las 12 y se pone a las 18 -- y la luna va
-// justo enfrente, doce horas por detras.
+// Salen y se ponen como en la realidad, con las ecuaciones de posicion solar
+// de verdad en vez de un arco inventado.
 //
-// Se dibujan como dos quads siempre de frente a la camara. No hace falta mas:
-// a esa distancia un cuadrado texturizado es indistinguible de un disco, y es
-// lo que hacen los sandbox de este estilo.
+// El sol recorre un circulo completo alrededor del observador (el ANGULO
+// HORARIO, 15 grados por hora), y de ese circulo se sacan sus dos coordenadas
+// en el cielo:
+//
+//   ALTURA  cuanto se levanta sobre el horizonte
+//           sin(alt) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(H)
+//
+//   AZIMUT  por donde sale y se pone, medido desde el norte
+//
+// `lat` es la latitud del mundo y `dec` la declinacion del sol, que es lo que
+// hace que en verano salga mas al noreste y en invierno mas al sureste. Aqui
+// se usa una latitud media del centro de Mexico (~23 grados, el tropico de
+// Cancer) porque es donde crecen los nopales del juego.
+//
+// La diferencia con el arco anterior es visible: antes el sol salia siempre
+// exactamente por el mismo punto y describia una curva simetrica arbitraria.
+// Ahora sale por el ESTE, cruza el cielo inclinado hacia el sur -- como en el
+// hemisferio norte -- y se pone por el OESTE, y en su recorrido bajo el
+// horizonte de verdad esta debajo, no simplemente oculto.
 void dibujarCieloYAstros() {
     if (!g_textureManager) return;
 
     const double h = horaDelMundo();
+    constexpr double GRADOS = 3.14159265358979 / 180.0;
 
-    // Angulo del sol: 0 grados al amanecer (este), 90 en lo alto, 180 al
-    // ponerse (oeste). Se mide desde las 6 de la manana.
-    const double angSol = ((h - 6.0) / 12.0) * 3.14159265;
+    // Latitud del mundo: 23 grados norte, el tropico de Cancer.
+    constexpr double LAT = 23.0 * GRADOS;
+    // Declinacion solar. Con el ciclo de dia y noche fijo del juego no hay
+    // estaciones, asi que se toma un valor de media primavera, que da dias y
+    // noches parejos.
+    constexpr double DEC = 8.0 * GRADOS;
+
+    // Angulo horario: 0 al mediodia solar, y avanza 15 grados por hora. A las
+    // 6 de la manana vale -90 y a las 18 vale +90.
+    const double H = (h - 12.0) * 15.0 * GRADOS;
+
+    // Devuelve la direccion en el cielo (x este, y arriba, z sur) de un astro
+    // con ese angulo horario.
+    auto direccionAstro = [&](double angH, double& dx, double& dy, double& dz) {
+        const double senAlt = sin(LAT) * sin(DEC) +
+                              cos(LAT) * cos(DEC) * cos(angH);
+        const double alt = asin(senAlt < -1.0 ? -1.0 : (senAlt > 1.0 ? 1.0 : senAlt));
+
+        // Azimut medido desde el NORTE hacia el este.
+        const double cosAz = (sin(DEC) - sin(alt) * sin(LAT)) /
+                             (cos(alt) * cos(LAT) + 1e-9);
+        double az = acos(cosAz < -1.0 ? -1.0 : (cosAz > 1.0 ? 1.0 : cosAz));
+        // Por la manana el sol esta al este; por la tarde, al oeste.
+        if (sin(angH) > 0.0) az = 2.0 * 3.14159265358979 - az;
+
+        // A coordenadas del mundo. En este motor, +X es el este y +Z el sur
+        // (norte = +Z segun DIR_VEC, asi que el sur es -Z... y por eso el
+        // termino de abajo lleva signo negativo).
+        dx = cos(alt) * sin(az);
+        dy = sin(alt);
+        dz = -cos(alt) * cos(az);
+    };
+
+    const double angSol = H;
 
     glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT);
     glDisable(GL_DEPTH_TEST);
@@ -19559,17 +19605,18 @@ void dibujarCieloYAstros() {
     constexpr float DIST = 100.0f;
     constexpr float RADIO = 9.0f;    // medio ancho del astro
 
-    // Emite un astro en un angulo dado del arco este-oeste.
-    auto astro = [&](GLuint tex, double ang, float r, float g, float b,
+    // Emite un astro en el punto del cielo que le toca a ese angulo horario.
+    auto astro = [&](GLuint tex, double angH, float r, float g, float b,
                      float a) {
         if (tex == 0 || a <= 0.01f) return;
 
-        // Centro del astro. El arco va de este (+X) a oeste (-X) pasando por
-        // arriba; se inclina un poco en Z para que no salga siempre por el
-        // mismo punto exacto del horizonte.
-        const float cx = (float)( cos(ang) * DIST);
-        const float cy = (float)( sin(ang) * DIST);
-        const float cz = (float)(-cos(ang) * DIST * 0.35);
+        // Direccion real en el cielo, de las ecuaciones de posicion solar.
+        double ddx, ddy, ddz;
+        direccionAstro(angH, ddx, ddy, ddz);
+
+        const float cx = (float)(ddx * DIST);
+        const float cy = (float)(ddy * DIST);
+        const float cz = (float)(ddz * DIST);
 
         // Base ortonormal para orientar el quad de frente a la camara: como
         // el astro esta en la direccion (cx,cy,cz), basta con dos vectores
@@ -19607,22 +19654,57 @@ void dibujarCieloYAstros() {
         glEnd();
     };
 
-    // El SOL. Se desvanece al ponerse, para que no desaparezca de golpe al
-    // cruzar el horizonte.
-    const float altSol = (float)sin(angSol);
-    if (altSol > -0.15f) {
-        const float vis = altSol < 0.0f ? (1.0f + altSol / 0.15f) : 1.0f;
+    // Altura sobre el horizonte de un astro, en el rango -1..1.
+    auto alturaDe = [&](double angH) {
+        double ax, ay, az;
+        direccionAstro(angH, ax, ay, az);
+        (void)ax; (void)az;
+        return (float)ay;
+    };
+
+    // ------------------------------------------------------------------
+    // EL SOL
+    // ------------------------------------------------------------------
+    // Se desvanece al rozar el horizonte, igual que en la realidad: no
+    // desaparece de golpe, se apaga a medida que se hunde.
+    //
+    // El margen es pequeno (0.08 de altura, unos 5 grados) porque el sol
+    // tarda poco en ocultarse una vez toca el horizonte.
+    constexpr float MARGEN = 0.08f;
+    const float altSol = alturaDe(angSol);
+    if (altSol > -MARGEN) {
+        const float vis = altSol < 0.0f ? (1.0f + altSol / MARGEN) : 1.0f;
+        // Al amanecer y al atardecer el sol se ve rojizo: la luz atraviesa
+        // mas atmosfera y se filtran los azules. Es el mismo motivo por el
+        // que el cielo se tine de naranja a esas horas.
+        const float bajo = 1.0f - fminf(altSol / 0.25f, 1.0f);
         astro(g_textureManager->getTexture("Objetos cosmicos/Sol.png"),
-              angSol, 1.0f, 1.0f, 1.0f, vis);
+              angSol,
+              1.0f,
+              1.0f - bajo * 0.25f,
+              1.0f - bajo * 0.55f,
+              vis);
     }
 
-    // La LUNA, siempre opuesta: 12 horas por detras del sol.
-    const double angLuna = angSol + 3.14159265;
-    const float altLuna = (float)sin(angLuna);
-    if (altLuna > -0.15f) {
-        const float vis = altLuna < 0.0f ? (1.0f + altLuna / 0.15f) : 1.0f;
+    // ------------------------------------------------------------------
+    // LA LUNA
+    // ------------------------------------------------------------------
+    // Va justo enfrente del sol, doce horas por detras: cuando uno se pone
+    // el otro sale. Recorre el mismo cielo con las mismas ecuaciones, asi
+    // que tambien sale por el este y se pone por el oeste.
+    const double angLuna = angSol + 3.14159265358979;
+    const float altLuna = alturaDe(angLuna);
+    if (altLuna > -MARGEN) {
+        const float vis = altLuna < 0.0f ? (1.0f + altLuna / MARGEN) : 1.0f;
+        // La luna baja tambien se ve mas calida, pero mucho menos marcada
+        // que el sol: su luz es reflejada y mucho mas tenue.
+        const float bajo = 1.0f - fminf(altLuna / 0.25f, 1.0f);
         astro(g_textureManager->getTexture("Objetos cosmicos/Luna llena.png"),
-              angLuna, 1.0f, 1.0f, 1.0f, vis);
+              angLuna,
+              1.0f,
+              1.0f - bajo * 0.10f,
+              1.0f - bajo * 0.20f,
+              vis);
     }
 
     glPopAttrib();

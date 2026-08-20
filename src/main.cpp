@@ -372,7 +372,10 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_NOPAL_BABA:   r = 0.55f; g = 0.80f; b = 0.45f; break;
         case BLOCK_IXTLE_TALLO:  r = 0.22f; g = 0.42f; b = 0.14f; break;
         case BLOCK_IXTLE_HOJA:
-        case BLOCK_IXTLE_PUNTA:  r = 0.18f; g = 0.36f; b = 0.11f; break;
+        case BLOCK_IXTLE_PUNTA:
+        case BLOCK_IXTLE_CON_HIERBA:
+        case BLOCK_IXTLE_CON_FLOR:
+        case BLOCK_IXTLE_DOBLE:  r = 0.18f; g = 0.36f; b = 0.11f; break;
         case BLOCK_TUNA:      r = 0.42f; g = 0.66f; b = 0.30f; break; // Tuna verde
         case BLOCK_TUNA_AMARILLA: r = 0.93f; g = 0.74f; b = 0.19f; break;
         case BLOCK_TUNA_ROJA: r = 0.78f; g = 0.20f; b = 0.20f; break;
@@ -433,6 +436,7 @@ bool isCrossSprite(BlockType type) {
            // Del ixtle solo la HOJA y la PUNTA son sprites. El TALLO es el
            // SUELO de la mata: un bloque macizo con sus seis caras.
            type == BLOCK_IXTLE_HOJA || type == BLOCK_IXTLE_PUNTA ||
+           esCompartido(type) ||
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
            type == BLOCK_NOPAL_MOJADO ||
@@ -554,15 +558,37 @@ double g_tiempoJugadoSegundos = 0.0;
 //     minuto 12 -> las 12:00, mediodia
 //     minuto 18 -> las 18:00, anochece
 //
-// El reloj es `tiempoJugadoSegundos`, el mismo del sistema de vida y de la
-// maduracion de las tunas, que se guarda en level.dat: la hora del mundo
-// sobrevive a salir y volver a entrar.
+// EL RELOJ ES DEL MUNDO, NO DEL JUGADOR.
+//
+// Antes la hora se sacaba de `tiempoJugadoSegundos`, el contador que tambien
+// da los corazones. Eso ataba dos cosas independientes: al cargar una partida
+// con muchas horas jugadas, la hora del mundo salia de donde tocase.
+//
+// Ahora hay un reloj propio, `g_horaDelMundoSegundos`, que:
+//   - arranca SIEMPRE de dia en un mundo nuevo (ver HORA_DE_INICIO),
+//   - avanza solo mientras se juega en ese mundo,
+//   - se guarda y se carga en el level.dat DE ESE mundo.
+//
+// Asi dos partidas pueden estar a horas distintas y ninguna hereda la del
+// otro mundo ni la del contador de vida.
 constexpr double MINUTOS_POR_DIA = 24.0;                     // 12 dia + 12 noche
 constexpr double SEGUNDOS_POR_DIA = MINUTOS_POR_DIA * 60.0;  // 1440 s
 
+// A que hora empieza un mundo recien creado: las 07:00.
+//
+// Es el primer instante de PLENO DIA. A las 6 el sol aun esta saliendo y la
+// luz va a la mitad (0.50 medido), asi que el mundo abriria en penumbra; a
+// las 7 la luz ya vale 1.0 y queda la jornada entera por delante, en vez de
+// empezar a mediodia y perder media tarde.
+constexpr double HORA_DE_INICIO = 7.0;
+
+// El reloj del mundo, en segundos de juego desde la medianoche del dia 0.
+// Empieza de dia; al cargar una partida se sobrescribe con la hora guardada.
+double g_horaDelMundoSegundos = HORA_DE_INICIO / 24.0 * SEGUNDOS_POR_DIA;
+
 // Hora del mundo en 0..24.
 inline double horaDelMundo() {
-    double t = g_tiempoJugadoSegundos / SEGUNDOS_POR_DIA;
+    double t = g_horaDelMundoSegundos / SEGUNDOS_POR_DIA;
     t -= (double)(long long)t;          // parte fraccionaria del dia
     if (t < 0.0) t += 1.0;
     return t * 24.0;
@@ -1330,6 +1356,38 @@ void tunaCajaCon(TGet get,
 // necesita una caja especial. Se calcula con la MISMA funcion que usa el
 // mesher, asi que la forma que se ve y la que se toca no pueden
 // desincronizarse.
+// ============================================================================
+// DOS BLOQUES EN LA MISMA CELDA: LA CAJA DE CADA UNO
+// ============================================================================
+// Las dos piezas que comparten un voxel no se pisan: cada una vive en su
+// parte de la celda, y sus cajas son DISJUNTAS. De ahi sale la propiedad
+// pedida -- que se puedan seleccionar por separado aunque esten juntas --
+// sin cambiar como el chunk guarda los bloques.
+//
+//   segunda = false -> el IXTLE: el centro de la celda, donde nace la roseta
+//   segunda = true  -> la ACOMPANANTE: una esquina, fuera del paso del ixtle
+//
+// El raycast prueba las dos y se queda con la que el rayo entra ANTES, que
+// es la que el jugador esta mirando.
+inline void cajaDePieza(BlockType compuesto, bool segunda,
+                        float& x0, float& y0, float& z0,
+                        float& x1, float& y1, float& z1) {
+    constexpr float PX = 1.0f / 16.0f;
+    if (!segunda) {
+        // El ixtle: columna central. La roseta se dibuja mucho mas ancha,
+        // pero lo que se SELECCIONA es su corazon, que es donde de verdad
+        // esta la planta.
+        x0 = 4.0f * PX;  x1 = 12.0f * PX;
+        y0 = 0.0f;       y1 = 1.0f;
+        z0 = 4.0f * PX;  z1 = 12.0f * PX;
+    } else {
+        // La acompanante: pegada a una esquina, sin invadir el centro.
+        x0 = 0.0f;       x1 = 4.0f * PX;
+        y0 = 0.0f;       y1 = 12.0f * PX;
+        z0 = 0.0f;       z1 = 4.0f * PX;
+    }
+}
+
 template <typename TGet>
 bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
                     float& minX, float& minY, float& minZ,
@@ -1351,6 +1409,23 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Una mata de lechuguilla es baja y no llena el voxel. La caja cubre el
     // circulo que abarcan las hojas y llega hasta donde llegan las puntas,
     // de modo que el jugador la selecciona donde la ve.
+    // ------------------------------------------------------------------
+    // CELDA COMPARTIDA: LA CAJA DEPENDE DE QUE PIEZA SE MIRA
+    // ------------------------------------------------------------------
+    // Aqui conviven dos bloques. Cada uno tiene SU caja, y son disjuntas:
+    // el ixtle se queda en el centro y la acompanante ocupa una esquina.
+    // Por eso se pueden seleccionar por separado aunque compartan celda.
+    //
+    // Esta funcion devuelve la caja de la celda ENTERA (la union de las
+    // dos), que es lo que necesitan la colision y el resaltado general.
+    // Quien quiera una pieza concreta usa cajaDePieza().
+    if (esCompartido(type)) {
+        minX = 0.0f;  maxX = 1.0f;
+        minY = 0.0f;  maxY = 1.0f;
+        minZ = 0.0f;  maxZ = 1.0f;
+        return true;
+    }
+
     // El TALLO ya no es un bloque: se pinta como una cara sobre el terreno,
     // asi que aqui solo entran la HOJA y la PUNTA.
     if (type == BLOCK_IXTLE_HOJA || type == BLOCK_IXTLE_PUNTA) {
@@ -1504,7 +1579,10 @@ float getBlockBreakTime(BlockType type) {
         // hacer cuerdas y costales.
         case BLOCK_IXTLE_TALLO:  return 1.2f;
         case BLOCK_IXTLE_HOJA:
-        case BLOCK_IXTLE_PUNTA:  return 0.8f;
+        case BLOCK_IXTLE_PUNTA:
+        case BLOCK_IXTLE_CON_HIERBA:
+        case BLOCK_IXTLE_CON_FLOR:
+        case BLOCK_IXTLE_DOBLE:  return 0.8f;
         // La tuna se arranca de un tiron: es fruta, no carne de penca.
         case BLOCK_TUNA:
         case BLOCK_TUNA_AMARILLA:
@@ -4301,6 +4379,14 @@ public:
             case BLOCK_IXTLE_PUNTA:
                 return getTexture("Puntas de Ixtle.png");
 
+            // Celdas COMPARTIDAS: llevan una hoja de ixtle dentro, asi que
+            // usan su textura. La pieza acompanante la dibuja el mesher con
+            // la suya propia.
+            case BLOCK_IXTLE_CON_HIERBA:
+            case BLOCK_IXTLE_CON_FLOR:
+            case BLOCK_IXTLE_DOBLE:
+                return getTexture("Ixtle.png");
+
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
             // inventario y el item en el suelo. Se usa la verde tierna.
@@ -4871,6 +4957,7 @@ struct Chunk {
                // El tallo de ixtle NO: es macizo y corta el sol como
                // cualquier bloque de suelo.
                b == BLOCK_IXTLE_HOJA || b == BLOCK_IXTLE_PUNTA ||
+               esCompartido(b) ||
                isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
                b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
@@ -10135,8 +10222,61 @@ public:
                         // El TALLO no pasa por aqui: al ser bloque completo
                         // lo dibuja la pasada normal del mesher, con sus seis
                         // caras y su greedy meshing.
+                        // ============================================
+                        // CELDA COMPARTIDA: SE DIBUJAN LAS DOS PIEZAS
+                        // ============================================
+                        // La acompanante va en su esquina, con su propia
+                        // textura, y ocupa justo la caja que el raycast usa
+                        // para seleccionarla: lo que se ve es lo que se toca.
+                        //
+                        // Despues NO se hace `continue`: se deja seguir para
+                        // que el mismo bloque dibuje tambien la roseta del
+                        // ixtle, que es la otra pieza de la pareja.
+                        if (esCompartido(block)) {
+                            const BlockType acomp = piezaSegunda(block);
+                            const GLuint texA =
+                                g_textureManager->getBlockTexture(acomp, 0);
+                            if (texA != 0) {
+                                float ax0, ay0, az0, ax1, ay1, az1;
+                                cajaDePieza(block, true,
+                                            ax0, ay0, az0, ax1, ay1, az1);
+
+                                auto& vA = verticesByTexture[texA];
+                                auto& cA = colorsByTexture[texA];
+                                auto& uA = uvsByTexture[texA];
+
+                                // Cruz de dos quads: es una planta pequena,
+                                // no hace falta volumen.
+                                auto quad = [&](float x0,float z0,
+                                                float x1,float z1) {
+                                    const float PX2[8] = { x0,x1,x1,x0,
+                                                           x0,x1,x1,x0 };
+                                    const float PZ2[8] = { z0,z1,z1,z0,
+                                                           z0,z1,z1,z0 };
+                                    const float PY2[8] = { ay0,ay0,ay1,ay1,
+                                                           ay1,ay1,ay0,ay0 };
+                                    const float UU[8] = { U0,U1,U1,U0,
+                                                          U0,U1,U1,U0 };
+                                    const float VV[8] = { U0,U0,U1,U1,
+                                                          U1,U1,U0,U0 };
+                                    for (int i = 0; i < 8; ++i) {
+                                        vA.push_back(wx + PX2[i]);
+                                        vA.push_back(wy + PY2[i]);
+                                        vA.push_back(wz + PZ2[i]);
+                                        cA.push_back(cr); cA.push_back(cg);
+                                        cA.push_back(cb); cA.push_back(ca);
+                                        uA.push_back(UU[i]);
+                                        uA.push_back(VV[i]);
+                                    }
+                                };
+                                quad(ax0, az0, ax1, az1);
+                                quad(ax0, az1, ax1, az0);
+                            }
+                        }
+
                         if (block == BLOCK_IXTLE_HOJA ||
-                            block == BLOCK_IXTLE_PUNTA) {
+                            block == BLOCK_IXTLE_PUNTA ||
+                            esCompartido(block)) {
                             constexpr float PXL = 1.0f / 16.0f;
                             constexpr float EPS = 0.0005f;
 
@@ -10153,6 +10293,8 @@ public:
                                 return v;
                             };
 
+                            // Una celda compartida lleva una HOJA dentro,
+                            // asi que dibuja la roseta, no la cuspide.
                             const bool punta = (block == BLOCK_IXTLE_PUNTA);
 
                             // ------------------------------------------------
@@ -13747,6 +13889,19 @@ struct WorldInfo {
     float totalPlaytime;       // ⭐ NUEVO: Tiempo total jugado en segundos
     long long worldSizeBytes;  // ⭐ NUEVO: Tamaño del mundo en bytes
 
+    // ⭐ HORA DEL MUNDO, INDEPENDIENTE DEL TIEMPO JUGADO
+    //
+    // Antes el ciclo de dia y noche se sacaba de totalPlaytime, y eso ataba
+    // dos cosas que no tienen por que ir juntas: los corazones que se ganan
+    // por hora jugada y la hora que es en el mundo.
+    //
+    // Ahora cada mundo lleva SU reloj: se guarda aqui, se carga de aqui y
+    // avanza solo mientras se juega EN ESE mundo. Dos partidas distintas
+    // pueden estar a horas distintas, como debe ser.
+    //
+    // Se mide en segundos desde la medianoche del dia 0 del mundo.
+    double worldTime;
+
     // Información del mundo
     unsigned int seed;         // ⭐ NUEVO: Semilla del mundo (para mostrar en UI)
     std::string versionCreated;// ⭐ NUEVO: Versión con la que se creó
@@ -13757,14 +13912,17 @@ struct WorldInfo {
     // Futuro: Game mode, difficulty, etc.
     int gameMode;              // ⭐ NUEVO: 0=Survival, 1=Creative, 2=Adventure
 
+    // ⭐ El mundo empieza a las 06:00, con el sol saliendo. Ver
+    // HORA_DE_INICIO, mas abajo, para por que a esa hora y no a las 00:00.
     WorldInfo() : name(""), folderPath(""), creationDate(0), lastPlayed(0),
-                  totalPlaytime(0), worldSizeBytes(0), seed(0),
+                  totalPlaytime(0), worldSizeBytes(0), worldTime(7.0*60.0),
+                  seed(0),
                   versionCreated("1.0.0"), spawnX(0), spawnY(128), spawnZ(0),
                   gameMode(0) {}
 
     WorldInfo(const std::string& n, const std::string& path, long long time)
         : name(n), folderPath(path), creationDate(time), lastPlayed(time),
-          totalPlaytime(0), worldSizeBytes(0), seed(0),
+          totalPlaytime(0), worldSizeBytes(0), worldTime(7.0*60.0), seed(0),
           versionCreated("1.0.0"), spawnX(0), spawnY(128), spawnZ(0),
           gameMode(0) {}
 };
@@ -14201,7 +14359,13 @@ struct RaycastResult {
     Vec3i normal;       // Normal de la cara del bloque
     float distance;
 
-    RaycastResult() : hit(false), blockPos(0, 0, 0), previousPos(0, 0, 0), normal(0, 0, 0), distance(0) {}
+    // ⭐ CUAL de las dos piezas se ha tocado, cuando la celda es COMPARTIDA.
+    // false = el ixtle (el centro), true = la acompanante (la esquina).
+    // En una celda normal siempre es false y no significa nada.
+    bool piezaSegunda;
+
+    RaycastResult() : hit(false), blockPos(0, 0, 0), previousPos(0, 0, 0),
+                      normal(0, 0, 0), distance(0), piezaSegunda(false) {}
 };
 
 // Raycast principal (como Minecraft - detecta todos los bloques excepto aire y agua)
@@ -14307,6 +14471,62 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
             // apuntando al aire que lo rodea. Aqui se comprueba que el rayo
             // atraviese de verdad SU caja; si no, se sigue avanzando y se
             // selecciona lo que haya detras.
+            // ========================================================
+            // CELDA COMPARTIDA: ELEGIR LA PIEZA QUE SE MIRA
+            // ========================================================
+            // Aqui hay DOS bloques en el mismo voxel. Se prueba el rayo
+            // contra la caja de cada uno y gana el que entra ANTES: es el
+            // que el jugador tiene delante. Asi se rompen por separado
+            // aunque compartan celda.
+            if (esCompartido(block)) {
+                float mejorT = 0.0f;
+                bool  hayImpacto = false, cual = false;
+
+                for (int pieza = 0; pieza < 2; ++pieza) {
+                    float px0, py0, pz0, px1, py1, pz1;
+                    cajaDePieza(block, pieza == 1,
+                                px0, py0, pz0, px1, py1, pz1);
+                    px0 += (float)x; px1 += (float)x;
+                    py0 += (float)y; py1 += (float)y;
+                    pz0 += (float)z; pz1 += (float)z;
+
+                    float tEnt = 0.0f, tSal = maxDistance;
+                    bool ok = true;
+                    const float O[3] = { origin.x, origin.y, origin.z };
+                    const float D[3] = { direction.x, direction.y, direction.z };
+                    const float P0[3] = { px0, py0, pz0 };
+                    const float P1[3] = { px1, py1, pz1 };
+                    for (int e = 0; e < 3 && ok; ++e) {
+                        if (fabsf(D[e]) < 1e-6f) {
+                            if (O[e] < P0[e] || O[e] > P1[e]) ok = false;
+                        } else {
+                            float t1 = (P0[e] - O[e]) / D[e];
+                            float t2 = (P1[e] - O[e]) / D[e];
+                            if (t1 > t2) { const float tmp = t1; t1 = t2; t2 = tmp; }
+                            if (t1 > tEnt) tEnt = t1;
+                            if (t2 < tSal) tSal = t2;
+                            if (tEnt > tSal) ok = false;
+                        }
+                    }
+                    if (!ok) continue;
+                    if (!hayImpacto || tEnt < mejorT) {
+                        mejorT = tEnt; hayImpacto = true; cual = (pieza == 1);
+                    }
+                }
+
+                // Ninguna de las dos piezas: se sigue buscando detras.
+                if (!hayImpacto) continue;
+
+                result.hit = true;
+                result.blockPos = Vec3i(x, y, z);
+                result.previousPos = prevBlock;
+                result.normal = Vec3i(prevBlock.x - x, prevBlock.y - y,
+                                      prevBlock.z - z);
+                result.distance = t;
+                result.piezaSegunda = cual;
+                return result;
+            }
+
             float bx0, by0, bz0, bx1, by1, bz1;
             if (nopalHitboxCon(block,
                     [&](int dx, int dy, int dz) {
@@ -14515,6 +14735,41 @@ void updateMining(GameState* state, float deltaTime) {
         }
         // ⭐ Igual para la lava: al abrir un hueco, la lava vecina debe fluir.
         state->world.notifyLavaRemoved(bx, by, bz);
+
+        // ================================================================
+        // CELDA COMPARTIDA: SE ROMPE SOLO LA PIEZA QUE SE MIRA
+        // ================================================================
+        // Aqui hay dos bloques en el mismo voxel. El raycast ya decidio cual
+        // esta mirando el jugador (result.piezaSegunda), asi que se quita esa
+        // y la OTRA se queda en pie: la celda no se vacia, solo deja de estar
+        // compartida.
+        //
+        // Es la propiedad que se pidio: dos bloques juntos en un mismo
+        // espacio, pero seleccionables -- y rompibles -- por separado.
+        if (esCompartido(blockType)) {
+            const BlockType rota = result.piezaSegunda
+                                 ? piezaSegunda(blockType)
+                                 : piezaPrimera(blockType);
+            const BlockType queda = quitarPieza(blockType,
+                                                result.piezaSegunda);
+
+            // Suelta el item de la pieza rota, no el de la celda entera.
+            const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
+            for (const auto& d : getBlockDrops(rota)) {
+                if (d.chance < 1.0f) continue;
+                for (int i = 0; i < d.count; ++i)
+                    state->spawnItem(pos, d.itemType);
+            }
+
+            state->world.setBlock(bx, by, bz, queda);
+
+            // El resto del minado (drops de la celda, vegetacion sin
+            // soporte...) no aplica: la celda sigue ocupada.
+            state->isMining = false;
+            state->miningProgress = 0.0f;
+            state->miningParticleTimer = 0.0f;
+            return;
+        }
 
         // Romper el bloque
         state->world.setBlock(bx, by, bz, BLOCK_AIR);
@@ -15849,6 +16104,31 @@ void placeBlock(GameState* state) {
 
         if (!intersects) {
             BlockType blockToPlace = state->inventory.getSelectedBlock();
+
+            // ================================================================
+            // DOS BLOQUES EN EL MISMO ESPACIO
+            // ================================================================
+            // Si se apunta a una hoja de ixtle y se coloca algo que puede
+            // convivir con ella, el bloque nuevo NO va al hueco de al lado:
+            // entra en la MISMA celda. Las dos piezas comparten voxel y cada
+            // una conserva su caja, asi que se siguen pudiendo seleccionar y
+            // romper por separado.
+            //
+            // Funciona porque la roseta del ixtle es abierta: entre hoja y
+            // hoja quedan huecos donde cabe otra planta sin solaparse.
+            {
+                const BlockType destino = state->world.getBlock(
+                    result.blockPos.x, result.blockPos.y, result.blockPos.z);
+                const BlockType junto = combinar(destino, blockToPlace);
+                if (junto != BLOCK_AIR) {
+                    state->world.setBlock(result.blockPos.x,
+                                          result.blockPos.y,
+                                          result.blockPos.z, junto);
+                    state->inventory.consumeSelected();
+                    state->placeCooldown = 0.25f;
+                    return;
+                }
+            }
 
             // ================================================================
             // LA PUNTA DE IXTLE, UNA VEZ ROTA, NO SE VUELVE A CONECTAR
@@ -19655,6 +19935,17 @@ void createNewWorld(GameState* state, float currentTime) {
     // Limpiar items sueltos en el mundo (ItemEntity)
     state->items.clear();
 
+    // ⭐ UN MUNDO NUEVO EMPIEZA DE DIA, SIEMPRE
+    //
+    // Da igual el modo (creativo o supervivencia) y da igual a que hora se
+    // dejo el mundo anterior: al crear uno nuevo el reloj se pone a las
+    // 06:00, con el sol saliendo.
+    //
+    // Sin esto, el reloj se quedaba donde lo hubiera dejado la partida
+    // anterior de la misma sesion, y un mundo recien creado podia empezar
+    // de noche cerrada.
+    g_horaDelMundoSegundos = HORA_DE_INICIO / 24.0 * SEGUNDOS_POR_DIA;
+
     // Iniciar pantalla de carga
     state->screenState = SCREEN_LOADING;
     state->isLoading = true;
@@ -20067,6 +20358,9 @@ void saveLevelDat(const std::string& worldPath, const WorldInfo& worldInfo, floa
     file << "# Estadísticas\n";
     file << "TotalPlaytime=" << totalPlaytime << "\n";
     file << "SizeOnDisk=" << worldSize << "\n";
+    // La hora del mundo va con el mundo, no con el jugador: cada partida
+    // guarda y recupera la suya.
+    file << "WorldTime=" << g_horaDelMundoSegundos << "\n";
     file << "\n";
 
     file << "# Configuración del mundo\n";
@@ -20135,6 +20429,8 @@ bool loadLevelDat(const std::string& worldPath, WorldInfo& worldInfo) {
             worldInfo.lastPlayed = std::stoll(value);
         } else if (key == "TotalPlaytime") {
             worldInfo.totalPlaytime = std::stof(value);
+        } else if (key == "WorldTime") {
+            worldInfo.worldTime = std::stod(value);
         } else if (key == "SizeOnDisk") {
             worldInfo.worldSizeBytes = std::stoll(value);
         } else if (key == "GameMode") {
@@ -20399,6 +20695,13 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
         // si no, las tunas que llevaban horas maduras se dibujarian verdes
         // hasta el siguiente frame.
         g_tiempoJugadoSegundos = state->tiempoJugadoSegundos;
+
+        // ⭐ LA HORA DEL MUNDO SE RECUPERA DEL MUNDO
+        // Cada partida guarda la suya en su level.dat, asi que al entrar se
+        // vuelve a la hora que era al salir. Se refleja YA, antes de mallar
+        // el primer chunk: si no, el mundo se dibujaria un frame con la luz
+        // de la partida anterior.
+        g_horaDelMundoSegundos = tempWorldInfo.worldTime;
         {
             const int horas = (int)(state->tiempoJugadoSegundos / 3600.0);
             int corazones = GameState::CORAZONES_INICIALES + horas;
@@ -21747,14 +22050,21 @@ int main() {
 
                 // ⭐ EL RELOJ DEL MUNDO CORRE EN LOS DOS MODOS
                 //
-                // El reloj vivia dentro de actualizarVida(), que se corta en
-                // seco si el modo no es supervivencia. Con el ciclo de dia y
-                // noche eso pasa a notarse: en creativo la hora se quedaba
-                // clavada y no amanecia nunca.
-                //
                 // La hora es del MUNDO, no del jugador, asi que avanza
-                // siempre. El contador de corazones sigue siendo cosa de
-                // actualizarVida(), que lleva su propio total.
+                // siempre: en creativo y en supervivencia por igual. Antes
+                // vivia dentro de actualizarVida(), que se corta en seco si
+                // el modo no es supervivencia, y en creativo no amanecia.
+                //
+                // Este reloj es INDEPENDIENTE del tiempo jugado: se guarda y
+                // se carga por mundo, asi que cada partida lleva su hora.
+                if (deltaTime > 0.0f && deltaTime <= 1.0f) {
+                    g_horaDelMundoSegundos += (double)deltaTime;
+                }
+
+                // El contador de tiempo JUGADO (corazones, maduracion de las
+                // tunas, desbabado) es otra cosa y sigue su propia cuenta.
+                // En supervivencia lo lleva actualizarVida(); en creativo hay
+                // que llevarlo aqui, porque alli se corta.
                 if (g_gameState->currentGameMode != 0 &&
                     deltaTime > 0.0f && deltaTime <= 1.0f) {
                     g_gameState->tiempoJugadoSegundos += (double)deltaTime;

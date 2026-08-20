@@ -202,18 +202,40 @@ enum BlockType {
     BLOCK_IXTLE_HOJA,            // 57 Cuerpo de la hoja
     BLOCK_IXTLE_PUNTA,           // 58 Punta en espina
 
+    // ------------------------------------------------------------------
+    // DOS BLOQUES EN EL MISMO ESPACIO
+    // ------------------------------------------------------------------
+    // El chunk guarda UN BlockType por celda y no tiene sitio para
+    // metadatos, asi que "dos bloques a la vez" no se puede representar
+    // con dos valores... pero SI con uno que signifique la pareja.
+    //
+    // Cada uno de estos IDs es una COMBINACION: hoja de ixtle conviviendo
+    // con otra planta en el mismo voxel. El mesher dibuja las dos piezas y
+    // el raycast decide cual seleccionas segun la caja que atraviese tu
+    // mirada, asi que se rompen por separado aunque compartan celda.
+    //
+    // Se eligen estas parejas porque son las que tienen sentido: la roseta
+    // del ixtle es abierta, con huecos entre hoja y hoja, de modo que una
+    // mata de hierba o un brote pequeno caben ahi sin solaparse.
+    //
+    // Van al final del enum para no desplazar ningun ID anterior: las
+    // partidas ya guardadas se siguen leyendo igual.
+    BLOCK_IXTLE_CON_HIERBA,      // 59 Hoja de ixtle + hierba corta
+    BLOCK_IXTLE_CON_FLOR,        // 60 Hoja de ixtle + flor
+    BLOCK_IXTLE_DOBLE,           // 61 Dos hojas de ixtle cruzadas
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 59 Polvo de tierra
-    BLOCK_STICK,            // 60 Palo
-    BLOCK_HOE,              // 61 Hoz
-    BLOCK_COAL_ITEM,        // 62 Carbón (item)
-    BLOCK_RAW_ZINC,         // 63 Zinc crudo
-    BLOCK_RAW_COPPER,       // 64 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 62 Polvo de tierra
+    BLOCK_STICK,            // 63 Palo
+    BLOCK_HOE,              // 64 Hoz
+    BLOCK_COAL_ITEM,        // 65 Carbón (item)
+    BLOCK_RAW_ZINC,         // 66 Zinc crudo
+    BLOCK_RAW_COPPER,       // 67 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -222,18 +244,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 65 (sin implementar)
-    BLOCK_BRICKS,           // 66 (sin implementar)
-    BLOCK_GLASS,            // 67 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 68 (retirado del juego)
+    BLOCK_IRON_ORE,         // 68 (sin implementar)
+    BLOCK_BRICKS,           // 69 (sin implementar)
+    BLOCK_GLASS,            // 70 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 71 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 69 (ya no se genera)
+    BLOCK_BEDROCK           // 72 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (la punta de ixtle).
+// Último bloque COLOCABLE de la lista ordenada (el ixtle doble).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_IXTLE_PUNTA;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_IXTLE_DOBLE;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {
@@ -252,10 +274,51 @@ inline int grosorRaiz(BlockType t) {
     }
 }
 
+// ¿Es una celda COMPARTIDA: dos bloques ocupando el mismo espacio?
+inline bool esCompartido(BlockType t) {
+    return t == BLOCK_IXTLE_CON_HIERBA || t == BLOCK_IXTLE_CON_FLOR ||
+           t == BLOCK_IXTLE_DOBLE;
+}
+
+// Las dos piezas que conviven en una celda compartida.
+// PRIMERA: la que ocupa el centro (el ixtle). SEGUNDA: la acompañante.
+inline BlockType piezaPrimera(BlockType t) {
+    return esCompartido(t) ? BLOCK_IXTLE_HOJA : t;
+}
+inline BlockType piezaSegunda(BlockType t) {
+    switch (t) {
+        case BLOCK_IXTLE_CON_HIERBA: return BLOCK_TALLGRASS;
+        case BLOCK_IXTLE_CON_FLOR:   return BLOCK_ORANGE_FLOWER;
+        case BLOCK_IXTLE_DOBLE:      return BLOCK_IXTLE_HOJA;
+        default:                     return BLOCK_AIR;
+    }
+}
+
+// La combinación que resulta de juntar `encima` con lo que ya hay (`base`).
+// Devuelve AIR si esa pareja no puede compartir espacio.
+inline BlockType combinar(BlockType base, BlockType encima) {
+    // Solo se comparte con una hoja de ixtle: su roseta es abierta y deja
+    // huecos entre hoja y hoja donde cabe otra planta.
+    const bool baseIxtle = (base == BLOCK_IXTLE_HOJA);
+    if (!baseIxtle) return BLOCK_AIR;
+
+    if (encima == BLOCK_TALLGRASS)     return BLOCK_IXTLE_CON_HIERBA;
+    if (encima == BLOCK_ORANGE_FLOWER) return BLOCK_IXTLE_CON_FLOR;
+    if (encima == BLOCK_IXTLE_HOJA)    return BLOCK_IXTLE_DOBLE;
+    return BLOCK_AIR;
+}
+
+// Al romper UNA de las dos piezas, ¿qué queda en la celda?
+inline BlockType quitarPieza(BlockType t, bool quitarSegunda) {
+    if (!esCompartido(t)) return BLOCK_AIR;
+    return quitarSegunda ? piezaPrimera(t) : piezaSegunda(t);
+}
+
 // ¿Es una pieza de ixtle (lechuguilla), de cualquiera de las tres?
+// Las celdas COMPARTIDAS también cuentan: llevan una hoja dentro.
 inline bool esIxtle(BlockType t) {
     return t == BLOCK_IXTLE_TALLO || t == BLOCK_IXTLE_HOJA ||
-           t == BLOCK_IXTLE_PUNTA;
+           t == BLOCK_IXTLE_PUNTA || esCompartido(t);
 }
 
 // ¿Es una tuna, de cualquiera de las tres variedades? Se usa en todos los

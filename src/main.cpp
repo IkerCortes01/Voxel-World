@@ -4201,6 +4201,11 @@ public:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Nopal mojado sin espinas.png"));
 
+            // Nopal cortado en tiras: item de cocina.
+            case BLOCK_NOPAL_TIRAS:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/Penca de Nopal de Castilla en tiras.png"));
+
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
             // inventario y el item en el suelo. Se usa la verde tierna.
@@ -5406,6 +5411,16 @@ public:
         {
             CraftingRecipe recipe(BLOCK_PLANKS_OYAMEL, 6, true);
             recipe.pattern[0] = BLOCK_WOOD_OYAMEL;
+            recipes.push_back(recipe);
+        }
+
+        // 1 Nopal mojado = 4 tiras de nopal.
+        //
+        // Sin forma: basta con poner el nopal lavado en cualquier casilla,
+        // como quien lo corta en la tabla. Una penca da para cuatro raciones.
+        {
+            CraftingRecipe recipe(BLOCK_NOPAL_TIRAS, 4, true);
+            recipe.pattern[0] = BLOCK_NOPAL_MOJADO;
             recipes.push_back(recipe);
         }
 
@@ -14056,6 +14071,8 @@ void prewarmItemTextures() {
         { BLOCK_TUNA,          "Tuna verde crecida.png"    },
         { BLOCK_TUNA_AMARILLA, "Tuna amarilla crecida.png" },
         { BLOCK_TUNA_ROJA,     "Tuna roja crecida.png"     },
+        { BLOCK_NOPAL_TIRAS,   "Penca de Nopal de Castilla en tiras.png" },
+        { BLOCK_NOPAL_MOJADO,  "Nopal mojado sin espinas.png"            },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -15080,6 +15097,7 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_COAL_ITEM:    // Carbón - item puro
         case BLOCK_RAW_ZINC:     // Zinc crudo - item puro
         case BLOCK_RAW_COPPER:   // Cobre crudo - item puro
+        case BLOCK_NOPAL_TIRAS:  // Nopal en tiras - comida, no se coloca
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable

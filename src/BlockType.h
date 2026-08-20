@@ -185,12 +185,17 @@ enum BlockType {
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 53 Polvo de tierra
-    BLOCK_STICK,            // 54 Palo
-    BLOCK_HOE,              // 55 Hoz
-    BLOCK_COAL_ITEM,        // 56 Carbón (item)
-    BLOCK_RAW_ZINC,         // 57 Zinc crudo
-    BLOCK_RAW_COPPER,       // 58 Cobre crudo
+    // Nopal cortado en TIRAS, listo para cocinar. Sale de craftear un nopal
+    // mojado: uno da cuatro tiras. Es un item de cocina, no un bloque que se
+    // pueda poner en el mundo, por eso va en esta seccion.
+    BLOCK_NOPAL_TIRAS,      // 53 Penca en tiras
+
+    BLOCK_DIRT_POWDER,      // 54 Polvo de tierra
+    BLOCK_STICK,            // 55 Palo
+    BLOCK_HOE,              // 56 Hoz
+    BLOCK_COAL_ITEM,        // 57 Carbón (item)
+    BLOCK_RAW_ZINC,         // 58 Zinc crudo
+    BLOCK_RAW_COPPER,       // 59 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -199,13 +204,13 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 59 (sin implementar)
-    BLOCK_BRICKS,           // 60 (sin implementar)
-    BLOCK_GLASS,            // 61 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 62 (retirado del juego)
+    BLOCK_IRON_ORE,         // 60 (sin implementar)
+    BLOCK_BRICKS,           // 61 (sin implementar)
+    BLOCK_GLASS,            // 62 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 63 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 63 (ya no se genera)
+    BLOCK_BEDROCK           // 64 (ya no se genera)
 };
 
 // Último bloque COLOCABLE de la lista ordenada (el nopal mojado).

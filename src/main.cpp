@@ -5706,6 +5706,28 @@ public:
             }
         }
 
+        // ========================================================================
+        // HACHA DE PIEDRA
+        // ========================================================================
+        // Un pedazo de piedra y un hilo de ixtle arriba, y un palo debajo:
+        //
+        //     [piedra] [hilo ] [     ]
+        //     [      ] [palo ] [     ]
+        //     [      ] [     ] [     ]
+        //
+        // Es como se ata un hacha de verdad: la piedra es la cabeza, el hilo
+        // la amarra al mango y el palo es el mango. Va CON FORMA porque la
+        // posicion importa -- la cabeza tiene que ir sobre el mango.
+        //
+        // Da UNA sola: es una herramienta, no material.
+        {
+            CraftingRecipe recipe(BLOCK_HACHA_PIEDRA, 1, false);
+            recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;   // arriba izquierda
+            recipe.pattern[1] = BLOCK_HILO_IXTLE;      // arriba centro
+            recipe.pattern[4] = BLOCK_STICK;           // centro: el mango
+            recipes.push_back(recipe);
+        }
+
         // ⭐ NUEVO: 1 Wood = 6 Planks (más eficiente)
         {
             CraftingRecipe recipe(BLOCK_PLANKS, 6, true);
@@ -15570,6 +15592,7 @@ void prewarmItemTextures() {
         // vistazo.
         { BLOCK_PEDAZO_PIEDRA, "pedazo de piedra.png"                    },
         { BLOCK_HILO_IXTLE,    "Hilo de Ixtle.png"                       },
+        { BLOCK_HACHA_PIEDRA,  "Hacha de piedra.png"                     },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -16629,6 +16652,7 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_RAW_ZINC:     // Zinc crudo - item puro
         case BLOCK_RAW_COPPER:   // Cobre crudo - item puro
         case BLOCK_HILO_IXTLE:   // Hilo de ixtle - item puro (fibra)
+        case BLOCK_HACHA_PIEDRA: // Hacha de piedra - herramienta
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable

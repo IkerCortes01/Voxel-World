@@ -5834,6 +5834,60 @@ public:
         }
     }
 
+    // ⭐ REHACER LA LUZ AL CAMBIAR LA HORA
+    //
+    // El brillo de cada cara se calcula al construir el mesh, asi que si no se
+    // rehacen los chunks la noche no se notaria: el mundo se quedaria con la
+    // luz que tenia cuando se malló.
+    //
+    // No se puede remallar el mundo entero cada vez que cambia la hora: son
+    // cientos de chunks y daria un tiron. Se hace por PASOS:
+    //
+    //   - Solo cuando la luz cambia de verdad (un escalon de 1/32). Entre
+    //     escalones no se toca nada, y en pleno dia o plena noche, cuando
+    //     luzSolar() es constante, no se remalla NUNCA.
+    //   - Y aun entonces, un puñado de chunks por vez, empezando por los mas
+    //     cercanos al jugador: son los que se ven.
+    //
+    // Con el dia de 12 minutos, la transicion de amanecer dura 2 minutos de
+    // reloj, asi que los 32 escalones se reparten a uno cada ~4 segundos: el
+    // cambio se ve gradual y nunca hay dos remallados seguidos.
+    float luzYaMallada = -1.0f;
+
+    void actualizarLuzDelCielo(const Vec3& posJugador) {
+        const float ahora = luzSolar();
+
+        // Cuantizar a 32 escalones: por debajo de eso el cambio de brillo es
+        // invisible y remallar seria trabajo tirado.
+        const float paso = floorf(ahora * 32.0f) / 32.0f;
+        if (paso == luzYaMallada) return;
+        luzYaMallada = paso;
+
+        // Ordenar por cercania al jugador y marcar solo los primeros.
+        const int cjx = (int)floorf(posJugador.x) / CHUNK_SIZE;
+        const int cjz = (int)floorf(posJugador.z) / CHUNK_SIZE;
+
+        std::vector<std::pair<int, Chunk*>> cerca;
+        cerca.reserve(chunks.size());
+        for (auto& par : chunks) {
+            Chunk* c = par.second;
+            if (c == nullptr || !c->isGenerated || c->needsRebuild) continue;
+            const int dx = par.first.x - cjx, dz = par.first.z - cjz;
+            cerca.emplace_back(dx * dx + dz * dz, c);
+        }
+        std::sort(cerca.begin(), cerca.end(),
+                  [](const std::pair<int, Chunk*>& a,
+                     const std::pair<int, Chunk*>& b) {
+                      return a.first < b.first;
+                  });
+
+        // Presupuesto por escalon. Con 32 escalones repartidos en la
+        // transicion, da tiempo de sobra a cubrir lo que se ve.
+        constexpr size_t POR_PASO = 24;
+        const size_t n = cerca.size() < POR_PASO ? cerca.size() : POR_PASO;
+        for (size_t i = 0; i < n; ++i) cerca[i].second->needsRebuild = true;
+    }
+
     void startGenerationWorkers() {
         if (genRunning.load()) return;
         unsigned hw = std::thread::hardware_concurrency();
@@ -9658,12 +9712,41 @@ public:
             return 18;
         };
 
+        // ⭐ LA NOCHE OSCURECE LO QUE ESTA A LA INTEMPERIE
+        //
+        // Toda la luz de este mundo es SKYLIGHT: el nivel de un bloque mide
+        // cuanto cielo ve. 18 es cielo abierto, y baja segun se entra bajo
+        // techo o bajo tierra. Eso es justo lo que hace falta para distinguir
+        // "afuera" de "adentro" sin calcular nada nuevo:
+        //
+        //   - A la intemperie (18) la luz del sol se va ENTERA al caer la
+        //     noche, que es lo que se pidio: de noche, fuera, no se ve.
+        //   - En una cueva profunda (luz baja) casi no habia sol que quitar,
+        //     asi que la noche apenas la cambia: sigue igual de oscura de dia
+        //     que de noche, como debe ser.
+        //
+        // Se calcula una vez por chunk (no por cara) y se captura por valor.
+        const float sol = luzSolar();
+
+        // Lo que queda cuando el sol se va del todo. No es negro absoluto:
+        // de noche hay luna y estrellas, y a oscuras totales el jugador no
+        // podria ni moverse. Es un 12% del brillo de pleno dia: se distinguen
+        // las siluetas y poco mas.
+        constexpr float LUZ_DE_LUNA = 0.12f;
+
         // Curva de luz: gamma para oscuridad no lineal + ambiente mínimo.
-        auto lightToFactor = [](uint8_t light) -> float {
+        auto lightToFactor = [sol](uint8_t light) -> float {
             float raw = (float)light / 18.0f;
             float f = pow(raw, 1.2f);
             if (f < 0.15f) f = 0.15f;             // nunca negro puro
-            return f;
+
+            // La fraccion de ESTE bloque que depende del sol es su propia
+            // exposicion al cielo (raw). Se atenua con la hora; el resto
+            // (lo que no ve el cielo) se queda como estaba.
+            const float delCielo = f * raw;
+            const float propia   = f - delCielo;
+
+            return propia + delCielo * (LUZ_DE_LUNA + (1.0f - LUZ_DE_LUNA) * sol);
         };
 
         auto faceLightFactor = [&](int bx, int by, int bz, int dx, int dy, int dz) -> float {
@@ -14816,6 +14899,7 @@ void actualizarVida(GameState* state, float deltaTime) {
             state->world.marcarChunksConTunas();
         }
     }
+
 
     constexpr double SEGUNDOS_POR_HORA = 3600.0;
     const int horasJugadas = (int)(state->tiempoJugadoSegundos / SEGUNDOS_POR_HORA);
@@ -21505,6 +21589,34 @@ int main() {
                 // Solo cuenta el tiempo DENTRO del mundo (no los menus ni la
                 // pausa), que es lo que hace justo el contador.
                 actualizarVida(g_gameState, deltaTime);
+
+                // ⭐ EL RELOJ DEL MUNDO CORRE EN LOS DOS MODOS
+                //
+                // El reloj vivia dentro de actualizarVida(), que se corta en
+                // seco si el modo no es supervivencia. Con el ciclo de dia y
+                // noche eso pasa a notarse: en creativo la hora se quedaba
+                // clavada y no amanecia nunca.
+                //
+                // La hora es del MUNDO, no del jugador, asi que avanza
+                // siempre. El contador de corazones sigue siendo cosa de
+                // actualizarVida(), que lleva su propio total.
+                if (g_gameState->currentGameMode != 0 &&
+                    deltaTime > 0.0f && deltaTime <= 1.0f) {
+                    g_gameState->tiempoJugadoSegundos += (double)deltaTime;
+                    g_tiempoJugadoSegundos = g_gameState->tiempoJugadoSegundos;
+                }
+
+                // ⭐ La luz del mundo sigue a la hora: al anochecer, lo que
+                // esta a la intemperie se queda a oscuras.
+                //
+                // Va AQUI y no dentro de actualizarVida() a proposito: esa
+                // funcion se corta en seco si el modo no es supervivencia, y
+                // la noche tiene que oscurecer tambien en creativo.
+                //
+                // Solo hace algo cuando la luz cambia de escalon (amanecer y
+                // atardecer); en pleno dia o de noche cerrada no cuesta nada.
+                g_gameState->world.actualizarLuzDelCielo(
+                    g_gameState->player.position);
 
                 // ANIMACIÓN: Actualizar animación de agua
                 g_textureManager->updateWaterAnimation(deltaTime);

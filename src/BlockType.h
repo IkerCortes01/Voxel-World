@@ -413,6 +413,51 @@ inline BlockType apilarPenca(BlockType actual, bool enX) {
     return BLOCK_AIR;   // X3, Z3 y la diagonal ya no admiten mas
 }
 
+// ============================================================================
+// DESGASTE DEL HACHA DE PIEDRA
+// ============================================================================
+// El hacha aguanta 125 BLOQUES DE MADERA. Como cada bloque de tronco gasta
+// 1 punto, eso son 125 puntos de vida.
+//
+// Todo se cuenta en MEDIOS PUNTOS (enteros) porque hay costes de 0.5, y con
+// enteros no se acumula error de redondeo tras cientos de golpes.
+//
+//   raíz de árbol ......... 0.5   la madera fina apenas la mella
+//   rama .................. 0.5
+//   tronco ................ 1     la medida de referencia
+//   nopal e ixtle ......... 1     carne de planta: cuesta como un tronco
+//   todo lo demás ......... 3     piedra, arena, tierra... castiga usarla
+//                                 para lo que no es un hacha
+constexpr int HACHA_VIDA_MEDIOS = 250;   // 125 puntos x 2
+
+// Cuántos medios puntos gasta romper este bloque con el hacha.
+inline int desgasteHacha(BlockType t) {
+    // --- Madera del árbol: es para lo que sirve el hacha ---
+    if (t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO || t == BLOCK_WOOD_OYAMEL)
+        return 2;                                  // 1 punto
+
+    if (t == BLOCK_RAMA_PINO || t == BLOCK_RAMA_ENCINO ||
+        t == BLOCK_RAMA_OYAMEL)
+        return 1;                                  // 0.5
+
+    if (esRaiz(t)) return 1;                       // 0.5
+
+    // --- Plantas carnosas: nopal e ixtle, todas sus partes ---
+    if (esCladodio(t) || t == BLOCK_NOPAL_FRUTO || esTuna(t) ||
+        t == BLOCK_NOPAL_TALLO || t == BLOCK_NOPAL_MOJADO ||
+        t == BLOCK_NOPAL_TIRAS || t == BLOCK_NOPAL_SIN_BABA ||
+        t == BLOCK_NOPAL_BABA ||
+        t == BLOCK_NOPAL_BASE_PASTO || t == BLOCK_NOPAL_BASE_TIERRA ||
+        t == BLOCK_NOPAL_BASE_ARENA || t == BLOCK_NOPAL_BASE_T_ARCILLA ||
+        t == BLOCK_NOPAL_BASE_A_ARCILLA ||
+        esIxtle(t))
+        return 2;                                  // 1 punto
+
+    // --- Todo lo demás: piedra, arena, tierra, minerales... ---
+    // El hacha no es un pico: usarla para esto la destroza.
+    return 6;                                      // 3 puntos
+}
+
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.

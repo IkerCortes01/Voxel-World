@@ -40,7 +40,17 @@ struct InventorySlot {
     BlockType blockType;
     int count;
 
-    InventorySlot() : blockType(BLOCK_AIR), count(0) {}
+    // ⭐ VIDA DE LA HERRAMIENTA, en puntos x2.
+    //
+    // Se guarda en MEDIOS PUNTOS (enteros) en vez de en float porque el
+    // desgaste se cuenta en pasos de 0.5: una raíz o una rama gastan medio
+    // punto. Con enteros no hay error de redondeo acumulado tras cientos de
+    // golpes, que es justo lo que arruinaría una barra de durabilidad.
+    //
+    // 0 significa "sin estrenar": la vida real la pone quien crea el item.
+    int vidaMedios;
+
+    InventorySlot() : blockType(BLOCK_AIR), count(0), vidaMedios(0) {}
 
     bool isEmpty() const { return blockType == BLOCK_AIR || count <= 0; }
 
@@ -125,6 +135,47 @@ struct Inventory {
             return slots[selectedSlot].blockType;
         }
         return BLOCK_AIR;
+    }
+
+    // ⭐ GASTAR VIDA DE LA HERRAMIENTA QUE SE LLEVA EN LA MANO
+    //
+    // Devuelve true si la herramienta se ha ROTO con este golpe (vida <= 0),
+    // en cuyo caso el slot se vacia: un hacha gastada desaparece, como en
+    // cualquier juego del genero.
+    //
+    // Si en la mano no hay un hacha, no hace nada y devuelve false: romper
+    // bloques a mano nunca gasta nada.
+    bool gastarHerramienta(int medios) {
+        if (selectedSlot < 0 || selectedSlot >= SLOTS) return false;
+        InventorySlot& s = slots[selectedSlot];
+        if (s.blockType != BLOCK_HACHA_PIEDRA || s.isEmpty()) return false;
+
+        // Un hacha recien hecha entra con la vida a 0 (sin estrenar): la
+        // primera vez que se usa se le pone la vida completa.
+        if (s.vidaMedios <= 0) s.vidaMedios = HACHA_VIDA_MEDIOS;
+
+        s.vidaMedios -= medios;
+        if (s.vidaMedios <= 0) {
+            // Se rompe: desaparece una del stack.
+            s.count--;
+            s.vidaMedios = 0;
+            if (s.count <= 0) {
+                s.blockType = BLOCK_AIR;
+                s.count = 0;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // Vida que le queda al hacha de la mano, en PUNTOS (no medios).
+    // Devuelve -1 si en la mano no hay un hacha.
+    float vidaHerramienta() const {
+        if (selectedSlot < 0 || selectedSlot >= SLOTS) return -1.0f;
+        const InventorySlot& s = slots[selectedSlot];
+        if (s.blockType != BLOCK_HACHA_PIEDRA || s.isEmpty()) return -1.0f;
+        const int m = (s.vidaMedios <= 0) ? HACHA_VIDA_MEDIOS : s.vidaMedios;
+        return (float)m * 0.5f;
     }
 
     bool hasSelectedBlock() const {

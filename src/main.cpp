@@ -15320,6 +15320,15 @@ void updateMining(GameState* state, float deltaTime) {
 
     // Si completamos el minado, romper el bloque
     if (state->miningProgress >= 1.0f) {
+        // ⭐ EL HACHA SE GASTA CON CADA BLOQUE
+        //
+        // Cuanto gasta depende de QUE se rompe (ver desgasteHacha): la
+        // madera poco, la piedra mucho. Si no se lleva un hacha en la mano
+        // esto no hace nada.
+        if (state->inventory.gastarHerramienta(desgasteHacha(blockType))) {
+            std::cout << "El hacha de piedra se ha roto" << std::endl;
+        }
+
         int bx = result.blockPos.x;
         int by = result.blockPos.y;
         int bz = result.blockPos.z;
@@ -15683,8 +15692,17 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
     if (!isPlaceableItem(blockType) || isCrossSprite(blockType)) {
         const GLuint tex = (GLuint)g_itemTextures.resolve((int)blockType);
 
-        float v0 = 0.0f, v1 = 1.0f;
-        if (isCrossSprite(blockType)) { v0 = 1.0f; v1 = 0.0f; }
+        // ⭐ EL ICONO VA DERECHO
+        //
+        // Las texturas PNG guardan la primera fila arriba, pero OpenGL
+        // cuenta la V de abajo hacia arriba, asi que un quad con V de 0 a 1
+        // muestra la imagen BOCA ABAJO. La vegetacion ya lo corregia
+        // invirtiendo la V; los items puros no, y por eso el hacha salia
+        // del reves.
+        //
+        // Ahora se invierte para TODOS: es la misma imagen y el mismo
+        // problema, no habia razon para tratarlos distinto.
+        float v0 = 1.0f, v1 = 0.0f;
 
         const float h = size * 0.5f;
         glEnable(GL_TEXTURE_2D);

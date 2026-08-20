@@ -793,23 +793,23 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // La PENCA suelta es mas PLANA que el cladodio de la mata: es una pieza
     // sola, no un grupo apretado de varias. El cladodio conserva sus 7 px.
     // ========================================================================
-    // MEDIDAS DE LA PENCA: 15 x 6.5 x 1.14 px
+    // MEDIDAS DE LA PENCA: 15 x 12 x 1.14 px
     // ========================================================================
-    // Salen de convertir las medidas reales de un cladodio maduro. Medido en
-    // 108 cladodios (Ramirez-Castano et al. 2023, Rev. Col. Inv.
-    // Agroindustriales 10(2):88):
+    // De referencia, un cladodio maduro real mide (medido en 108 ejemplares,
+    // Ramirez-Castano et al. 2023, Rev. Col. Inv. Agroindustriales 10(2):88):
     //
     //     largo  37.13 cm (DE 5.23)
     //     ancho  16.64 cm (DE 2.89)
     //     grosor  1.15 cm (DE 0.22) en los lados
     //
-    // Escalando para que el largo llene casi el bloque, esa proporcion da
-    // 15 x 6.7 x 0.46 px. El largo y el ancho se respetan; el grosor se sube
-    // a 1.14 px, porque por debajo de un pixel la penca desapareceria en la
-    // rejilla del voxel.
+    // El ANCHO va a 12 px por decision de diseno, no por la medida: la
+    // proporcion de campo daria 6.7 y la penca se veia demasiado estrecha en
+    // la rejilla. Con 12 la relacion largo/ancho queda en 1.25 frente al 2.23
+    // real, o sea una penca mas ancha y redonda de lo que es en la planta,
+    // pero mucho mas legible como bloque.
     //
-    // La relacion largo/ancho queda en 15/6.5 = 2.31, practicamente la
-    // medida en campo (37.13/16.64 = 2.23).
+    // El GROSOR sube a 1.14 px por el motivo contrario: a escala fiel serian
+    // 0.46 px, menos de un pixel, y desapareceria del todo.
     //
     // El cladodio de la MATA conserva las suyas (8 de ancho, 7 de grosor):
     // no es una penca sola sino un grupo apretado de varias.
@@ -817,7 +817,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     const bool esPencaSuelta = (f.tipo == BLOCK_NOPAL_FRUTO);
 
     constexpr float PENCA_LARGO  = 15.00f / 16.0f;
-    constexpr float PENCA_ANCHO2 =  6.50f / 16.0f;
+    constexpr float PENCA_ANCHO2 = 12.00f / 16.0f;
     constexpr float PENCA_GRUESO =  1.14f / 16.0f;
     constexpr float MATA_ANCHO   =  8.00f / 16.0f;
     constexpr float MATA_GRUESO  =  7.00f / 16.0f;

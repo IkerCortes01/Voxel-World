@@ -471,10 +471,6 @@ bool esSueloParaNopal(BlockType type) {
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
         case BLOCK_NOPAL_CLADODIO:
-        // Ni sobre una planta ya establecida. El TALLO de ixtle es un bloque
-        // de suelo, pero es el suelo DE SU MATA: si contara como terreno
-        // libre, otra planta arraigaria justo encima de una lechuguilla.
-        case BLOCK_IXTLE_TALLO:
         // Ni sobre madera, hojas o construcciones.
         case BLOCK_WOOD:
         case BLOCK_WOOD_ENCINO:
@@ -1355,15 +1351,25 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Una mata de lechuguilla es baja y no llena el voxel. La caja cubre el
     // circulo que abarcan las hojas y llega hasta donde llegan las puntas,
     // de modo que el jugador la selecciona donde la ve.
-    // El TALLO no entra: es un bloque macizo y usa la caja del cubo.
+    // El TALLO ya no es un bloque: se pinta como una cara sobre el terreno,
+    // asi que aqui solo entran la HOJA y la PUNTA.
     if (type == BLOCK_IXTLE_HOJA || type == BLOCK_IXTLE_PUNTA) {
         constexpr float PX = 1.0f / 16.0f;
-        // La roseta abarca casi el voxel entero: las hojas son anchas y se
-        // abren hacia fuera, asi que el jugador la selecciona donde la ve.
-        minX = 1.0f * PX;   maxX = 1.0f - 1.0f * PX;
-        minY = 0.0f;        maxY = (type == BLOCK_IXTLE_PUNTA)
-                                 ? 13.0f * PX : 1.0f;
-        minZ = 1.0f * PX;   maxZ = 1.0f - 1.0f * PX;
+
+        // La roseta abarca el voxel entero de lado: las hojas son de 10 px
+        // de ancho y se abren hacia fuera desde el centro.
+        minX = 0.0f;   maxX = 1.0f;
+        minZ = 0.0f;   maxZ = 1.0f;
+
+        // ALTO. La hoja mide 50 px y se dibuja de una pieza, pero su CAJA
+        // se queda en un bloque: si midiera los 50 px reales, el jugador
+        // chocaria contra ella tres bloques por encima del suelo y no
+        // podria pasar por al lado de una mata.
+        //
+        // Es la misma solucion que ya usan las pencas del nopal: lo que se
+        // selecciona es el bloque, no la silueta entera de la planta.
+        minY = 0.0f;
+        maxY = 1.0f;
         return true;
     }
 
@@ -8356,34 +8362,48 @@ public:
         const BlockType suelo = getBlock(worldX, baseY - 1, worldZ);
         if (!esSueloParaNopal(suelo)) return;
 
-        // Hash determinista: la misma mata en la misma posicion, siempre.
-        unsigned v = (unsigned)(worldX * 6421 + worldZ * 9187 + 7717);
-        v ^= v >> 13; v *= 1274126177u; v ^= v >> 16;
-
-        // EL TALLO ES EL SUELO DE LA MATA.
-        // Su textura es opaca al 100%: es un bloque macizo de tierra con
-        // ixtle, no una planta. Sustituye al terreno de debajo, de modo que
-        // la mata se ve arraigada en su propio suelo y no plantada sobre
-        // pasto suelto.
-        setBlock(worldX, baseY - 1, worldZ, BLOCK_IXTLE_TALLO);
+        // EL SUELO DE LA MATA NO GASTA UN BLOQUE.
+        // "Tallo de ixtle" se pinta como una CARA sobre el terreno que queda
+        // bajo la planta (lo hace el mesher, igual que el pasto florido o
+        // las raices), asi que aqui NO se coloca nada: la tierra de debajo
+        // se queda tal cual y solo cambia como se ve.
+        //
+        // Ventaja de hacerlo asi: el jugador no puede picar "un tallo"
+        // suelto, la luz del cielo no se corta y la mata no se lleva por
+        // delante el bloque de terreno que pisaba.
 
         // LA HOJA sube desde ese suelo, y la PUNTA la remata SIEMPRE: la
         // espina terminal es parte de la hoja, ninguna hoja acaba en seco.
         //
-        // La mayoria de las matas miden un bloque de hoja (la roseta real
-        // son 30-50 cm). Una de cada cuatro es una planta vieja y crecida,
-        // que estira un bloque mas de hoja antes de rematar.
-        const bool alta = ((v >> 5) % 4u) == 0u;
+        // La hoja mide 50 px de alto, que son mas de TRES bloques. El bloque
+        // de HOJA dibuja esos 50 px de una pieza, asi que la mata ocupa:
+        //
+        //     baseY      HOJA   (dibuja los 50 px enteros hacia arriba)
+        //     baseY+3    PUNTA  (el remate, justo donde acaba la hoja)
+        //
+        // Los bloques de en medio se quedan en AIRE a proposito: la hoja ya
+        // pasa por ahi dibujada, y llenarlos obligaria al jugador a picar
+        // tres veces lo que es una sola hoja.
+        //
+        // Altura de la mata: 50 px = 3.125 bloques, asi que la punta va en
+        // el cuarto bloque, que es donde de verdad termina la hoja.
+        constexpr int BLOQUES_HOJA = 3;
 
-        if (alta && getBlock(worldX, baseY + 1, worldZ) == BLOCK_AIR) {
-            setBlock(worldX, baseY,     worldZ, BLOCK_IXTLE_HOJA);
-            setBlock(worldX, baseY + 1, worldZ, BLOCK_IXTLE_PUNTA);
-        } else {
-            // Mata baja: la hoja y su espina caben en el mismo bloque, asi
-            // que se pone directamente la punta, que ya lleva el cuerpo de
-            // la hoja debajo del triangulo en su propia textura.
-            setBlock(worldX, baseY, worldZ, BLOCK_IXTLE_PUNTA);
+        // Hace falta sitio libre para que la mata quepa entera. Si no lo
+        // hay (una cueva baja, un saliente), la mata no crece: mejor eso
+        // que una hoja atravesando la roca.
+        bool cabe = true;
+        for (int dy = 1; dy <= BLOQUES_HOJA; ++dy) {
+            if (getBlock(worldX, baseY + dy, worldZ) != BLOCK_AIR) {
+                cabe = false;
+                break;
+            }
         }
+
+        if (!cabe) return;
+
+        setBlock(worldX, baseY, worldZ, BLOCK_IXTLE_HOJA);
+        setBlock(worldX, baseY + BLOQUES_HOJA, worldZ, BLOCK_IXTLE_PUNTA);
     }
 
     // ========================================================================
@@ -10145,14 +10165,31 @@ public:
                             // legible, que es como se ve un agave de verdad.
                             const int nHojas = 5 + (int)(mezcla(1) % 3u);
 
-                            // Ancha de frente y fina de canto, como la penca
-                            // de un agave.
-                            const float ANCHO = 6.0f * PXL;
-                            const float CANTO = 1.5f * PXL;
+                            // ------------------------------------------------
+                            // MEDIDAS DE LA HOJA: 50 x 10 x 8 PIXELES
+                            // ------------------------------------------------
+                            // 10 px de ancho de frente y 8 de grosor de
+                            // canto: una hoja carnosa, no una lamina.
+                            const float ANCHO = 10.0f * PXL;
+                            const float CANTO =  8.0f * PXL;
 
-                            // La hoja llena su bloque; la punta es el remate
-                            // y va algo mas corta.
-                            const float ALTO = punta ? 13.0f * PXL : 1.0f;
+                            // 50 px de ALTO son mas de TRES BLOQUES (16 px
+                            // cada uno), asi que una hoja no cabe en su
+                            // voxel: mide 3.125 bloques.
+                            //
+                            // Se resuelve dibujando la hoja ENTERA desde el
+                            // bloque en el que arranca. El voxel no recorta
+                            // lo que se dibuja -- el mesher emite geometria
+                            // en coordenadas de mundo -- asi que la hoja sube
+                            // los 50 px completos y se ve de una pieza.
+                            //
+                            // El bloque de PUNTA no repite la hoja entera:
+                            // es el remate, y dibuja solo el tramo final con
+                            // su textura en triangulo.
+                            constexpr float ALTO_HOJA = 50.0f * PXL;   // 3.125 bloques
+                            constexpr float ALTO_PUNTA = 16.0f * PXL;  // el remate
+
+                            const float ALTO = punta ? ALTO_PUNTA : ALTO_HOJA;
 
                             // Emite un quad de DOS CARAS con la textura
                             // entera. Cada hoja son dos quads cruzados: se ve
@@ -11415,6 +11452,30 @@ public:
                                 const GLuint flores =
                                     g_textureManager->getTexturaPastoFlores(wxf, by, wzf);
                                 if (flores != 0) cell.tex = flores;
+                            }
+
+                            // ================================================
+                            // EL SUELO DE LA MATA DE IXTLE
+                            // ================================================
+                            // "Tallo de ixtle" NO es un bloque: es una CARA.
+                            // Igual que el pasto florido o las raices, se
+                            // pinta sobre la cara de arriba del terreno que
+                            // hay bajo una lechuguilla, y el bloque sigue
+                            // siendo el pasto o la tierra de siempre.
+                            //
+                            // Asi la mata se ve arraigada en su propio suelo
+                            // sin gastar un bloque, sin cortar la luz y sin
+                            // que el jugador pueda picar "un tallo": lo que
+                            // rompe es la tierra de debajo, como debe ser.
+                            if (dir == 0 && nb != BLOCK_AIR &&
+                                esIxtle(nb) &&
+                                (b == BLOCK_GRASS || b == BLOCK_DIRT ||
+                                 b == BLOCK_SAND  || b == BLOCK_GRAVEL ||
+                                 b == BLOCK_CLAY_DIRT || b == BLOCK_CLAY_SAND)) {
+                                const GLuint suelo =
+                                    g_textureManager->getBlockTexture(
+                                        BLOCK_IXTLE_TALLO, 0);
+                                if (suelo != 0) cell.tex = suelo;
                             }
 
                             // ================================================

@@ -375,6 +375,7 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_IXTLE_PEQUENA:
         case BLOCK_IXTLE_GRANDE:
         case BLOCK_IXTLE_ENORME: r = 0.18f; g = 0.36f; b = 0.11f; break;
+        case BLOCK_PEDAZO_PIEDRA: r = 0.33f; g = 0.32f; b = 0.33f; break;
         case BLOCK_IXTLE_HOJA:
         case BLOCK_IXTLE_PUNTA:
         case BLOCK_IXTLE_CON_HIERBA:
@@ -440,7 +441,7 @@ bool isCrossSprite(BlockType type) {
            // Del ixtle solo la HOJA y la PUNTA son sprites. El TALLO es el
            // SUELO de la mata: un bloque macizo con sus seis caras.
            esIxtleHoja(type) || type == BLOCK_IXTLE_PUNTA ||
-           esCompartido(type) ||
+           esCompartido(type) || type == BLOCK_PEDAZO_PIEDRA ||
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
            type == BLOCK_NOPAL_MOJADO ||
@@ -1413,6 +1414,18 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Una mata de lechuguilla es baja y no llena el voxel. La caja cubre el
     // circulo que abarcan las hojas y llega hasta donde llegan las puntas,
     // de modo que el jugador la selecciona donde la ve.
+    // --- PEDAZOS DE PIEDRA ---
+    // Los guijarros ocupan el suelo de la celda. La caja es baja pero
+    // SOLIDA: el jugador no los atraviesa, se sube encima como en un
+    // escalon bajo.
+    if (type == BLOCK_PEDAZO_PIEDRA) {
+        constexpr float PX = 1.0f / 16.0f;
+        minX = 0.0f;  maxX = 1.0f;
+        minY = 0.0f;  maxY = 6.0f * PX;   // lo que levanta el monton
+        minZ = 0.0f;  maxZ = 1.0f;
+        return true;
+    }
+
     // ------------------------------------------------------------------
     // CELDA COMPARTIDA: LA CAJA DEPENDE DE QUE PIEZA SE MIRA
     // ------------------------------------------------------------------
@@ -1583,6 +1596,8 @@ float getBlockBreakTime(BlockType type) {
         // hacer cuerdas y costales.
         case BLOCK_IXTLE_TALLO:
         case BLOCK_IXTLE_TALLO_ARENA: return 1.2f;
+        // Guijarros sueltos: se recogen del suelo, no hay que picar roca.
+        case BLOCK_PEDAZO_PIEDRA: return 0.3f;
         case BLOCK_IXTLE_PEQUENA: return 0.4f;
         case BLOCK_IXTLE_GRANDE:  return 1.0f;
         case BLOCK_IXTLE_ENORME:  return 1.3f;
@@ -4380,6 +4395,10 @@ public:
                     "resourcepacks/Textures/Items/Baba de nopal.png"));
 
             // --- IXTLE (lechuguilla) ---
+            case BLOCK_PEDAZO_PIEDRA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/pedazo de piedra.png"));
+
             case BLOCK_IXTLE_TALLO:
             case BLOCK_IXTLE_TALLO_ARENA:
                 return getTexture("Tallo de ixtle.png");
@@ -4969,7 +4988,7 @@ struct Chunk {
                // El tallo de ixtle NO: es macizo y corta el sol como
                // cualquier bloque de suelo.
                esIxtleHoja(b) || b == BLOCK_IXTLE_PUNTA ||
-               esCompartido(b) ||
+               esCompartido(b) || b == BLOCK_PEDAZO_PIEDRA ||
                isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
                b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
@@ -6916,6 +6935,26 @@ public:
                         }
                     }
                 }
+
+                // ---- PEDAZOS DE PIEDRA ----
+                // Guijarros sueltos por el suelo. Aparecen en TODO el mundo:
+                // en pasto, tierra, arena, grava, nieve y tambien sobre la
+                // roca desnuda de las montanas -- en cualquier superficie
+                // donde de verdad se encontrarian piedras.
+                //
+                // Son lo bastante comunes para toparse con ellas paseando
+                // (1 de cada 25 columnas) pero no tapizan el suelo.
+                if (ground != BLOCK_AIR && ground != BLOCK_WATER &&
+                    ground != BLOCK_LAVA && !isCrossSprite(ground) &&
+                    chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
+                    unsigned hpd = (unsigned)(worldX * 2654435761u) ^
+                                   (unsigned)(worldZ * 40503u) ^ 0x1b873593u;
+                    hpd ^= hpd >> 13; hpd *= 1274126177u; hpd ^= hpd >> 16;
+                    if ((hpd % 25u) == 0u) {
+                        chunk->setBlock(x, surfaceY + 1, z,
+                                        BLOCK_PEDAZO_PIEDRA);
+                    }
+                }
             }
         }
         // ⭐ PUBLICAR los bloques que este chunk dejó para sus vecinos y
@@ -8503,7 +8542,7 @@ public:
         // Ahora cae un bloque mas abajo, justo donde las hojas todavia
         // llegan. Se aplica a todos los tamaños por igual:
         //
-        //     pequena  +0    mediana  +0    grande  +1    enorme  +2
+        //     pequena  +0    mediana  +0    grande  +0    enorme  +1
         //
         // Las dos mas pequeñas comparten bloque con el cuerpo, asi que su
         // espina va incluida en la propia roseta y no se coloca aparte: son
@@ -8515,9 +8554,9 @@ public:
         } else if (dado < 70u) {     // 40% medianas: lo normal
             cuerpo = BLOCK_IXTLE_HOJA;     alturaPunta = -1;
         } else if (dado < 92u) {     // 22% grandes
-            cuerpo = BLOCK_IXTLE_GRANDE;   alturaPunta = 1;
+            cuerpo = BLOCK_IXTLE_GRANDE;   alturaPunta = 0;
         } else {                     // 8% enormes: ejemplares viejos
-            cuerpo = BLOCK_IXTLE_ENORME;   alturaPunta = 2;
+            cuerpo = BLOCK_IXTLE_ENORME;   alturaPunta = 1;
         }
 
         // Hueco que hay que reservar: hasta donde llega la pieza mas alta.
@@ -10268,6 +10307,147 @@ public:
                         // El numero de hojas (11-30 en la planta real) sale
                         // del hash de la posicion, de modo que cada mata es
                         // distinta y siempre la misma al recargar el chunk.
+                        // ============================================
+                        // PEDAZOS DE PIEDRA: MILES DE DISPOSICIONES
+                        // ============================================
+                        // Un montoncito de guijarros esparcidos por el
+                        // suelo. Cada bloque saca SU disposicion de un hash
+                        // de la posicion, asi que no hay dos iguales y no
+                        // cuesta ni un byte: la forma no se guarda, se
+                        // deduce.
+                        //
+                        // Cuantas variantes salen, contando de verdad:
+                        //     3 a 6 piedras            4 opciones
+                        //     x 8 posiciones cada una  (rejilla 3x3 sin
+                        //                               el centro)
+                        //     x 4 alturas
+                        //     x 4 anchos
+                        //     x 8 giros
+                        // Con 5 piedras eso ya son 4 * (8*4*4*8)^5
+                        // combinaciones: muy por encima de los miles
+                        // pedidos, y todas con los MISMOS colores porque
+                        // todas usan la misma textura sin teñir.
+                        if (block == BLOCK_PEDAZO_PIEDRA) {
+                            constexpr float PXL = 1.0f / 16.0f;
+                            constexpr float EPS = 0.0005f;
+
+                            unsigned hp = (unsigned)((int)wx * 73856093)
+                                        ^ (unsigned)((int)wy * 19349663)
+                                        ^ (unsigned)((int)wz * 83492791);
+                            hp ^= hp >> 13; hp *= 1274126177u; hp ^= hp >> 16;
+                            auto mez = [&](unsigned sal) {
+                                unsigned v = hp ^ (sal * 2654435761u);
+                                v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
+                                v *= 3266489917u; v ^= v >> 16;
+                                return v;
+                            };
+
+                            // De 3 a 6 cantos por bloque.
+                            const int nPiedras = 3 + (int)(mez(1) % 4u);
+
+                            // Las ocho casillas de una rejilla 3x3 sin el
+                            // centro: reparte los cantos sin amontonarlos.
+                            static const float CX[8] = {
+                                0.22f, 0.50f, 0.78f, 0.22f,
+                                0.78f, 0.22f, 0.50f, 0.78f };
+                            static const float CZ[8] = {
+                                0.22f, 0.22f, 0.22f, 0.50f,
+                                0.50f, 0.78f, 0.78f, 0.78f };
+
+                            const GLuint texP = texture;
+                            auto& vP = verticesByTexture[texP];
+                            auto& cP = colorsByTexture[texP];
+                            auto& uP = uvsByTexture[texP];
+
+                            // Un canto: caja achatada, mas ancha que alta,
+                            // como el monton de la textura (14 x 9 px).
+                            auto canto = [&](float cx, float cz, float ancho,
+                                             float alto, float giro) {
+                                const float co = cosf(giro), si = sinf(giro);
+                                const float h = ancho * 0.5f;
+
+                                // Cuatro esquinas giradas en el plano del
+                                // suelo: el giro es lo que hace que dos
+                                // cantos del mismo tamaño no se vean igual.
+                                const float ex[4] = { -h, h, h, -h };
+                                const float ez[4] = { -h, -h, h, h };
+                                float px_[4], pz_[4];
+                                for (int i = 0; i < 4; ++i) {
+                                    px_[i] = cx + ex[i]*co - ez[i]*si;
+                                    pz_[i] = cz + ex[i]*si + ez[i]*co;
+                                }
+
+                                const float y0 = EPS, y1 = EPS + alto;
+
+                                // Emite un quad con la textura entera.
+                                auto cara = [&](int a,int b,int c,int d,
+                                                bool arriba) {
+                                    const float QX[4] = { px_[a],px_[b],px_[c],px_[d] };
+                                    const float QZ[4] = { pz_[a],pz_[b],pz_[c],pz_[d] };
+                                    const float U_[4] = { U0,U1,U1,U0 };
+                                    const float V_[4] = { U0,U0,U1,U1 };
+                                    for (int i = 0; i < 4; ++i) {
+                                        vP.push_back(wx + QX[i]);
+                                        vP.push_back(wy + (arriba ? y1 : y0));
+                                        vP.push_back(wz + QZ[i]);
+                                        cP.push_back(cr); cP.push_back(cg);
+                                        cP.push_back(cb); cP.push_back(ca);
+                                        uP.push_back(U_[i]);
+                                        uP.push_back(V_[i]);
+                                    }
+                                };
+
+                                // Tapa y fondo.
+                                cara(0,1,2,3,true);
+                                cara(3,2,1,0,false);
+
+                                // Los cuatro costados: dan el volumen 3D.
+                                for (int e = 0; e < 4; ++e) {
+                                    const int a = e, b = (e+1) & 3;
+                                    const float LX[4] = { px_[a],px_[b],px_[b],px_[a] };
+                                    const float LZ[4] = { pz_[a],pz_[b],pz_[b],pz_[a] };
+                                    const float LY[4] = { y0,y0,y1,y1 };
+                                    const float U_[4] = { U0,U1,U1,U0 };
+                                    const float V_[4] = { U0,U0,U1,U1 };
+                                    for (int i = 0; i < 4; ++i) {
+                                        vP.push_back(wx + LX[i]);
+                                        vP.push_back(wy + LY[i]);
+                                        vP.push_back(wz + LZ[i]);
+                                        cP.push_back(cr); cP.push_back(cg);
+                                        cP.push_back(cb); cP.push_back(ca);
+                                        uP.push_back(U_[i]);
+                                        uP.push_back(V_[i]);
+                                    }
+                                }
+                            };
+
+                            // Reparte los cantos por casillas distintas: se
+                            // recorre la rejilla desde un punto de arranque
+                            // que tambien sale del hash.
+                            const unsigned inicio = mez(2) % 8u;
+                            for (int i = 0; i < nPiedras; ++i) {
+                                const int casilla = (int)((inicio + i) % 8u);
+                                const unsigned m = mez(100u + (unsigned)i);
+
+                                // Tamaño: de 3 a 6 px de ancho y de 2 a 5
+                                // de alto. Achatados, como guijarros.
+                                const float ancho = (3.0f + (float)(m % 4u)) * PXL;
+                                const float alto  = (2.0f + (float)((m >> 4) % 4u)) * PXL;
+                                const float giro  = (float)((m >> 8) % 8u) *
+                                                    0.3926991f;   // 8 giros
+
+                                // Desplazamiento fino dentro de su casilla,
+                                // para que no queden en cuadricula.
+                                const float dx = ((float)((m >> 12) % 5u) - 2.0f) * PXL * 0.5f;
+                                const float dz = ((float)((m >> 16) % 5u) - 2.0f) * PXL * 0.5f;
+
+                                canto(CX[casilla] + dx, CZ[casilla] + dz,
+                                      ancho, alto, giro);
+                            }
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
                         // ============================================
                         // IXTLE: LA ROSETA DE LA LECHUGUILLA
                         // ============================================

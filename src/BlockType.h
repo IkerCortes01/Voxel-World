@@ -242,18 +242,30 @@ enum BlockType {
     // terreno, pero con la textura que corresponde a la arena.
     BLOCK_IXTLE_TALLO_ARENA,     // 65 Suelo de la mata, en arena
 
+    // ------------------------------------------------------------------
+    // PEDAZOS DE PIEDRA
+    // ------------------------------------------------------------------
+    // Guijarros sueltos en el suelo. NO llenan su voxel: son un montoncito
+    // de cantos de 14x9 px (medido en la textura) esparcidos por la celda.
+    //
+    // Su forma NO se guarda: sale de un hash de la posicion, asi que hay
+    // miles de disposiciones distintas -- cuantas piedras, de que tamaño,
+    // donde, y giradas cuanto -- sin gastar un solo byte por bloque ni un
+    // ID por variante.
+    BLOCK_PEDAZO_PIEDRA,         // 66 Piedras pequeñas del suelo
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 66 Polvo de tierra
-    BLOCK_STICK,            // 67 Palo
-    BLOCK_HOE,              // 68 Hoz
-    BLOCK_COAL_ITEM,        // 69 Carbón (item)
-    BLOCK_RAW_ZINC,         // 70 Zinc crudo
-    BLOCK_RAW_COPPER,       // 71 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 67 Polvo de tierra
+    BLOCK_STICK,            // 68 Palo
+    BLOCK_HOE,              // 69 Hoz
+    BLOCK_COAL_ITEM,        // 70 Carbón (item)
+    BLOCK_RAW_ZINC,         // 71 Zinc crudo
+    BLOCK_RAW_COPPER,       // 72 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -262,18 +274,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 72 (sin implementar)
-    BLOCK_BRICKS,           // 73 (sin implementar)
-    BLOCK_GLASS,            // 74 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 75 (retirado del juego)
+    BLOCK_IRON_ORE,         // 73 (sin implementar)
+    BLOCK_BRICKS,           // 74 (sin implementar)
+    BLOCK_GLASS,            // 75 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 76 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 76 (ya no se genera)
+    BLOCK_BEDROCK           // 77 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (el tallo en arena).
+// Último bloque COLOCABLE de la lista ordenada (los pedazos de piedra).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_IXTLE_TALLO_ARENA;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_PEDAZO_PIEDRA;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {

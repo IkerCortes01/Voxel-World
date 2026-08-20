@@ -515,7 +515,48 @@ struct NopalForma {
     // Rumbo de la penca en el plano horizontal, en 8 direcciones:
     //   0 N   1 NE   2 E   3 SE   4 S   5 SO   6 O   7 NO
     int giro;
+
+    // Progreso de la caida: 0 = de pie, 1 = tumbada del todo, -1 = quieta.
+    float cayendo;
 };
+
+// Reloj del mundo, en segundos de juego. Se declara aqui porque la
+// animacion de caida de la penca lo necesita y va antes en el archivo.
+double g_tiempoJugadoSegundos = 0.0;
+
+// ============================================================================
+// PENCAS CAYENDO
+// ============================================================================
+// Una penca recien colocada sobre el suelo no aparece tumbada de golpe: cae
+// girando, como una pieza plana que se vence por su peso.
+//
+// La geometria se calcula al MALLAR el chunk, no cada frame, asi que animar
+// significa remallar. Por eso la animacion dura poco y se apunta solo la
+// penca concreta que esta cayendo: se remalla su chunk unas pocas veces y
+// luego para. Una penca quieta no cuesta nada.
+//
+// `progreso` va de 0 (de pie) a 1 (tumbada del todo).
+struct PencaCayendo {
+    int x, y, z;
+    double t0;          // cuando empezo, en segundos de juego
+};
+std::vector<PencaCayendo> g_pencasCayendo;
+
+// Cuanto dura la caida. Corta a proposito: es un gesto, no una escena.
+constexpr double PENCA_CAIDA_SEG = 0.40;
+
+// Progreso de la caida de la penca que hay en esa posicion, o -1 si no esta
+// cayendo. Lo consulta el mesher para inclinarla.
+inline float pencaCaidaProgreso(int x, int y, int z) {
+    for (const PencaCayendo& p : g_pencasCayendo) {
+        if (p.x != x || p.y != y || p.z != z) continue;
+        const double dt = g_tiempoJugadoSegundos - p.t0;
+        if (dt < 0.0) return 0.0f;
+        if (dt >= PENCA_CAIDA_SEG) return -1.0f;   // ya termino
+        return (float)(dt / PENCA_CAIDA_SEG);
+    }
+    return -1.0f;
+}
 
 // ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
 // la planta, para que una penca pegada al tallo no deje costura.
@@ -650,6 +691,9 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     const bool pencaCaida = (f.tipo == BLOCK_NOPAL_FRUTO) &&
                             sueltaEnPlanta && apoyoAbajo;
 
+    // Progreso de la caida, si esta cayendo ahora mismo. -1 = quieta.
+    f.cayendo = pencaCaidaProgreso(wx, wy, wz);
+
     if (pencaCaida) {
         f.orientacion = 4;                          // tumbada, fina en Y
     } else if (pencasApiladas(f.tipo) > 1) {
@@ -748,17 +792,44 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     //
     // La PENCA suelta es mas PLANA que el cladodio de la mata: es una pieza
     // sola, no un grupo apretado de varias. El cladodio conserva sus 7 px.
+    // ========================================================================
+    // MEDIDAS DE LA PENCA: 15 x 6.5 x 1.14 px
+    // ========================================================================
+    // Salen de convertir las medidas reales de un cladodio maduro. Medido en
+    // 108 cladodios (Ramirez-Castano et al. 2023, Rev. Col. Inv.
+    // Agroindustriales 10(2):88):
+    //
+    //     largo  37.13 cm (DE 5.23)
+    //     ancho  16.64 cm (DE 2.89)
+    //     grosor  1.15 cm (DE 0.22) en los lados
+    //
+    // Escalando para que el largo llene casi el bloque, esa proporcion da
+    // 15 x 6.7 x 0.46 px. El largo y el ancho se respetan; el grosor se sube
+    // a 1.14 px, porque por debajo de un pixel la penca desapareceria en la
+    // rejilla del voxel.
+    //
+    // La relacion largo/ancho queda en 15/6.5 = 2.31, practicamente la
+    // medida en campo (37.13/16.64 = 2.23).
+    //
+    // El cladodio de la MATA conserva las suyas (8 de ancho, 7 de grosor):
+    // no es una penca sola sino un grupo apretado de varias.
     const int nPencas = pencasApiladas(f.tipo);
-    constexpr float PENCA_ANCHO  = 8.0f / 16.0f;
-    constexpr float GROSOR_MATA  = 7.0f / 16.0f;   // cladodio de la planta
-    constexpr float GROSOR_PENCA = 3.0f / 16.0f;   // penca suelta: plana
-    const float grosorBase = (f.tipo == BLOCK_NOPAL_FRUTO) ? GROSOR_PENCA
-                                                           : GROSOR_MATA;
+    const bool esPencaSuelta = (f.tipo == BLOCK_NOPAL_FRUTO);
+
+    constexpr float PENCA_LARGO  = 15.00f / 16.0f;
+    constexpr float PENCA_ANCHO2 =  6.50f / 16.0f;
+    constexpr float PENCA_GRUESO =  1.14f / 16.0f;
+    constexpr float MATA_ANCHO   =  8.00f / 16.0f;
+    constexpr float MATA_GRUESO  =  7.00f / 16.0f;
+
+    const float anchoBase  = esPencaSuelta ? PENCA_ANCHO2 : MATA_ANCHO;
+    const float grosorBase = esPencaSuelta ? PENCA_GRUESO : MATA_GRUESO;
+
     float GROSOR = grosorBase * (float)nPencas;
     if (GROSOR > 15.0f / 16.0f) GROSOR = 15.0f / 16.0f;
     const float c0 = 0.5f - GROSOR * 0.5f;
     const float c1 = 0.5f + GROSOR * 0.5f;
-    const float M  = 0.5f - PENCA_ANCHO * 0.5f;   // margen del lado ancho
+    const float M  = 0.5f - anchoBase * 0.5f;   // margen del lado ancho
     const float A0 = M, A1 = 1.0f - M;
 
     // ⭐ NINGUNA cara puede caer EXACTAMENTE en 0.0 o 1.0: ahi coincidiria de
@@ -767,7 +838,12 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // Ese es el motivo de que "al mirar desde arriba falte la cara norte".
     // Un margen de medio milesimo es invisible y separa los planos.
     constexpr float EPS_Y = 0.0005f;
-    const float Y0 = EPS_Y, Y1 = 1.0f - EPS_Y;
+    // El LARGO de la penca: 15 px, centrado en el bloque. El cladodio de la
+    // mata sigue ocupando todo el alto, porque encadena con los de arriba y
+    // abajo y un hueco rompería la columna.
+    const float largoBase = esPencaSuelta ? PENCA_LARGO : (1.0f - 2.0f * EPS_Y);
+    const float Y0 = 0.5f - largoBase * 0.5f;
+    const float Y1 = 0.5f + largoBase * 0.5f;
 
     switch (f.orientacion) {
         case 0: case 1:   // losa VERTICAL fina en Z
@@ -812,6 +888,42 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         f.inclina = ((h >> 7) & 1u) ? 0.42f : -0.42f;
         // Se dobla en el eje ANCHO de la losa, que es donde tiene recorrido.
         f.inclinaEnX = (f.orientacion == 0 || f.orientacion == 1);
+    }
+
+    // ========================================================================
+    // LA CAIDA: DE PIE A TUMBADA
+    // ========================================================================
+    // Mientras cae, la caja se interpola entre la penca DE PIE (larga en Y,
+    // fina en su eje corto) y la penca TUMBADA (fina en Y, larga en el plano).
+    // Es lo que da la sensacion de que se vence por su peso.
+    //
+    // La curva no es lineal: t*t hace que arranque despacio y acelere, que es
+    // como cae algo por gravedad. Una interpolacion recta se ve mecanica.
+    if (f.cayendo >= 0.0f) {
+        const float t = f.cayendo * f.cayendo;      // gravedad: acelera
+
+        // De pie: larga en Y, del grosor en los otros dos ejes.
+        const float dePieY0 = 0.5f - PENCA_LARGO * 0.5f;
+        const float dePieY1 = 0.5f + PENCA_LARGO * 0.5f;
+        const float dePieA0 = 0.5f - PENCA_ANCHO2 * 0.5f;
+        const float dePieA1 = 0.5f + PENCA_ANCHO2 * 0.5f;
+        const float dePieG0 = 0.5f - PENCA_GRUESO * 0.5f;
+        const float dePieG1 = 0.5f + PENCA_GRUESO * 0.5f;
+
+        // Tumbada: el largo pasa al plano y el grosor a la vertical, apoyada
+        // en el suelo.
+        const float ejeY0 = EPS_Y;
+        const float ejeY1 = EPS_Y + PENCA_GRUESO;
+
+        auto mezcla = [t](float a, float b) { return a + (b - a) * t; };
+
+        f.minY = mezcla(dePieY0, ejeY0);
+        f.maxY = mezcla(dePieY1, ejeY1);
+        f.minX = mezcla(dePieA0, 0.5f - PENCA_LARGO * 0.5f);
+        f.maxX = mezcla(dePieA1, 0.5f + PENCA_LARGO * 0.5f);
+        f.minZ = mezcla(dePieG0, dePieA0);
+        f.maxZ = mezcla(dePieG1, dePieA1);
+        return f;   // la caida manda: nada mas puede tocar la caja
     }
 
     // ========================================================================
@@ -2921,7 +3033,7 @@ FIN GENERADOR ANTIGUO */
 // Es el MISMO reloj del sistema de vida y se guarda con el mundo, asi que lo
 // que madura no depende del reloj del ordenador y sobrevive a salir y volver
 // a entrar en la partida.
-double g_tiempoJugadoSegundos = 0.0;
+
 
 // Horas de juego en las que una tuna pasa de brote verde a fruto maduro. Las
 // maduraciones se reparten por ese rango, asi que la penca no cambia de golpe:
@@ -5323,6 +5435,20 @@ public:
     // reconstruye. Esto lo fuerza, pero SOLO en los chunks que de verdad
     // tienen fruto: recorrer los bloques es mucho mas barato que remallar, y
     // asi un mundo sin nopales no paga nada.
+    // Marca para rehacer el chunk que contiene ese bloque. Lo usa la
+    // animacion de caida de la penca: hay que rehacer el mesh para que se vea
+    // girar, pero solo el chunk afectado y solo mientras dura la caida.
+    void marcarChunkDe(int wx, int wy, int wz) {
+        (void)wy;
+        const int cx = (wx >= 0) ? (wx / CHUNK_SIZE)
+                                 : ((wx - CHUNK_SIZE + 1) / CHUNK_SIZE);
+        const int cz = (wz >= 0) ? (wz / CHUNK_SIZE)
+                                 : ((wz - CHUNK_SIZE + 1) / CHUNK_SIZE);
+        auto it = chunks.find(Vec3i(cx, 0, cz));
+        if (it != chunks.end() && it->second && it->second->isGenerated)
+            it->second->needsRebuild = true;
+    }
+
     void marcarChunksConTunas() {
         for (auto& par : chunks) {
             Chunk* c = par.second;
@@ -13698,6 +13824,28 @@ void actualizarVida(GameState* state, float deltaTime) {
     // acceso al GameState: se refleja aqui, que es donde el reloj avanza.
     g_tiempoJugadoSegundos = state->tiempoJugadoSegundos;
 
+    // --- ANIMAR LAS PENCAS QUE ESTAN CAYENDO ---
+    // Mientras dura la caida hay que rehacer el mesh para que se vea girar.
+    // Es el unico momento en que un bloque de nopal cuesta algo, y dura 0.4 s:
+    // en cuanto termina, la penca se queda quieta y no vuelve a costar nada.
+    if (!g_pencasCayendo.empty()) {
+        for (size_t i = 0; i < g_pencasCayendo.size(); ) {
+            const PencaCayendo& p = g_pencasCayendo[i];
+            const double dt = state->tiempoJugadoSegundos - p.t0;
+
+            // Se marca el chunk para rehacer, tanto durante la caida como en
+            // el frame en que acaba (para que quede dibujada ya tumbada).
+            state->world.marcarChunkDe(p.x, p.y, p.z);
+
+            if (dt >= PENCA_CAIDA_SEG) {
+                g_pencasCayendo[i] = g_pencasCayendo.back();
+                g_pencasCayendo.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
+
     // --- QUE LAS TUNAS MADUREN A LA VISTA ---
     // La madurez la decide el mesher, asi que un fruto que acaba de madurar
     // se seguiria viendo verde hasta que su chunk se reconstruyera por otro
@@ -14545,6 +14693,20 @@ void placeBlock(GameState* state) {
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
             state->inventory.consumeSelected();
             state->placeCooldown = 0.25f;  // 250ms cooldown
+
+            // PENCA QUE SE CAE: si se coloca sobre suelo firme, se apunta
+            // para que caiga girando en vez de aparecer tumbada de golpe.
+            if (blockToPlace == BLOCK_NOPAL_FRUTO) {
+                const BlockType debajo = state->world.getBlock(
+                    placePos.x, placePos.y - 1, placePos.z);
+                const bool firme = debajo != BLOCK_AIR && debajo != BLOCK_WATER &&
+                                   debajo != BLOCK_LAVA && !isNopal(debajo);
+                if (firme) {
+                    g_pencasCayendo.push_back({ placePos.x, placePos.y,
+                                                placePos.z,
+                                                g_tiempoJugadoSegundos });
+                }
+            }
 
             // ⭐ SISTEMA DE AGUA: Si se coloca agua, programar actualización
             if (blockToPlace == BLOCK_WATER) {

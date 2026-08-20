@@ -370,7 +370,11 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_NOPAL_TIRAS:  r = 0.26f; g = 0.60f; b = 0.24f; break;
         case BLOCK_NOPAL_SIN_BABA: r = 0.30f; g = 0.66f; b = 0.28f; break;
         case BLOCK_NOPAL_BABA:   r = 0.55f; g = 0.80f; b = 0.45f; break;
-        case BLOCK_IXTLE_TALLO:  r = 0.22f; g = 0.42f; b = 0.14f; break;
+        case BLOCK_IXTLE_TALLO:
+        case BLOCK_IXTLE_TALLO_ARENA: r = 0.22f; g = 0.42f; b = 0.14f; break;
+        case BLOCK_IXTLE_PEQUENA:
+        case BLOCK_IXTLE_GRANDE:
+        case BLOCK_IXTLE_ENORME: r = 0.18f; g = 0.36f; b = 0.11f; break;
         case BLOCK_IXTLE_HOJA:
         case BLOCK_IXTLE_PUNTA:
         case BLOCK_IXTLE_CON_HIERBA:
@@ -435,7 +439,7 @@ bool isCrossSprite(BlockType type) {
     return type == BLOCK_TALLGRASS ||
            // Del ixtle solo la HOJA y la PUNTA son sprites. El TALLO es el
            // SUELO de la mata: un bloque macizo con sus seis caras.
-           type == BLOCK_IXTLE_HOJA || type == BLOCK_IXTLE_PUNTA ||
+           esIxtleHoja(type) || type == BLOCK_IXTLE_PUNTA ||
            esCompartido(type) ||
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
@@ -1428,7 +1432,7 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
 
     // El TALLO ya no es un bloque: se pinta como una cara sobre el terreno,
     // asi que aqui solo entran la HOJA y la PUNTA.
-    if (type == BLOCK_IXTLE_HOJA || type == BLOCK_IXTLE_PUNTA) {
+    if (esIxtleHoja(type) || type == BLOCK_IXTLE_PUNTA) {
         constexpr float PX = 1.0f / 16.0f;
 
         // La roseta abarca el voxel entero de lado: las hojas son de 10 px
@@ -1577,7 +1581,11 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_NOPAL_BABA:   return 0.4f;
         // Ixtle: la fibra es muy resistente, de ahi que se use para
         // hacer cuerdas y costales.
-        case BLOCK_IXTLE_TALLO:  return 1.2f;
+        case BLOCK_IXTLE_TALLO:
+        case BLOCK_IXTLE_TALLO_ARENA: return 1.2f;
+        case BLOCK_IXTLE_PEQUENA: return 0.4f;
+        case BLOCK_IXTLE_GRANDE:  return 1.0f;
+        case BLOCK_IXTLE_ENORME:  return 1.3f;
         case BLOCK_IXTLE_HOJA:
         case BLOCK_IXTLE_PUNTA:
         case BLOCK_IXTLE_CON_HIERBA:
@@ -4373,8 +4381,12 @@ public:
 
             // --- IXTLE (lechuguilla) ---
             case BLOCK_IXTLE_TALLO:
+            case BLOCK_IXTLE_TALLO_ARENA:
                 return getTexture("Tallo de ixtle.png");
             case BLOCK_IXTLE_HOJA:
+            case BLOCK_IXTLE_PEQUENA:
+            case BLOCK_IXTLE_GRANDE:
+            case BLOCK_IXTLE_ENORME:
                 return getTexture("Ixtle.png");
             case BLOCK_IXTLE_PUNTA:
                 return getTexture("Puntas de Ixtle.png");
@@ -4956,7 +4968,7 @@ struct Chunk {
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
                // El tallo de ixtle NO: es macizo y corta el sol como
                // cualquier bloque de suelo.
-               b == BLOCK_IXTLE_HOJA || b == BLOCK_IXTLE_PUNTA ||
+               esIxtleHoja(b) || b == BLOCK_IXTLE_PUNTA ||
                esCompartido(b) ||
                isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
@@ -8473,7 +8485,25 @@ public:
         // Las hojas se dibujan en coordenadas de mundo, asi que la roseta se
         // ve entera aunque desborde su voxel: no hace falta un bloque por
         // cada tramo de hoja.
-        constexpr int BLOQUES_HOJA = 1;
+        // EL TAMAÑO DE LA MATA.
+        // Una lechuguilla no nace adulta: brota pequeña y va creciendo. Se
+        // reparten los cuatro tamaños de modo que las medianas sean lo
+        // habitual y las enormes, un hallazgo.
+        unsigned vt = (unsigned)(worldX * 6421 + worldZ * 9187 + 7717);
+        vt ^= vt >> 13; vt *= 1274126177u; vt ^= vt >> 16;
+        const unsigned dado = vt % 100u;
+
+        BlockType cuerpo;
+        int BLOQUES_HOJA;
+        if (dado < 30u) {            // 30% pequeñas: brotes
+            cuerpo = BLOCK_IXTLE_PEQUENA;  BLOQUES_HOJA = 0;
+        } else if (dado < 70u) {     // 40% medianas: lo normal
+            cuerpo = BLOCK_IXTLE_HOJA;     BLOQUES_HOJA = 1;
+        } else if (dado < 92u) {     // 22% grandes
+            cuerpo = BLOCK_IXTLE_GRANDE;   BLOQUES_HOJA = 2;
+        } else {                     // 8% enormes: ejemplares viejos
+            cuerpo = BLOCK_IXTLE_ENORME;   BLOQUES_HOJA = 3;
+        }
 
         // Hace falta sitio libre para que la mata quepa entera. Si no lo
         // hay (una cueva baja, un saliente), la mata no crece: mejor eso
@@ -8488,8 +8518,13 @@ public:
 
         if (!cabe) return;
 
-        setBlock(worldX, baseY, worldZ, BLOCK_IXTLE_HOJA);
-        setBlock(worldX, baseY + BLOQUES_HOJA, worldZ, BLOCK_IXTLE_PUNTA);
+        setBlock(worldX, baseY, worldZ, cuerpo);
+        // La PUNTA remata la mata. En las pequeñas cae en el mismo bloque
+        // que el cuerpo, asi que se deja solo el cuerpo: un brote recien
+        // salido todavia no tiene espina que destaque.
+        if (BLOQUES_HOJA > 0) {
+            setBlock(worldX, baseY + BLOQUES_HOJA, worldZ, BLOCK_IXTLE_PUNTA);
+        }
     }
 
     // ========================================================================
@@ -10274,7 +10309,7 @@ public:
                             }
                         }
 
-                        if (block == BLOCK_IXTLE_HOJA ||
+                        if (esIxtleHoja(block) ||
                             block == BLOCK_IXTLE_PUNTA ||
                             esCompartido(block)) {
                             constexpr float PXL = 1.0f / 16.0f;
@@ -10344,11 +10379,23 @@ public:
                                 const float ha = anchoAlto * 0.5f;
                                 const float v = VOL * 0.5f;
 
+                                // ⭐ SI ACABA EN PICO, EL CANTO TAMBIEN CIERRA
+                                // Con anchoAlto = 0 los cuatro vertices de
+                                // arriba seguian separados por el grosor, asi
+                                // que el remate era una ARISTA de 2 px: se
+                                // veia plano, cubico. Cerrando tambien el
+                                // canto, los cuatro caen en el mismo punto y
+                                // la espina acaba en un vertice de verdad.
+                                const float vAlto = (anchoAlto <= 0.0f)
+                                                  ? 0.0f : v;
+
                                 const float VX[8] = {
                                     ax - pxn*hb - dirX*v, ax + pxn*hb - dirX*v,
                                     ax + pxn*hb + dirX*v, ax - pxn*hb + dirX*v,
-                                    bx2 - pxn*ha - dirX*v, bx2 + pxn*ha - dirX*v,
-                                    bx2 + pxn*ha + dirX*v, bx2 - pxn*ha + dirX*v
+                                    bx2 - pxn*ha - dirX*vAlto,
+                                    bx2 + pxn*ha - dirX*vAlto,
+                                    bx2 + pxn*ha + dirX*vAlto,
+                                    bx2 - pxn*ha + dirX*vAlto
                                 };
                                 const float VY[8] = {
                                     ay, ay, ay, ay, by2, by2, by2, by2
@@ -10356,8 +10403,10 @@ public:
                                 const float VZ[8] = {
                                     az - pzn*hb - dirZ*v, az + pzn*hb - dirZ*v,
                                     az + pzn*hb + dirZ*v, az - pzn*hb + dirZ*v,
-                                    bz2 - pzn*ha - dirZ*v, bz2 + pzn*ha - dirZ*v,
-                                    bz2 + pzn*ha + dirZ*v, bz2 - pzn*ha + dirZ*v
+                                    bz2 - pzn*ha - dirZ*vAlto,
+                                    bz2 + pzn*ha - dirZ*vAlto,
+                                    bz2 + pzn*ha + dirZ*vAlto,
+                                    bz2 - pzn*ha + dirZ*vAlto
                                 };
 
                                 // Las seis caras del prisma. Las dos anchas
@@ -10367,11 +10416,43 @@ public:
                                     {0,1,5,4}, {2,3,7,6}, {1,2,6,5},
                                     {3,0,4,7}, {4,5,6,7}, {3,2,1,0}
                                 };
+
+                                // ⭐ LA TEXTURA NO SE DEFORMA
+                                //
+                                // Antes las SEIS caras usaban las mismas UV
+                                // (0..1 en los dos ejes), asi que la imagen
+                                // de 16 px se estiraba sobre la cara que
+                                // tocase. En una cara ancha de 7 px eso ya
+                                // deformaba, pero en el CANTO -- que mide 2 --
+                                // el estiron era de 8x: por eso la punta se
+                                // veia emborronada.
+                                //
+                                // La solucion es dar a cada cara la porcion
+                                // de textura que le corresponde por su ancho
+                                // REAL, en vez de la imagen entera. Asi el
+                                // pixel sale cuadrado en todas.
+                                const float anchoCara[6] = {
+                                    anchoBase, anchoBase,   // las dos anchas
+                                    VOL, VOL,               // los dos cantos
+                                    anchoAlto, anchoBase    // tapa y fondo
+                                };
+                                // Referencia: la cara mas ancha usa la
+                                // textura entera y las demas, su fraccion.
+                                const float mayor = anchoBase > VOL
+                                                  ? anchoBase : VOL;
+
                                 for (int f = 0; f < 6; ++f) {
+                                    // Fraccion de textura de ESTA cara.
+                                    const float fr = mayor > 0.0f
+                                                   ? anchoCara[f] / mayor
+                                                   : 1.0f;
+                                    const float u0 = 0.5f - 0.5f * fr * (U1-U0);
+                                    const float u1 = 0.5f + 0.5f * fr * (U1-U0);
+
                                     // V=0 en la base y V=1 en la punta: la
                                     // textura sale derecha y la espina de
                                     // "Puntas de Ixtle" queda ARRIBA.
-                                    const float U_[4] = { U0, U1, U1, U0 };
+                                    const float U_[4] = { u0, u1, u1, u0 };
                                     const float V_[4] = { U0, U0, U1, U1 };
                                     for (int i = 0; i < 4; ++i) {
                                         const int k = CARA[f][i];
@@ -10396,7 +10477,12 @@ public:
                             // 26 px de hoja dan una mata de 2.3 x 1.5
                             // bloques: el tamano de un agave adulto, y con
                             // la proporcion de las fotos.
-                            const float LARGO = 26.0f * PXL;
+                            // El TAMAÑO de la mata sale de su propio ID:
+                            // pequeña, mediana, grande o enorme. Multiplica
+                            // el largo de la hoja, que es lo que hace crecer
+                            // la roseta entera manteniendo su forma.
+                            const float LARGO = 26.0f * PXL *
+                                                escalaIxtle(block);
 
                             for (int a = 0; a < ANILLOS; ++a) {
                                 // La PUNTA solo dibuja el anillo central: es
@@ -10458,8 +10544,17 @@ public:
 
                                     // Ancha en la base y afilada en la punta,
                                     // como una hoja de agave.
+                                    // ⭐ LA PUNTA ACABA EN PICO
+                                    // La espina terminal se cierra en un
+                                    // filo, no en un tope plano: con 2 px
+                                    // arriba se veia CUBICA, que es justo lo
+                                    // que habia que quitar. La hoja normal si
+                                    // conserva algo de ancho, porque su
+                                    // remate lo pone la pieza de PUNTA.
                                     prisma(ax, ay, az, bx2, by2, bz2,
-                                           7.0f * PXL, 2.0f * PXL, dx, dz);
+                                           7.0f * PXL,
+                                           punta ? 0.0f : 2.0f * PXL,
+                                           dx, dz);
                                 }
                             }
 
@@ -11663,9 +11758,15 @@ public:
                                 (b == BLOCK_GRASS || b == BLOCK_DIRT ||
                                  b == BLOCK_SAND  || b == BLOCK_GRAVEL ||
                                  b == BLOCK_CLAY_DIRT || b == BLOCK_CLAY_SAND)) {
+                                // En ARENA se usa la variante de arena:
+                                // la lechuguilla es planta de desierto y la
+                                // mayoria crece en suelo arenoso.
+                                const BlockType cual =
+                                    (b == BLOCK_SAND || b == BLOCK_CLAY_SAND)
+                                    ? BLOCK_IXTLE_TALLO_ARENA
+                                    : BLOCK_IXTLE_TALLO;
                                 const GLuint suelo =
-                                    g_textureManager->getBlockTexture(
-                                        BLOCK_IXTLE_TALLO, 0);
+                                    g_textureManager->getBlockTexture(cual, 0);
                                 if (suelo != 0) cell.tex = suelo;
                             }
 
@@ -14803,6 +14904,37 @@ void updateMining(GameState* state, float deltaTime) {
                         state->spawnItem(pt, d.itemType);
                 }
                 state->world.setBlock(tx, by, tz, BLOCK_AIR);
+            }
+        }
+
+        // ================================================================
+        // LA MATA DE IXTLE SE ROMPE ENTERA
+        // ================================================================
+        // Las hojas de arriba y las de abajo son la MISMA planta: la roseta
+        // se dibuja de una pieza y sus hojas se cruzan y se apoyan unas en
+        // otras. Por eso romper la de abajo se lleva tambien la punta, como
+        // si fuesen un solo bloque.
+        //
+        // No sirve el bucle de "vegetacion sin soporte" que hay debajo: ese
+        // se para en el primer hueco de AIRE, y la punta de la mata esta
+        // varios bloques mas arriba con aire en medio (los bloques centrales
+        // se dejan vacios a proposito, porque la hoja ya pasa dibujada por
+        // ahi). Asi que la mata se recorre aparte, saltando esos huecos.
+        if (esIxtleHoja(blockType) || esCompartido(blockType)) {
+            // Alto maximo de una mata: la enorme llega a ~4 bloques.
+            constexpr int ALTO_MATA = 5;
+            for (int ny = by + 1; ny <= by + ALTO_MATA &&
+                                  ny < CHUNK_HEIGHT; ++ny) {
+                const BlockType arriba = state->world.getBlock(bx, ny, bz);
+                if (!esIxtle(arriba)) continue;   // hueco: la hoja pasa por ahi
+
+                const Vec3 pos(bx + 0.5f, ny + 0.5f, bz + 0.5f);
+                for (const auto& d : getBlockDrops(arriba)) {
+                    if (d.chance < 1.0f) continue;
+                    for (int i = 0; i < d.count; ++i)
+                        state->spawnItem(pos, d.itemType);
+                }
+                state->world.setBlock(bx, ny, bz, BLOCK_AIR);
             }
         }
 

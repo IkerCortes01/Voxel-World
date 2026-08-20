@@ -224,18 +224,36 @@ enum BlockType {
     BLOCK_IXTLE_CON_FLOR,        // 60 Hoja de ixtle + flor
     BLOCK_IXTLE_DOBLE,           // 61 Dos hojas de ixtle cruzadas
 
+    // ------------------------------------------------------------------
+    // TAMAÑOS DE LA MATA
+    // ------------------------------------------------------------------
+    // Una lechuguilla no nace adulta: brota pequeña y va creciendo. Cada
+    // tamaño es un bloque distinto porque la forma cambia -- no solo la
+    // escala, tambien cuantas hojas tiene y cuanto se abren.
+    //
+    // El tamaño MEDIANO es el que ya existia (BLOCK_IXTLE_HOJA), asi que
+    // no se repite aqui: sirve de tamaño por defecto.
+    BLOCK_IXTLE_PEQUENA,         // 62 Recien brotada
+    BLOCK_IXTLE_GRANDE,          // 63 Mata hecha
+    BLOCK_IXTLE_ENORME,          // 64 Ejemplar viejo
+
+    // El TALLO sobre ARENA: la lechuguilla es planta de desierto y la
+    // mayoria crece en suelo arenoso. Es la misma cara pintada sobre el
+    // terreno, pero con la textura que corresponde a la arena.
+    BLOCK_IXTLE_TALLO_ARENA,     // 65 Suelo de la mata, en arena
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 62 Polvo de tierra
-    BLOCK_STICK,            // 63 Palo
-    BLOCK_HOE,              // 64 Hoz
-    BLOCK_COAL_ITEM,        // 65 Carbón (item)
-    BLOCK_RAW_ZINC,         // 66 Zinc crudo
-    BLOCK_RAW_COPPER,       // 67 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 66 Polvo de tierra
+    BLOCK_STICK,            // 67 Palo
+    BLOCK_HOE,              // 68 Hoz
+    BLOCK_COAL_ITEM,        // 69 Carbón (item)
+    BLOCK_RAW_ZINC,         // 70 Zinc crudo
+    BLOCK_RAW_COPPER,       // 71 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -244,18 +262,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 68 (sin implementar)
-    BLOCK_BRICKS,           // 69 (sin implementar)
-    BLOCK_GLASS,            // 70 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 71 (retirado del juego)
+    BLOCK_IRON_ORE,         // 72 (sin implementar)
+    BLOCK_BRICKS,           // 73 (sin implementar)
+    BLOCK_GLASS,            // 74 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 75 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 72 (ya no se genera)
+    BLOCK_BEDROCK           // 76 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (el ixtle doble).
+// Último bloque COLOCABLE de la lista ordenada (el tallo en arena).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_IXTLE_DOBLE;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_IXTLE_TALLO_ARENA;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {
@@ -272,6 +290,28 @@ inline int grosorRaiz(BlockType t) {
         case BLOCK_RAIZ_ENORME:  return 16;
         default:                 return 0;
     }
+}
+
+// ¿Es el cuerpo de una mata de ixtle, de cualquier tamaño?
+inline bool esIxtleHoja(BlockType t) {
+    return t == BLOCK_IXTLE_HOJA || t == BLOCK_IXTLE_PEQUENA ||
+           t == BLOCK_IXTLE_GRANDE || t == BLOCK_IXTLE_ENORME;
+}
+
+// Escala de la mata: cuanto mide respecto al tamaño mediano.
+// Sale del propio ID, así que no cuesta memoria ni hace falta guardarla.
+inline float escalaIxtle(BlockType t) {
+    switch (t) {
+        case BLOCK_IXTLE_PEQUENA: return 0.45f;   // recién brotada
+        case BLOCK_IXTLE_GRANDE:  return 1.40f;   // mata hecha
+        case BLOCK_IXTLE_ENORME:  return 1.90f;   // ejemplar viejo
+        default:                  return 1.00f;   // el mediano de siempre
+    }
+}
+
+// ¿Es el suelo pintado bajo una mata (en pasto/tierra o en arena)?
+inline bool esTalloIxtle(BlockType t) {
+    return t == BLOCK_IXTLE_TALLO || t == BLOCK_IXTLE_TALLO_ARENA;
 }
 
 // ¿Es una celda COMPARTIDA: dos bloques ocupando el mismo espacio?
@@ -299,7 +339,7 @@ inline BlockType piezaSegunda(BlockType t) {
 inline BlockType combinar(BlockType base, BlockType encima) {
     // Solo se comparte con una hoja de ixtle: su roseta es abierta y deja
     // huecos entre hoja y hoja donde cabe otra planta.
-    const bool baseIxtle = (base == BLOCK_IXTLE_HOJA);
+    const bool baseIxtle = esIxtleHoja(base);
     if (!baseIxtle) return BLOCK_AIR;
 
     if (encima == BLOCK_TALLGRASS)     return BLOCK_IXTLE_CON_HIERBA;
@@ -314,10 +354,10 @@ inline BlockType quitarPieza(BlockType t, bool quitarSegunda) {
     return quitarSegunda ? piezaPrimera(t) : piezaSegunda(t);
 }
 
-// ¿Es una pieza de ixtle (lechuguilla), de cualquiera de las tres?
+// ¿Es una pieza de ixtle (lechuguilla)?
 // Las celdas COMPARTIDAS también cuentan: llevan una hoja dentro.
 inline bool esIxtle(BlockType t) {
-    return t == BLOCK_IXTLE_TALLO || t == BLOCK_IXTLE_HOJA ||
+    return esTalloIxtle(t) || esIxtleHoja(t) ||
            t == BLOCK_IXTLE_PUNTA || esCompartido(t);
 }
 

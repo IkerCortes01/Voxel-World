@@ -119,15 +119,33 @@ TEST_CASE("Inventory: addItem stackea en el primer slot compatible") {
     CHECK(inv.slots[1].blockType == BLOCK_DIRT);
 }
 
-TEST_CASE("Inventory: addItem falla con el inventario lleno de otros tipos") {
+TEST_CASE("Inventory: con las 45 casillas llenas, se abren mas por debajo") {
+    // ESTE CASO CAMBIO DE SENTIDO A PROPOSITO.
+    //
+    // Antes comprobaba que addItem FALLARA con el inventario lleno. Ya no
+    // puede fallar: el inventario no tiene fondo, y cuando las casillas
+    // principales se llenan se abre otra fila por debajo (a la que se llega
+    // con la rueda del raton).
     Inventory inv;
     // Llenar los 45 slots al tope con piedra
     for (int i = 0; i < Inventory::SLOTS; i++) {
         inv.slots[i].blockType = BLOCK_STONE;
         inv.slots[i].count = MAX_STACK_SIZE;
     }
-    CHECK_FALSE(inv.addItem(BLOCK_DIRT, 1));
-    CHECK_FALSE(inv.addItem(BLOCK_STONE, 1));  // tambien: todos al tope
+    const int antes = inv.total();
+
+    CHECK(inv.addItem(BLOCK_DIRT, 1));    // ya no falla: abre casilla nueva
+    CHECK(inv.total() > antes);           // el inventario ha crecido
+    CHECK(inv.at(antes).blockType == BLOCK_DIRT);
+
+    // Y lo mismo con un tipo que ya estaba pero al tope.
+    const int antes2 = inv.total();
+    CHECK(inv.addItem(BLOCK_STONE, 1));
+    CHECK(inv.total() > antes2);
+
+    // Las 45 principales siguen intactas.
+    CHECK(inv.slots[0].blockType == BLOCK_STONE);
+    CHECK(inv.slots[0].count == MAX_STACK_SIZE);
 }
 
 TEST_CASE("Inventory: removeItem exige un slot con cantidad suficiente") {

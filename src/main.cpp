@@ -17892,8 +17892,37 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     // Solo funciona en juego, no en menús
     if (g_gameState->screenState != SCREEN_IN_GAME) return;
 
-    // No cambiar slot si el inventario está abierto
-    if (g_gameState->inventoryOpen) return;
+    // ⭐ CON EL INVENTARIO ABIERTO, LA RUEDA BAJA POR LOS SLOTS
+    //
+    // El inventario no tiene fondo: por debajo de las cinco filas visibles
+    // van saliendo mas segun se llenan. La rueda es lo que deja llegar a
+    // ellas, y se puede seguir bajando indefinidamente.
+    if (g_gameState->inventoryOpen) {
+        Inventory& inv = g_gameState->inventory;
+
+        // Hasta donde se puede bajar: la ultima fila que tiene algo, mas un
+        // par de filas de aire por debajo para que siempre haya sitio a la
+        // vista donde soltar cosas.
+        int ultimaFilaConAlgo = 0;
+        for (int i = 0; i < inv.total(); ++i) {
+            if (!inv.slots[(size_t)i].isEmpty()) {
+                ultimaFilaConAlgo = i / Inventory::COLUMNAS;
+            }
+        }
+        const int FILAS_VISIBLES = 5;
+        const int topeScroll = ultimaFilaConAlgo + 2 - FILAS_VISIBLES + 1;
+
+        if (yoffset > 0) {
+            inv.scroll--;                       // subir
+        } else if (yoffset < 0) {
+            inv.scroll++;                       // bajar
+        }
+
+        if (inv.scroll < 0) inv.scroll = 0;
+        if (inv.scroll > topeScroll && topeScroll > 0) inv.scroll = topeScroll;
+        if (topeScroll <= 0) inv.scroll = 0;
+        return;
+    }
 
     // ⭐ Cambiar slot seleccionado con la rueda del mouse
     // yoffset > 0 = scroll arriba (slot anterior)
@@ -23908,6 +23937,18 @@ int main() {
             glColor4f(1.0f, 0.8f, 0.2f, 1.0f);
             renderText("INVENTARIO", width / 2.0f - 80, 50, 24);
 
+            // ⭐ EN QUE FILA SE ESTA
+            // El inventario baja sin fin, asi que conviene decir por donde
+            // va uno y recordar que la rueda sirve para moverse.
+            {
+                char aviso[96];
+                const int filaActual = g_gameState->inventory.scroll + 1;
+                snprintf(aviso, sizeof(aviso),
+                         "FILA %d   RUEDA PARA BAJAR", filaActual);
+                glColor4f(0.7f, 0.7f, 0.7f, 1.0f);
+                renderText(aviso, width / 2.0f - 110, 82, 14);
+            }
+
             // Configuración de la cuadrícula
             const int COLS = 9;
             const int ROWS = 5;
@@ -23918,9 +23959,18 @@ int main() {
             const float START_X = (width - GRID_WIDTH) / 2.0f;
             const float START_Y = 120.0f;
 
-            // Renderizar slots del inventario
-            for (int slot = 0; slot < Inventory::SLOTS; slot++) {
-                int row = slot / COLS;
+            // ⭐ SE DIBUJA LA VENTANA DE FILAS QUE TOQUE
+            //
+            // El inventario no tiene fondo, asi que no se pintan "todos" los
+            // slots: se pinta la ventana de cinco filas en la que esta el
+            // scroll. Bajar con la rueda mueve esa ventana.
+            const int filaPrimera = g_gameState->inventory.scroll;
+            const int slotPrimero = filaPrimera * COLS;
+            const int slotUltimo  = slotPrimero + ROWS * COLS;
+
+            for (int slot = slotPrimero; slot < slotUltimo; slot++) {
+                const int fila = slot / COLS - filaPrimera;
+                int row = fila;
                 int col = slot % COLS;
 
                 float x = START_X + col * (SLOT_SIZE + SPACING);
@@ -23952,9 +24002,11 @@ int main() {
                 glEnd();
 
                 // ⭐⭐⭐ RENDERIZAR ITEM CON TEXTURA REAL (como Minecraft) ⭐⭐⭐
-                if (!g_gameState->inventory.slots[slot].isEmpty()) {
-                    BlockType blockType = g_gameState->inventory.slots[slot].blockType;
-                    int count = g_gameState->inventory.slots[slot].count;
+                // at() es seguro aunque el slot aun no exista: devuelve una
+                // casilla vacia en vez de leer fuera del vector.
+                if (!g_gameState->inventory.at(slot).isEmpty()) {
+                    BlockType blockType = g_gameState->inventory.at(slot).blockType;
+                    int count = g_gameState->inventory.at(slot).count;
 
                     float iconSize = SLOT_SIZE * 0.7f;  // Más grande para ver mejor la textura
                     float iconX = x + (SLOT_SIZE - iconSize) / 2.0f;

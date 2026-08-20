@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BlockType.h"
+#include <vector>
 
 // ============================================================================
 // INVENTARIO DEL JUGADOR
@@ -90,38 +91,99 @@ struct InventorySlot {
 };
 
 // Inventario del jugador
+//
+// ============================================================================
+// SLOTS SIN FONDO: EL INVENTARIO CRECE SOLO
+// ============================================================================
+// Las 45 casillas de siempre (5 filas de 9) siguen ahí y son las de arriba,
+// las que se ven al abrir. Por debajo, el inventario CRECE cuando hace falta:
+// si se recoge algo y las filas actuales están llenas, aparece otra fila.
+//
+// "Infinito" de verdad no cabe en memoria, así que se hace lo único que sí es
+// posible: reservar bajo demanda. Como el crecimiento no tiene tope fijado,
+// desde dentro del juego es indistinguible de infinito -- se seguirán abriendo
+// filas mientras quede memoria.
+//
+// La ventaja de crecer en vez de reservar un millón de casillas de golpe: un
+// jugador que acaba de empezar gasta lo de 45 slots, no lo de un millón.
 struct Inventory {
+    // Las casillas PRINCIPALES: la parrilla que se ve de un vistazo.
+    // Se conserva el nombre SLOTS porque medio motor lo usa.
     static const int SLOTS = 45;  // 45 slots (5 filas de 9)
-    InventorySlot slots[SLOTS];
+    static const int COLUMNAS = 9;
+
+    // Todas las casillas, las 45 de arriba y las que hayan ido saliendo.
+    // Nunca baja de SLOTS: las principales existen siempre.
+    std::vector<InventorySlot> slots;
     int selectedSlot;
 
-    Inventory() : selectedSlot(0) {
+    // Cuántas filas se han desplazado con la rueda del ratón.
+    int scroll;
+
+    Inventory() : slots((size_t)SLOTS), selectedSlot(0), scroll(0) {
         // ⭐ Inventario vacío al inicio - el jugador debe conseguir items minando/crafteo
         // Los slots se inicializan automáticamente con BLOCK_AIR y count=0
     }
 
+    // Cuántas casillas hay ahora mismo.
+    int total() const { return (int)slots.size(); }
+
+    // Acceso por índice. Si se pide una casilla que aún no existe, el
+    // inventario CRECE hasta ahí: por eso nunca se queda sin sitio.
+    //
+    // ⚠️ CON UN LÍMITE DE SALTO. Sin él, un solo at(999999) -- por ejemplo
+    // desde el dibujado, si el scroll se va lejos -- reservaba un MILLÓN de
+    // casillas de golpe. Medido en la prueba: el inventario pasaba de 45 a
+    // 1.000.000 en una llamada.
+    //
+    // Ahora se crece como mucho una pantalla más allá de lo que ya hay. Eso
+    // basta para que el inventario nunca se llene (cada aporte abre su
+    // casilla), pero impide que una lectura suelta dispare la memoria.
+    InventorySlot& at(int i) {
+        if (i < 0) i = 0;
+        if ((size_t)i >= slots.size()) {
+            const int MAX_SALTO = SLOTS;      // una pantalla de margen
+            const int tope = total() + MAX_SALTO;
+            const int hasta = (i < tope) ? i : tope;
+            slots.resize((size_t)hasta + 1);
+            if (i > hasta) {
+                // Se pidió algo absurdamente lejos: se devuelve la última
+                // casilla real en vez de reservar hasta ahí.
+                return slots.back();
+            }
+        }
+        return slots[(size_t)i];
+    }
+    const InventorySlot& at(int i) const {
+        static InventorySlot vacio;
+        if (i < 0 || (size_t)i >= slots.size()) return vacio;
+        return slots[(size_t)i];
+    }
+
     // ⭐ Limpiar completamente el inventario (para mundos nuevos)
     void clear() {
-        for (int i = 0; i < SLOTS; i++) {
-            slots[i].blockType = BLOCK_AIR;
-            slots[i].count = 0;
-        }
+        slots.assign((size_t)SLOTS, InventorySlot());
         selectedSlot = 0;
+        scroll = 0;
     }
 
     bool addItem(BlockType type, int amount = 1) {
-        // Intentar stackear en slot existente
-        for (int i = 0; i < SLOTS; i++) {
-            if (slots[i].canStack(type)) {
-                slots[i].add(type, amount);
+        // Intentar stackear en un slot que ya tenga de eso
+        for (int i = 0; i < total(); i++) {
+            if (slots[(size_t)i].canStack(type)) {
+                slots[(size_t)i].add(type, amount);
                 return true;
             }
         }
-        return false;
+        // No cabe en lo que hay: se abre una casilla nueva. Aquí es donde el
+        // inventario deja de tener fondo -- nunca devuelve "lleno".
+        slots.push_back(InventorySlot());
+        slots.back().add(type, amount);
+        return true;
     }
 
     bool removeItem(BlockType type, int amount = 1) {
-        for (int i = 0; i < SLOTS; i++) {
+        for (int i = 0; i < total(); i++) {
             if (slots[i].blockType == type && slots[i].count >= amount) {
                 slots[i].remove(amount);
                 return true;

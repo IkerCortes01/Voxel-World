@@ -793,7 +793,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // La PENCA suelta es mas PLANA que el cladodio de la mata: es una pieza
     // sola, no un grupo apretado de varias. El cladodio conserva sus 7 px.
     // ========================================================================
-    // MEDIDAS DE LA PENCA: 15 x 12 x 7 px
+    // MEDIDAS DE LA PENCA: 15 de largo x 8 de ancho x 13 de grosor
     // ========================================================================
     // Son medidas de DISENO, elegidas para que la penca se lea bien como
     // bloque. No siguen la proporcion de la planta: de referencia, un
@@ -805,9 +805,11 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     //     grosor  1.15 cm (DE 0.22) en los lados
     //
     // A escala fiel eso daria 15 x 6.7 x 0.46 px: una lamina muy plana y
-    // estrecha, que en la rejilla del voxel casi no se veria. Con 15 x 12 x 7
-    // la penca tiene volumen suficiente para leerse, sin llegar a parecer un
-    // cubo (13 px si lo parecia).
+    // estrecha, que en la rejilla del voxel casi no se veria.
+    //
+    // Aqui la pieza queda MAS GRUESA QUE ANCHA (13 contra 8), justo al reves
+    // que en la planta, donde el cladodio es catorce veces mas ancho que
+    // grueso. Es intencionado: asi la penca se ve maciza en el voxel.
     //
     // El cladodio de la MATA conserva las suyas (8 de ancho, 7 de grosor):
     // no es una penca sola sino un grupo apretado de varias.
@@ -815,8 +817,8 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     const bool esPencaSuelta = (f.tipo == BLOCK_NOPAL_FRUTO);
 
     constexpr float PENCA_LARGO  = 15.00f / 16.0f;
-    constexpr float PENCA_ANCHO2 = 12.00f / 16.0f;
-    constexpr float PENCA_GRUESO =  7.00f / 16.0f;
+    constexpr float PENCA_ANCHO2 =  8.00f / 16.0f;
+    constexpr float PENCA_GRUESO = 13.00f / 16.0f;
     constexpr float MATA_ANCHO   =  8.00f / 16.0f;
     constexpr float MATA_GRUESO  =  7.00f / 16.0f;
 

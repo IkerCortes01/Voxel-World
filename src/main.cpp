@@ -376,6 +376,11 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_IXTLE_GRANDE:
         case BLOCK_IXTLE_ENORME: r = 0.18f; g = 0.36f; b = 0.11f; break;
         case BLOCK_PEDAZO_PIEDRA: r = 0.33f; g = 0.32f; b = 0.33f; break;
+        case BLOCK_PEDAZO_GRAVA:  r = 0.42f; g = 0.40f; b = 0.38f; break;
+        case BLOCK_PEDAZO_PEDERNAL: r = 0.16f; g = 0.15f; b = 0.16f; break;
+        case BLOCK_PEDAZO_CALIZA: r = 0.72f; g = 0.70f; b = 0.62f; break;
+        case BLOCK_PEDAZO_TIERRA: r = 0.45f; g = 0.32f; b = 0.20f; break;
+        case BLOCK_PEDAZO_COBRE:  r = 0.60f; g = 0.30f; b = 0.18f; break;
         case BLOCK_IXTLE_HOJA:
         case BLOCK_IXTLE_PUNTA:
         case BLOCK_IXTLE_CON_HIERBA:
@@ -441,7 +446,7 @@ bool isCrossSprite(BlockType type) {
            // Del ixtle solo la HOJA y la PUNTA son sprites. El TALLO es el
            // SUELO de la mata: un bloque macizo con sus seis caras.
            esIxtleHoja(type) || type == BLOCK_IXTLE_PUNTA ||
-           esCompartido(type) || type == BLOCK_PEDAZO_PIEDRA ||
+           esCompartido(type) || esGuijarro(type) ||
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
            type == BLOCK_NOPAL_MOJADO ||
@@ -1418,7 +1423,7 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Los guijarros ocupan el suelo de la celda. La caja es baja pero
     // SOLIDA: el jugador no los atraviesa, se sube encima como en un
     // escalon bajo.
-    if (type == BLOCK_PEDAZO_PIEDRA) {
+    if (esGuijarro(type)) {
         constexpr float PX = 1.0f / 16.0f;
         minX = 0.0f;  maxX = 1.0f;
         minY = 0.0f;  maxY = 6.0f * PX;   // lo que levanta el monton
@@ -1597,7 +1602,12 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_IXTLE_TALLO:
         case BLOCK_IXTLE_TALLO_ARENA: return 1.2f;
         // Guijarros sueltos: se recogen del suelo, no hay que picar roca.
-        case BLOCK_PEDAZO_PIEDRA: return 0.3f;
+        case BLOCK_PEDAZO_PIEDRA:
+        case BLOCK_PEDAZO_GRAVA:
+        case BLOCK_PEDAZO_PEDERNAL:
+        case BLOCK_PEDAZO_CALIZA:
+        case BLOCK_PEDAZO_TIERRA:
+        case BLOCK_PEDAZO_COBRE:  return 0.3f;
         case BLOCK_IXTLE_PEQUENA: return 0.4f;
         case BLOCK_IXTLE_GRANDE:  return 1.0f;
         case BLOCK_IXTLE_ENORME:  return 1.3f;
@@ -4453,6 +4463,21 @@ public:
                     "resourcepacks/Textures/Items/Baba de nopal.png"));
 
             // --- IXTLE (lechuguilla) ---
+            case BLOCK_PEDAZO_GRAVA:
+                return getTexture("Grava.png");
+            case BLOCK_PEDAZO_PEDERNAL:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/pedernal.png"));
+            case BLOCK_PEDAZO_CALIZA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/pedazo de piedra caliza.png"));
+            case BLOCK_PEDAZO_TIERRA:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/polvo de tierra.png"));
+            case BLOCK_PEDAZO_COBRE:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/cobre crudo.png"));
+
             case BLOCK_PEDAZO_PIEDRA:
                 // La textura de PIEDRA, no la del item. El item es el
                 // monton dibujado sobre fondo transparente -- sirve para el
@@ -5054,7 +5079,7 @@ struct Chunk {
                // El tallo de ixtle NO: es macizo y corta el sol como
                // cualquier bloque de suelo.
                esIxtleHoja(b) || b == BLOCK_IXTLE_PUNTA ||
-               esCompartido(b) || b == BLOCK_PEDAZO_PIEDRA ||
+               esCompartido(b) || esGuijarro(b) ||
                isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
                b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
@@ -7075,8 +7100,66 @@ public:
                                    (unsigned)(worldZ * 40503u) ^ 0x1b873593u;
                     hpd ^= hpd >> 13; hpd *= 1274126177u; hpd ^= hpd >> 16;
                     if ((hpd % 25u) == 0u) {
-                        chunk->setBlock(x, surfaceY + 1, z,
-                                        BLOCK_PEDAZO_PIEDRA);
+                        // ⭐ DE QUE ES EL GUIJARRO
+                        //
+                        // Se arma una lista con los materiales que pegan con
+                        // ESE suelo y se saca uno al azar. Todos los que
+                        // entran en la lista tienen la MISMA probabilidad
+                        // entre si, que es lo que se pidio.
+                        // Ocho huecos: caben los seis materiales y las dos
+                        // entradas del pedernal. Con seis se quedaba corto
+                        // justo en grava y piedra -- que ya llenan cinco --
+                        // y el pedernal no llegaba a entrar donde mas debia.
+                        BlockType posibles[8];
+                        int n = 0;
+
+                        // La piedra y los terrones salen en todas partes:
+                        // son lo que hay debajo de cualquier terreno.
+                        posibles[n++] = BLOCK_PEDAZO_PIEDRA;
+                        posibles[n++] = BLOCK_PEDAZO_TIERRA;
+
+                        // Grava: en su propio terreno y donde hay piedra.
+                        if (ground == BLOCK_GRAVEL || ground == BLOCK_STONE ||
+                            ground == BLOCK_DIRT) {
+                            posibles[n++] = BLOCK_PEDAZO_GRAVA;
+                        }
+
+                        // Caliza y cobre, donde asoma la roca.
+                        if (ground == BLOCK_STONE || ground == BLOCK_GRAVEL ||
+                            ground == BLOCK_LIMESTONE) {
+                            posibles[n++] = BLOCK_PEDAZO_CALIZA;
+                            posibles[n++] = BLOCK_PEDAZO_COBRE;
+                        }
+
+                        // ⭐ EL PEDERNAL, MAS COMUN, Y JUNTO AL AGUA
+                        //
+                        // El pedernal se forma en sedimentos, asi que sale
+                        // donde hay grava, arena o piedra CERCA DEL AGUA.
+                        // Se mete DOS veces en la lista, que es la forma
+                        // sencilla de que salga el doble que los demas sin
+                        // tocar el resto del reparto.
+                        bool aguaCerca = false;
+                        for (int dx = -2; dx <= 2 && !aguaCerca; ++dx) {
+                            for (int dz = -2; dz <= 2 && !aguaCerca; ++dz) {
+                                const int nx = x + dx, nz = z + dz;
+                                if (nx < 0 || nz < 0 ||
+                                    nx >= CHUNK_SIZE || nz >= CHUNK_SIZE)
+                                    continue;
+                                if (chunk->getBlock(nx, surfaceY, nz) == BLOCK_WATER ||
+                                    chunk->getBlock(nx, surfaceY + 1, nz) == BLOCK_WATER)
+                                    aguaCerca = true;
+                            }
+                        }
+                        const bool sedimento = (ground == BLOCK_GRAVEL ||
+                                                ground == BLOCK_SAND ||
+                                                ground == BLOCK_STONE);
+                        if (aguaCerca && sedimento) {
+                            posibles[n++] = BLOCK_PEDAZO_PEDERNAL;
+                            posibles[n++] = BLOCK_PEDAZO_PEDERNAL;
+                        }
+
+                        const unsigned cual = (hpd >> 7) % (unsigned)n;
+                        chunk->setBlock(x, surfaceY + 1, z, posibles[cual]);
                     }
                 }
             }
@@ -10472,7 +10555,7 @@ public:
                         // combinaciones: muy por encima de los miles
                         // pedidos, y todas con los MISMOS colores porque
                         // todas usan la misma textura sin teñir.
-                        if (block == BLOCK_PEDAZO_PIEDRA) {
+                        if (esGuijarro(block)) {
                             constexpr float PXL = 1.0f / 16.0f;
                             constexpr float EPS = 0.0005f;
 
@@ -12689,7 +12772,30 @@ public:
         // La primera pasada tras arrancar SIEMPRE escanea, y se sigue
         // escaneando mientras falten chunks por generar.
         static bool faltabanChunks = true;
-        const bool escanear = cambioDeChunk || faltabanChunks;
+
+        // ⭐ CHUNKS INVISIBLES: LA CAUSA ESTABA AQUI
+        //
+        // Se dejaba de escanear en cuanto la COLA de generacion quedaba
+        // vacia. Pero los chunks encolados siguen cociendose en los hilos de
+        // trabajo un rato mas: cuando terminan y se integran, ya no queda
+        // nadie escaneando, asi que nunca se les pedia el mesh y aparecian
+        // como AGUJEROS -- terreno que existe pero no se dibuja.
+        //
+        // Basta con mirar tambien el trabajo EN VUELO (genInFlight) y los
+        // chunks que aun estan sin mallar. Mientras quede cualquiera de las
+        // tres cosas, se sigue escaneando.
+        bool algunoSinMesh = false;
+        for (const auto& par : chunks) {
+            if (par.second && par.second->isGenerated && par.second->needsRebuild) {
+                algunoSinMesh = true;
+                break;
+            }
+        }
+        const bool hayTrabajo = faltabanChunks ||
+                                !genInFlight.empty() ||
+                                algunoSinMesh;
+
+        const bool escanear = cambioDeChunk || hayTrabajo;
         if (cambioDeChunk) ultimoChunkJugador = playerChunk;
 
         // ⭐⭐⭐ ESCANEO CIRCULAR: Solo chunks dentro del radio circular

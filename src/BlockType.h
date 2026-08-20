@@ -254,18 +254,31 @@ enum BlockType {
     // ID por variante.
     BLOCK_PEDAZO_PIEDRA,         // 66 Piedras pequeñas del suelo
 
+    // Los demás guijarros. Comparten TODO con el de piedra -- la forma, las
+    // miles de disposiciones, la colisión -- y solo cambia la textura, así
+    // que el mesher los trata igual y no hay geometría duplicada.
+    //
+    // Aparecen con la misma probabilidad entre ellos: cuando el suelo saca
+    // guijarros, cuál toca se decide al azar entre los que encajan con ese
+    // terreno.
+    BLOCK_PEDAZO_GRAVA,          // 67 Grava suelta
+    BLOCK_PEDAZO_PEDERNAL,       // 68 Pedernal (junto a grava y agua)
+    BLOCK_PEDAZO_CALIZA,         // 69 Pedazos de piedra caliza
+    BLOCK_PEDAZO_TIERRA,         // 70 Terrones de tierra suelta
+    BLOCK_PEDAZO_COBRE,          // 71 Cobre crudo del suelo
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 67 Polvo de tierra
-    BLOCK_STICK,            // 68 Palo
-    BLOCK_HOE,              // 69 Hoz
-    BLOCK_COAL_ITEM,        // 70 Carbón (item)
-    BLOCK_RAW_ZINC,         // 71 Zinc crudo
-    BLOCK_RAW_COPPER,       // 72 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 72 Polvo de tierra
+    BLOCK_STICK,            // 73 Palo
+    BLOCK_HOE,              // 74 Hoz
+    BLOCK_COAL_ITEM,        // 75 Carbón (item)
+    BLOCK_RAW_ZINC,         // 76 Zinc crudo
+    BLOCK_RAW_COPPER,       // 77 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -274,20 +287,20 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 73 (sin implementar)
-    BLOCK_BRICKS,           // 74 (sin implementar)
-    BLOCK_GLASS,            // 75 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 76 (retirado del juego)
-    BLOCK_HILO_IXTLE,       // 77 Hilo de ixtle (de piedra + hoja)
-    BLOCK_HACHA_PIEDRA,     // 78 Hacha de piedra (herramienta)
+    BLOCK_IRON_ORE,         // 78 (sin implementar)
+    BLOCK_BRICKS,           // 79 (sin implementar)
+    BLOCK_GLASS,            // 80 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 81 (retirado del juego)
+    BLOCK_HILO_IXTLE,       // 82 Hilo de ixtle (de piedra + hoja)
+    BLOCK_HACHA_PIEDRA,     // 83 Hacha de piedra (herramienta)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 79 (ya no se genera)
+    BLOCK_BEDROCK           // 84 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (los pedazos de piedra).
+// Último bloque COLOCABLE de la lista ordenada (los guijarros de cobre).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_PEDAZO_PIEDRA;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_PEDAZO_COBRE;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {
@@ -304,6 +317,14 @@ inline int grosorRaiz(BlockType t) {
         case BLOCK_RAIZ_ENORME:  return 16;
         default:                 return 0;
     }
+}
+
+// ¿Es un guijarro suelto del suelo, de cualquier material?
+// Todos comparten forma, colisión y generación; solo cambia la textura.
+inline bool esGuijarro(BlockType t) {
+    return t == BLOCK_PEDAZO_PIEDRA || t == BLOCK_PEDAZO_GRAVA ||
+           t == BLOCK_PEDAZO_PEDERNAL || t == BLOCK_PEDAZO_CALIZA ||
+           t == BLOCK_PEDAZO_TIERRA || t == BLOCK_PEDAZO_COBRE;
 }
 
 // ¿Es el cuerpo de una mata de ixtle, de cualquier tamaño?

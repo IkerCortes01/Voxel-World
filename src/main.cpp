@@ -430,7 +430,9 @@ bool isCrossSprite(BlockType type) {
     // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
     return type == BLOCK_TALLGRASS ||
-           esIxtle(type) ||
+           // Del ixtle solo la HOJA y la PUNTA son sprites. El TALLO es el
+           // SUELO de la mata: un bloque macizo con sus seis caras.
+           type == BLOCK_IXTLE_HOJA || type == BLOCK_IXTLE_PUNTA ||
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
            type == BLOCK_NOPAL_MOJADO ||
@@ -469,6 +471,10 @@ bool esSueloParaNopal(BlockType type) {
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
         case BLOCK_NOPAL_CLADODIO:
+        // Ni sobre una planta ya establecida. El TALLO de ixtle es un bloque
+        // de suelo, pero es el suelo DE SU MATA: si contara como terreno
+        // libre, otra planta arraigaria justo encima de una lechuguilla.
+        case BLOCK_IXTLE_TALLO:
         // Ni sobre madera, hojas o construcciones.
         case BLOCK_WOOD:
         case BLOCK_WOOD_ENCINO:
@@ -1349,12 +1355,15 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Una mata de lechuguilla es baja y no llena el voxel. La caja cubre el
     // circulo que abarcan las hojas y llega hasta donde llegan las puntas,
     // de modo que el jugador la selecciona donde la ve.
-    if (esIxtle(type)) {
+    // El TALLO no entra: es un bloque macizo y usa la caja del cubo.
+    if (type == BLOCK_IXTLE_HOJA || type == BLOCK_IXTLE_PUNTA) {
         constexpr float PX = 1.0f / 16.0f;
-        minX = 2.0f * PX;   maxX = 1.0f - 2.0f * PX;
+        // La roseta abarca casi el voxel entero: las hojas son anchas y se
+        // abren hacia fuera, asi que el jugador la selecciona donde la ve.
+        minX = 1.0f * PX;   maxX = 1.0f - 1.0f * PX;
         minY = 0.0f;        maxY = (type == BLOCK_IXTLE_PUNTA)
-                                 ? 7.0f * PX : 10.0f * PX;
-        minZ = 2.0f * PX;   maxZ = 1.0f - 2.0f * PX;
+                                 ? 13.0f * PX : 1.0f;
+        minZ = 1.0f * PX;   maxZ = 1.0f - 1.0f * PX;
         return true;
     }
 
@@ -4853,6 +4862,9 @@ struct Chunk {
 
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
+               // El tallo de ixtle NO: es macizo y corta el sol como
+               // cualquier bloque de suelo.
+               b == BLOCK_IXTLE_HOJA || b == BLOCK_IXTLE_PUNTA ||
                isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
                b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
@@ -8348,22 +8360,29 @@ public:
         unsigned v = (unsigned)(worldX * 6421 + worldZ * 9187 + 7717);
         v ^= v >> 13; v *= 1274126177u; v ^= v >> 16;
 
-        // La mayoria de las matas son de UN bloque (la roseta entera cabe
-        // ahi: 45 cm de alto). Una de cada cuatro es una planta vieja, ya
-        // crecida, y llega a dos.
+        // EL TALLO ES EL SUELO DE LA MATA.
+        // Su textura es opaca al 100%: es un bloque macizo de tierra con
+        // ixtle, no una planta. Sustituye al terreno de debajo, de modo que
+        // la mata se ve arraigada en su propio suelo y no plantada sobre
+        // pasto suelto.
+        setBlock(worldX, baseY - 1, worldZ, BLOCK_IXTLE_TALLO);
+
+        // LA HOJA sube desde ese suelo, y la PUNTA la remata SIEMPRE: la
+        // espina terminal es parte de la hoja, ninguna hoja acaba en seco.
+        //
+        // La mayoria de las matas miden un bloque de hoja (la roseta real
+        // son 30-50 cm). Una de cada cuatro es una planta vieja y crecida,
+        // que estira un bloque mas de hoja antes de rematar.
         const bool alta = ((v >> 5) % 4u) == 0u;
 
         if (alta && getBlock(worldX, baseY + 1, worldZ) == BLOCK_AIR) {
-            // Cogollo abajo, cuerpo en medio y espinas rematando arriba.
-            setBlock(worldX, baseY,     worldZ, BLOCK_IXTLE_TALLO);
+            setBlock(worldX, baseY,     worldZ, BLOCK_IXTLE_HOJA);
             setBlock(worldX, baseY + 1, worldZ, BLOCK_IXTLE_PUNTA);
         } else {
-            // Mata normal: la roseta entera en un bloque. Se alterna entre
-            // el tallo (con cogollo) y la hoja suelta para que el manchon
-            // no salga uniforme.
-            setBlock(worldX, baseY, worldZ,
-                     ((v >> 9) % 3u) == 0u ? BLOCK_IXTLE_HOJA
-                                           : BLOCK_IXTLE_TALLO);
+            // Mata baja: la hoja y su espina caben en el mismo bloque, asi
+            // que se pone directamente la punta, que ya lleva el cuerpo de
+            // la hoja debajo del triangulo en su propia textura.
+            setBlock(worldX, baseY, worldZ, BLOCK_IXTLE_PUNTA);
         }
     }
 
@@ -10079,16 +10098,35 @@ public:
                         // El numero de hojas (11-30 en la planta real) sale
                         // del hash de la posicion, de modo que cada mata es
                         // distinta y siempre la misma al recargar el chunk.
-                        if (esIxtle(block)) {
-                            constexpr float PX = 1.0f / 16.0f;
+                        // ============================================
+                        // IXTLE: LA ROSETA DE LA LECHUGUILLA
+                        // ============================================
+                        // Tres piezas con tres papeles distintos, cada una
+                        // con su textura:
+                        //
+                        //   TALLO   el SUELO de la mata. Es un bloque macizo
+                        //           (su textura es opaca al 100%), no un
+                        //           sprite: de el arranca la planta.
+                        //   HOJA    el cuerpo de la hoja. Crece desde FUERA
+                        //           y se enrolla hacia el centro.
+                        //   PUNTA   el remate en espina. Su textura acaba en
+                        //           triangulo, asi que siempre va arriba del
+                        //           todo, cerrando la hoja.
+                        //
+                        // El TALLO no pasa por aqui: al ser bloque completo
+                        // lo dibuja la pasada normal del mesher, con sus seis
+                        // caras y su greedy meshing.
+                        if (block == BLOCK_IXTLE_HOJA ||
+                            block == BLOCK_IXTLE_PUNTA) {
+                            constexpr float PXL = 1.0f / 16.0f;
+                            constexpr float EPS = 0.0005f;
 
-                            // Semilla estable: la posicion en el mundo.
+                            // Semilla estable por posicion: la misma mata
+                            // sale igual siempre que se recarga el chunk.
                             unsigned hs = (unsigned)((int)wx * 73856093)
                                         ^ (unsigned)((int)wy * 19349663)
                                         ^ (unsigned)((int)wz * 83492791);
                             hs ^= hs >> 13; hs *= 1274126177u; hs ^= hs >> 16;
-                            // Mezcla por atributo: si se usa el mismo hash a
-                            // trozos, los valores salen correlacionados.
                             auto mezcla = [&](unsigned sal) {
                                 unsigned v = hs ^ (sal * 2654435761u);
                                 v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
@@ -10096,127 +10134,105 @@ public:
                                 return v;
                             };
 
-                            // 11 a 26 hojas, como la planta real.
-                            const int nHojas = 11 + (int)(mezcla(1) % 16u);
+                            const bool punta = (block == BLOCK_IXTLE_PUNTA);
 
-                            // La PUNTA es la espina terminal: mas corta y
-                            // mas empinada, es el remate de la hoja. El
-                            // TALLO es el cogollo del centro.
-                            const bool esPunta = (block == BLOCK_IXTLE_PUNTA);
-                            const bool esTallo = (block == BLOCK_IXTLE_TALLO);
+                            // CUANTAS HOJAS.
+                            // Antes se dibujaban 26 hojas de 1 px de ancho: a
+                            // esa escala cada hoja era un hilo y la textura
+                            // no se llegaba a ver, que es lo que hacia que la
+                            // mata se viese pequena y rara. Ahora son POCAS y
+                            // ANCHAS, cada una con su textura entera y
+                            // legible, que es como se ve un agave de verdad.
+                            const int nHojas = 5 + (int)(mezcla(1) % 3u);
 
-                            // Largo de la hoja, con variacion por mata.
-                            const float largo = esPunta
-                                ? (4.0f + (float)(mezcla(2) % 3u)) * PX
-                                : (6.0f + (float)(mezcla(2) % 4u)) * PX;
-                            const float medio = 0.5f;
+                            // Ancha de frente y fina de canto, como la penca
+                            // de un agave.
+                            const float ANCHO = 6.0f * PXL;
+                            const float CANTO = 1.5f * PXL;
 
-                            // Emite un prisma entre dos puntos, con un
-                            // grosor dado. Es lo que dibuja cada hoja.
-                            auto pushCaja = [&](float ax,float ay,float az,
-                                                float bx_,float by_,float bz_){
-                                const float cx[8] = {ax,bx_,bx_,ax,ax,bx_,bx_,ax};
-                                const float cy[8] = {ay,ay,ay,ay,by_,by_,by_,by_};
-                                const float cz[8] = {az,az,bz_,bz_,az,az,bz_,bz_};
-                                // Las seis caras, cada una con la textura
-                                // completa y de frente.
-                                static const int F[6][4] = {
-                                    {4,5,6,7}, {3,2,1,0}, {0,1,5,4},
-                                    {2,3,7,6}, {3,0,4,7}, {1,2,6,5}
-                                };
-                                for (int f = 0; f < 6; ++f) {
-                                    const float UU[4] = { U0, U1, U1, U0 };
-                                    const float VV[4] = { U0, U0, U1, U1 };
-                                    for (int i = 0; i < 4; ++i) {
-                                        const int k = F[f][i];
-                                        verts.push_back(wx + cx[k]);
-                                        verts.push_back(wy + cy[k]);
-                                        verts.push_back(wz + cz[k]);
-                                        cols.push_back(cr); cols.push_back(cg);
-                                        cols.push_back(cb); cols.push_back(ca);
-                                        uvCoords.push_back(UU[i]);
-                                        uvCoords.push_back(VV[i]);
-                                    }
+                            // La hoja llena su bloque; la punta es el remate
+                            // y va algo mas corta.
+                            const float ALTO = punta ? 13.0f * PXL : 1.0f;
+
+                            // Emite un quad de DOS CARAS con la textura
+                            // entera. Cada hoja son dos quads cruzados: se ve
+                            // bien desde cualquier angulo sin gastar seis
+                            // caras por hoja.
+                            auto hoja = [&](float cx, float cz,
+                                            float dx, float dz,
+                                            float y0, float y1,
+                                            float incX, float incZ) {
+                                const float ax = cx - dx, az = cz - dz;
+                                const float bx2 = cx + dx, bz2 = cz + dz;
+                                const float tax = ax + incX, taz = az + incZ;
+                                const float tbx = bx2 + incX, tbz = bz2 + incZ;
+
+                                const float PXs[8] = { ax, bx2, tbx, tax,
+                                                       tax, tbx, bx2, ax };
+                                const float PYs[8] = { y0, y0, y1, y1,
+                                                       y1, y1, y0, y0 };
+                                const float PZs[8] = { az, bz2, tbz, taz,
+                                                       taz, tbz, bz2, az };
+                                // Base de la hoja en V=0 y punta en V=1, la
+                                // misma convencion que las caras laterales
+                                // del cubo. Asi la textura sale derecha y la
+                                // espina de "Puntas de Ixtle" queda ARRIBA.
+                                const float Us[8] = { U0, U1, U1, U0,
+                                                      U0, U1, U1, U0 };
+                                const float Vs[8] = { U0, U0, U1, U1,
+                                                      U1, U1, U0, U0 };
+                                for (int i = 0; i < 8; ++i) {
+                                    verts.push_back(wx + PXs[i]);
+                                    verts.push_back(wy + PYs[i]);
+                                    verts.push_back(wz + PZs[i]);
+                                    cols.push_back(cr); cols.push_back(cg);
+                                    cols.push_back(cb); cols.push_back(ca);
+                                    uvCoords.push_back(Us[i]);
+                                    uvCoords.push_back(Vs[i]);
                                 }
                             };
 
-                            // El COGOLLO: la base carnosa de la que brotan
-                            // todas las hojas. Solo la lleva el tallo.
-                            if (esTallo) {
-                                pushCaja(medio - 2.5f*PX, 0.0f,  medio - 2.5f*PX,
-                                         medio + 2.5f*PX, 3.0f*PX, medio + 2.5f*PX);
-                            }
-
-                            // LAS HOJAS. Se reparten en circulo alrededor
-                            // del centro con un desfase por mata, de modo
-                            // que dos matas vecinas no salen calcadas.
+                            const float c = 0.5f;
                             const float giro0 =
                                 (float)(mezcla(3) % 360u) * 3.14159265f / 180.0f;
 
-                            for (int h = 0; h < nHojas; ++h) {
+                            for (int i = 0; i < nHojas; ++i) {
                                 const float ang = giro0 +
-                                    6.28318531f * (float)h / (float)nHojas;
+                                    6.28318531f * (float)i / (float)nHojas;
+                                const float ca2 = cosf(ang), sa = sinf(ang);
 
-                                // Inclinacion: las hojas de dentro salen
-                                // casi verticales y las de fuera mas
-                                // abiertas, que es la silueta de embudo de
-                                // la lechuguilla. La espina terminal es la
-                                // mas erecta de todas.
-                                unsigned mi = mezcla(100u + (unsigned)h);
-                                const float abre = esPunta
-                                    ? 0.15f + (float)(mi % 20u) * 0.005f
-                                    : 0.35f + (float)(mi % 45u) * 0.010f;
+                                const unsigned mi = mezcla(200u + (unsigned)i);
 
-                                // Punta de la hoja: hacia fuera y hacia
-                                // arriba. El seno/coseno reparten el
-                                // desplazamiento horizontal.
-                                const float dx = cosf(ang) * largo * abre;
-                                const float dz = sinf(ang) * largo * abre;
-                                const float dy = largo;
+                                // CUANTO SE ABRE.
+                                // La hoja nace ENROLLADA en el centro y se va
+                                // abriendo hacia fuera segun sube: la base
+                                // pegada al eje y la punta separada. Ese es
+                                // el porte del agave.
+                                const float abre = punta
+                                    ? (1.0f + (float)(mi % 3u)) * PXL
+                                    : (2.5f + (float)(mi % 4u)) * PXL;
 
-                                // Grosor: 1 px, que es lo que mide una hoja
-                                // de lechuguilla a esta escala.
-                                const float G = 0.5f * PX;
+                                // Arranque, casi en el centro: la parte
+                                // enrollada de la que habla el diseno.
+                                const float bx0 = c + ca2 * 1.0f * PXL;
+                                const float bz0 = c + sa * 1.0f * PXL;
 
-                                // La hoja se dibuja como una escalera de
-                                // tramos rectos: asi se ve el arco de la
-                                // hoja sin necesidad de rotar vertices.
-                                constexpr int TRAMOS = 3;
-                                float px0 = medio, py0 = esTallo ? 2.0f*PX : 0.0f,
-                                      pz0 = medio;
-                                for (int t = 1; t <= TRAMOS; ++t) {
-                                    const float f = (float)t / (float)TRAMOS;
-                                    // La hoja sube deprisa al principio y se
-                                    // abre al final: se curva hacia fuera.
-                                    const float px1 = medio + dx * f * f;
-                                    const float py1 = py0 + dy / (float)TRAMOS;
-                                    const float pz1 = medio + dz * f * f;
+                                // Media anchura, perpendicular a la
+                                // direccion de la hoja: la cara ancha mira
+                                // hacia fuera de la roseta.
+                                const float pxw = -sa * ANCHO * 0.5f;
+                                const float pzw =  ca2 * ANCHO * 0.5f;
 
-                                    // min/max propios: en Windows.h min y
-                                    // max son MACROS y rompen std::min.
-                                    auto mn = [](float u, float w) {
-                                        return u < w ? u : w; };
-                                    auto mx = [](float u, float w) {
-                                        return u > w ? u : w; };
+                                const float y0 = EPS;
+                                const float y1 = ALTO - EPS;
 
-                                    const float ax  = mn(px0, px1) - G;
-                                    const float bx_ = mx(px0, px1) + G;
-                                    const float az  = mn(pz0, pz1) - G;
-                                    const float bz_ = mx(pz0, pz1) + G;
-
-                                    // Sin salirse del voxel: una hoja que
-                                    // asoma al bloque vecino se veria
-                                    // flotando dentro de el.
-                                    pushCaja(mx(0.0f, ax),
-                                             py0,
-                                             mx(0.0f, az),
-                                             mn(1.0f, bx_),
-                                             mn(1.0f, py1),
-                                             mn(1.0f, bz_));
-
-                                    px0 = px1; py0 = py1; pz0 = pz1;
-                                    if (py0 >= 1.0f) break;
-                                }
+                                // Cara ancha.
+                                hoja(bx0, bz0, pxw, pzw, y0, y1,
+                                     ca2 * abre, sa * abre);
+                                // Y su canto, cruzado: da volumen y hace que
+                                // la hoja se vea desde cualquier lado.
+                                hoja(bx0, bz0, ca2 * CANTO, sa * CANTO,
+                                     y0, y1, ca2 * abre, sa * abre);
                             }
 
                             continue;   // no emitir las caras del cubo
@@ -15723,6 +15739,35 @@ void placeBlock(GameState* state) {
 
         if (!intersects) {
             BlockType blockToPlace = state->inventory.getSelectedBlock();
+
+            // ================================================================
+            // LA PUNTA DE IXTLE, UNA VEZ ROTA, NO SE VUELVE A CONECTAR
+            // ================================================================
+            // La punta es la espina terminal de la hoja: crece SIENDO parte de
+            // ella. Al arrancarla se lleva su union, asi que ya no puede
+            // volver a rematar una hoja: se coloca suelta, como cualquier
+            // objeto, pero nunca vuelve a formar planta.
+            //
+            // Se traduce en una regla simple: la punta que el JUGADOR coloca
+            // no puede ir pegada a un ixtle. Las que crecen en el mundo no
+            // pasan por aqui -- las siembra la generacion -- asi que las matas
+            // naturales conservan sus espinas.
+            if (blockToPlace == BLOCK_IXTLE_PUNTA) {
+                static const int LADOS[6][3] = {
+                    { 1,0,0}, {-1,0,0}, {0, 1,0},
+                    { 0,-1,0}, {0,0,1}, {0,0,-1}
+                };
+                for (int i = 0; i < 6; ++i) {
+                    const BlockType vecino = state->world.getBlock(
+                        placePos.x + LADOS[i][0],
+                        placePos.y + LADOS[i][1],
+                        placePos.z + LADOS[i][2]);
+                    if (esIxtle(vecino)) {
+                        // Se queda rota: no se coloca.
+                        return;
+                    }
+                }
+            }
 
             // ================================================================
             // UNA PENCA EN EL AGUA SE LAVA AL INSTANTE

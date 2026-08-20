@@ -366,6 +366,7 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_RAIZ_MEDIANA:
         case BLOCK_RAIZ_GRANDE:
         case BLOCK_RAIZ_ENORME: r = 0.28f; g = 0.19f; b = 0.10f; break; // Raiz
+        case BLOCK_NOPAL_MOJADO: r = 0.24f; g = 0.55f; b = 0.22f; break; // Mojado
         case BLOCK_TUNA:      r = 0.42f; g = 0.66f; b = 0.30f; break; // Tuna verde
         case BLOCK_TUNA_AMARILLA: r = 0.93f; g = 0.74f; b = 0.19f; break;
         case BLOCK_TUNA_ROJA: r = 0.78f; g = 0.20f; b = 0.20f; break;
@@ -403,7 +404,8 @@ bool isNopal(BlockType type) {
            type == BLOCK_NOPAL_BASE_A_ARCILLA ||
            type == BLOCK_NOPAL_TALLO ||
            esCladodio(type) ||
-           type == BLOCK_NOPAL_FRUTO;
+           type == BLOCK_NOPAL_FRUTO ||
+           type == BLOCK_NOPAL_MOJADO;
 }
 
 // Las BASES y el TALLO son bloques COMPLETOS (solidos, con sus seis caras).
@@ -424,6 +426,7 @@ bool isCrossSprite(BlockType type) {
     return type == BLOCK_TALLGRASS ||
            esCladodio(type) ||
            type == BLOCK_NOPAL_FRUTO ||
+           type == BLOCK_NOPAL_MOJADO ||
            esTuna(type);
 }
 
@@ -892,7 +895,8 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // El cladodio de la MATA conserva las suyas (8 de ancho, 7 de grosor):
     // no es una penca sola sino un grupo apretado de varias.
     const int nPencas = pencasApiladas(f.tipo);
-    const bool esPencaSuelta = (f.tipo == BLOCK_NOPAL_FRUTO);
+    const bool esPencaSuelta = (f.tipo == BLOCK_NOPAL_FRUTO ||
+                                f.tipo == BLOCK_NOPAL_MOJADO);
 
     constexpr float PENCA_LARGO  = 15.00f / 16.0f;
     constexpr float PENCA_ANCHO2 =  8.00f / 16.0f;
@@ -1313,7 +1317,8 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         return true;
     }
 
-    if (!esCladodio(type) && type != BLOCK_NOPAL_FRUTO) return false;
+    if (!esCladodio(type) && type != BLOCK_NOPAL_FRUTO &&
+        type != BLOCK_NOPAL_MOJADO) return false;
 
     const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz, type);
 
@@ -1392,6 +1397,7 @@ bool isBlockOpaque(BlockType type) {
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
     if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
+        type == BLOCK_NOPAL_MOJADO ||
         esTuna(type)) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
@@ -1417,6 +1423,9 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_NOPAL_CLADODIO_Z2:
         case BLOCK_NOPAL_CLADODIO_Z3:
         case BLOCK_NOPAL_CLADODIO_DIAG: return 3.0f;
+        // El nopal MOJADO ya esta limpio y blando: 1.5 s, la mitad que una
+        // penca con espinas (3 s).
+        case BLOCK_NOPAL_MOJADO: return 1.5f;
         // La tuna se arranca de un tiron: es fruta, no carne de penca.
         case BLOCK_TUNA:
         case BLOCK_TUNA_AMARILLA:
@@ -4187,6 +4196,11 @@ public:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Penca de Nopal de Castilla.png"));
 
+            // Nopal ya lavado y desespinado.
+            case BLOCK_NOPAL_MOJADO:
+                return loadTextureFromPath(gamePath(
+                    "resourcepacks/Textures/Items/Nopal mojado sin espinas.png"));
+
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
             // inventario y el item en el suelo. Se usa la verde tierna.
@@ -4756,7 +4770,7 @@ struct Chunk {
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
                isRama(b) ||
                esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
-               esTuna(b);
+               b == BLOCK_NOPAL_MOJADO || esTuna(b);
     }
 
     // ========================================================================
@@ -4837,7 +4851,8 @@ struct Chunk {
         // Cladodio y fruto: losas de 5/16 de grosor. Tapan mas que una rama
         // pero mucho menos que un cubo, asi que atenuan 2: se nota una sombra
         // suave bajo la penca sin que llegue a oscurecerla.
-        if (esCladodio(b) || b == BLOCK_NOPAL_FRUTO) return 2;
+        if (esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
+            b == BLOCK_NOPAL_MOJADO) return 2;
 
         // La TUNA es un bulto de 4x4 pixeles: ocupa aun menos que la penca,
         // asi que la luz la rodea igual que a una rama.
@@ -9758,6 +9773,7 @@ public:
 
                         if (esCladodio(block) ||
                             block == BLOCK_NOPAL_FRUTO ||
+                            block == BLOCK_NOPAL_MOJADO ||
                             esTuna(block)) {
                             // ============================================
                             // CLADODIO Y FRUTO: CAJA ADAPTATIVA
@@ -15151,6 +15167,37 @@ void placeBlock(GameState* state) {
 
         if (!intersects) {
             BlockType blockToPlace = state->inventory.getSelectedBlock();
+
+            // ================================================================
+            // UNA PENCA EN EL AGUA SE LAVA AL INSTANTE
+            // ================================================================
+            // Meter un nopal en agua le quita las espinas: es lo que se hace
+            // en la cocina antes de comerlo. Aqui la penca se convierte en el
+            // acto en NOPAL MOJADO, que ya viene limpio y se rompe en 1.5 s en
+            // vez de 3.
+            //
+            // Cuenta como agua tanto el hueco donde se coloca (si estaba
+            // inundado) como cualquiera de sus seis caras: basta con que la
+            // penca toque el agua para que se moje.
+            if (blockToPlace == BLOCK_NOPAL_FRUTO) {
+                bool enAgua = state->world.getBlock(
+                    placePos.x, placePos.y, placePos.z) == BLOCK_WATER;
+                if (!enAgua) {
+                    static const int LADOS[6][3] = {
+                        { 1,0,0}, {-1,0,0}, {0, 1,0},
+                        { 0,-1,0}, {0,0,1}, {0,0,-1}
+                    };
+                    for (int i = 0; i < 6 && !enAgua; ++i) {
+                        if (state->world.getBlock(
+                                placePos.x + LADOS[i][0],
+                                placePos.y + LADOS[i][1],
+                                placePos.z + LADOS[i][2]) == BLOCK_WATER)
+                            enAgua = true;
+                    }
+                }
+                if (enAgua) blockToPlace = BLOCK_NOPAL_MOJADO;
+            }
+
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
             state->inventory.consumeSelected();
             state->placeCooldown = 0.25f;  // 250ms cooldown

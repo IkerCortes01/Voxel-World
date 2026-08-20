@@ -169,18 +169,28 @@ enum BlockType {
     BLOCK_RAIZ_GRANDE,           // 50 Raiz de 12x12
     BLOCK_RAIZ_ENORME,           // 51 Raiz de 16x16
 
+    // ------------------------------------------------------------------
+    // NOPAL MOJADO
+    // ------------------------------------------------------------------
+    // Una penca metida en agua pierde las espinas al instante y se
+    // convierte en esto. Es el nopal ya limpio, listo para comer, que es lo
+    // que se hace en la cocina mexicana: se lavan y se desespinan.
+    //
+    // Se rompe en 1.5 s, mucho mas rapido que la penca con espinas.
+    BLOCK_NOPAL_MOJADO,          // 52 Nopal mojado, sin espinas
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 52 Polvo de tierra
-    BLOCK_STICK,            // 53 Palo
-    BLOCK_HOE,              // 54 Hoz
-    BLOCK_COAL_ITEM,        // 55 Carbón (item)
-    BLOCK_RAW_ZINC,         // 56 Zinc crudo
-    BLOCK_RAW_COPPER,       // 57 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 53 Polvo de tierra
+    BLOCK_STICK,            // 54 Palo
+    BLOCK_HOE,              // 55 Hoz
+    BLOCK_COAL_ITEM,        // 56 Carbón (item)
+    BLOCK_RAW_ZINC,         // 57 Zinc crudo
+    BLOCK_RAW_COPPER,       // 58 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -189,18 +199,18 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 58 (sin implementar)
-    BLOCK_BRICKS,           // 59 (sin implementar)
-    BLOCK_GLASS,            // 60 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 61 (retirado del juego)
+    BLOCK_IRON_ORE,         // 59 (sin implementar)
+    BLOCK_BRICKS,           // 60 (sin implementar)
+    BLOCK_GLASS,            // 61 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 62 (retirado del juego)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 62 (ya no se genera)
+    BLOCK_BEDROCK           // 63 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (la raíz enorme).
+// Último bloque COLOCABLE de la lista ordenada (el nopal mojado).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_RAIZ_ENORME;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_NOPAL_MOJADO;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {

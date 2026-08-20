@@ -1,0 +1,319 @@
+{
+  "_meta": {
+    "titulo": "Olmecas — astronomía, calendario, escritura y numeración",
+    "proyecto": "Voxel World",
+    "fecha_compilacion": "2026-08-20",
+    "idioma": "es",
+    "advertencia_critica": "Las inscripciones calendáricas y los textos escritos más antiguos de la región son EPI-OLMECAS: posteriores al abandono de La Venta (400 a.C.). Atribuir a los olmecas la Cuenta Larga, el cero o la escritura plena es un error cronológico frecuente en la divulgación.",
+    "novedad_2023": "El estudio de Šprajc, Inomata y Aveni en Science Advances (2023) es el hallazgo más importante de la última década: adelanta VARIOS SIGLOS la evidencia del uso del calendario de 260 días, situándola en complejos construidos entre 1100 y 750 a.C. Eso SÍ es contemporáneo de los olmecas."
+  },
+
+  "astronomia_olmeca": {
+    "evidencia_directa_disponible": "Orientaciones arquitectónicas medibles. No hay instrumentos conservados ni inscripciones astronómicas olmecas.",
+    "orientaciones": [
+      {
+        "sitio": "La Venta",
+        "medida": "Aproximadamente 8° al oeste del norte verdadero",
+        "alcance": "Eje largo del sitio; el Complejo A se dispone con simetría bilateral este-oeste respecto a él",
+        "persistencia": "Mantenida a lo largo de 4 fases constructivas y varios siglos",
+        "implicacion": "No es casual ni impuesta por el terreno: es una decisión sostenida",
+        "fiabilidad": "CONSENSO"
+      },
+      {
+        "sitio": "Aguada Fénix",
+        "medida": "Línea central apuntando a las salidas del sol del 17 de octubre y el 24 de febrero",
+        "significado": "Esas dos fechas están separadas por exactamente 130 días: LA MITAD DEL CICLO DE 260",
+        "fiabilidad": "CONSENSO (Šprajc et al. 2023)"
+      },
+      {
+        "sitio": "Complejos MFU en general",
+        "medida": "Orientaciones correspondientes a 40, 60, 80 o 100 días antes del paso cenital (10 de mayo)",
+        "significado": "Es decir, MÚLTIPLOS DE 20 DÍAS, la unidad del calendario mesoamericano",
+        "fiabilidad": "CONSENSO (Inomata et al. 2021; Šprajc et al. 2023)"
+      }
+    ],
+    "el_estudio_decisivo": {
+      "referencia": "Šprajc, I., Inomata, T. y Aveni, A. (2023), 'Origins of Mesoamerican astronomy and calendar: Evidence from the Olmec and Maya regions', Science Advances 9(1):eabq7675, 6 de enero de 2023",
+      "metodo": "LiDAR aerotransportado sobre 415 complejos ceremoniales de la costa sur del Golfo y Chiapas, ~1100 a.C.-250 d.C.",
+      "hallazgos": [
+        "La mayoría están orientados sobre un eje aproximado este-oeste correspondiente a salidas del sol en fechas específicas del ciclo de 260 días",
+        "Las salidas y puestas registradas están típicamente separadas por múltiplos de 13 o 20 días",
+        "Las orientaciones de complejos construidos entre 1100 y 750 a.C. constituyen LA EVIDENCIA MÁS TEMPRANA CONOCIDA del uso del calendario de 260 días"
+      ],
+      "importancia": "Adelanta varios siglos la cronología del conocimiento calendárico mesoamericano respecto a San José Mogote (~600 a.C.). Esa ventana SÍ es contemporánea de los olmecas.",
+      "concepto_clave": "Calendarios de horizonte: sistemas prácticos de observación solar que anclaban el ciclo ritual a eventos observables y servían para programar la agricultura",
+      "estado": "Publicado en revista de alto impacto con revisión rigurosa; aún en proceso de asimilación por la comunidad",
+      "trabajo_complementario": "Šprajc (2023), PNAS 120(15):e2221519120, sobre la Cuenca de México. Generó un intercambio ('Reply to Šprajc') sobre si las orientaciones respondían primariamente a fines calendárico-rituales o a necesidades agrícolas prácticas."
+    },
+    "interpretaciones_de_la_orientacion_de_la_venta": [
+      { "hipotesis": "Alineación a Polaris / norte verdadero", "estado": "Interpretación tradicional, hoy vista como DÉBIL porque 8° no es norte verdadero", "fiabilidad": "DEBATIDO, en desuso" },
+      { "hipotesis": "Alineación solar (puesta del 28 de febrero)", "fiabilidad": "NO VERIFICADO en fuente académica primaria" },
+      { "hipotesis": "Paso cenital y fechas a múltiplos de 20 días de él", "autor": "Šprajc et al.", "fiabilidad": "PROBABLE — la línea más sólida" },
+      { "hipotesis": "Alineación a una montaña a 11° al oeste del norte", "fiabilidad": "NO VERIFICADO en fuente académica primaria" },
+      { "hipotesis": "Conocimiento del magnetismo (artefacto de hematita M-160)", "autor": "John B. Carlson", "fiabilidad": "ESPECULATIVO" }
+    ],
+    "fenomenos_probablemente_observados": [
+      { "fenomeno": "Pasos cenitales", "descripcion": "En latitud tropical (~18°N) el sol pasa por el cenit dos días al año y los objetos verticales no proyectan sombra. Espectacular, observable sin instrumentos, marca fechas fijas. El paso cenital del 10 de mayo es el referente de las orientaciones documentadas.", "fiabilidad": "PROBABLE-CONSENSO" },
+      { "fenomeno": "Solsticios", "descripcion": "Extremos del recorrido anual del punto de salida del sol", "fiabilidad": "PROBABLE" },
+      { "fenomeno": "Equinoccios", "fiabilidad": "PROBABLE" },
+      { "fenomeno": "Ciclo de Venus", "descripcion": "Ciclo sinódico de 584 días, seguible a simple vista. Šprajc ha señalado la importancia de los extremos norte de Venus vespertino, que anuncian el inicio de la temporada de lluvias y del ciclo agrícola.", "fiabilidad": "PROBABLE" },
+      { "fenomeno": "Ciclo lunar", "descripcion": "29,5 días; base natural de cualquier cómputo mensual", "fiabilidad": "PROBABLE" },
+      { "fenomeno": "Salida helíaca de las Pléyades", "descripcion": "Marcador estacional en muchas culturas agrícolas", "fiabilidad": "ESPECULATIVO" }
+    ],
+    "instrumentos": {
+      "conservados": "Ninguno",
+      "metodo_probable": "Observación de horizonte: marcar el punto de salida del sol contra un accidente del terreno o un poste, y registrar el ciclo. LOS PROPIOS EDIFICIOS FUNCIONAN COMO INSTRUMENTO.",
+      "fiabilidad": "PROBABLE"
+    },
+    "conclusion_para_diseno": "La astronomía olmeca era AGRÍCOLA antes que nada: se miraba el cielo para saber cuándo sembrar. Los edificios son el instrumento, y las fechas marcadas son múltiplos de 20 días respecto al paso cenital."
+  },
+
+  "calendarios_mesoamericanos": {
+    "nota": "Su documentación EPIGRÁFICA es posterior a los olmecas, pero las orientaciones arquitectónicas sugieren uso del ciclo de 260 días ya desde 1100 a.C.",
+    "ciclos": [
+      {
+        "nombre": "Ciclo de 260 días",
+        "nombres_posteriores": { "maya": "tzolk'in", "nahuatl": "tonalpohualli", "zapoteco": "pije" },
+        "estructura": "13 números x 20 signos de día = 260",
+        "funcion": "Ritual y adivinatorio",
+        "antiguedad_relativa": "Probablemente el más antiguo de Mesoamérica",
+        "primera_evidencia_glifica": {
+          "monumento": "Monumento 3 de San José Mogote, Oaxaca",
+          "fecha": "~600-500 a.C. (final de la fase Rosario)",
+          "descripcion": "Cuerpo extendido de un cautivo sacrificado con el glifo '1 Temblor' entre las piernas"
+        },
+        "primera_evidencia_por_orientaciones": "Complejos de 1100-750 a.C. (Šprajc et al. 2023), varios siglos anterior",
+        "hipotesis_del_origen_del_numero": [
+          { "hipotesis": "Paso cenital solar en latitud 15°N", "autor": "Vincent Malmstrom", "detalle": "En la región de Izapa y el altiplano guatemalteco, ~15°N, el sol pasa por el cenit el 29 de abril y el 13 de agosto: intervalo de EXACTAMENTE 260 días" },
+          { "hipotesis": "Gestación humana", "detalle": "~260 días entre la falta de la primera menstruación y el parto" },
+          { "hipotesis": "Venus", "autor": "Anthony Aveni", "detalle": "~263 días de intervalo promedio entre apariciones como estrella matutina/vespertina; el periodo sinódico completo (584 días) = 8 x 73" },
+          { "hipotesis": "Calendario de horizonte", "autor": "Šprajc et al. 2023", "detalle": "Producto práctico de observar salidas y puestas del sol en fechas separadas por múltiplos de 13 y 20 días" }
+        ],
+        "estado_del_origen": "DEBATIDO — ninguna descartada, no mutuamente excluyentes"
+      },
+      {
+        "nombre": "Ciclo de 365 días",
+        "nombres_posteriores": { "maya": "haab'", "nahuatl": "xiuhpohualli" },
+        "estructura": "18 meses de 20 días = 360, más 5 días adicionales considerados aciagos (wayeb' / nemontemi)",
+        "funcion": "Agrícola y civil",
+        "nota": "Sin año bisiesto: no computaba el año trópico (365,2422 d), por lo que se desfasaba respecto a las estaciones. Lo sabían y lo asumían."
+      },
+      {
+        "nombre": "Rueda calendárica",
+        "estructura": "Engranaje de los ciclos de 260 y 365 días. 260 x 73 = 365 x 52",
+        "periodo_dias": 18980,
+        "periodo_anos": 52,
+        "funcion": "Unidad fundamental de tiempo largo en toda Mesoamérica",
+        "celebracion_posterior": "Entre los mexicas, su cierre se celebraba con la ceremonia del Fuego Nuevo (Toxiuhmolpilia)"
+      }
+    ],
+    "cuenta_larga": {
+      "descripcion": "Cómputo absoluto de días transcurridos desde una fecha de origen mítica",
+      "fecha_origen_correlacionada": "11 de agosto de 3114 a.C. (gregoriano proléptico, correlación GMT)",
+      "unidades": [
+        { "nombre": "k'in", "dias": 1 },
+        { "nombre": "winal", "equivale": "20 k'in", "dias": 20 },
+        { "nombre": "tun", "equivale": "18 winal", "dias": 360 },
+        { "nombre": "k'atun", "equivale": "20 tun", "dias": 7200, "anos_aprox": 19.7 },
+        { "nombre": "b'ak'tun", "equivale": "20 k'atun", "dias": 144000, "anos_aprox": 394 }
+      ],
+      "caracteristicas": "Sistema posicional de base 20, con la irregularidad del tun (18 en vez de 20). REQUIERE un cero posicional para funcionar.",
+      "inscripciones_mas_antiguas": [
+        { "monumento": "Estela 2 de Chiapa de Corzo", "estado": "Chiapas", "cuenta_larga": "7.16.3.2.13", "fecha": "diciembre de 36 a.C.", "estilo": "epi-olmeca", "nota": "La más antigua conocida. Los dígitos de baktún y katún están RECONSTRUIDOS por fragmentación." },
+        { "monumento": "Estela C de Tres Zapotes", "estado": "Veracruz", "cuenta_larga": "7.16.6.16.18", "fecha": "32 a.C.", "estilo": "epi-olmeca", "historia": "Matthew Stirling halló el fragmento inferior en 1939, sin el dígito del baktún. Marion Stirling sostuvo que debía ser un '7'. El fragmento superior apareció en 1969, CONFIRMANDO el '7'. Una predicción arqueológica correcta verificada 30 años después." },
+        { "monumento": "Estela 1 de El Baúl", "pais": "Guatemala", "cuenta_larga": "7.19.15.7.12", "fecha": "37 d.C.", "estilo": "izapano/epi-olmeca" },
+        { "monumento": "Estela 1 de La Mojarra", "estado": "Veracruz", "cuenta_larga": "8.5.3.3.5 / 8.5.16.9.7", "fecha": "143 y 156 d.C.", "estilo": "epi-olmeca", "nota": "Separadas por 13 años, 6 meses y 2 días" },
+        { "monumento": "Estatuilla de Tuxtla", "estado": "Veracruz", "cuenta_larga": "8.6.2.4.17", "fecha": "marzo de 162 d.C.", "estilo": "epi-olmeca", "nota": "Era la más antigua conocida cuando se halló, en 1902" }
+      ],
+      "comparacion_maya": {
+        "fecha_maya_mas_antigua_indiscutible": "Estela 29 de Tikal, 292 d.C.",
+        "diferencia": "Casi TRES SIGLOS posterior a Chiapa de Corzo",
+        "conclusion": "Los mayas fueron RECEPTORES Y PERFECCIONADORES, no inventores"
+      },
+      "quien_la_invento": {
+        "consenso": "Los cinco monumentos más tempranos son todos de estilo epi-olmeca/istmeño, no maya. La Cuenta Larga es anterior a los mayas y de origen istmeño.",
+        "matiz_critico": "Estas fechas son POSTERIORES al colapso de La Venta (~400 a.C.). Estrictamente, la Cuenta Larga es obra de culturas EPI-OLMECAS. Atribuirla 'a los olmecas' sin más es incorrecto.",
+        "hipotesis_zoque": "Dado que Chiapa de Corzo está en territorio históricamente zoque y que la lengua de La Mojarra sería proto-zoqueano temprano, un sector importante (incluido Roberto Zavala Maldonado, CIESAS-Sureste) sostiene que fueron hablantes de lenguas mixe-zoques quienes inventaron calendario y escritura.",
+        "fiabilidad": "PROBABLE-CONSENSO en el origen istmeño; DEBATIDO en la atribución étnica precisa"
+      },
+      "sobre_2012": {
+        "afirmacion_popular": "Los olmecas predijeron el fin del mundo en 2012",
+        "realidad": "El final del 13º b'ak'tun (21 dic 2012) marcaba el cierre de un ciclo calendárico, no del mundo, como un cuentakilómetros que vuelve a cero. No existe profecía olmeca al respecto, entre otras cosas porque la Cuenta Larga es posterior a ellos.",
+        "fiabilidad": "RECHAZADO"
+      }
+    }
+  },
+
+  "escritura": {
+    "bloque_de_cascajal": {
+      "estado_de_la_cuestion": "El candidato a escritura olmeca más antiguo, y el objeto más disputado del campo",
+      "material": "Serpentinita",
+      "medidas_cm": { "largo": 36, "ancho": 21, "grosor": 13 },
+      "peso_kg": 11.5,
+      "numero_de_signos": 62,
+      "signos_distintos_aprox": 28,
+      "descripcion_de_los_signos": "Formas que evocan maíz, piña, insectos y peces, junto a cajas y manchas abstractas. Dispuestos en filas HORIZONTALES.",
+      "hallazgo": "Finales de los años 90, por trabajadores de una carretera, en escombros de bulldozer cerca de Lomas de Tacamichapan, Veracruz",
+      "registrado_por": ["Carmen Rodríguez", "Ponciano Ortiz"],
+      "publicacion": {
+        "titulo": "Oldest Writing in the New World",
+        "revista": "Science 313:1610-1614",
+        "fecha": "15 de septiembre de 2006",
+        "autores": ["María del Carmen Rodríguez Martínez", "Ponciano Ortiz Ceballos", "Michael D. Coe", "Richard A. Diehl", "Stephen D. Houston", "Karl A. Taube", "Alfredo Delgado Calderón"]
+      },
+      "fechamiento": "Fase San Lorenzo (final ~900 a.C.), por ASOCIACIÓN CERÁMICA y figurillas, no por contexto estratigráfico sellado",
+      "significado_si_es_autentico": "El sistema de escritura más antiguo de América, unos 400 años anterior a la escritura zapoteca",
+      "argumentos_a_favor": [
+        "Houston: 'la secuenciación lineal, la regularidad de los signos, los patrones claros de ordenamiento, me dicen que esto es escritura'",
+        "Saturno: 'texto legítimo y completo, símbolos escritos ocupando el lugar de palabras habladas'",
+        "Secuencias de signos que se repiten, patrón característico de escritura",
+        "Ciertas irregularidades en patrones de co-ocurrencia son consistentes con prácticas ortográficas de escrituras logosilábicas"
+      ],
+      "las_cinco_objeciones_de_bruhns_y_kelker": {
+        "publicacion": "Science, 9 de marzo de 2007",
+        "objeciones": [
+          "Hallado en escombros de bulldozer: su antigüedad no puede establecerse con seguridad",
+          "Completamente único: no existe ninguna otra inscripción olmeca comparable en serpentina",
+          "La disposición de glifos no es ni vertical ni lineal, sino agrupada aparentemente al azar, a diferencia de TODOS los demás sistemas mesoamericanos",
+          "Los símbolos aparecen en otros artefactos olmecas como MOTIVOS DECORATIVOS, nunca antes identificados como escritura",
+          "Un glifo (#1/23/50) no encaja en ninguna categoría mesoamericana conocida, sugiriendo incluso una 'broma'"
+        ],
+        "replica_de_los_autores": "Rebatieron punto por punto, señalando que la propia Piedra de Rosetta tiene una procedencia problemática"
+      },
+      "otros_escepticos": [
+        { "autor": "David Grove", "objecion": "La disposición horizontal es sospechosa" },
+        { "autor": "Christopher Pool", "objecion": "Unicidad y falta de contexto" },
+        { "autor": "Max Schvoerer", "objecion": "'Los autores determinaron la edad del bloque solo indirectamente, estudiando tiestos cerámicos hallados en el sitio, en ausencia de un nivel de ocupación bien identificado y fechado'" }
+      ],
+      "la_defensa_arqueometrica_de_2019": {
+        "referencia": "Englehardt, Insaurralde Caballero, Melgar Tísoc et al., Ancient Mesoamerica",
+        "metodos_y_resultados": [
+          { "metodo": "Mapeo de textura polinomial (PTM/RTI)", "resultado": "Reveló marcas adicionales, patrones de desgaste asimétrico, y reidentificó glifos como motivos 'knuckleduster' y 'antorcha'" },
+          { "metodo": "Fluorescencia de rayos X (XRF)", "resultado": "Serpentina probablemente de Tehuitzingo, Puebla. Documentó pátina empobrecida en silicio y magnesio consistente con intemperismo antiguo, que requiere AL MENOS 1.000 AÑOS de disolución. Firmas químicas coincidentes con las condiciones del suelo del sureste de Veracruz." },
+          { "metodo": "SEM sobre réplicas poliméricas", "resultado": "Trazas de incisión de 0,6-1,3 micras compatibles con herramienta de OBSIDIANA y abrasión con ARENISCA, técnicas de la lapidaria olmeca del Formativo Medio. NO métodos modernos." }
+        ],
+        "conclusion_de_los_autores": "'En términos de símbolos, material y manufactura, el Bloque de Cascajal se conforma a otros objetos olmecas del periodo Formativo'"
+      },
+      "interpretacion_alternativa": {
+        "autores": ["David Freidel", "F. Kent Reilly III"],
+        "ano": 2010,
+        "propuesta": "No sería texto fonético sino la representación de tres bultos sagrados dispuestos para adivinación ritual: un inventario simbólico, no un enunciado lingüístico"
+      },
+      "balance_honesto": {
+        "resuelto": "La AUTENTICIDAD del objeto como pieza prehispánica genuina está hoy razonablemente bien sustentada por la arqueometría de 2019",
+        "sin_resolver": [
+          "Si constituye ESCRITURA VERDADERA (glotografía que registra lengua) o un sistema iconográfico/mnemónico",
+          "Su datación precisa, que sigue dependiendo de asociación cerámica sin contexto sellado",
+          "La crítica de la disposición no-lineal de los signos NO ha sido respondida de forma concluyente"
+        ],
+        "fiabilidad": "DEBATIDO"
+      },
+      "sobre_desciframientos": {
+        "afirmacion_popular": "El Bloque de Cascajal está descifrado",
+        "realidad": "Circulan traducciones por internet; ninguna es aceptada. Con un único texto de 62 signos, sin bilingüe y sin lengua conocida, el desciframiento es técnicamente imposible.",
+        "fiabilidad": "RECHAZADO"
+      }
+    },
+
+    "sello_de_san_andres": {
+      "tipo": "Sello cilíndrico de cerámica, más fragmentos de una placa de piedra verde con tres glifos",
+      "sitio": "San Andrés, Tabasco (cerca de La Venta)",
+      "fecha": "~650 a.C.",
+      "excavadores": ["Mary Pohl", "Kevin Pope", "Christopher von Nagy"],
+      "publicacion": "Science (2002)",
+      "propuesta": "Incluyen motivos que recuerdan el signo maya posterior 'ajaw' ('señor', 'rey'), posiblemente denotando el nombre o título de un gobernante. Se ha propuesto la lectura 'Rey 3 Ajaw', con el sello usado para imprimir en tela.",
+      "ventaja_sobre_cascajal": "Procede de EXCAVACIÓN CONTROLADA, por lo que es menos disputado en autenticidad",
+      "limitacion": "El corpus es minúsculo y la lectura glífica es propuesta, no demostrada",
+      "fiabilidad": "DEBATIDO"
+    },
+
+    "escritura_epi_olmeca": {
+      "otros_nombres": ["escritura istmeña", "isthmian script"],
+      "estado": "Sistema de escritura completo, sin duda. Logosilábico, emparentado estructuralmente con el maya",
+      "periodo": "~500 a.C.-500 d.C.",
+      "corpus": [
+        { "nombre": "Estela 1 de La Mojarra", "descubrimiento": "1986, en el río Acula, Veracruz", "material": "Losa de caliza ~1,4 x 2 m", "extension": "~535 glifos; el texto más largo", "fechas": "143 y 156 d.C." },
+        { "nombre": "Estatuilla de Tuxtla", "material": "Nefrita; figura con atuendo de pato", "descubrimiento": "Hallada arando en 1902 cerca de San Andrés Tuxtla", "fecha": "162 d.C." },
+        { "nombre": "Estela C de Tres Zapotes", "fecha": "32 a.C." },
+        { "nombre": "Máscara estilo teotihuacano ('máscara O'Boyle')", "extension": "~23 glifos", "advertencia": "PROCEDENCIA DESCONOCIDA, colección privada" },
+        { "nombre": "Tiesto de Chiapa de Corzo", "fecha": "450-300 a.C.", "nota": "El artefacto istmeño más antiguo conocido" },
+        { "nombre": "Estelas de Cerro de las Mesas", "estado": "Muy erosionadas" }
+      ],
+      "desciframiento": {
+        "autores": ["John Justeson", "Terrence Kaufman"],
+        "publicaciones": [
+          "Science 259:1703-1711 (1993), 'A Decipherment of Epi-Olmec Hieroglyphic Writing'",
+          "Science 277:207-210 (1997), sobre una columna descubierta en 1995 en el costado de la Estela 1, presentada como TEST INDEPENDIENTE",
+          "Kaufman y Justeson (2001), 'Epi-Olmec Hieroglyphic Writing and Texts'"
+        ],
+        "reconocimiento": "Beca Guggenheim en 2003",
+        "metodo": "Escritura logosilábica; uso de la gramática reconstruida del proto-mixe-zoqueano para identificar valores silábicos por su función como afijos",
+        "ejemplos_clave": [
+          "El signo MS20 leído como silabograma 'wɨ', usado tanto para el completivo independiente verbal como para el enclítico relativizador: patrón dual que sería firma de gramática mixe-zoqueana, ausente en maya",
+          "MS143 = '-pa' (incompletivo), confirmado por el deletreo TZAP-pa para 'tzap' ('cielo'), única palabra mixe-zoqueana para 'cielo' terminada en /p/"
+        ],
+        "contenido_propuesto": "Ascenso al trono de un gobernante ('Harvester Mountain Lord'), un eclipse solar, apariciones de Venus, guerra y un intento de usurpación",
+        "criticas": {
+          "autores": ["Stephen Houston", "Michael Coe"],
+          "publicacion": "'Has Isthmian Writing Been Deciphered?', Mexicon XXV:151-161 (2003)",
+          "objeciones": [
+            "Corpus demasiado limitado para PROBAR hipótesis sobre contenido",
+            "El uso dual del silabograma 'wɨ', con excepciones explicadas mediante inserción 'ad hoc' de una /w/ extra, es metodológicamente cuestionable",
+            "Es contraintuitivo que signos tan básicos se deletreen solo silábicamente en vez de logográficamente, como en maya",
+            "EL TEST FALLIDO: Houston intentó aplicar el sistema a la máscara estilo teotihuacano y no funcionó"
+          ]
+        },
+        "defensa": {
+          "autor": "David Mora-Marín (UNC Chapel Hill)",
+          "argumentos": [
+            "Houston y Coe malinterpretaron los supuestos metodológicos",
+            "El uso dual de MS20 fue una CONCLUSIÓN DERIVADA del análisis gramatical, no un supuesto impuesto",
+            "Lo llamado 'ad hoc' es un patrón SISTEMÁTICO Y SIN EXCEPCIONES de representación incompleta de consonantes débiles, fenómeno documentado en luvita jeroglífico y egipcio",
+            "Justeson y Kaufman SÍ proponen un logograma para 'día' (MS172, JAMA)"
+          ]
+        },
+        "critica_estadistica": {
+          "autor": "Vonk (2020)",
+          "argumento": "La relación entre tamaño del corpus y tasa de repetición hace el desciframiento único 'simplemente imposible' en las condiciones actuales. Aplicaciones aleatorias de lenguas del Viejo y Nuevo Mundo producen resultados igualmente plausibles."
+        },
+        "veredicto_de_sintesis": "Andrew Robinson, 'Lost Languages' (2008): 'el caso a favor del desciframiento Justeson/Kaufman del istmeño está decididamente no probado y actualmente descansa sobre bases frágiles'",
+        "estado": "Escepticismo cauteloso mayoritario. Se acepta que la LENGUA SUBYACENTE es probablemente mixe-zoqueana; el desciframiento signo por signo sigue disputado. La resolución requiere textos nuevos.",
+        "fiabilidad": "DEBATIDO"
+      },
+      "importancia": "Si la lectura zoqueana es correcta, refuerza la hipótesis mixe-zoque sobre la lengua olmeca, al implicar continuidad lingüística regional"
+    }
+  },
+
+  "numeracion": {
+    "sistema": "Vigesimal (base 20), posicional",
+    "simbolos": [
+      { "simbolo": "punto", "valor": 1 },
+      { "simbolo": "barra", "valor": 5 },
+      { "simbolo": "concha u óvalo", "valor": 0, "nota": "Cero posicional" }
+    ],
+    "caracteristica": "Con tres símbolos se escribe cualquier número",
+    "documentacion": "Epi-olmeca y posterior",
+    "fiabilidad_epi_olmeca": "CONSENSO",
+    "uso_por_olmecas": { "estado": "Plausible pero no demostrado por inscripción", "fiabilidad": "ESPECULATIVO" },
+    "sobre_la_invencion_del_cero": {
+      "afirmacion_popular": "Los olmecas inventaron el cero",
+      "matiz": "El concepto de cero posicional aparece en la Cuenta Larga, que es epi-olmeca/istmeña en sus ejemplos más antiguos. Atribuirlo a la cultura olmeca de San Lorenzo y La Venta es un salto cronológico de varios siglos.",
+      "formulacion_correcta": "Surge en el ámbito istmeño, en el periodo epi-olmeca"
+    }
+  },
+
+  "resumen_honesto": {
+    "se_puede_afirmar_de_los_olmecas": [
+      { "afirmacion": "Orientaron sus centros ceremoniales de forma deliberada y sostenida (La Venta, 8° al oeste del norte)", "fiabilidad": "CONSENSO" },
+      { "afirmacion": "Las orientaciones de complejos de 1100-750 a.C. constituyen la evidencia más temprana conocida del uso del calendario de 260 días", "fiabilidad": "PROBABLE-CONSENSO (Šprajc et al. 2023)" },
+      { "afirmacion": "Observaban el cielo con propósito, probablemente vinculado al ciclo agrícola, y llevaban algún cómputo del tiempo", "fiabilidad": "PROBABLE" }
+    ],
+    "no_se_puede_afirmar": [
+      "Que tuvieran la Cuenta Larga (las inscripciones son posteriores)",
+      "Que inventaran el cero (documentado en epi-olmeca)",
+      "Que tuvieran escritura plena (Cascajal es discutido)",
+      "Cualquier desciframiento concreto de signos olmecas (imposible hoy)"
+    ],
+    "nota_para_el_juego": "Dar a la cultura del juego un calendario y una escritura es legítimo como licencia creativa: la región SÍ desarrolló ambas cosas, solo que un poco después. Y el calendario de 260 días SÍ parece contemporáneo de los olmecas según el trabajo de 2023."
+  }
+}

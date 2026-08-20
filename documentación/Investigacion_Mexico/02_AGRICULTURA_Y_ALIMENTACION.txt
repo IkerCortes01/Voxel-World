@@ -1,0 +1,649 @@
+================================================================================
+02 - AGRICULTURA Y ALIMENTACIÓN
+================================================================================
+
+--------------------------------------------------------------------------------
+NOTA DE MÉTODO: TRES NIVELES DE EVIDENCIA
+--------------------------------------------------------------------------------
+
+Conviene no mezclarlos, porque casi toda la confusión sobre este tema viene
+de hacerlo:
+
+  [AD] ARQUEOLÓGICA DIRECTA — macrorrestos en contexto excavado.
+  [PA] PALEOAMBIENTAL — polen, fitolitos, carbón en núcleos fechados.
+  [EM] ECOLOGÍA MODERNA proyectada hacia atrás.
+
+EL HALLAZGO TRANSVERSAL MÁS IMPORTANTE de esta investigación es que buena
+parte de lo que se afirma sobre la dieta olmeca pertenece a [EM] y se
+presenta como [AD]. Aquí se marca cuál es cuál.
+
+================================================================================
+1. EL MAÍZ
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 DOMESTICACIÓN DESDE EL TEOSINTE
+--------------------------------------------------------------------------------
+
+ANCESTRO: Zea mays ssp. parviglumis (teosinte de Balsas), de la cuenca del
+Balsas (Guerrero/Michoacán), donde la diversidad genética del teosinte
+silvestre es máxima. [CONSENSO]
+
+EVIDENCIA MÁS ANTIGUA: abrigo de Xihuatoxtla, ~8.700 cal BP, con granos de
+almidón y fitolitos; el contexto va de 8.990 a 8.610 cal BP.
+
+EL CRITERIO DIAGNÓSTICO que permite distinguir maíz de teosinte, y que es
+decisivo para evaluar toda la evidencia posterior:
+
+  Tamaño máximo del grano de almidón en teosinte de Balsas ....... 9,5 µm
+  Tamaño habitual en el maíz de Xihuatoxtla ................. 20 a 26 µm
+
+  En Xihuatoxtla NO se explotó teosinte: los restos de Zea son
+  exclusivamente de olote y grano.
+
+LOS GENES CLAVE:
+  tb1  (teosinte branched 1): convierte la planta ramificada en tallo único.
+  tga1 (teosinte glume architecture 1): su mutación elimina la cápsula dura
+       que encierra la semilla.
+
+CAMBIOS MORFOLÓGICOS: de 2 hileras de granos a 8-22; de espiga dehiscente
+(que se desgrana sola) a indehiscente (que retiene el grano y necesita al
+humano para reproducirse).
+
+CRONOLOGÍA ACEPTADA:
+  ~9.000 BP        Domesticación inicial.
+  ~5.000 BP        Rasgos plenamente maiceros.
+  4.700-4.000 BP   Transición de cultivo menor a ALIMENTO BÁSICO.
+  [CONSENSO]
+
+--------------------------------------------------------------------------------
+1.2 LA EVIDENCIA REAL EN EL GOLFO
+--------------------------------------------------------------------------------
+
+SAN ANDRÉS, TABASCO (a 5 km de La Venta), núcleo SAV-4. Pope, Pohl y Jones,
+Science 292:1370-1373 (2001):
+
+  Zea cultivado (polen) ......... ~5100 cal a.C.  granos 48,0-49,8 µm
+  Zea mays domesticado .......... ~5000 cal a.C.  granos >70 µm, con
+                                                  desmonte asociado
+  Manihot sp. (yuca) ............ ~4600 cal a.C.  UN grano fragmentario
+                                                  >92 µm
+  Helianthus (girasol) .......... ~2500 a.C.      polen + macrofósil
+  Gossypium (algodón) ........... ~2500 a.C.      polen
+
+EL ESTUDIO DE FITOLITOS (Pohl, Piperno, Pope y Jones, PNAS 2007) sitúa el
+maíz más antiguo a 1140 cm = ~7.300 cal BP, con la muestra de 1190 cm
+(7.700 cal BP) como control negativo.
+
+  Diagnósticos: RONDELS DE OLOTE de tope ondulado y con volantes — marcador
+  de MAZORCA, no de hoja. Tripsacum y los fitolitos diagnósticos de teosinte
+  están AUSENTES.
+
+  La quema aumenta progresivamente: un solo fitolito quemado a 1190 cm,
+  frente a "un número muy alto de fitolitos arbóreos quemados" en los
+  niveles con maíz. Es decir: llega el maíz y empieza el desmonte por fuego.
+
+DEBATE DE FECHAMIENTO QUE HAY QUE CITAR: Sluyter y Domínguez (2006, PNAS)
+sostienen que las fechas tempranas del Golfo son "demasiado antiguas en
+hasta 1.000-2.000 años" por BIOTURBACIÓN de bivalvos excavadores, que
+desacopla macrofósiles y polen. El artículo de fitolitos de 2007 es en la
+práctica la respuesta del equipo, usando un proxy inmune a la migración
+vertical. [DEBATIDO]
+
+LAGUNA POMPAL (Tuxtlas), Goman y Byrne 1998:
+  - Maíz desde 4830 cal BP (~2880 a.C.) en fase de desmonte de bajo nivel.
+  - Una fase intensiva ~650 a.C. - 350 d.C.
+  - Regeneración forestal en ~300 años tras cada perturbación.
+
+  DATO CRUCIAL: el primer episodio de maíz en los Tuxtlas TERMINA hacia
+  2000 a.C. y el maíz REAPARECE ~500 a.C. Es decir: la aparición de polen NO
+  equivale al inicio de la agricultura, y aquí las separan milenios.
+
+ISÓTOPOS: análisis de δ13C sobre residuos orgánicos absorbidos en 24
+cerámicas de un basurero del Formativo Medio (~650 a.C.) en San Andrés
+mostró que LAS VAJILLAS DE LUJO tienen mayor proporción de carbono C4 que
+las utilitarias. Patrón atribuido a bebidas y atoles de maíz en contextos de
+FESTÍN. [CONSENSO]
+
+  Es decir: el maíz tenía un componente de PRESTIGIO SOCIAL, no solo
+  alimentario.
+
+--------------------------------------------------------------------------------
+1.3 EL DEBATE CENTRAL: ¿DE QUÉ VIVÍAN REALMENTE?
+--------------------------------------------------------------------------------
+
+Este es el debate más vivo de la olmequística en materia de subsistencia, y
+el resultado es contraintuitivo.
+
+POSTURA A — EL MAÍZ IMPORTÓ TEMPRANO (Coe, Diehl, Pohl, y en parte Cyphers)
+  Coe y Diehl (1980): la élite surge del control de tierras agrícolas de
+  levée (vega de río). Diehl (2004) llama al maíz "the Olmec staple".
+  Para LA VENTA hay amplia evidencia de que la agricultura de maíz sí
+  sustentó la economía. Dumbarton Oaks resume que "la densidad máxima de
+  maíz recuperado coincide, en el periodo La Venta, con la mayor extensión
+  del asentamiento".
+
+POSTURA B — "CULTIVO NO AGRÍCOLA" (Arnold, VanDerwarker, Killion)
+  Philip Arnold III (2009, Journal of Anthropological Archaeology 28:397-411)
+  y Killion (2013, Current Anthropology 54(5)): fueron LOS RECURSOS DE
+  LLANURA ALUVIAL Y HUMEDAL, no la agricultura de maíz, los que fundaron la
+  economía política olmeca temprana. El modelo propone cazadores-pescadores-
+  horticultores mixtos en los milenios previos.
+
+  EL NUDO TEÓRICO es si los recursos acuáticos son APROPIABLES. Coe y Diehl
+  los excluyeron por considerarlos no monopolizables ("si se buscan recursos
+  apropiables para explicar el ascenso de la élite olmeca, peces y vida
+  acuática pueden excluirse", 1980).
+
+  ARNOLD LO REFUTA con mecanismos concretos, y el argumento es bueno:
+    - Los peces no se distribuyen de forma uniforme.
+    - En otoño las especies catádromas MIGRAN RÍO ABAJO A DESOVAR en un
+      pulso predecible y capturable.
+    - La captura masiva exige CERCOS O REDES DE MÁS DE 30 M con trabajo
+      cooperativo: tecnología que SÍ es apropiable.
+    - Los LAGOS DE MEANDRO ABANDONADO funcionan como estanques naturales de
+      almacenamiento EN VIVO de tortuga y pescado.
+
+POSTURA C — CYPHERS TARDÍA: TUBÉRCULOS Y RECURSOS ACUÁTICOS
+  Cyphers demostró que el desarrollo del primer gran centro urbano de
+  Mesoamérica "se basó en el manejo de recursos acuáticos, el consumo de
+  tubérculos y el manejo de su bosque de humedal, más que en el monocultivo
+  de maíz". En Arqueología Mexicana lo sintetizó como DIVERSIFICACIÓN EN
+  LUGAR DE INTENSIFICACIÓN: conocían el maíz desde hace ~4.000 años pero NO
+  fue su cultivo prioritario.
+
+UNA LECTURA DE LA DISCREPANCIA que merece la pena:
+  La oposición Tuxtlas/San Lorenzo puede ser METODOLÓGICA antes que
+  dietética. La flotación sobre-representa granos carbonizados como el maíz;
+  los fitolitos sí detectan tubérculos, invisibles en flotación. Los dos
+  equipos miran la misma región con instrumentos de sesgo opuesto.
+
+  Y VanDerwarker no es una simple "anti-maíz": en La Joya el maíz es UBICUO
+  en toda la ocupación. Su tesis es que la intensificación fue "un proceso
+  largo e incremental que empezó en el Formativo Medio, siglos antes del
+  desarrollo político" — es decir, LA AGRICULTURA NO FUE CAUSA DE LA
+  COMPLEJIDAD, SINO EN PARTE SU CONSECUENCIA.
+
+  ⚠️ ADVERTENCIA DE ALCANCE: Arnold EXCLUYE DELIBERADAMENTE A LA VENTA de
+  su argumento. No extrapolar el modelo acuático de San Lorenzo a La Venta:
+  son casos cronológica y económicamente distintos.
+
+UN ARGUMENTO CUANTITATIVO A FAVOR DE LA DIVERSIFICACIÓN: se estima que el
+área de 77 km² de San Lorenzo podría producir ~500 t de maíz al año,
+suficiente para ~5.556 personas. Pero la población estimada en el apogeo
+(1200-1000 a.C.) es de 10.000-11.662 habitantes. El maíz solo no da la
+cuenta.
+
+[DEBATIDO — es un frente activo, y probablemente la respuesta sea mixta y
+cambiante en el tiempo]
+
+================================================================================
+2. LA MILPA Y LA TRÍADA: ¿HAY EVIDENCIA REAL?
+================================================================================
+
+RESPUESTA HONESTA: la tríada maíz-frijol-calabaza COMO SISTEMA INTEGRADO NO
+está demostrada en el Formativo del Golfo.
+
+Lo que sí hay:
+  MAÍZ ......... Sólido [AD] en La Joya, San Lorenzo, San Andrés.
+  FRIJOL ....... En La Joya: Phaseolus sp. y P. acutifolius cf. (tépari),
+                 con ESTATUS DOMÉSTICO INCIERTO según la propia
+                 VanDerwarker.
+  CALABAZA ..... Cucurbitaceae mencionada genéricamente. Las secuencias
+                 fechadas robustas son DE FUERA de la región (El Gigante,
+                 Honduras: Lagenaria siceraria 11.150-10.765 cal BP;
+                 C. moschata doméstica ~4.035 cal BP; C. pepo doméstica
+                 ~2.190 cal BP).
+
+Cyphers y Zurita-Noguera afirman que la aplicación de palinología, fitolitos
+y macrorrestos permite confirmar la PRESENCIA de la tríada en San Lorenzo.
+Pero presencia de los tres taxones NO ES IGUAL a policultivo asociado en la
+misma parcela.
+
+⚠️ La afirmación de que "hacia 1500 a.C. la milpa emergió como sistema de
+policultivo plenamente integrado" es una EXTRAPOLACIÓN DIVULGATIVA sin
+respaldo arqueológico directo en el Golfo. [DEBATIDO, no consenso]
+
+================================================================================
+3. NIXTAMALIZACIÓN
+================================================================================
+
+LA QUÍMICA Y LA NUTRICIÓN [CONSENSO]:
+  El álcali disuelve la hemicelulosa, afloja el pericarpio y LIBERA LA
+  NIACINA LIGADA. Efectos medidos:
+    - Calcio +750%, con 85% de biodisponibilidad.
+    - Niacina digestible: previene la pelagra.
+    - Mejor balance de lisina y triptófano.
+  Álcalis usados: cal (óxido/hidróxido de calcio) y cenizas. Los mayas
+  modernos usan ceniza de concha de mejillón quemada.
+
+  Sin nixtamalización, una civilización basada en el maíz es
+  nutricionalmente inviable a largo plazo. Las poblaciones europeas que
+  adoptaron el maíz SIN la técnica sufrieron pelagra masivamente en los
+  siglos XVIII-XIX. Los mesoamericanos nunca la tuvieron.
+
+LA EVIDENCIA ARQUEOLÓGICA — aquí hay que ser estricto:
+
+  INDIRECTA Y MÁS ANTIGUA: equipo de procesamiento (metates) de la costa sur
+  de Guatemala, ~1500-1200 a.C. Es INFERENCIA A PARTIR DE INSTRUMENTAL, no
+  prueba de tratamiento alcalino.
+
+  DIRECTA Y PRIMERA: ESFERULITAS DE ALMIDÓN DE MAÍZ —subproducto único de
+  la nixtamalización— en SAN BARTOLO, GUATEMALA, en un grupo residencial del
+  CLÁSICO TARDÍO Y TERMINAL (Journal of Archaeological Science, 2022).
+
+  Otros casos directos: La Corona (Clásico Tardío), Xochimilco (Posclásico),
+  Cahokia.
+
+CONCLUSIÓN CLAVE PARA EL FORMATIVO DEL GOLFO:
+  NO EXISTE EVIDENCIA ARQUEOLÓGICA DIRECTA DE NIXTAMALIZACIÓN OLMECA.
+
+  La afirmación circulante de que "en La Venta los metates se usaban con
+  maíz remojado en agua de cal" NO TIENE RESPALDO PUBLICADO: es
+  retroproyección.
+
+  EL COMAL es un indicador de tortilla y su generalización es MUY POSTERIOR
+  al Formativo. Su ausencia es coherente con un consumo de maíz en forma de
+  ATOLES, GACHAS Y BEBIDAS FERMENTADAS — que es precisamente lo que sugieren
+  los isótopos de San Andrés (apartado 1.2).
+
+  [Corrección respecto a lo que se dice habitualmente: bájese de PROBABLE a
+  ESPECULATIVO para el caso olmeca concreto.]
+
+================================================================================
+4. SISTEMAS AGRÍCOLAS Y MANEJO DEL AGUA
+================================================================================
+
+AGRICULTURA DE VEGA / LEVÉE
+  Los levées naturales son el terreno más alto y mejor drenado, renovado por
+  sedimento en cada crecida. Geomorfológicamente son FLUVISOLES con
+  estratificación visible por cada evento de inundación. Es la misma base
+  agrícola del Nilo, el Indo y el Mekong. [CONSENSO]
+
+  ⚠️ La cifra de "hasta tres cosechas al año" circula en fuentes
+  divulgativas y debe tratarse con ESCEPTICISMO. [ESPECULATIVO]
+
+ROZA-TUMBA-QUEMA
+  Apoyada indirectamente por la señal de carbón y polen de disturbio
+  (Ambrosia, Poaceae, Cecropia, Trema) en Pompal y Lago Verde. [PROBABLE]
+
+CAMPOS DE CAMELLONES (ridged fields) — el dato [AD] más sólido de
+intensificación:
+  En LA JOYA, camellones identificados en varias unidades de excavación,
+  SELLADOS POR TEFRA VOLCÁNICA de 150-250 d.C. (Arnold 2000). Es Formativo
+  Terminal, no Olmeca clásico, pero demuestra la técnica en la región.
+  [CONSENSO]
+
+LOS DRENAJES DE BASALTO EN U DE SAN LORENZO
+  Bloques rectangulares en U colocados en serie y cubiertos con lajas,
+  formando una red subterránea. Exigió transportar basalto desde los Tuxtlas
+  (más de 150 km). Ver también el archivo 03.
+
+  LAS DOS LECTURAS:
+    DRENAJE: evacuar agua pluvial de las plataformas, evitar erosión y
+    saturación de rellenos. Largas hileras dirigen agua hacia los bordes de
+    la meseta.
+    ACUEDUCTO / CONDUCCIÓN RITUAL: investigación reciente los interpreta
+    como acueductos de agua potable. En el PALACIO ROJO, Cyphers documentó
+    un acueducto de basalto sirviendo al complejo residencial de élite, y
+    "un drenaje de piedra que serpentea bajo el piso" del santuario central.
+
+  VALORACIÓN: no son categorías excluyentes. Un sistema puede captar,
+  conducir y evacuar en tramos distintos. Lo que sí está bien establecido es
+  la dimensión POLÍTICA: el control del agua por los gobernantes, vinculado
+  ideológicamente a un patrono sobrenatural del agua. [DEBATIDO]
+
+================================================================================
+5. OTROS CULTIVOS Y PLANTAS APROVECHADAS
+================================================================================
+
+DOCUMENTADOS [AD] EN EL GOLFO FORMATIVO:
+
+  Persea americana (aguacate) ........ La Joya. Macrorresto carbonizado.
+  Acrocomia mexicana (coyol) ......... La Joya, El Manatí.
+  Pouteria sapota (mamey) ............ La Joya. Macrorresto carbonizado.
+  Phaseolus sp. / P. acutifolius cf. . La Joya. Macrorresto.
+  Bixa orellana cf. (achiote) ........ La Joya. Macrorresto TENTATIVO.
+  Spondias mombin (jobo) ............. El Manatí. Madera de bustos +
+                                       semillas.
+  Byrsonima (nance) .................. El Manatí. Semillas.
+  Castilla elastica (hule) ........... El Manatí. 12 pelotas de látex.
+  Manihot sp. (yuca) ................. San Andrés. UN grano de polen.
+  Gossypium (algodón), Helianthus .... San Andrés. Polen.
+  "Tubérculos" (categoría) ........... San Lorenzo. Fitolitos.
+  Cucurbita (calabaza) ............... El Manatí. Semillas.
+  Capsicum (chile) ................... Reportado por Cyphers en San Lorenzo.
+
+EL CACAO — el dato más limpio de toda la sección:
+  Powis et al., "Oldest chocolate in the New World", Antiquity.
+  22 tiestos analizados (16 de Paso de la Amada, 6 de El Manatí) por HPLC/MS,
+  monitoreando TEOBROMINA a m/z=181, único marcador inequívoco de Theobroma
+  cacao en Mesoamérica.
+
+  SOLO DOS MUESTRAS DIERON POSITIVO:
+    - Un tecomate Bayo Brown de Paso de la Amada (1900-1500 a.C.).
+    - Un cuenco profundo Chaya Punctate de EL MANATÍ, fase Ojochi,
+      calibrado 1650-1500 a.C.
+
+  Es la evidencia de consumo de cacao MÁS ANTIGUA DEL MUNDO. Y en el Golfo
+  es PRE-OLMECA. [CONSENSO]
+
+  Existe un estudio posterior (Powis et al. 2011, PNAS) que extiende el uso
+  al propio San Lorenzo.
+
+LA YUCA — cautela máxima:
+  La evidencia publicada se reduce a UN GRANO DE POLEN "probablemente de
+  mandioca domesticada" en un núcleo cerca de La Venta. Cyphers y
+  Zurita-Noguera citan fitolitos de Manihot en San Lorenzo POR COMUNICACIÓN
+  PERSONAL, con la publicación detallada pendiente.
+
+  Es un punto débil reconocido en la literatura crítica: se ha construido un
+  modelo de subsistencia sobre una base documental muy delgada.
+
+  Y ojo: "TUBÉRCULO" en los análisis de fitolitos de San Lorenzo es una
+  CATEGORÍA MORFOLÓGICA INFERIDA, no una identificación de Manihot, Ipomoea,
+  Xanthosoma o Dioscorea a nivel de especie. [ESPECULATIVO]
+
+NO DOCUMENTADOS [AD] — pese a ser plausibles ecológicamente:
+  Camote, vainilla, jitomate, chayote, nopal, maguey.
+  Árboles: Manilkara zapota (chicozapote), Psidium guajava (guayaba),
+  Brosimum alicastrum (ramón), Attalea (corozo), Cedrela, Swietenia,
+  Bursera simaruba.
+
+  ⚠️ OJO CON LOS ZAPOTES: el "zapote" de La Joya es POUTERIA SAPOTA (mamey),
+  género y familia distintos de MANILKARA ZAPOTA (chicozapote). No
+  confundirlos.
+
+  Su ausencia es MUY PROBABLEMENTE TAFONÓMICA. VanDerwarker advierte que "la
+  preservación de restos vegetales carbonizados en ambientes tropicales es
+  generalmente pobre... la diversidad de especies recuperadas probablemente
+  no refleja la diversidad originalmente explotada".
+
+  El Manatí lo confirma: en condiciones anaeróbicas SÍ aparecen ceiba, jobo,
+  nance y palmas.
+
+================================================================================
+6. FAUNA Y PROTEÍNA
+================================================================================
+
+--------------------------------------------------------------------------------
+6.1 EL DATO CLAVE MAL DIFUNDIDO: EL RECÁLCULO DE WING
+--------------------------------------------------------------------------------
+
+Secuencia historiográfica que conviene conocer, porque los manuales siguen
+repitiendo la versión superada:
+
+  - Wing, en Coe y Diehl 1980, concluyó que las especies TERRESTRES eran
+    mayoría.
+  - Wing 1978, en un reanálisis de LOS MISMOS DATOS, RECALCULÓ AL ALZA la
+    contribución de los peces: el RÓBALO (Centropomus sp.) aportó ~50% de
+    toda la proteína comestible, y las especies acuáticas en conjunto
+    superaron el 60% de la carne consumible.
+
+  Arnold lo califica de "a rarely-cited re-analysis". LA CIFRA DE DOMINANCIA
+  TERRESTRE QUE CIRCULA EN MANUALES DERIVA DE LA VERSIÓN DE 1980, SUPERADA
+  POR SU PROPIO AUTOR. (El título de 1978 trata de perros, razón probable
+  del olvido.)
+
+--------------------------------------------------------------------------------
+6.2 RÓBALO BLANCO: EL ESTUDIO CUANTITATIVO MÁS RECIENTE
+--------------------------------------------------------------------------------
+
+Rodríguez Galicia 2024, Revista Chicomoztoc 6(12):49-89, UNAM:
+
+  NISP = 176 elementos óseos de Centropomus undecimalis en 459 bolsas.
+  NMI = 29.
+  Distribución por fase:
+    Chicharras (1500-1400 a.C.) ..... 7
+    San Lorenzo A/B ................. 4
+    San Lorenzo A ................... 3
+    San Lorenzo B ................... 16
+  Acompañantes: Lutjanus spp. (pargo/huachinango) 2 individuos;
+  Caranx spp. (jurel) 1 — ambos quemados.
+
+  MÁS DEL 98% de los especímenes muestran EXPOSICIÓN TÉRMICA, en cuatro
+  patrones de preparación distintos.
+
+  ⚠️ Cautela: 15 de los 29 NMI se concentran en una sola celda. Trátese la
+  tendencia temporal con reserva por posible sesgo de muestreo.
+
+--------------------------------------------------------------------------------
+6.3 EL PERRO DOMÉSTICO — y la historia que cuenta
+--------------------------------------------------------------------------------
+
+  - ~10% de los restos de vertebrados en San Lorenzo, Formativo Temprano:
+    LA FUENTE INDIVIDUAL MÁS IMPORTANTE DE CARNE.
+
+    ⚠️ Circula la cifra "más de la mitad": ES ERRÓNEA, incompatible con la
+    fuente primaria.
+
+  - Marcas de corte compatibles con descuartizamiento.
+
+  - ISÓTOPOS: los perros comían MAÍZ de forma casi exclusiva, mientras los
+    humanos tenían dieta diversa. Conclusión: ENGORDE DELIBERADO. El perro
+    era ganado.
+
+  - EL PATRÓN ANATÓMICO DIFERENCIAL, el dato más elegante de toda la
+    zooarqueología olmeca: en los sitios agrícolas del hinterland predominan
+    las PARTES NO CÁRNICAS (falanges, cráneos); en San Lorenzo aparecen
+    huesos de TODAS las secciones cárnicas.
+
+    Lectura: los campesinos criaban perros y ENTREGABAN LAS PORCIONES BUENAS
+    A LOS LÍDERES COMO TRIBUTO. Es una de las pocas evidencias materiales
+    directas de extracción de excedente en el mundo olmeca.
+  [CONSENSO]
+
+--------------------------------------------------------------------------------
+6.4 PAVO, MAMÍFEROS Y AVES
+--------------------------------------------------------------------------------
+
+PAVO: Meleagris gallopavo SÍ está identificado en el Formativo Temprano de
+La Joya, junto con codorniz (Colinus virginianus). NO es exclusivamente
+tardío.
+  ⚠️ MATIZ: la presencia osteológica no distingue pavo silvestre cazado de
+  pavo domesticado. Hablar de CRÍA de pavo en el Golfo formativo sería
+  especulativo.
+
+MAMÍFEROS CAZADOS — lista verificada en La Joya:
+  Odocoileus virginianus (venado cola blanca)
+  Mazama americana (temazate)
+  Tayassu tajacu (pecarí de collar; nomenclatura actual Dicotyles tajacu)
+  Leopardus pardalis (ocelote)
+  Canis familiaris (perro)
+  Didelphis sp. (tlacuache)
+  Dasypus novemcinctus (armadillo)
+  Sylvilagus sp. (conejo)
+
+AVES: pavo, codorniz, Buteo sp., Falconidae, Anas sp. (pato).
+
+VOLUMEN DE LA MUESTRA DE LA JOYA: 4.585 especímenes óseos (2.920 g) en
+cribado, más 2.425 (62 g) en flotación. Los mamíferos son los más abundantes
+en todos los periodos.
+
+NO VERIFICADOS en las fuentes consultadas: TAPIR, MANATÍ, MONO AULLADOR,
+TEPEZCUINTLE, MAPACHE.
+
+  NOTA IRÓNICA: pese al topónimo EL MANATÍ, no hay evidencia de restos de
+  Trichechus en ese sitio. El nombre es moderno y no debe usarse como
+  indicio faunístico.
+
+--------------------------------------------------------------------------------
+6.5 DOS HUECOS QUE HAY QUE DECLARAR: REPTILES Y JAGUAR
+--------------------------------------------------------------------------------
+
+REPTILES: no se pudo verificar restos óseos de Crocodylus moreletii, caimán,
+Iguana iguana, Ctenosaura ni serpientes en contextos olmecas. Las menciones
+en la literatura son mayoritariamente ICONOGRÁFICAS (el "monstruo de la
+tierra", motivos saurios), lo cual no es evidencia osteológica.
+
+  La tortuga sí aparece como recurso repetido. Una fuente del INAH menciona
+  Chrysemys/Trachemys scripta, Chelydra serpentina y Dermatemys mawii, sin
+  NISP asociado.
+
+EL JAGUAR (Panthera onca) — dato importante y contraintuitivo:
+  En La Venta, Tumba A, Stirling registró "un pendiente de jade verde-hierba
+  en forma de diente de jaguar" — UNA EFIGIE EN JADE, NO UN DIENTE REAL.
+
+  En el material consultado, EL JAGUAR OLMECA ESTÁ PRESENTE COMO ICONOGRAFÍA
+  Y COMO EFIGIE, NO COMO RESTO OSTEOLÓGICO.
+
+  No se afirma que no existan restos; se afirma que no se encontró ninguno
+  documentado, y que la carga de la prueba recae en quien lo sostenga. Es
+  exactamente el punto donde la pseudoarqueología desliza "los olmecas
+  criaban jaguares". [LAGUNA DE EVIDENCIA]
+
+--------------------------------------------------------------------------------
+6.6 LA VENTA Y EL MANATÍ: MATERIA ANIMAL REAL
+--------------------------------------------------------------------------------
+
+LA VENTA, TUMBA A (Gillespie y Volk 2022):
+  - SEIS COLAS DE RAYA AUTÉNTICAS de ~15 cm, incrustadas con hematita
+    cristalina, formando collar o tocado.
+  - Una SÉPTIMA pieza era REPRODUCCIÓN EN JADE.
+  - Un DIENTE DE TIBURÓN inusualmente grande, con una figurilla de jade azul
+    encima.
+  - Dientes deciduos juveniles.
+  - Un casquete craneal humano quemado (hoy desaparecido).
+  - Junto a las espinas de raya, un PUNZÓN DE JADE AZUL con la punta rota:
+    instrumento de sangrado.
+
+COROLARIO TAFONÓMICO DE PRIMER ORDEN:
+  La explicación estándar de la ausencia de esqueletos ("el trópico destruye
+  el hueso") QUEDA REFUTADA: se ha excavado hueso humano en San Lorenzo, y
+  las excavaciones habitacionales en los márgenes de La Venta revelaron "una
+  plétora de huesos de animales" (González Lauck 1996).
+
+  ⚠️ Ese conjunto faunístico doméstico de La Venta está INFRAEXPLOTADO en la
+  literatura sintética. Es la laguna documental más importante de esta
+  investigación.
+
+EL MANATÍ (~1700-1200 a.C.):
+  - 37 bustos de madera de Ceiba y Spondias mombin (~1200 a.C.).
+  - 12 pelotas de hule de Castilla elastica.
+  - Semillas de jobo, coyol, nance y calabaza.
+  - Petates y fibras.
+  - Restos humanos infantiles: esqueletos de neonatos y huesos
+    desarticulados.
+    ⚠️ LA CAUSA DE MUERTE SE DESCONOCE. El sacrificio infantil es
+    INFERENCIA, no demostración.
+
+--------------------------------------------------------------------------------
+6.7 CASO METODOLÓGICO EJEMPLAR: EL FIASCO DE BUFO MARINUS
+--------------------------------------------------------------------------------
+
+Merece figurar aquí porque es un ejemplo de manual de cómo se fabrica una
+falsa certeza.
+
+  El Proyecto Río Chiquito halló que los huesos de sapo eran el 9,5% del
+  total faunístico en la cañada del Macaya (80 huesos en un solo escalón).
+  Eso alimentó décadas de especulación sobre uso ritual alucinógeno del sapo
+  Bufo marinus.
+
+  El proyecto de Cyphers, sobre 1.400 muestras faunísticas, recuperó UN SOLO
+  HUESO DE BUFO, y en una perturbación radicular moderna. Wing ya había
+  señalado la ausencia de marcas de modificación humana.
+
+  CONCLUSIÓN: deposición secundaria en un bloque de deslizamiento, NO ritual.
+  [RECHAZADO — la teoría del sapo alucinógeno olmeca]
+
+--------------------------------------------------------------------------------
+6.8 EL CAMBIO DIACRÓNICO EN LA JOYA
+--------------------------------------------------------------------------------
+
+Hallazgo central de VanDerwarker. Del Formativo Temprano al Medio:
+  - AUMENTAN los mamíferos (NISP y NMI).
+  - DISMINUYEN apreciablemente peces y aves.
+  - Caen la equitatividad y la riqueza del conjunto.
+
+INTERPRETACIÓN: intensificación de la GARDEN HUNTING — parcelas en barbecho
+y hábitats perturbados usados como territorio de caza, con la gente
+quedándose MÁS CERCA DE CASA.
+
+DETALLE LOGÍSTICO REVELADOR: la mojarra (Cichlasoma) era local, pero róbalo,
+jurel y pargo son de agua salobre o marina, SOLO OBTENIBLES A DOS DÍAS DE
+VIAJE REDONDO. Su presencia implica inversión deliberada en pescado no
+local. [CONSENSO]
+
+================================================================================
+7. ALMACENAMIENTO Y CONSERVACIÓN
+================================================================================
+
+SECADO Y AHUMADO DE PESCADO
+  Los grupos de San Lorenzo explotaban masivamente los recursos acuáticos
+  concentrados tras las inundaciones y los conservaban mediante secado y
+  ahumado, administrando la reserva durante el estiaje crítico.
+  Duraciones estimadas:
+    Peces pequeños ahumados ................... ~5 meses
+    Especies marinas grandes saladas, secadas
+    y ahumadas ................................ ~1 mes
+  [PROBABLE]
+
+"ALMACENAMIENTO EN VIVO" (storage on the fin) — el mecanismo más
+interesante:
+  Los LAGOS DE MEANDRO ABANDONADO funcionan como estanques naturales que
+  retienen tortuga y pescado tras la crecida.
+
+  Por qué importa: convierte un recurso estacional en uno CONTROLABLE. Y
+  quien tiene derechos sobre los remansos obtiene ventaja política real.
+  Es el corazón del argumento de Arnold sobre apropiabilidad. [PROBABLE]
+
+CONTROL DE RESERVAS COMO BASE DE JERARQUÍA
+  El acceso controlado a provisiones almacenadas se plantea como fundamento
+  del poder de los grupos fundadores. [PROBABLE]
+
+SALADO EN SALMUERA
+  Interpretado por Rodríguez Galicia, con producción para intercambio local
+  y a larga distancia. [ESPECULATIVO — interpretativo, no demostrado]
+
+ALMACENAMIENTO DE GRANO
+  NO se encontró evidencia publicada de estructuras de almacenaje (troje,
+  silo, cista) en sitios olmecas del Formativo. Es un hueco real.
+  [LAGUNA DE EVIDENCIA]
+
+================================================================================
+8. SEMÁFORO FINAL DE ESTE CAPÍTULO
+================================================================================
+
+CONSENSO / BIEN DOCUMENTADO
+  - Domesticación del maíz desde Z. m. ssp. parviglumis en el Balsas,
+    ~9.000 BP; umbrales diagnósticos de almidón (9,5 vs 20-26 µm).
+  - Maíz presente en el Golfo desde el Arcaico (con la salvedad del debate
+    Sluyter).
+  - Cacao por teobromina en El Manatí, 1650-1500 a.C.
+  - Róbalo como pez dominante en San Lorenzo; >98% con alteración térmica.
+  - Perro consumido, ~10% de restos, engordado con maíz, con patrón
+    anatómico de tributo.
+  - Lista de taxones de La Joya y el patrón diacrónico (garden hunting).
+  - Seis espinas de raya reales + diente de tiburón en la Tumba A.
+  - Los sapos Bufo de San Lorenzo son deposición secundaria, no ritual.
+
+DEBATIDO (posiciones legítimas enfrentadas)
+  - Peso relativo de maíz vs recursos de llanura aluvial en el ascenso
+    olmeca.
+  - Si los recursos acuáticos son apropiables y pueden fundar desigualdad.
+  - Función de los drenajes en U.
+  - Fiabilidad de las fechas tempranas de San Andrés.
+
+ESPECULATIVO O MAL DOCUMENTADO — NO presentar como hecho
+  - NIXTAMALIZACIÓN OLMECA: sin evidencia directa alguna en el Formativo del
+    Golfo. La directa más antigua es del Clásico maya.
+  - La MILPA como policultivo integrado en el Formativo del Golfo.
+  - YUCA como cultivo principal de San Lorenzo: un grano de polen publicado
+    más fitolitos inéditos.
+  - Comercio de pescado salado a larga distancia.
+  - Sacrificio infantil en El Manatí (causa de muerte desconocida).
+  - Cría de pavo (hay hueso; no hay prueba de manejo).
+  - "Tres cosechas anuales" en levées.
+  - Restos osteológicos de jaguar (solo iconografía y efigies).
+
+LAGUNAS DOCUMENTALES PRIORITARIAS
+  1. González Lauck 1996: la "plétora de huesos de animales" de La Venta.
+  2. VanDerwarker 2006 (cap. 4, manejo arbóreo) y VanDerwarker y Kruger
+     2012.
+  3. Antracología (taxones de carbón de leña): inexistente en acceso abierto
+     para toda la región.
+  4. Publicación formal de los fitolitos de Manihot de San Lorenzo.
+  5. Cyphers, Zurita-Noguera y Lane 2013, "Retos y riesgos en la vida
+     olmeca" (IIA-UNAM): la monografía de subsistencia clave, no
+     digitalizada.
+  6. Reptiles, tortugas a nivel de género y moluscos: sin cifras.

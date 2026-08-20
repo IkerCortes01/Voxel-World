@@ -1,0 +1,253 @@
+{
+  "_meta": {
+    "titulo": "Olmecas — flora, fauna, ecosistema y agricultura",
+    "proyecto": "Voxel World",
+    "fecha_compilacion": "2026-08-20",
+    "idioma": "es",
+    "niveles_de_evidencia": {
+      "AD": "Arqueológica directa: macrorrestos en contexto excavado",
+      "PA": "Paleoambiental: polen, fitolitos, carbón en núcleos fechados",
+      "EM": "Ecología moderna proyectada hacia atrás"
+    },
+    "advertencia_clave": "Buena parte de lo que se afirma sobre la dieta olmeca pertenece a [EM] y se presenta como [AD]. Aquí se marca cuál es cuál."
+  },
+
+  "flora_documentada": [
+    { "nombre_cientifico": "Zea mays", "nombre_comun": "Maíz", "evidencia": "AD + PA", "sitios": ["San Andrés", "San Lorenzo", "La Joya"], "detalle": "Polen desde ~5100 cal a.C. en San Andrés; fitolitos de rondel de olote desde ~7.300 cal BP", "fiabilidad": "CONSENSO", "nota_de_debate": "Su peso real en la dieta es el gran debate. Ver 02_AGRICULTURA_Y_ALIMENTACION.txt" },
+    { "nombre_cientifico": "Theobroma cacao", "nombre_comun": "Cacao", "evidencia": "AD", "sitios": ["El Manatí", "Paso de la Amada"], "detalle": "Teobromina por HPLC/MS a m/z=181. Solo 2 positivos de 22 tiestos. El Manatí, fase Ojochi, calibrado 1650-1500 a.C. Es la evidencia de consumo de cacao MÁS ANTIGUA DEL MUNDO.", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Castilla elastica", "nombre_comun": "Hule", "evidencia": "AD", "sitios": ["El Manatí"], "detalle": "12 pelotas de látex, 1700-1600 a.C. Los objetos de hule más antiguos del mundo.", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Persea americana", "nombre_comun": "Aguacate", "evidencia": "AD", "sitios": ["La Joya"], "detalle": "Macrorresto carbonizado", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Acrocomia mexicana / A. aculeata", "nombre_comun": "Coyol", "evidencia": "AD", "sitios": ["La Joya", "El Manatí"], "detalle": "Palma. Se le saca vino de coyol sangrando el tronco.", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Pouteria sapota", "nombre_comun": "Mamey", "evidencia": "AD", "sitios": ["La Joya"], "detalle": "Macrorresto carbonizado", "advertencia": "NO confundir con Manilkara zapota (chicozapote): género y familia distintos", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Phaseolus sp. / P. acutifolius cf.", "nombre_comun": "Frijol / frijol tépari", "evidencia": "AD", "sitios": ["La Joya"], "detalle": "Estatus doméstico INCIERTO según la propia VanDerwarker", "fiabilidad": "DEBATIDO" },
+    { "nombre_cientifico": "Bixa orellana cf.", "nombre_comun": "Achiote", "evidencia": "AD", "sitios": ["La Joya"], "detalle": "Macrorresto TENTATIVO", "fiabilidad": "PROBABLE" },
+    { "nombre_cientifico": "Spondias mombin", "nombre_comun": "Jobo", "evidencia": "AD", "sitios": ["El Manatí"], "detalle": "Madera de los bustos rituales + semillas", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Byrsonima sp.", "nombre_comun": "Nance", "evidencia": "AD", "sitios": ["El Manatí"], "detalle": "Semillas", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Ceiba pentandra", "nombre_comun": "Ceiba", "evidencia": "AD", "sitios": ["El Manatí"], "detalle": "Madera de los bustos rituales. Hasta 60,4 m, con contrafuertes que suben 12-15 m. Árbol sagrado en toda Mesoamérica posterior.", "fiabilidad": "CONSENSO" },
+    { "nombre_cientifico": "Cucurbita sp.", "nombre_comun": "Calabaza", "evidencia": "AD", "sitios": ["El Manatí"], "detalle": "Semillas. Las secuencias fechadas robustas son de FUERA de la región.", "fiabilidad": "PROBABLE" },
+    { "nombre_cientifico": "Manihot sp.", "nombre_comun": "Yuca / mandioca", "evidencia": "PA", "sitios": ["San Andrés"], "detalle": "UN grano de polen fragmentario >92 µm, ~4600 cal a.C. Fitolitos en San Lorenzo citados por comunicación personal, publicación pendiente.", "fiabilidad": "ESPECULATIVO", "advertencia": "Se ha construido un modelo de subsistencia sobre una base documental muy delgada" },
+    { "nombre_cientifico": "Gossypium sp.", "nombre_comun": "Algodón", "evidencia": "PA", "sitios": ["San Andrés"], "detalle": "Polen, ~2500 a.C.", "fiabilidad": "PROBABLE" },
+    { "nombre_cientifico": "Helianthus sp.", "nombre_comun": "Girasol", "evidencia": "PA + AD", "sitios": ["San Andrés"], "detalle": "Polen + macrofósil, ~2500 a.C.", "fiabilidad": "PROBABLE" },
+    { "nombre_cientifico": "Capsicum sp.", "nombre_comun": "Chile", "evidencia": "AD", "sitios": ["San Lorenzo"], "detalle": "Reportado por Cyphers", "fiabilidad": "PROBABLE" },
+    { "nombre_cientifico": "Bursera sp.", "nombre_comun": "Copal", "evidencia": "AD", "sitios": ["El Manatí"], "detalle": "La evidencia más antigua de copal. Resina quemada como incienso.", "fiabilidad": "CONSENSO" }
+  ],
+
+  "flora_probable_no_documentada": {
+    "nota": "Plausibles ecológicamente pero SIN evidencia arqueológica directa en el Golfo formativo. Su ausencia es muy probablemente TAFONÓMICA: la preservación de restos vegetales carbonizados en ambientes tropicales es pobre.",
+    "especies": [
+      { "nombre_cientifico": "Manilkara zapota", "nombre_comun": "Chicozapote", "detalle": "Más de 30 m. Fruto comestible y látex (el chicle)." },
+      { "nombre_cientifico": "Brosimum alicastrum", "nombre_comun": "Ramón", "detalle": "Hasta 45 m. 150-180 kg de fruto al año durante más de un siglo. Una de las plantas alimenticias más productivas del trópico americano." },
+      { "nombre_cientifico": "Bursera simaruba", "nombre_comun": "Palo mulato", "detalle": "Pionera, resistente a huracanes. Corteza roja que se desprende en láminas." },
+      { "nombre_cientifico": "Swietenia macrophylla", "nombre_comun": "Caoba" },
+      { "nombre_cientifico": "Cedrela odorata", "nombre_comun": "Cedro rojo" },
+      { "nombre_cientifico": "Enterolobium cyclocarpum", "nombre_comun": "Guanacaste", "detalle": "Su fruto CARECE HOY DE DISPERSOR NATIVO: es un 'anacronismo evolutivo' adaptado a megafauna pleistocénica extinta." },
+      { "nombre_cientifico": "Psidium guajava", "nombre_comun": "Guayaba" },
+      { "nombre_cientifico": "Attalea sp.", "nombre_comun": "Corozo" },
+      { "nombre_comun": "Camote, vainilla, jitomate, chayote, nopal, maguey", "detalle": "Sin evidencia directa en el Golfo formativo" }
+    ],
+    "fiabilidad": "EM — ecología moderna proyectada"
+  },
+
+  "fauna_documentada": {
+    "peces": [
+      { "nombre_cientifico": "Centropomus undecimalis", "nombre_comun": "Róbalo blanco", "importancia": "EL PEZ DOMINANTE. Según el recálculo de Wing (1978), aportó ~50% de toda la proteína comestible de San Lorenzo.", "cuantificacion": { "NISP": 176, "NMI": 29, "bolsas_analizadas": 459, "estudio": "Rodríguez Galicia 2024, Revista Chicomoztoc 6(12):49-89, UNAM" }, "distribucion_por_fase": { "Chicharras (1500-1400 aC)": 7, "San Lorenzo A/B": 4, "San Lorenzo A": 3, "San Lorenzo B": 16 }, "procesamiento": "Más del 98% de los especímenes muestran exposición térmica, en cuatro patrones de preparación distintos", "habitat": "Estuarino, catádromo. Disponible en temporada de lluvias.", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Lutjanus spp.", "nombre_comun": "Pargo / huachinango", "cuantificacion": { "NMI": 2 }, "nota": "Quemados. De agua salobre o marina: solo obtenibles a dos días de viaje redondo.", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Caranx spp.", "nombre_comun": "Jurel", "cuantificacion": { "NMI": 1 }, "nota": "Quemado. Marino.", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Cichlasoma sp.", "nombre_comun": "Mojarra", "nota": "Local, a diferencia de róbalo, jurel y pargo", "fiabilidad": "CONSENSO" }
+    ],
+    "mamiferos": [
+      { "nombre_cientifico": "Canis familiaris", "nombre_comun": "Perro doméstico", "importancia": "LA FUENTE INDIVIDUAL MÁS IMPORTANTE DE CARNE: ~10% de los restos de vertebrados en San Lorenzo, Formativo Temprano", "advertencia": "Circula la cifra 'más de la mitad': ES ERRÓNEA", "evidencia_de_manejo": "Isótopos δ13C: los perros comían maíz de forma casi exclusiva mientras los humanos tenían dieta diversa. Engorde deliberado: el perro era ganado.", "patron_de_tributo": "En los sitios agrícolas del hinterland predominan partes NO cárnicas (falanges, cráneos); en San Lorenzo aparecen huesos de TODAS las secciones cárnicas. Lectura: los campesinos criaban perros y entregaban las porciones buenas a los líderes como TRIBUTO. Es una de las pocas evidencias materiales directas de extracción de excedente.", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Odocoileus virginianus", "nombre_comun": "Venado cola blanca", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Mazama americana", "nombre_comun": "Temazate", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Tayassu tajacu / Dicotyles tajacu", "nombre_comun": "Pecarí de collar", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Leopardus pardalis", "nombre_comun": "Ocelote", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Didelphis sp.", "nombre_comun": "Tlacuache", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Dasypus novemcinctus", "nombre_comun": "Armadillo", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Sylvilagus sp.", "nombre_comun": "Conejo", "sitio": "La Joya", "fiabilidad": "CONSENSO" }
+    ],
+    "aves": [
+      { "nombre_cientifico": "Meleagris gallopavo", "nombre_comun": "Pavo", "sitio": "La Joya", "nota": "SÍ está en el Formativo Temprano; NO es exclusivamente tardío", "advertencia": "La presencia osteológica no distingue pavo silvestre cazado de domesticado. Hablar de CRÍA sería especulativo.", "fiabilidad": "CONSENSO en presencia; ESPECULATIVO en domesticación" },
+      { "nombre_cientifico": "Colinus virginianus", "nombre_comun": "Codorniz", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Buteo sp.", "nombre_comun": "Aguililla", "sitio": "La Joya", "fiabilidad": "CONSENSO" },
+      { "nombre_cientifico": "Anas sp.", "nombre_comun": "Pato", "sitio": "La Joya", "fiabilidad": "CONSENSO" }
+    ],
+    "fauna_ritual_marina": [
+      { "item": "Espinas de raya (cola)", "sitio": "La Venta, Tumba A", "detalle": "SEIS colas auténticas de ~15 cm, incrustadas con hematita cristalina, formando collar o tocado. Una SÉPTIMA pieza era reproducción en jade.", "funcion": "Instrumento de sangría ritual", "fiabilidad": "CONSENSO" },
+      { "item": "Diente de tiburón", "sitio": "La Venta, Tumba A", "detalle": "Inusualmente grande, con una figurilla de jade azul encima", "fiabilidad": "CONSENSO" }
+    ],
+    "reptiles": {
+      "estado": "LAGUNA DE EVIDENCIA",
+      "detalle": "No se pudo verificar restos óseos de Crocodylus moreletii, caimán, Iguana iguana, Ctenosaura ni serpientes en contextos olmecas. Las menciones en la literatura son mayoritariamente ICONOGRÁFICAS (el 'monstruo de la tierra', motivos saurios), lo cual no es evidencia osteológica.",
+      "tortugas": "Aparecen como recurso repetido. Una fuente del INAH menciona Chrysemys/Trachemys scripta, Chelydra serpentina y Dermatemys mawii, sin NISP asociado."
+    },
+    "jaguar": {
+      "estado": "LAGUNA DE EVIDENCIA — dato importante y contraintuitivo",
+      "detalle": "En La Venta, Tumba A, Stirling registró 'un pendiente de jade verde-hierba en forma de diente de jaguar': UNA EFIGIE EN JADE, NO UN DIENTE REAL. El jaguar olmeca está presente como ICONOGRAFÍA y como EFIGIE, no como resto osteológico.",
+      "advertencia": "Es exactamente el punto donde la pseudoarqueología desliza 'los olmecas criaban jaguares'. No se afirma que no existan restos: se afirma que no se encontró ninguno documentado."
+    },
+    "no_verificados": ["Tapir", "Manatí", "Mono aullador", "Tepezcuintle", "Mapache"],
+    "nota_ironica": "Pese al topónimo EL MANATÍ, no hay evidencia de restos de Trichechus en ese sitio. El nombre es moderno y no debe usarse como indicio faunístico."
+  },
+
+  "caso_bufo_marinus": {
+    "titulo": "El fiasco del sapo alucinógeno: caso metodológico ejemplar",
+    "la_afirmacion": "Los olmecas usaban ritualmente el sapo Bufo marinus por sus bufotoxinas alucinógenas",
+    "el_origen": "El Proyecto Río Chiquito halló que los huesos de sapo eran el 9,5% del total faunístico en la cañada del Macaya (80 huesos en un solo escalón). Eso alimentó décadas de especulación.",
+    "la_refutacion": "El proyecto de Cyphers, sobre 1.400 muestras faunísticas, recuperó UN SOLO hueso de Bufo, y en una perturbación radicular moderna. Wing ya había señalado la ausencia de marcas de modificación humana.",
+    "conclusion": "Deposición secundaria en un bloque de deslizamiento, NO ritual",
+    "fiabilidad": "RECHAZADO",
+    "leccion": "Ejemplo de manual de cómo se fabrica una falsa certeza a partir de un contexto mal interpretado"
+  },
+
+  "ecosistema": {
+    "principio": "NO era una selva homogénea: era un MOSAICO controlado por altitud, drenaje y salinidad, con inversiones de pocos metros y consecuencias enormes",
+    "dato_decisivo": "SOLO EL 10-15% DE LAS TIERRAS BAJAS QUEDABA SOBRE EL NIVEL DE INUNDACIÓN. Eso explica por qué los sitios están donde están y por qué toda la ingeniería olmeca gira en torno al agua.",
+    "tipos_de_vegetacion": [
+      { "tipo": "Selva alta perennifolia", "dosel_m": [30, 40], "dosel_en_cimas_m": [10, 20], "estratos": 4, "epifitas_y_bejucos_pct": 18 },
+      { "tipo": "Manglar", "zonacion_por_salinidad": [
+        { "especie": "Rhizophora mangle", "nombre_comun": "Mangle rojo", "tolerancia_ppt": [0, 45], "rasgo": "Raíces zancudas" },
+        { "especie": "Avicennia germinans", "nombre_comun": "Mangle negro", "tolerancia_ppt": [0, 70], "rasgo": "Neumatóforos (raíces que respiran hacia arriba)" },
+        { "especie": "Laguncularia racemosa", "nombre_comun": "Mangle blanco" },
+        { "especie": "Conocarpus erectus", "nombre_comun": "Botoncillo" }
+      ]},
+      { "tipo": "Popal-tular", "nota": "La literatura especializada RECHAZA la separación estricta y recomienda el término compuesto", "especies_registradas": 95, "localidades": 11, "dominantes": [
+        { "especie": "Typha domingensis", "nombre_comun": "Tule", "valor_de_importancia": 12.31 },
+        { "especie": "Echinochloa pyramidalis", "valor_de_importancia": 10.33 },
+        { "especie": "Thalia geniculata", "nombre_comun": "Popal", "valor_de_importancia": 7.97 }
+      ], "lamina_de_inundacion_cm": [5.5, 69.5] }
+    ],
+    "pantanos_de_centla": { "hidrofitas_pct": 68.1, "vegetacion_riparia_pct": 5.8, "manglar_pct": 2 },
+    "clima": {
+      "gradiente_de_lluvia": { "Coyame_mm_ano": 4201, "Cuatotolapan_mm_ano": 1272, "factor": 3.3, "nota": "Ambas con series de 30 años" },
+      "Coatzacoalcos": { "precipitacion_mm": 2577, "temperatura_media_C": 26.1 },
+      "estacionalidad_corregida": {
+        "lluvias": "Junio a febrero (NUEVE meses, prolongadas por los nortes)",
+        "secas": "Marzo a mayo (solo TRES meses)",
+        "mes_extremo": "Mayo es a la vez el mes más cálido (28,8 °C) y el más seco",
+        "advertencia": "NO es el patrón 'seis meses de lluvia, seis de seca' que se suele suponer"
+      },
+      "nortes": { "periodo": "Septiembre a febrero", "viento_kmh_max": 100, "aporte_precipitacion_anual_pct": 15, "descenso_termico_C": 10, "nota": "El fenómeno meteorológico característico de la costa del Golfo" }
+    },
+    "hidrologia": {
+      "coatzacoalcos": { "longitud_km": [282, 325], "escurrimiento_millones_m3_ano": 28679, "navegabilidad": "DOS TERCERAS PARTES navegables — relevantísimo para el transporte de basalto", "curso_bajo": "Numerosos meandros, lagunetas y esteros" },
+      "tonala": { "longitud_km": 84, "cuenca_km2": 5679, "nota": "Frontera Tabasco-Veracruz" },
+      "estacionalidad_real": { "rio": "Grijalva", "caudal_minimo_m3s": 87, "caudal_maximo_m3s": 6286, "rango": "72 veces", "significado": "No vivían junto a un río: vivían dentro de un sistema que cada año se hinchaba setenta veces y volvía a encogerse" }
+    },
+    "suelos": [
+      { "tipo": "Fluvisoles", "ubicacion": "Vegas de río / levées", "caracteristica": "EL SUELO CLAVE. Estratificación visible por cada crecida, renovados por sedimento fresco cada año. La tierra agrícola buena." },
+      { "tipo": "Vertisoles", "caracteristica": "Fertilidad química ALTA pero limitación física severa: durísimos en seco, plásticos en húmedo. Muy difíciles con tecnología manual. Un suelo rico que casi no se puede usar sin arado." },
+      { "tipo": "Gleysoles", "ubicacion": "Backswamps", "caracteristica": "Reductores, encharcados" },
+      { "tipo": "Andosoles", "ubicacion": "Sierra de los Tuxtlas", "caracteristica": "Derivados del basalto, de formación muy rápida por la alta precipitación" },
+      { "tipo": "Acrisoles / Luvisoles", "ubicacion": "Lomeríos", "caracteristica": "Toxicidad por aluminio y ALTA vulnerabilidad a la erosión" }
+    ],
+    "vulcanismo": {
+      "campo": "Sierra de los Tuxtlas: campo basáltico con MÁS DE 250 CONOS",
+      "erupciones_del_formativo": [
+        { "fecha": "1250-900 a.C.", "efecto": "8-10 cm de ceniza en La Joya" },
+        { "fecha": "~150 a.C." },
+        { "fecha": "150-250 d.C.", "efecto": "Sella los campos de camellones de La Joya" }
+      ],
+      "efectos_de_una_caida_de_ceniza": [
+        "Reduce el OXÍGENO RADICULAR: las plantas se asfixian por abajo",
+        "Rompe la vegetación por PESO: 2,5 cm sobre un techo añaden 14,7 kg/m²",
+        "Lluvia ácida",
+        "Recuperación de 30-40 años para sostener vegetación clímax",
+        "PERO: fertilización del suelo a largo plazo"
+      ],
+      "hipotesis": "VanDerwarker sugiere que el retraso del desarrollo político en los Tuxtlas 'puede relacionarse en parte con erupciones volcánicas severas y recurrentes'",
+      "fiabilidad": "PROBABLE"
+    },
+    "corolario_del_paisaje": {
+      "afirmacion": "Para 1800 a.C. la región YA LLEVABA MILENIOS BAJO MANEJO HUMANO",
+      "evidencia": "Maíz y quema en San Andrés desde ~5100 a.C.; en Laguna Pompal desde ~2880 a.C.",
+      "conclusion": "El paisaje del Formativo NO era selva prístina sino un MOSAICO ANTROPOGÉNICO de campos, acahuales (barbechos), huertos arbóreos y selva madura, con ciclos de perturbación-regeneración de ~300 años y caídas de ceniza cada pocos siglos",
+      "implicacion_para_diseno": "El mundo olmeca no es 'civilización rodeada de naturaleza virgen'. Es un paisaje ya trabajado, con parches en distintos estados de recuperación.",
+      "fiabilidad": "CONSENSO"
+    }
+  },
+
+  "agricultura": {
+    "maiz": {
+      "ancestro": "Zea mays ssp. parviglumis (teosinte de Balsas), cuenca del Balsas (Guerrero/Michoacán)",
+      "evidencia_mas_antigua": "Abrigo Xihuatoxtla, ~8.700 cal BP",
+      "criterio_diagnostico": { "teosinte_almidon_max_um": 9.5, "maiz_almidon_um": [20, 26], "nota": "Decisivo para evaluar toda la evidencia posterior" },
+      "genes_clave": [
+        { "gen": "tb1", "nombre": "teosinte branched 1", "efecto": "Convierte la planta ramificada en tallo único" },
+        { "gen": "tga1", "nombre": "teosinte glume architecture 1", "efecto": "Su mutación elimina la cápsula dura que encierra la semilla" }
+      ],
+      "cambios_morfologicos": ["De 2 hileras de granos a 8-22", "De espiga dehiscente a indehiscente: retiene el grano y necesita al humano para reproducirse"],
+      "cronologia": [
+        { "hito": "Domesticación inicial", "BP": 9000 },
+        { "hito": "Rasgos plenamente maiceros", "BP": 5000 },
+        { "hito": "Transición de cultivo menor a ALIMENTO BÁSICO", "BP": [4700, 4000] }
+      ],
+      "fiabilidad": "CONSENSO"
+    },
+    "el_debate_central": {
+      "pregunta": "¿De qué vivían realmente? ¿Maíz o recursos de llanura aluvial?",
+      "postura_A": { "nombre": "El maíz importó temprano", "autores": ["Coe", "Diehl", "Pohl"], "argumento": "La élite surge del control de tierras agrícolas de levée. Diehl llama al maíz 'the Olmec staple'. Para La Venta hay amplia evidencia de que la agricultura de maíz sí sustentó la economía." },
+      "postura_B": { "nombre": "Cultivo no agrícola (nonagricultural cultivation)", "autores": ["Philip Arnold III", "Amber VanDerwarker", "Killion"], "argumento": "Fueron los recursos de llanura aluvial y humedal, NO la agricultura de maíz, los que fundaron la economía política olmeca temprana", "nudo_teorico": "Si los recursos acuáticos son APROPIABLES. Coe y Diehl los excluyeron por no monopolizables.", "refutacion_de_arnold": ["Los peces no se distribuyen de forma uniforme", "En otoño las especies catádromas migran río abajo a desovar en un pulso predecible", "La captura masiva exige cercos o redes de más de 30 m con trabajo cooperativo: tecnología SÍ apropiable", "Los lagos de meandro abandonado funcionan como estanques naturales de almacenamiento en vivo"] },
+      "postura_C": { "nombre": "Diversificación en lugar de intensificación", "autor": "Ann Cyphers (obra tardía)", "argumento": "El desarrollo del primer gran centro urbano se basó en el manejo de recursos acuáticos, el consumo de tubérculos y el manejo del bosque de humedal, más que en el monocultivo de maíz. Conocían el maíz desde hace ~4.000 años pero NO fue su cultivo prioritario." },
+      "lectura_de_la_discrepancia": "Puede ser METODOLÓGICA antes que dietética: la flotación sobre-representa granos carbonizados como el maíz; los fitolitos sí detectan tubérculos, invisibles en flotación. Los dos equipos miran la misma región con instrumentos de sesgo opuesto.",
+      "matiz_sobre_vanderwarker": "No es una simple 'anti-maíz': en La Joya el maíz es UBICUO en toda la ocupación. Su tesis es que la intensificación fue un proceso largo e incremental que empezó siglos antes del desarrollo político. Es decir: LA AGRICULTURA NO FUE CAUSA DE LA COMPLEJIDAD, SINO EN PARTE SU CONSECUENCIA.",
+      "advertencia_de_alcance": "Arnold EXCLUYE DELIBERADAMENTE a La Venta de su argumento. No extrapolar el modelo acuático de San Lorenzo a La Venta.",
+      "argumento_cuantitativo": "El área de 77 km² de San Lorenzo podría producir ~500 t de maíz al año, suficiente para ~5.556 personas. Pero la población estimada en el apogeo es de 10.000-11.662. El maíz solo no da la cuenta.",
+      "fiabilidad": "DEBATIDO — frente activo"
+    },
+    "la_milpa": {
+      "pregunta": "¿Existió la tríada maíz-frijol-calabaza como sistema integrado?",
+      "respuesta_honesta": "NO está demostrada en el Formativo del Golfo",
+      "lo_que_hay": { "maiz": "Sólido [AD]", "frijol": "Presente en La Joya, con estatus doméstico incierto", "calabaza": "Cucurbitaceae mencionada genéricamente; las secuencias fechadas robustas son de fuera de la región" },
+      "distincion_clave": "Presencia de los tres taxones NO ES IGUAL a policultivo asociado en la misma parcela",
+      "advertencia": "La afirmación de que 'hacia 1500 a.C. la milpa emergió como sistema plenamente integrado' es una EXTRAPOLACIÓN DIVULGATIVA sin respaldo arqueológico directo en el Golfo",
+      "fiabilidad": "DEBATIDO"
+    },
+    "nixtamalizacion": {
+      "quimica": { "proceso": "El álcali disuelve la hemicelulosa, afloja el pericarpio y LIBERA LA NIACINA LIGADA", "efectos": ["Calcio +750%, con 85% de biodisponibilidad", "Niacina digestible: previene la pelagra", "Mejor balance de lisina y triptófano"], "alcalis": ["Cal (óxido/hidróxido de calcio)", "Cenizas", "Ceniza de concha de mejillón quemada (uso maya moderno)"], "importancia": "Sin nixtamalización, una civilización basada en el maíz es nutricionalmente inviable. Las poblaciones europeas que adoptaron el maíz SIN la técnica sufrieron pelagra masivamente en los siglos XVIII-XIX.", "fiabilidad": "CONSENSO" },
+      "evidencia_arqueologica": {
+        "indirecta_mas_antigua": "Metates de la costa sur de Guatemala, ~1500-1200 a.C. Es INFERENCIA A PARTIR DE INSTRUMENTAL, no prueba de tratamiento alcalino.",
+        "directa_primera": "Esferulitas de almidón de maíz (subproducto único de la nixtamalización) en SAN BARTOLO, GUATEMALA, en contexto del CLÁSICO TARDÍO Y TERMINAL (J. Archaeological Science, 2022)",
+        "otros_casos_directos": ["La Corona (Clásico Tardío)", "Xochimilco (Posclásico)", "Cahokia"]
+      },
+      "conclusion_para_el_golfo": "NO EXISTE EVIDENCIA ARQUEOLÓGICA DIRECTA DE NIXTAMALIZACIÓN OLMECA. La afirmación de que 'en La Venta los metates se usaban con maíz remojado en agua de cal' NO tiene respaldo publicado: es retroproyección.",
+      "el_comal": "Indicador de tortilla; su generalización es MUY POSTERIOR al Formativo. Su ausencia es coherente con consumo de maíz en forma de atoles, gachas y bebidas fermentadas, que es lo que sugieren los isótopos de San Andrés.",
+      "fiabilidad": "ESPECULATIVO para el caso olmeca concreto"
+    },
+    "sistemas_agricolas": [
+      { "sistema": "Agricultura de vega / levée", "detalle": "Los levées naturales son el terreno más alto y mejor drenado, renovado por sedimento en cada crecida. Fluvisoles con estratificación visible por cada evento de inundación. La misma base agrícola del Nilo, el Indo y el Mekong.", "advertencia": "La cifra de 'hasta tres cosechas al año' circula en divulgación y debe tratarse con escepticismo", "fiabilidad": "CONSENSO en el sistema; ESPECULATIVO en el rendimiento" },
+      { "sistema": "Roza-tumba-quema", "evidencia": "Señal de carbón y polen de disturbio (Ambrosia, Poaceae, Cecropia, Trema) en Pompal y Lago Verde", "fiabilidad": "PROBABLE" },
+      { "sistema": "Campos de camellones (ridged fields)", "detalle": "EL DATO [AD] MÁS SÓLIDO de intensificación: en La Joya, camellones identificados en varias unidades, SELLADOS POR TEFRA VOLCÁNICA de 150-250 d.C.", "nota": "Es Formativo Terminal, no Olmeca clásico, pero demuestra la técnica en la región", "fiabilidad": "CONSENSO" }
+    ],
+    "almacenamiento": [
+      { "tecnica": "Secado y ahumado de pescado", "duraciones": { "peces_pequenos_ahumados_meses": 5, "especies_marinas_grandes_saladas_meses": 1 }, "contexto": "Explotaban masivamente los recursos acuáticos concentrados tras las inundaciones y administraban la reserva durante el estiaje crítico", "fiabilidad": "PROBABLE" },
+      { "tecnica": "Almacenamiento en vivo (storage on the fin)", "detalle": "Los lagos de meandro abandonado funcionan como estanques naturales que retienen tortuga y pescado tras la crecida", "importancia": "Convierte un recurso estacional en uno CONTROLABLE. Quien tiene derechos sobre los remansos obtiene ventaja política real. Es el corazón del argumento de Arnold sobre apropiabilidad.", "fiabilidad": "PROBABLE" },
+      { "tecnica": "Salado en salmuera", "fiabilidad": "ESPECULATIVO — interpretativo, no demostrado" },
+      { "tecnica": "Almacenamiento de grano", "estado": "NO se encontró evidencia publicada de estructuras de almacenaje (troje, silo, cista) en sitios olmecas del Formativo", "fiabilidad": "LAGUNA DE EVIDENCIA" }
+    ]
+  },
+
+  "resumen_para_diseno_de_bioma": {
+    "relieve": "Llanura casi plana a nivel del mar, con inversiones de POCOS METROS que lo deciden todo. Islas y promontorios de tierra alta (10-15% del territorio) rodeados de humedal. Al oeste, un macizo volcánico con más de 250 conos: la única piedra.",
+    "agua": "Ríos de caudal salvajemente estacional (rango de 72x). Meandros abandonados que quedan como lagunas. Pantanos, manglares con zonación por salinidad, esteros.",
+    "vegetacion": "Selva de dosel de 30-40 m con cuatro estratos y muchas epífitas y bejucos; manglar en franjas según la sal; popal-tular herbáceo inundado; parches antropogénicos en distintos estados de barbecho.",
+    "ciclo_anual": "Secas cortas (marzo-mayo), lluvias largas (junio-febrero). Mayo como mes más caluroso y seco. Nortes de septiembre a febrero, con viento fuerte y caída de temperatura.",
+    "eventos_raros": "Caída de ceniza volcánica cada pocos siglos: mata vegetación, hunde techos y a largo plazo FERTILIZA el suelo. Crecidas anuales que reorganizan el paisaje.",
+    "recursos_por_zona": [
+      { "zona": "Tierra alta", "recursos": ["Agricultura", "Asentamiento"] },
+      { "zona": "Vega / levée", "recursos": ["La tierra buena, renovada cada año"] },
+      { "zona": "Humedal y meandros", "recursos": ["Pesca", "Tortuga", "Almacenamiento en vivo"] },
+      { "zona": "Costa / estuario", "recursos": ["Róbalo", "Pargo", "Jurel"], "distancia": "Dos días de viaje redondo" },
+      { "zona": "Montaña volcánica", "recursos": ["Basalto"], "distancia": "60-150 km" },
+      { "zona": "Escurrimientos", "recursos": ["Chapopote"] }
+    ]
+  },
+
+  "lagunas_documentales_prioritarias": [
+    "González Lauck 1996: la 'plétora de huesos de animales' de La Venta, conjunto sustancial y desaprovechado",
+    "VanDerwarker 2006 (cap. 4, manejo arbóreo) y VanDerwarker y Kruger 2012: cifras de ubicuidad y densidad",
+    "Antracología (taxones de carbón de leña): inexistente en acceso abierto para toda la región",
+    "Publicación formal de los fitolitos de Manihot de San Lorenzo",
+    "Cyphers, Zurita-Noguera y Lane 2013, 'Retos y riesgos en la vida olmeca' (IIA-UNAM): la monografía de subsistencia clave, no digitalizada",
+    "Reptiles, tortugas a nivel de género y moluscos: sin cifras"
+  ]
+}

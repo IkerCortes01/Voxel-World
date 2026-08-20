@@ -553,6 +553,10 @@ struct NopalForma {
     float cayendo;
 };
 
+// Texturas que pueden dibujarse giradas. Se llena en la precarga y solo se
+// consulta durante el mallado (ver emitQuad).
+std::set<GLuint> g_texturasGirables;
+
 // Reloj del mundo, en segundos de juego. Se declara aqui porque la
 // animacion de caida de la penca lo necesita y va antes en el archivo.
 double g_tiempoJugadoSegundos = 0.0;
@@ -7016,7 +7020,11 @@ public:
                     // el 100% de las zonas tenia. Con 3 de cada 5 quedan
                     // regiones limpias entre manchas, que es lo que se ve
                     // en el mapa de suelos real.
-                    const bool celdaConArcilla = ((hf % 5u) < 3u);
+                    // Menos comun: 1 de cada 5 celdas en vez de 3. Con 3
+                    // salia arcilla en el 62% de las zonas y se veia por
+                    // todas partes; con 1 queda como algo que se encuentra,
+                    // no como el suelo por defecto.
+                    const bool celdaConArcilla = ((hf % 5u) == 0u);
 
                     // Centro y radio del manchon dentro de su celda.
                     const int cx = fx * 24 + (int)((hf >> 3) % 24u);
@@ -7024,7 +7032,8 @@ public:
                     const int dx = worldX - cx, dz = worldZ - cz;
                     const int d2 = dx * dx + dz * dz;
                     // Manchas grandes: de 6 a 13 bloques de radio.
-                    const int radio = 6 + (int)((hf >> 19) % 8u);
+                    // Manchas mas pequenas: de 3 a 7 bloques de radio.
+                    const int radio = 3 + (int)((hf >> 19) % 5u);
 
                     if (celdaConArcilla && d2 <= radio * radio) {
                         // Densidad decreciente hacia el borde: el manchon se
@@ -7064,7 +7073,7 @@ public:
                                   (unsigned)(worldZ * 3266489917u);
                     hp ^= hp >> 15; hp *= 2654435761u; hp ^= hp >> 13;
 
-                    if ((hp % 5u) < 2u) {   // 40% de las columnas
+                    if ((hp % 8u) == 0u) {   // 12.5% de las columnas
                         // Dos o tres bloques bajo la superficie.
                         const int prof = 2 + (int)((hp >> 7) % 2u);
                         const int yy = surfaceY - prof;
@@ -12262,10 +12271,65 @@ public:
                 auto& cols  = colorsByTexture[tex];
                 auto& uvs   = uvsByTexture[tex];
 
+                // ============================================================
+                // ROTACION NATURAL DE LA TEXTURA
+                // ============================================================
+                // Sin esto, todos los bloques de un mismo tipo enseñan la
+                // imagen en la MISMA orientacion, y una ladera de piedra o un
+                // prado se ven como papel pintado: el ojo engancha enseguida
+                // la cuadricula.
+                //
+                // La textura de estos bloques es RUIDO -- granos de arena,
+                // briznas, grietas -- asi que girarla 90, 180 o 270 grados
+                // sigue siendo una textura valida y las juntas no cantan. De
+                // ahi que el cambio no se vea brusco: es la misma imagen,
+                // solo que orientada distinto.
+                //
+                // Coste: cero. No hay textura nueva ni memoria extra; se
+                // permutan las cuatro esquinas al escribir las UV, que es
+                // trabajo que ya se estaba haciendo.
+                //
+                // QUE NO ENTRA, a proposito:
+                //   - Los TRONCOS: su textura tiene la veta en un sentido y
+                //     girarla se notaria como un error.
+                //   - Los guijarros (pedernal, cobre, caliza, piedritas,
+                //     polvo de tierra): no pasan por aqui -- los dibuja el
+                //     mesher de sprites con su propio reparto de caras -- asi
+                //     que se quedan como estan y no se deforman.
+                // Se decide por TEXTURA, que es lo que hay a mano en este
+                // punto del mesher. Se prepara una vez por chunk: comparar
+                // handles es solo un puñado de enteros.
+                const bool puedeGirar = (g_texturasGirables.count(tex) != 0);
+
+                // El giro sale de la POSICION del quad, asi que es estable:
+                // el mismo trozo de suelo se ve igual siempre que se recarga
+                // el chunk, y dos quads contiguos casi nunca coinciden.
+                int giro = 0;
+                if (puedeGirar) {
+                    unsigned hr = (unsigned)((baseWX + u0) * 73856093) ^
+                                  (unsigned)(layer * 19349663) ^
+                                  (unsigned)((baseWZ + v0) * 83492791) ^
+                                  (unsigned)(dir * 2654435761u);
+                    hr ^= hr >> 13; hr *= 1274126177u; hr ^= hr >> 16;
+                    giro = (int)(hr & 3u);
+                }
+
                 auto pushV = [&](float px, float py, float pz, float tu, float tv) {
+                    // Girar la UV es permutar la esquina: (u,v) -> (v, 1-u)
+                    // por cada cuarto de vuelta. Se hace sobre el tamaño del
+                    // quad (fw x fh) para que la textura siga encajando
+                    // cuando el greedy ha fusionado varios bloques.
+                    float ru = tu, rv = tv;
+                    const float mw = (float)w, mh = (float)h;
+                    for (int q = 0; q < giro; ++q) {
+                        const float nu = rv;
+                        const float nv = mw - ru;
+                        ru = nu; rv = nv;
+                    }
                     verts.push_back(px); verts.push_back(py); verts.push_back(pz);
                     cols.push_back(f); cols.push_back(f); cols.push_back(f); cols.push_back(1.0f);
-                    uvs.push_back(tu); uvs.push_back(tv);
+                    uvs.push_back(ru); uvs.push_back(rv);
+                    (void)mh;
                 };
 
                 const float fw = (float)w, fh = (float)h;
@@ -15907,6 +15971,38 @@ void prewarmItemTextures() {
 
         const GLuint h = g_textureManager->getBlockTexture(bt, 0);
         g_itemTextures.registerItemHandle(id, (UI::TextureHandle)h);
+    }
+
+    // ⭐ QUE TEXTURAS PUEDEN GIRAR
+    //
+    // Se llena aqui, una sola vez, con los handles ya resueltos: durante el
+    // mallado solo hay que mirar si el handle esta en el set.
+    //
+    // Entran las texturas de RUIDO -- tierra, piedra, arena, hojas... -- que
+    // giradas 90, 180 o 270 grados siguen siendo validas y hacen que un
+    // prado o una ladera dejen de verse como papel pintado.
+    //
+    // NO entran, a proposito:
+    //   - los TRONCOS, cuya veta tiene un sentido y girarla cantaria;
+    //   - los tablones y bloques construidos, por lo mismo;
+    //   - los guijarros (pedernal, cobre, caliza, piedritas, polvo de
+    //     tierra), que ni siquiera pasan por aqui: los dibuja el mesher de
+    //     sprites con su propio reparto de caras.
+    if (g_textureManager) {
+        static const BlockType GIRABLES[] = {
+            BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_COBBLESTONE,
+            BLOCK_LIMESTONE, BLOCK_SAND, BLOCK_GRAVEL, BLOCK_CLAY,
+            BLOCK_CLAY_DIRT, BLOCK_CLAY_SAND, BLOCK_SNOW,
+            BLOCK_LEAVES, BLOCK_LEAVES_ENCINO, BLOCK_LEAVES_OYAMEL
+        };
+        for (BlockType b : GIRABLES) {
+            for (int cara = 0; cara < 6; ++cara) {
+                const GLuint t = g_textureManager->getBlockTexture(b, cara);
+                if (t != 0) g_texturasGirables.insert(t);
+            }
+        }
+        std::cout << "Texturas girables: " << g_texturasGirables.size()
+                  << std::endl;
     }
 
     // ⭐ PRECARGA DE LAS TEXTURAS RELLENADAS

@@ -141,11 +141,16 @@ public:
         // papel es variar suavemente la anchura del tunel.
         const float widthNoise = Noise::simplex3D(seedWorm(),
                                                   x * 0.004f, fy * 0.004f, z * 0.004f);
-        // Rango de umbral: 0.014 (conducto estrecho) a 0.050 (galeria amplia).
-        // Calibrado para que las cuevas ocupen ~8-12% del subsuelo: suficiente
-        // para explorar sin convertir la roca en un queso gruyere que
-        // desestabilice el terreno y dispare el coste del mesher.
-        const float tunnelThreshold = (0.032f + widthNoise * 0.018f) * depthFactor;
+        // Rango de umbral: ahora 0.020 (conducto estrecho) a 0.068 (galeria
+        // amplia), que sube la ocupacion del subsuelo de ~8-12% a ~14-18%:
+        // las cuevas pasan a ser ALGO COMUN, se topa uno con ellas cavando,
+        // sin llegar a dejar la roca como un queso.
+        //
+        // La cifra no es inventada: en el karst de Quintana Roo se han
+        // medido de 6 a 19 km de galeria por km cuadrado (Smart et al.,
+        // 2006), que es de las densidades de conducto mas altas del mundo, y
+        // el 25.5% del territorio mexicano es karst (INEGI/WOKAM).
+        const float tunnelThreshold = (0.044f + widthNoise * 0.024f) * depthFactor;
 
         if (tunnel < tunnelThreshold) {
             // Termino de COLUMNA: preserva pilares de roca dentro de los

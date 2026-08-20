@@ -1,0 +1,279 @@
+================================================================================
+09 - FAUNA Y ECOSISTEMA
+================================================================================
+
+Este archivo describe el MUNDO FÍSICO en el que vivían los olmecas. Para un
+motor de voxels es probablemente el más aprovechable de toda la carpeta: es
+el bioma, la paleta de bloques y el ciclo estacional.
+
+La fauna como recurso alimentario está en el archivo 02, apartado 6. Aquí va
+el ecosistema completo.
+
+================================================================================
+1. NO ERA UNA SELVA HOMOGÉNEA: ERA UN MOSAICO
+================================================================================
+
+Tres variables lo controlan: ALTITUD, DRENAJE y SALINIDAD. Y las tres
+operan en rangos pequeñísimos — inversiones de pocos metros con
+consecuencias enormes.
+
+--------------------------------------------------------------------------------
+1.1 SELVA ALTA PERENNIFOLIA
+--------------------------------------------------------------------------------
+  - Dosel de 30-40 m en pendientes suaves; 10-20 m en cimas.
+  - CUATRO ESTRATOS verticales.
+  - Epífitas y bejucos: 18% de las formas de crecimiento.
+  [CONSENSO / EM]
+
+--------------------------------------------------------------------------------
+1.2 MANGLAR — con zonación por salinidad
+--------------------------------------------------------------------------------
+  Rhizophora mangle (mangle rojo) ...... 0-45 ppt, raíces zancudas
+  Avicennia germinans (mangle negro) ... hasta 70 ppt, neumatóforos
+                                         (raíces que respiran hacia arriba)
+  Laguncularia racemosa (mangle blanco)
+  Conocarpus erectus (botoncillo)
+
+  La zonación es un gradiente real y visible: cada especie ocupa su franja
+  de tolerancia a la sal. [CONSENSO]
+
+--------------------------------------------------------------------------------
+1.3 POPAL-TULAR (humedal herbáceo)
+--------------------------------------------------------------------------------
+  La literatura especializada RECHAZA la separación estricta entre "popal" y
+  "tular" y recomienda el término compuesto.
+
+  95 especies registradas en 11 localidades. Valores de importancia:
+    Typha domingensis (tule) ............... 12,31
+    Echinochloa pyramidalis ................ 10,33
+    Thalia geniculata (popal) ............... 7,97
+  Lámina de inundación: 5,5 a 69,5 cm.
+
+  En los Pantanos de Centla: hidrófitas 68,1%, vegetación riparia 5,8%,
+  manglar 2%. [CONSENSO]
+
+--------------------------------------------------------------------------------
+1.4 TOPOGRAFÍA Y ASENTAMIENTO — el punto clave
+--------------------------------------------------------------------------------
+
+  SAN LORENZO: meseta ~50 m sobre la llanura de inundación; ~700 ha altas.
+  LA VENTA:    isla de ~5,2 km² a MENOS DE 10 M sobre el nivel del mar, en
+               el nexo de marismas, manglar, selva y Golfo.
+
+  DATO DECISIVO: SOLO EL 10-15% DE LAS TIERRAS BAJAS QUEDABA SOBRE EL NIVEL
+  DE INUNDACIÓN.
+
+  Eso explica de golpe por qué los sitios están donde están, por qué la
+  tierra alta era el recurso más disputado, y por qué toda la ingeniería
+  olmeca gira en torno al agua. [CONSENSO]
+
+================================================================================
+2. ÁRBOLES
+================================================================================
+
+Los dominantes de la ecorregión: Brosimum alicastrum, Manilkara zapota,
+Swietenia macrophylla, Bursera simaruba. Hoy SOLO EL 4% está protegido.
+
+ESPECIES NOTABLES [EM — ecología moderna proyectada]:
+
+  CEIBA (Ceiba pentandra)
+    Hasta 60,4 m, con CONTRAFUERTES QUE SUBEN 12-15 M por el tronco. Árbol
+    sagrado en toda Mesoamérica posterior (el axis mundi maya). Y en El
+    Manatí, la madera con la que se tallaron los bustos rituales.
+
+  RAMÓN (Brosimum alicastrum)
+    Hasta 45 m. 150-180 KG DE FRUTO AL AÑO durante más de un siglo. Es una
+    de las plantas alimenticias más productivas del trópico americano.
+
+  CHICOZAPOTE (Manilkara zapota)
+    Más de 30 m. Fruto comestible y látex (el chicle).
+
+  PALO MULATO (Bursera simaruba)
+    Pionera, resistente a huracanes. Corteza roja que se desprende en
+    láminas. Del mismo género que los árboles del copal.
+
+  COYOL (Acrocomia aculeata / A. mexicana)
+    Palma. Fruto documentado [AD] en La Joya y El Manatí. Se le saca VINO DE
+    COYOL sangrando el tronco.
+
+  GUANACASTE (Enterolobium cyclocarpum)
+    Su fruto CARECE HOY DE DISPERSOR NATIVO: es un "anacronismo evolutivo",
+    adaptado a una megafauna pleistocénica extinta. Detalle precioso para
+    ambientar un mundo.
+
+  HULE (Castilla elastica)
+    La fuente del látex. Ver archivos 04 y 05.
+
+  JOBO (Spondias mombin) y NANCE (Byrsonima)
+    Ambos documentados [AD] en El Manatí: madera y semillas.
+
+  CAOBA (Swietenia macrophylla), CEDRO ROJO (Cedrela odorata).
+
+================================================================================
+3. CLIMA
+================================================================================
+
+EL GRADIENTE DE LLUVIA ES EXTREMO:
+  Coyame ........... 4.201 mm/año
+  Cuatotolapan ..... 1.272 mm/año
+  Factor 3,3x entre dos puntos de la misma región, ambos con series de 30
+  años.
+  Coatzacoalcos: ~2.577 mm, 26,1 °C de media.
+
+CORRECCIÓN IMPORTANTE A LA ESTACIONALIDAD HABITUAL:
+  En Los Tuxtlas las lluvias van de JUNIO A FEBRERO (nueve meses,
+  prolongadas por los nortes), y las secas de MARZO A MAYO.
+
+  Mayo es a la vez el mes MÁS CÁLIDO (28,8 °C) y el MÁS SECO.
+
+  Esto no es el patrón "seis meses de lluvia, seis de seca" que se suele
+  suponer. Para un ciclo de juego, la temporada seca es CORTA y dura tres
+  meses.
+
+LOS NORTES:
+  De septiembre a febrero. Vientos de hasta 100 km/h. Aportan ~15% DE LA
+  PRECIPITACIÓN ANUAL y provocan descensos térmicos de hasta 10 °C.
+  Es el fenómeno meteorológico característico de la costa del Golfo.
+  [CONSENSO]
+
+================================================================================
+4. HIDROLOGÍA
+================================================================================
+
+RÍO COATZACOALCOS
+  Longitud: 282-325 km.
+  Escurrimiento: 28.679 millones de m³/año.
+  DOS TERCERAS PARTES NAVEGABLES — relevantísimo para el transporte de
+  basalto.
+  Curso bajo con numerosos meandros, lagunetas y esteros.
+
+RÍO TONALÁ
+  84 km. Cuenca de 5.679 km². Frontera Tabasco-Veracruz.
+
+LA MEDIDA DE LA ESTACIONALIDAD REAL:
+  El Grijalva va de 87 a 6.286 m³/s.
+  UN RANGO DE 72 VECES entre estiaje y crecida.
+
+  Ese número es probablemente el dato más importante de todo el archivo para
+  entender el mundo olmeca: no vivían junto a un río, vivían dentro de un
+  sistema que cada año se hinchaba setenta veces y volvía a encogerse.
+  [CONSENSO]
+
+================================================================================
+5. SUELOS
+================================================================================
+
+  FLUVISOLES (vegas de río) — EL SUELO CLAVE.
+    Con estratificación visible por cada crecida. Renovados por sedimento
+    fresco cada año. Es la tierra agrícola buena, y está en los levées: las
+    partes más altas y mejor drenadas.
+
+  VERTISOLES
+    Fertilidad química ALTA pero LIMITACIÓN FÍSICA severa: durísimos en
+    seco, plásticos en húmedo. Muy difíciles de trabajar con tecnología
+    manual. Un suelo rico que casi no se puede usar sin arado.
+
+  GLEYSOLES
+    En backswamps (pantanos de retaguardia). Reductores, encharcados.
+
+  ANDOSOLES
+    Derivados del basalto, de formación muy rápida por la alta
+    precipitación. Los suelos volcánicos de los Tuxtlas.
+
+  ACRISOLES / LUVISOLES
+    En lomeríos. Con toxicidad por aluminio y ALTA VULNERABILIDAD A LA
+    EROSIÓN.
+  [CONSENSO]
+
+================================================================================
+6. VULCANISMO DE LOS TUXTLAS
+================================================================================
+
+Campo basáltico con MÁS DE 250 CONOS volcánicos.
+
+TRES ERUPCIONES DEL FORMATIVO, desde respiraderos cerca del Cerro Mono
+Blanco:
+
+  1250-900 a.C. .... 8-10 CM DE CENIZA EN LA JOYA
+  ~150 a.C.
+  150-250 d.C. ..... Sella los campos de camellones de La Joya
+
+EFECTOS DOCUMENTADOS DE UNA CAÍDA DE CENIZA:
+  - Reduce el OXÍGENO RADICULAR: las plantas se asfixian por abajo.
+  - Rompe la vegetación por PESO.
+  - 2,5 cm sobre un techo añaden 14,7 kg/m².
+  - Lluvia ácida.
+  - Recuperación de 30-40 AÑOS para sostener vegetación clímax.
+  - PERO: fertilización del suelo a largo plazo.
+
+VanDerwarker sugiere que el retraso del desarrollo político en los Tuxtlas
+"puede relacionarse en parte con erupciones volcánicas severas y
+recurrentes". [PROBABLE]
+
+Un lahar con cerámica precolombina en Arroyo Toro Prieto da 2050 +245/-235
+BP (≈100 a.C.).
+
+TODAS LAS CABEZAS COLOSALES son de basalto del Cerro Cintepec, de bloques
+depositados por lahares antiguos. Transporte de más de 150 km, pesos de
+5-40 t, sin animales de carga ni ruedas. [CONSENSO]
+
+================================================================================
+7. EL COROLARIO QUE CAMBIA LA IMAGEN DEL PAISAJE
+================================================================================
+
+Para 1800 a.C., cuando empieza la historia olmeca, LA REGIÓN YA LLEVABA
+MILENIOS BAJO MANEJO HUMANO:
+
+  - Maíz y quema en San Andrés desde ~5100 a.C.
+  - En Laguna Pompal desde ~2880 a.C.
+
+EL PAISAJE DEL FORMATIVO NO ERA SELVA PRÍSTINA. Era un MOSAICO
+ANTROPOGÉNICO de campos, acahuales (barbechos), huertos arbóreos y selva
+madura, con:
+  - Ciclos de perturbación-regeneración de ~300 años.
+  - Caídas de ceniza volcánica cada pocos siglos.
+
+Esto importa para el diseño: el mundo olmeca no es "civilización rodeada de
+naturaleza virgen". Es un paisaje ya trabajado, con parches en distintos
+estados de recuperación. [CONSENSO]
+
+================================================================================
+8. RESUMEN PARA DISEÑO DE BIOMA
+================================================================================
+
+Si se quisiera reproducir este entorno en el motor, los elementos
+diferenciales serían:
+
+  RELIEVE
+    Llanura casi plana a nivel del mar, con inversiones de POCOS METROS que
+    lo deciden todo. Islas y promontorios de tierra alta (10-15% del
+    territorio) rodeados de humedal.
+    Al oeste, un macizo volcánico con más de 250 conos: la única piedra.
+
+  AGUA
+    Ríos de caudal salvajemente estacional (rango de 72x). Meandros
+    abandonados que quedan como lagunas. Pantanos, manglares con zonación
+    por salinidad, esteros.
+
+  VEGETACIÓN EN CAPAS
+    Selva de dosel de 30-40 m con cuatro estratos y muchas epífitas y
+    bejucos; manglar en franjas según la sal; popal-tular herbáceo
+    inundado; y parches antropogénicos en distintos estados de barbecho.
+
+  CICLO ANUAL
+    Secas cortas (marzo-mayo), lluvias largas (junio-febrero). Mayo como el
+    mes más caluroso y seco. Nortes de septiembre a febrero, con viento
+    fuerte y caída de temperatura.
+
+  EVENTOS RAROS
+    Caída de ceniza volcánica cada pocos siglos: mata vegetación, hunde
+    techos, y a largo plazo FERTILIZA el suelo.
+    Crecidas anuales que reorganizan el paisaje.
+
+  RECURSOS DIFERENCIADOS POR ZONA
+    Tierra alta: agricultura, asentamiento.
+    Vega/levée: la tierra buena, renovada cada año.
+    Humedal y meandros: pesca, tortuga, almacenamiento en vivo.
+    Costa/estuario: róbalo, pargo, jurel — a dos días de viaje.
+    Montaña volcánica: basalto, a 60-150 km.
+    Escurrimientos: chapopote.

@@ -278,9 +278,10 @@ enum BlockType {
     BLOCK_BRICKS,           // 74 (sin implementar)
     BLOCK_GLASS,            // 75 (sin implementar)
     BLOCK_ORANGE_FLOWER,    // 76 (retirado del juego)
+    BLOCK_HILO_IXTLE,       // 77 Hilo de ixtle (de piedra + hoja)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 77 (ya no se genera)
+    BLOCK_BEDROCK           // 78 (ya no se genera)
 };
 
 // Último bloque COLOCABLE de la lista ordenada (los pedazos de piedra).

@@ -5678,6 +5678,26 @@ public:
         // RECETAS BÁSICAS
         // ========================================================================
 
+        // ========================================================================
+        // HILO DE IXTLE
+        // ========================================================================
+        // Tres pedazos de piedra y una hoja de ixtle dan CUATRO hilos.
+        //
+        // Es como se saca la fibra de verdad: la hoja de lechuguilla se
+        // machaca contra una piedra para deshacer la pulpa y dejar solo las
+        // hebras. De ahi que hagan falta las dos cosas.
+        //
+        // Va SIN FORMA a proposito: asi vale en cualquier rincon de la
+        // rejilla y no hay que acertar la esquina exacta.
+        {
+            CraftingRecipe recipe(BLOCK_HILO_IXTLE, 4, true);
+            recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;
+            recipe.pattern[1] = BLOCK_PEDAZO_PIEDRA;
+            recipe.pattern[2] = BLOCK_PEDAZO_PIEDRA;
+            recipe.pattern[3] = BLOCK_IXTLE_HOJA;
+            recipes.push_back(recipe);
+        }
+
         // ⭐ NUEVO: 1 Wood = 6 Planks (más eficiente)
         {
             CraftingRecipe recipe(BLOCK_PLANKS, 6, true);
@@ -8630,7 +8650,9 @@ public:
         } else if (dado < 92u) {     // 22% grandes
             cuerpo = BLOCK_IXTLE_GRANDE;   alturaPunta = 0;
         } else {                     // 8% enormes: ejemplares viejos
-            cuerpo = BLOCK_IXTLE_ENORME;   alturaPunta = 1;
+            // Baja otro bloque: su espina cae ya dentro de la roseta, como
+            // en los otros tres tamaños.
+            cuerpo = BLOCK_IXTLE_ENORME;   alturaPunta = 0;
         }
 
         // Hueco que hay que reservar: hasta donde llega la pieza mas alta.
@@ -8665,6 +8687,17 @@ public:
         // La espina, un bloque por debajo de donde iba antes. En las matas
         // de un solo bloque va dentro de la propia roseta.
         if (alturaPunta > 0) {
+            // ⭐ NADA DE PUNTAS FLOTANDO
+            //
+            // Si la espina queda separada del cuerpo por aire, la mata se ve
+            // CORTADA: un trozo de planta abajo y la punta suelta arriba.
+            // Se rellena el hueco con hojas, que son el cuerpo de la propia
+            // hoja, de modo que la silueta sube entera hasta la espina.
+            for (int dy = 1; dy < alturaPunta; ++dy) {
+                if (getBlock(worldX, baseY + dy, worldZ) == BLOCK_AIR) {
+                    setBlock(worldX, baseY + dy, worldZ, cuerpo);
+                }
+            }
             setBlock(worldX, baseY + alturaPunta, worldZ, BLOCK_IXTLE_PUNTA);
         }
     }
@@ -10654,6 +10687,27 @@ public:
                             // asi que dibuja la roseta, no la cuspide.
                             const bool punta = (block == BLOCK_IXTLE_PUNTA);
 
+                            // ⭐ LA PUNTA NO SE VE CORTADA
+                            //
+                            // Si debajo de la espina hay AIRE, la mata se ve
+                            // partida: un trozo de planta abajo y la punta
+                            // suelta arriba. Aqui se cuenta cuanto aire hay
+                            // hasta lo primero solido y se alargan las hojas
+                            // hacia abajo para cubrirlo.
+                            //
+                            // Se hace al DIBUJAR, no al generar, para que
+                            // tambien se arreglen las matas de los mundos ya
+                            // guardados con la version anterior.
+                            int huecoAbajo = 0;
+                            if (punta) {
+                                for (int d = 1; d <= 4; ++d) {
+                                    const BlockType b2 =
+                                        getNeighborBlockCached(x, y, z, 0, -d, 0);
+                                    if (b2 != BLOCK_AIR) break;
+                                    ++huecoAbajo;
+                                }
+                            }
+
                             // ------------------------------------------------
                             // LA ROSETA ES UNA PIRAMIDE
                             // ------------------------------------------------
@@ -10803,8 +10857,13 @@ public:
                             // pequeña, mediana, grande o enorme. Multiplica
                             // el largo de la hoja, que es lo que hace crecer
                             // la roseta entera manteniendo su forma.
-                            const float LARGO = 26.0f * PXL *
-                                                escalaIxtle(block);
+                            float LARGO = 26.0f * PXL * escalaIxtle(block);
+
+                            // Las hojas de la espina se alargan lo que haga
+                            // falta para llegar a lo que haya debajo.
+                            if (huecoAbajo > 0) {
+                                LARGO += (float)huecoAbajo * 1.0f;
+                            }
 
                             for (int a = 0; a < ANILLOS; ++a) {
                                 // La PUNTA solo dibuja el anillo central: es
@@ -10856,7 +10915,10 @@ public:
                                     // el centro y a ras de suelo.
                                     const float ax = c + dx * 1.5f * PXL;
                                     const float az = c + dz * 1.5f * PXL;
-                                    const float ay = EPS;
+                                    // Con hueco debajo, la hoja nace mas
+                                    // abajo para tapar el aire.
+                                    const float ay = EPS -
+                                        (float)huecoAbajo;
 
                                     // Punta de la hoja: sube `subida` y sale
                                     // `salida`. Esa mezcla es la piramide.
@@ -15484,6 +15546,7 @@ void prewarmItemTextures() {
         // sobre fondo transparente, que es lo que identifica al item de un
         // vistazo.
         { BLOCK_PEDAZO_PIEDRA, "pedazo de piedra.png"                    },
+        { BLOCK_HILO_IXTLE,    "Hilo de Ixtle.png"                       },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {

@@ -1040,6 +1040,26 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     ajustar(f.uneZm,    f.uneZp,     f.minZ, f.maxZ);
     ajustar(f.uneAbajo, f.uneArriba, f.minY, f.maxY);
 
+    // --- LLEGAR HASTA LA TUNA ---
+    // La tuna se queda dentro de SU voxel, asi que si la penca tampoco llega
+    // al suyo queda un hilo de aire entre las dos. La penca es la que cede:
+    // se estira hasta el borde por el lado donde tiene fruto.
+    //
+    // Solo se ALARGA hacia ese lado, nunca se encoge, asi que la silueta se
+    // conserva. Y como sigue sin salirse del voxel, lo que se ve es
+    // exactamente lo que se puede seleccionar.
+    {
+        auto hayTuna = [&](int dx, int dy, int dz) {
+            return esTuna(get(dx, dy, dz));
+        };
+        if (hayTuna(-1, 0, 0) && f.minX > BORDE) f.minX = BORDE;
+        if (hayTuna( 1, 0, 0) && f.maxX < 1.0f - BORDE) f.maxX = 1.0f - BORDE;
+        if (hayTuna( 0, 0,-1) && f.minZ > BORDE) f.minZ = BORDE;
+        if (hayTuna( 0, 0, 1) && f.maxZ < 1.0f - BORDE) f.maxZ = 1.0f - BORDE;
+        if (hayTuna( 0,-1, 0) && f.minY > BORDE) f.minY = BORDE;
+        if (hayTuna( 0, 1, 0) && f.maxY < 1.0f - BORDE) f.maxY = 1.0f - BORDE;
+    }
+
     // Compatibilidad con el codigo que razona en "eje largo".
     f.ejeX     = (f.orientacion == 2 || f.orientacion == 3);
     f.unePlus  = f.ejeX ? f.uneXp : f.uneZp;
@@ -1242,29 +1262,29 @@ void tunaCajaCon(TGet get,
         return esCladodio(b) || b == BLOCK_NOPAL_FRUTO;
     };
 
-    // SIN HUECOS: el fruto no se queda en el borde de su voxel, se METE
-    // dentro del bloque que lo sostiene.
+    // PEGADA A LA PENCA, PERO SIN SALIRSE DE SU VOXEL.
     //
-    // Quedarse en el borde dejaba aire a la vista: la penca no llega a su
-    // propio borde -- su cuello obovado la estrecha hasta 2 px -- asi que
-    // entre las dos piezas quedaba un hueco que se veia desde los lados.
-    // Solapando 2 px, la union queda maciza desde cualquier angulo.
+    // El fruto se ESTIRA hasta el borde de su propio bloque por el lado que
+    // toca la planta. Asi la union queda pegada -- las dos caras se tocan, sin
+    // aire entre medias -- y a la vez la caja no invade la celda vecina.
     //
-    // El solape va hacia DENTRO del vecino, no hacia fuera del voxel propio,
-    // asi que la caja sigue sin invadir a nadie: solo se cruza con la penca,
-    // que es justo lo que se quiere.
-    // `empotrar` lo activa SOLO el mesher. La caja de colision no puede
-    // salirse del voxel: el motor recorre el mundo celda a celda, asi que lo
-    // que sobresale al vecino no se detecta desde el y el jugador lo
-    // atravesaria. Para tocar y seleccionar basta con llegar al borde.
-    const float E = empotrar ? (2.0f / 16.0f) : -EPS;
+    // BUG QUE ESTO CORRIGE: antes el dibujo sobresalia 2 px FUERA del voxel
+    // para tapar el hueco, pero la caja de seleccion se quedaba dentro. El
+    // resultado eran 2 px de tuna visibles que el rayo no encontraba: se veia
+    // el fruto pero no se podia romper por esa zona. Y como el motor recorre
+    // el mundo celda a celda, lo que sobresale al vecino tampoco se detecta
+    // desde el.
+    //
+    // Ahora dibujo y seleccion usan EXACTAMENTE la misma caja, asi que lo que
+    // se ve es justo lo que se toca.
+    (void)empotrar;   // ya no hace falta distinguir dibujar de seleccionar
 
-    if      (sostenido(0, -1, 0)) minY = -E;        // nace del suelo
-    else if (sostenido(0,  1, 0)) maxY = 1.0f + E;  // cuelga del techo
-    else if (sostenido(-1, 0, 0)) minX = -E;        // sale al oeste
-    else if (sostenido( 1, 0, 0)) maxX = 1.0f + E;  // sale al este
-    else if (sostenido(0, 0, -1)) minZ = -E;        // sale al sur
-    else if (sostenido(0, 0,  1)) maxZ = 1.0f + E;  // sale al norte
+    if      (sostenido(0, -1, 0)) minY = EPS;            // nace del suelo
+    else if (sostenido(0,  1, 0)) maxY = 1.0f - EPS;     // cuelga del techo
+    else if (sostenido(-1, 0, 0)) minX = EPS;            // sale al oeste
+    else if (sostenido( 1, 0, 0)) maxX = 1.0f - EPS;     // sale al este
+    else if (sostenido(0, 0, -1)) minZ = EPS;            // sale al sur
+    else if (sostenido(0, 0,  1)) maxZ = 1.0f - EPS;     // sale al norte
 }
 
 // Caja de colision en coordenadas LOCALES (0..1), o false si el bloque no

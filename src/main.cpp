@@ -525,6 +525,71 @@ struct NopalForma {
 double g_tiempoJugadoSegundos = 0.0;
 
 // ============================================================================
+// CICLO DE DIA Y NOCHE
+// ============================================================================
+// Un dia completo dura 24 minutos reales: 12 de luz y 12 de oscuridad. Como
+// el dia del juego tiene 24 horas, cada MINUTO real es una HORA de juego.
+//
+//     minuto  0 -> las 00:00, medianoche
+//     minuto  6 -> las 06:00, amanece
+//     minuto 12 -> las 12:00, mediodia
+//     minuto 18 -> las 18:00, anochece
+//
+// El reloj es `tiempoJugadoSegundos`, el mismo del sistema de vida y de la
+// maduracion de las tunas, que se guarda en level.dat: la hora del mundo
+// sobrevive a salir y volver a entrar.
+constexpr double MINUTOS_POR_DIA = 24.0;                     // 12 dia + 12 noche
+constexpr double SEGUNDOS_POR_DIA = MINUTOS_POR_DIA * 60.0;  // 1440 s
+
+// Hora del mundo en 0..24.
+inline double horaDelMundo() {
+    double t = g_tiempoJugadoSegundos / SEGUNDOS_POR_DIA;
+    t -= (double)(long long)t;          // parte fraccionaria del dia
+    if (t < 0.0) t += 1.0;
+    return t * 24.0;
+}
+
+// Cuanta luz del sol hay, de 0 (noche cerrada) a 1 (mediodia).
+//
+// No es un interruptor: el sol sube y baja, asi que entre las 5 y las 7 de la
+// manana la luz crece poco a poco, y lo mismo al reves al atardecer. Ese
+// margen es lo que hace que amanecer y anochecer se vean como tales y no como
+// un cambio brusco.
+inline float luzSolar() {
+    const double h = horaDelMundo();
+    constexpr double AMANECE = 5.0, DIA = 7.0, ATARDECE = 17.0, NOCHE = 19.0;
+    if (h < AMANECE || h >= NOCHE) return 0.0f;                 // noche
+    if (h >= DIA && h < ATARDECE)  return 1.0f;                 // pleno dia
+    if (h < DIA)  return (float)((h - AMANECE) / (DIA - AMANECE));
+    return (float)((NOCHE - h) / (NOCHE - ATARDECE));
+}
+
+// Color del cielo a esta hora. Va del azul claro del mediodia al azul casi
+// negro de la noche, pasando por un naranja en el amanecer y el atardecer.
+inline void colorDelCielo(float& r, float& g, float& b) {
+    const float l = luzSolar();
+
+    // Azul de dia y azul de noche.
+    constexpr float DR = 0.53f, DG = 0.81f, DB = 0.92f;   // el de siempre
+    constexpr float NR = 0.02f, NG = 0.03f, NB = 0.09f;   // noche cerrada
+
+    r = NR + (DR - NR) * l;
+    g = NG + (DG - NG) * l;
+    b = NB + (DB - NB) * l;
+
+    // Tinte calido en el amanecer y el atardecer, cuando el sol esta bajo.
+    // Es maximo a media transicion (l = 0.5) y nulo en pleno dia o de noche,
+    // que es cuando el sol no roza el horizonte.
+    const float rozaHorizonte = 1.0f - fabsf(l - 0.5f) * 2.0f;
+    if (rozaHorizonte > 0.0f) {
+        const float t = rozaHorizonte * 0.55f;
+        r += (0.95f - r) * t;
+        g += (0.55f - g) * t * 0.7f;
+        b += (0.30f - b) * t * 0.5f;
+    }
+}
+
+// ============================================================================
 // PENCAS CAYENDO
 // ============================================================================
 // Una penca recien colocada sobre el suelo no aparece tumbada de golpe: cae
@@ -3390,6 +3455,10 @@ public:
         loadTexture("Hojas de Oyame.png");
 
         // Texturas de pasto (múltiples)
+        // Sol y luna del ciclo de dia y noche.
+        loadTexture("Objetos cosmicos/Sol.png");
+        loadTexture("Objetos cosmicos/Luna llena.png");
+
         loadTexture("Bloque de pasto up.png"); // BLOCK_GRASS top
         // Variante florida del pasto: no es un bloque, solo otra textura para
         // la cara de arriba (ver getTexturaPastoFlores).
@@ -19454,6 +19523,114 @@ bool nopalHitboxMundo(BlockType type, int x, int y, int z,
         x, y, z, minX, minY, minZ, maxX, maxY, maxZ);
 }
 
+// ============================================================================
+// DIBUJAR EL SOL Y LA LUNA
+// ============================================================================
+// Los dos giran alrededor del jugador en el mismo circulo, opuestos entre si:
+// cuando uno esta arriba el otro esta debajo del horizonte. El sol marca la
+// hora -- sale a las 6, culmina a las 12 y se pone a las 18 -- y la luna va
+// justo enfrente, doce horas por detras.
+//
+// Se dibujan como dos quads siempre de frente a la camara. No hace falta mas:
+// a esa distancia un cuadrado texturizado es indistinguible de un disco, y es
+// lo que hacen los sandbox de este estilo.
+void dibujarCieloYAstros() {
+    if (!g_textureManager) return;
+
+    const double h = horaDelMundo();
+
+    // Angulo del sol: 0 grados al amanecer (este), 90 en lo alto, 180 al
+    // ponerse (oeste). Se mide desde las 6 de la manana.
+    const double angSol = ((h - 6.0) / 12.0) * 3.14159265;
+
+    glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);       // no escriben profundidad: van al fondo
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_FOG);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_ALPHA_TEST);    // sus texturas son opacas
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    // Distancia a la que se dibujan: lejos, pero dentro del zFar de 128.
+    constexpr float DIST = 100.0f;
+    constexpr float RADIO = 9.0f;    // medio ancho del astro
+
+    // Emite un astro en un angulo dado del arco este-oeste.
+    auto astro = [&](GLuint tex, double ang, float r, float g, float b,
+                     float a) {
+        if (tex == 0 || a <= 0.01f) return;
+
+        // Centro del astro. El arco va de este (+X) a oeste (-X) pasando por
+        // arriba; se inclina un poco en Z para que no salga siempre por el
+        // mismo punto exacto del horizonte.
+        const float cx = (float)( cos(ang) * DIST);
+        const float cy = (float)( sin(ang) * DIST);
+        const float cz = (float)(-cos(ang) * DIST * 0.35);
+
+        // Base ortonormal para orientar el quad de frente a la camara: como
+        // el astro esta en la direccion (cx,cy,cz), basta con dos vectores
+        // perpendiculares a esa direccion.
+        const float len = sqrtf(cx*cx + cy*cy + cz*cz);
+        if (len < 1e-3f) return;
+        const float dx = cx/len, dy = cy/len, dz = cz/len;
+
+        // Derecha = normalizar(cruz(arriba_mundo, direccion)).
+        float rx = -dz, ry = 0.0f, rz = dx;
+        const float rl = sqrtf(rx*rx + rz*rz);
+        if (rl < 1e-3f) { rx = 1.0f; ry = 0.0f; rz = 0.0f; }
+        else            { rx /= rl; rz /= rl; }
+
+        // Arriba = cruz(direccion, derecha).
+        const float ux = dy*rz - dz*ry;
+        const float uy = dz*rx - dx*rz;
+        const float uz = dx*ry - dy*rx;
+
+        g_textureManager->bindOptimized(tex);
+        glColor4f(r, g, b, a);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f);
+        glVertex3f(cx - rx*RADIO - ux*RADIO, cy - ry*RADIO - uy*RADIO,
+                   cz - rz*RADIO - uz*RADIO);
+        glTexCoord2f(1.0f, 0.0f);
+        glVertex3f(cx + rx*RADIO - ux*RADIO, cy + ry*RADIO - uy*RADIO,
+                   cz + rz*RADIO - uz*RADIO);
+        glTexCoord2f(1.0f, 1.0f);
+        glVertex3f(cx + rx*RADIO + ux*RADIO, cy + ry*RADIO + uy*RADIO,
+                   cz + rz*RADIO + uz*RADIO);
+        glTexCoord2f(0.0f, 1.0f);
+        glVertex3f(cx - rx*RADIO + ux*RADIO, cy - ry*RADIO + uy*RADIO,
+                   cz - rz*RADIO + uz*RADIO);
+        glEnd();
+    };
+
+    // El SOL. Se desvanece al ponerse, para que no desaparezca de golpe al
+    // cruzar el horizonte.
+    const float altSol = (float)sin(angSol);
+    if (altSol > -0.15f) {
+        const float vis = altSol < 0.0f ? (1.0f + altSol / 0.15f) : 1.0f;
+        astro(g_textureManager->getTexture("Objetos cosmicos/Sol.png"),
+              angSol, 1.0f, 1.0f, 1.0f, vis);
+    }
+
+    // La LUNA, siempre opuesta: 12 horas por detras del sol.
+    const double angLuna = angSol + 3.14159265;
+    const float altLuna = (float)sin(angLuna);
+    if (altLuna > -0.15f) {
+        const float vis = altLuna < 0.0f ? (1.0f + altLuna / 0.15f) : 1.0f;
+        astro(g_textureManager->getTexture("Objetos cosmicos/Luna llena.png"),
+              angLuna, 1.0f, 1.0f, 1.0f, vis);
+    }
+
+    glPopAttrib();
+    // glPopAttrib no restaura la mascara de profundidad en todas las
+    // implementaciones: se pone a mano para no dejar el render sin depth.
+    glDepthMask(GL_TRUE);
+}
+
 int main() {
     // Lo primero: sin consola, hasta los errores del arranque se perderían.
     initLogging();
@@ -19878,6 +20055,15 @@ int main() {
             glfwSetWindowTitle(window, title);
             frameCount = 0;
             fpsTimer = 0;
+        }
+
+        // EL CIELO CAMBIA CON LA HORA: del azul del mediodia al casi negro de
+        // la noche, con naranja al amanecer y al atardecer. Se aplica al color
+        // de limpieza, que es el fondo sobre el que se dibuja todo.
+        if (g_gameState->screenState == SCREEN_IN_GAME) {
+            float cr, cg, cb;
+            colorDelCielo(cr, cg, cb);
+            glClearColor(cr, cg, cb, 1.0f);
         }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -20328,6 +20514,16 @@ int main() {
 
         glRotatef(-g_gameState->player.pitch, 1, 0, 0);
         glRotatef(-g_gameState->player.yaw, 0, 1, 0);
+
+        // ====================================================================
+        // EL SOL Y LA LUNA
+        // ====================================================================
+        // Se dibujan AQUI, con la camara ya rotada pero SIN trasladar al ojo:
+        // asi giran con la vista pero no se acercan ni se alejan al andar, que
+        // es lo que hace que se vean infinitamente lejos.
+        //
+        // Van sin depth: se pintan al fondo y el terreno los tapa despues.
+        dibujarCieloYAstros();
 
         // ====================================================================
         // POSICIÓN DEL OJO: la calcula el CameraSystem, no el struct Player.

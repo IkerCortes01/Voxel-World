@@ -5690,12 +5690,20 @@ public:
         // Va SIN FORMA a proposito: asi vale en cualquier rincon de la
         // rejilla y no hay que acertar la esquina exacta.
         {
-            CraftingRecipe recipe(BLOCK_HILO_IXTLE, 4, true);
-            recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;
-            recipe.pattern[1] = BLOCK_PEDAZO_PIEDRA;
-            recipe.pattern[2] = BLOCK_PEDAZO_PIEDRA;
-            recipe.pattern[3] = BLOCK_IXTLE_HOJA;
-            recipes.push_back(recipe);
+            // Una receta por cada tamaño de hoja: las cuatro dan lo
+            // mismo. Asi da igual de que mata venga la hoja.
+            const BlockType HOJAS[] = {
+                BLOCK_IXTLE_HOJA, BLOCK_IXTLE_PEQUENA,
+                BLOCK_IXTLE_GRANDE, BLOCK_IXTLE_ENORME
+            };
+            for (BlockType h : HOJAS) {
+                CraftingRecipe recipe(BLOCK_HILO_IXTLE, 4, true);
+                recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;
+                recipe.pattern[1] = BLOCK_PEDAZO_PIEDRA;
+                recipe.pattern[2] = BLOCK_PEDAZO_PIEDRA;
+                recipe.pattern[3] = h;
+                recipes.push_back(recipe);
+            }
         }
 
         // ⭐ NUEVO: 1 Wood = 6 Planks (más eficiente)
@@ -8641,19 +8649,19 @@ public:
         // Las dos mas pequeñas comparten bloque con el cuerpo, asi que su
         // espina va incluida en la propia roseta y no se coloca aparte: son
         // matas de un solo bloque de alto.
-        BlockType cuerpo;
-        int alturaPunta;   // en bloques sobre la base; -1 = sin pieza aparte
-        if (dado < 30u) {            // 30% pequeñas: brotes
-            cuerpo = BLOCK_IXTLE_PEQUENA;  alturaPunta = -1;
-        } else if (dado < 70u) {     // 40% medianas: lo normal
-            cuerpo = BLOCK_IXTLE_HOJA;     alturaPunta = -1;
-        } else if (dado < 92u) {     // 22% grandes
-            cuerpo = BLOCK_IXTLE_GRANDE;   alturaPunta = 0;
-        } else {                     // 8% enormes: ejemplares viejos
-            // Baja otro bloque: su espina cae ya dentro de la roseta, como
-            // en los otros tres tamaños.
-            cuerpo = BLOCK_IXTLE_ENORME;   alturaPunta = 0;
-        }
+        // UNA SOLA HOJA Y UNA SOLA PUNTA.
+        //
+        // Antes habia cuatro bloques de hoja (pequena, mediana, grande y
+        // enorme) y cada mata usaba uno. Eso hacia que dos matas vecinas
+        // fuesen bloques DISTINTOS: soltaban items distintos y no se
+        // apilaban entre si, que es lo que se veia raro.
+        //
+        // Ahora todas son BLOCK_IXTLE_HOJA. El tamano NO se pierde: se
+        // deduce de la POSICION al dibujar, asi que siguen viendose matas
+        // de cuatro tamanos pero todas son el mismo bloque.
+        const BlockType cuerpo = BLOCK_IXTLE_HOJA;
+        const int alturaPunta = -1;   // la espina va en la propia roseta
+        (void)dado;
 
         // Hueco que hay que reservar: hasta donde llega la pieza mas alta.
         const int BLOQUES_HOJA = (alturaPunta > 0) ? alturaPunta : 0;
@@ -10857,7 +10865,22 @@ public:
                             // pequeña, mediana, grande o enorme. Multiplica
                             // el largo de la hoja, que es lo que hace crecer
                             // la roseta entera manteniendo su forma.
-                            float LARGO = 26.0f * PXL * escalaIxtle(block);
+                            // EL TAMAÑO SALE DE LA POSICION, no del ID.
+                            //
+                            // Los cuatro tamanos se conservan -- una mata
+                            // sigue pudiendo ser un brote o un ejemplar
+                            // viejo -- pero ya no hacen falta cuatro bloques
+                            // distintos para eso: la escala se saca del hash
+                            // de la celda, igual que el numero de hojas o su
+                            // giro. Asi todas las matas son EL MISMO bloque y
+                            // se apilan entre si.
+                            const unsigned ht = mezcla(7u) % 100u;
+                            const float escala =
+                                (ht < 30u) ? 0.45f :      // 30% brotes
+                                (ht < 70u) ? 1.00f :      // 40% medianas
+                                (ht < 92u) ? 1.40f        // 22% grandes
+                                           : 1.90f;       //  8% enormes
+                            float LARGO = 26.0f * PXL * escala;
 
                             // Las hojas de la espina se alargan lo que haga
                             // falta para llegar a lo que haya debajo.
@@ -16605,6 +16628,7 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_COAL_ITEM:    // Carbón - item puro
         case BLOCK_RAW_ZINC:     // Zinc crudo - item puro
         case BLOCK_RAW_COPPER:   // Cobre crudo - item puro
+        case BLOCK_HILO_IXTLE:   // Hilo de ixtle - item puro (fibra)
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable

@@ -4480,8 +4480,11 @@ public:
                 return cargarTunaSinHuecos("pedernal",
                     gamePath("resourcepacks/Textures/Items/pedernal.png"));
             case BLOCK_PEDAZO_CALIZA:
-                return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/pedazo de piedra caliza.png"));
+                // Solo el 32% de la imagen tiene pixel: sin rellenar, el
+                // canto 3D se veia agujereado. Mismo tratamiento que el
+                // pedernal y el polvo de tierra.
+                return cargarTunaSinHuecos("pedazo de piedra caliza",
+                    gamePath("resourcepacks/Textures/Items/pedazo de piedra caliza.png"));
             case BLOCK_PEDAZO_TIERRA:
                 // Igual que el pedernal: solo el 37% tiene pixel, y ademas
                 // esta textura tiene huecos EN MEDIO del dibujo. Rellenada,
@@ -4489,8 +4492,9 @@ public:
                 return cargarTunaSinHuecos("polvo de tierra",
                     gamePath("resourcepacks/Textures/Items/polvo de tierra.png"));
             case BLOCK_PEDAZO_COBRE:
-                return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/cobre crudo.png"));
+                // 53% opaco, 121 huecos. Igual que los demas.
+                return cargarTunaSinHuecos("cobre crudo",
+                    gamePath("resourcepacks/Textures/Items/cobre crudo.png"));
 
             case BLOCK_PEDAZO_PIEDRA:
                 // La textura de PIEDRA, no la del item. El item es el
@@ -6977,6 +6981,101 @@ public:
                 // Bloque de suelo sobre el que se decora. Se consulta una
                 // sola vez y lo comparten árboles y hierba.
                 const BlockType ground = chunk->getBlock(x, surfaceY, z);
+
+                // ============================================================
+                // SUELOS ARCILLOSOS
+                // ============================================================
+                // Sale de como se reparten de verdad en Mexico (INEGI Serie
+                // II): los Vertisoles -- la tierra arcillosa -- cubren el
+                // 8.6% del pais y forman "unidades puras con pocas
+                // asociaciones", es decir MANCHONES grandes y homogeneos, no
+                // salpicaduras. La arena arcillosa es bastante menos comun y
+                // se concentra en costas y desierto.
+                //
+                // De ahi las dos reglas:
+                //   ARENA ARCILLOSA -> donde hay arena: playas, desiertos y
+                //                      las orillas de los rios.
+                //   TIERRA ARCILLOSA -> donde hay tierra o pasto: bosques,
+                //                      claros y las llanuras bajas, que es
+                //                      donde se estanca el agua.
+                //
+                // Los manchones se hacen con una rejilla de focos, igual que
+                // las colonias de ixtle: da manchas con borde y claros entre
+                // ellas, en vez de ruido uniforme.
+                {
+                    const int fx = (worldX >= 0 ? worldX : worldX - 23) / 24;
+                    const int fz = (worldZ >= 0 ? worldZ : worldZ - 23) / 24;
+                    unsigned hf = (unsigned)(fx * 668265263) ^
+                                  (unsigned)(fz * 374761393) ^ 0x27d4eb2fu;
+                    hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
+
+                    // NO TODAS LAS CELDAS TIENEN ARCILLA.
+                    //
+                    // Sin esto salia un manchon en CADA celda de 24x24 y el
+                    // mundo quedaba arcilloso por todas partes -- medido:
+                    // el 100% de las zonas tenia. Con 3 de cada 5 quedan
+                    // regiones limpias entre manchas, que es lo que se ve
+                    // en el mapa de suelos real.
+                    const bool celdaConArcilla = ((hf % 5u) < 3u);
+
+                    // Centro y radio del manchon dentro de su celda.
+                    const int cx = fx * 24 + (int)((hf >> 3) % 24u);
+                    const int cz = fz * 24 + (int)((hf >> 11) % 24u);
+                    const int dx = worldX - cx, dz = worldZ - cz;
+                    const int d2 = dx * dx + dz * dz;
+                    // Manchas grandes: de 6 a 13 bloques de radio.
+                    const int radio = 6 + (int)((hf >> 19) % 8u);
+
+                    if (celdaConArcilla && d2 <= radio * radio) {
+                        // Densidad decreciente hacia el borde: el manchon se
+                        // deshilacha en vez de cortarse en seco.
+                        unsigned hm = (unsigned)(worldX * 4517) ^
+                                      (unsigned)(worldZ * 8291) ^ 0x85ebca6bu;
+                        hm ^= hm >> 13; hm *= 2246822519u; hm ^= hm >> 16;
+                        const int borde = radio * radio;
+                        const unsigned prob = 100u -
+                            (unsigned)((55 * d2) / (borde > 0 ? borde : 1));
+
+                        if ((hm % 100u) < prob) {
+                            // ARENA ARCILLOSA: playas, desiertos y riberas.
+                            // Muy comun donde hay arena, como se pidio.
+                            if (ground == BLOCK_SAND) {
+                                chunk->setBlock(x, surfaceY, z,
+                                                BLOCK_CLAY_SAND);
+                            }
+                            // TIERRA ARCILLOSA: bosque, claros y llanuras.
+                            else if (ground == BLOCK_DIRT ||
+                                     ground == BLOCK_GRASS) {
+                                chunk->setBlock(x, surfaceY, z,
+                                                BLOCK_CLAY_DIRT);
+                            }
+                        }
+                    }
+                }
+
+                // ---- ARCILLA EN PROFUNDIDAD ----
+                // Los Luvisoles (9% del pais) no llevan la arcilla arriba:
+                // la tienen ENTERRADA entre 25 y 125 cm, bajo tierra normal.
+                // A escala de bloques eso es una capa un poco por debajo de
+                // la superficie, que es justo lo que se pidio con "o
+                // profundo".
+                {
+                    unsigned hp = (unsigned)(worldX * 2246822519u) ^
+                                  (unsigned)(worldZ * 3266489917u);
+                    hp ^= hp >> 15; hp *= 2654435761u; hp ^= hp >> 13;
+
+                    if ((hp % 5u) < 2u) {   // 40% de las columnas
+                        // Dos o tres bloques bajo la superficie.
+                        const int prof = 2 + (int)((hp >> 7) % 2u);
+                        const int yy = surfaceY - prof;
+                        if (yy > 2) {
+                            const BlockType bajo = chunk->getBlock(x, yy, z);
+                            if (bajo == BLOCK_DIRT) {
+                                chunk->setBlock(x, yy, z, BLOCK_CLAY_DIRT);
+                            }
+                        }
+                    }
+                }
 
                 // ---- ÁRBOLES (Poisson Disk determinista) ----
                 // SOLO arraigan en TIERRA o PASTO. Antes no se comprobaba el
@@ -15822,6 +15921,8 @@ void prewarmItemTextures() {
     if (g_textureManager) {
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_PEDERNAL, 0);
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_TIERRA, 0);
+        g_textureManager->getBlockTexture(BLOCK_PEDAZO_CALIZA, 0);
+        g_textureManager->getBlockTexture(BLOCK_PEDAZO_COBRE, 0);
         g_textureManager->getBlockTexture(BLOCK_TUNA, 0);
         g_textureManager->getBlockTexture(BLOCK_TUNA_AMARILLA, 0);
         g_textureManager->getBlockTexture(BLOCK_TUNA_ROJA, 0);

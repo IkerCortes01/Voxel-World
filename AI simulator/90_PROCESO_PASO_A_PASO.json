@@ -210,5 +210,82 @@
     "metodo": "Dos investigaciones en paralelo: una sobre la etología y fisiología de Dicotyles tajacu, otra sobre el estado del arte en arquitecturas de IA para simulación de fauna.",
     "fuentes_priorizadas": "Journal of Mammalogy, Animal Behaviour, Theriogenology, General and Comparative Endocrinology, revistas mexicanas (Therya, Acta Zoológica Mexicana), CONABIO, IUCN, Animal Diversity Web, monografías Mammalian Species de la ASM",
     "estado": "Resultados incorporados en 10_PECARI_BIOLOGIA.json con su nivel de confianza individual"
+  },
+
+  "paso_11_correcciones_impuestas_por_la_investigacion": {
+    "orden": 11,
+    "titulo": "Lo que la investigación de arquitectura obligó a cambiar del diseño inicial",
+    "nota_de_honestidad": "Se registran aquí porque un diseño que nunca se corrige es un diseño que no se ha contrastado. Estas son las decisiones que la evidencia mejoró.",
+    "correcciones": [
+      {
+        "correccion": "Método de selección de comportamiento",
+        "diseno_inicial": "Selección ponderada entre los N mejores, con histéresis del 15%",
+        "diseno_corregido": "DUAL-UTILITY (Kevin Dill): rank entero + weight float",
+        "por_que": "El diseño inicial intentaba que UN SOLO escalar expresara a la vez 'categoría de urgencia' y 'grado de preferencia'. Ese es el fallo de diseño más frecuente en sistemas de utilidad: con un solo número, 'huir de un depredador' compite numéricamente con 'acicalarse', y basta un ajuste desafortunado de curvas para que el animal se rasque mientras lo cazan.",
+        "que_se_conserva": "La histéresis/momentum sigue siendo obligatoria, ahora dentro de cada rank"
+      },
+      {
+        "correccion": "Compensation factor en la combinación de utilidades",
+        "problema_no_previsto": "Multiplicar consideraciones colapsa la utilidad hacia cero con muchos ejes: cuatro ejes a 0,8 dan 0,41",
+        "solucion_incorporada": "Factor de compensación de Dave Mark, dependiente del número de ejes",
+        "por_que_importa": "Es un detalle de implementación que casi nadie menciona y que rompe el sistema en cuanto se pasa de 3 ejes. No estaba en el diseño inicial."
+      },
+      {
+        "correccion": "Vecindad de la manada",
+        "diseno_inicial": "Boids clásico con radio métrico",
+        "diseno_corregido": "Vecindad TOPOLÓGICA: k≈7 vecinos más próximos",
+        "evidencia": "Ballerini et al. (2008), PNAS 105(4): los estorninos interactúan con sus ~6-7 vecinos más próximos INDEPENDIENTEMENTE de la distancia",
+        "beneficio_doble": "Mantiene la cohesión bajo densidad variable (con radio fijo, una bandada dispersa se desintegra) Y coincide con el atajo de optimización del spatial hash. La biología y el rendimiento apuntan en la misma dirección."
+      },
+      {
+        "correccion": "Liderazgo de manada",
+        "diseno_inicial": "No especificado en detalle",
+        "diseno_incorporado": "Liderazgo emergente por peso de información (Couzin et al. 2005, Nature 433)",
+        "hallazgo_que_lo_motivo": "Basta con que ~5% de individuos informados guíe a todo el grupo con precisión, SIN señalización explícita y sin que nadie sepa quién está informado",
+        "elegancia": "El liderazgo CAE FUERA DEL SISTEMA en vez de programarse: un animal sediento que recuerda un abrevadero se vuelve líder porque su vector objetivo es fuerte"
+      },
+      {
+        "correccion": "Mecanismo de jerarquía de dominancia",
+        "diseno_inicial": "Relaciones por pares genéricas",
+        "diseno_corregido": "Puntuación Elo dinámica + winner-loser effects",
+        "por_que_Elo": "Es incremental, maneja la incertidumbre y el cambio temporal, y está validado en etología (Neumann et al. 2011, Animal Behaviour 82)",
+        "hallazgo_estructural": "Los winner-loser effects son la fuente principal de LINEALIDAD EMERGENTE. Sin ellos se obtienen jerarquías desordenadas; con ellos emergen las lineales que la etología observa. Dos líneas de código con efecto estructural enorme."
+      },
+      {
+        "correccion": "Modelo del ciclo estral",
+        "diseno_inicial": "Ecuaciones diferenciales del eje HPG",
+        "diseno_corregido": "Modelo de FASE con envolventes",
+        "por_que": "Simular el eje HPG completo es innecesario y frágil. Un modelo de fase con envolventes gaussianas reproduce la dinámica observable con una fracción del coste y del riesgo numérico.",
+        "detalle_fisiologico_que_se_conserva": "El estradiol ejerce feedback NEGATIVO a concentraciones bajas y POSITIVO por encima de un umbral. Ese cambio de signo es lo que dispara el surge de LH. Si se modela solo feedback negativo, nunca se obtiene el pico ovulatorio."
+      },
+      {
+        "correccion": "Modelo afectivo",
+        "considerado_y_descartado": "OCC (Ortony, Clore y Collins 1988), el estándar del campo de humanos virtuales",
+        "razon_del_descarte": "OCC define 22 emociones derivadas de valoración cognitiva sobre estándares morales, atribución de responsabilidad y expectativas proposicionales. Un pecarí no siente vergüenza ni reproche. Aplicarlo a animales no humanos es ANTROPOMORFISMO DISFRAZADO DE RIGOR.",
+        "adoptado": "Espacio PAD (Mehrabian y Russell 1974), dimensional y continuo",
+        "por_que_encaja": "Sus tres ejes mapean a fisiología animal observable: Arousal a activación simpática, Pleasure a valencia de recompensa/aversión, y Dominance DIRECTAMENTE al sistema de jerarquías. La dimensión más discutible en humanos virtuales es la más útil en fauna."
+      },
+      {
+        "correccion": "Estructura espacial",
+        "diseno_inicial": "Particionado espacial genérico",
+        "diseno_corregido": "Spatial hash con celda ≈ radio de percepción, REUTILIZANDO los chunks del motor",
+        "razon_decisiva": "Los animales se mueven cada frame, así que el coste de ACTUALIZACIÓN domina sobre el de consulta. O(1) de actualización gana sobre O(log n) de consulta de un árbol."
+      }
+    ]
+  },
+
+  "paso_12_la_conclusion_mas_incomoda": {
+    "orden": 12,
+    "titulo": "El realismo percibido viene más de la presentación que de la profundidad de simulación",
+    "de_donde_sale": "Tres casos independientes apuntan a lo mismo desde direcciones distintas",
+    "evidencia_convergente": [
+      { "caso": "Ultima Online", "aporte": "Un ecosistema sofisticado que NADIE PERCIBIÓ tuvo valor cero. 'Literally no-one ever noticed – ever.'" },
+      { "caso": "Rain World", "aporte": "El desarrollador atribuye la credibilidad del ecosistema a la ANIMACIÓN PROCEDURAL, no a la profundidad del modelo" },
+      { "caso": "Red Dead Redemption 2", "aporte": "Citado universalmente como referencia de fauna, pero su logro es de dirección artística y densidad de contenido; la arquitectura de IA es probablemente convencional" },
+      { "caso": "F.E.A.R.", "aporte": "Los comandos verbales creaban ILUSIÓN de coordinación: la IA ya había decidido flanquear, y el audio lo hacía parecer una orden" }
+    ],
+    "implicacion_para_este_proyecto": "Presupuestar LEGIBILIDAD (animación procedural, vocalizaciones, rastros visibles, cadáveres, cambios estacionales perceptibles) al menos al mismo nivel que profundidad de simulación.",
+    "regla_operativa": "Si hay que elegir entre más profundidad de simulación y mejor legibilidad de la simulación existente, ELEGIR LEGIBILIDAD.",
+    "por_que_se_registra_aqui": "Es una conclusión que va contra el instinto de un ingeniero, y por eso conviene tenerla escrita antes de empezar a implementar."
   }
 }

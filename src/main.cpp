@@ -10873,10 +10873,41 @@ public:
                             constexpr float BRILLO_LADO   = 0.8f;
                             constexpr float BRILLO_ARRIBA = 1.0f;
 
-                            auto lado = [&](float ax,float az,float bx,float bz){
-                                const float lr = cr * BRILLO_LADO;
-                                const float lg = cg * BRILLO_LADO;
-                                const float lb = cb * BRILLO_LADO;
+                            // ⭐ LA LUZ SE TOMA DEL VECINO, NO DE LA PROPIA CELDA
+                            //
+                            // Aqui estaba el fallo de que los niveles salieran
+                            // OSCUROS. La rama de sprites usa
+                            // faceLightFactor(x,y,z, 0,0,0): la luz de la
+                            // celda del PROPIO bloque. Para una planta eso es
+                            // correcto -- es transparente al cielo, asi que su
+                            // celda esta iluminada -- pero un nivel es SOLIDO:
+                            // su celda tiene la luz baja de un bloque macizo, y
+                            // por eso se veia en penumbra al lado del terreno.
+                            //
+                            // Los bloques normales toman la luz del vecino que
+                            // hay AL OTRO LADO de cada cara, que es aire y esta
+                            // iluminado. Se hace lo mismo:
+                            //   la tapa   -> del bloque de encima
+                            //   los lados -> del vecino de esa direccion
+                            const float luzArriba =
+                                faceLightFactor(x, y, z, 0, 1, 0);
+                            const float crA = clamp1(luzArriba * lightColorR);
+                            const float cgA = clamp1(luzArriba * lightColorG);
+                            const float cbA = clamp1(luzArriba * lightColorB);
+
+                            auto lado = [&](float ax,float az,float bx,float bz,
+                                            int dx, int dz){
+                                // Luz del vecino de ESTA cara: es aire, asi
+                                // que esta iluminado como el resto del
+                                // terreno.
+                                const float lf =
+                                    faceLightFactor(x, y, z, dx, 0, dz);
+                                const float lr =
+                                    clamp1(lf * lightColorR) * BRILLO_LADO;
+                                const float lg =
+                                    clamp1(lf * lightColorG) * BRILLO_LADO;
+                                const float lb =
+                                    clamp1(lf * lightColorB) * BRILLO_LADO;
                                 const float PX4[4] = { ax, bx, bx, ax };
                                 const float PZ4[4] = { az, bz, bz, az };
                                 const float PY4[4] = { 0.0f, 0.0f, alto, alto };
@@ -10907,10 +10938,22 @@ public:
                                     uN.push_back(U4[i]); uN.push_back(V4[i]);
                                 }
                             };
-                            lado(0.0f, 0.0f, 1.0f, 0.0f);   // -Z
-                            lado(1.0f, 1.0f, 0.0f, 1.0f);   // +Z
-                            lado(0.0f, 1.0f, 0.0f, 0.0f);   // -X
-                            lado(1.0f, 0.0f, 1.0f, 1.0f);   // +X
+                            // ⭐ LOS EXTREMOS VAN AL REVES
+                            //
+                            // Con el orden anterior las CUATRO caras miraban
+                            // hacia DENTRO del bloque: comprobado con el
+                            // producto cruz, la normal apuntaba al centro en
+                            // las cuatro. Con GL_CULL_FACE eso hace que se
+                            // vea la cara de atras y desaparezca la de
+                            // delante, que es justo el sintoma descrito.
+                            //
+                            // Intercambiando los extremos (a <-> b) el
+                            // winding se invierte y cada cara mira ya hacia
+                            // fuera.
+                            lado(1.0f, 0.0f, 0.0f, 0.0f,  0, -1);   // -Z
+                            lado(0.0f, 1.0f, 1.0f, 1.0f,  0,  1);   // +Z
+                            lado(0.0f, 0.0f, 0.0f, 1.0f, -1,  0);   // -X
+                            lado(1.0f, 1.0f, 1.0f, 0.0f,  1,  0);   // +X
 
                             // TAPA: la cara de arriba, con su textura propia
                             // (la del pasto es distinta de la del lado).
@@ -10925,9 +10968,9 @@ public:
                                 vT.push_back(wx + TX[i]);
                                 vT.push_back(wy + alto);
                                 vT.push_back(wz + TZ[i]);
-                                cT.push_back(cr * BRILLO_ARRIBA);
-                                cT.push_back(cg * BRILLO_ARRIBA);
-                                cT.push_back(cb * BRILLO_ARRIBA);
+                                cT.push_back(crA * BRILLO_ARRIBA);
+                                cT.push_back(cgA * BRILLO_ARRIBA);
+                                cT.push_back(cbA * BRILLO_ARRIBA);
                                 cT.push_back(ca);
                                 uT.push_back(TU[i]); uT.push_back(TV[i]);
                             }

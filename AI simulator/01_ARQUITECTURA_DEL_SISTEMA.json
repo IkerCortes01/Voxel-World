@@ -609,6 +609,49 @@
     }
   },
 
+  "ruta_de_implementacion_incremental": {
+    "advertencia": "Todo lo descrito en este documento es implementable, pero es MUCHO. Intentarlo de golpe es la forma más rápida de no terminar nada.",
+    "principio_de_orden": "Cada fase debe reproducir sus patrones de validación ANTES de pasar a la siguiente",
+    "fases": [
+      { "fase": 1, "contenido": "Necesidades + Utility + Behavior Tree sobre UNA sola especie herbívora", "validar_contra": "2-3 patrones (ritmo circadiano de actividad, tiempo dedicado a forrajeo)", "por_que_primero": "Es el núcleo mínimo que produce comportamiento creíble. Si esto no funciona, nada de lo demás importa." },
+      { "fase": 2, "contenido": "Boids con vecindad topológica (k≈7) + fisión-fusión", "validar_contra": "Tamaño medio de manada Y SU DISTRIBUCIÓN (la varianza discrimina modelos mejor que la media)" },
+      { "fase": 3, "contenido": "Ciclo de vida, crecimiento Gompertz y demografía", "validar_contra": "Pirámide de edades; convergencia al lambda de la matriz de Leslie", "nota": "Aquí es donde se detectan los errores de parámetros demográficos, antes de que causen daño" },
+      { "fase": 4, "contenido": "Hormonas y ciclo estral", "validar_contra": "Estacionalidad de nacimientos; supresión reproductiva bajo estrés" },
+      { "fase": 5, "contenido": "Dominancia con Elo y winner-loser effects", "validar_contra": "Emergencia de jerarquía lineal; proporción de encuentros resueltos sin combate" },
+      { "fase": 6, "contenido": "DEPREDADORES — al final, cuando todo lo demás sea estable", "razon": "Añadir depredadores antes de tener demografía estable es la forma más rápida de obtener un mundo vacío", "requisitos_previos_obligatorios": ["Refugios", "Respuesta funcional saturante", "Presas alternativas", "Límites duros de población"] }
+    ],
+    "prioridad_del_tooling": {
+      "regla": "CONSTRUIR EL TOOLING DE AJUSTE ANTES QUE EL CONTENIDO",
+      "razon": "Un sistema de utilidad con decenas de curvas parametrizadas es INMANEJABLE sin visualización. Es el error número uno de los equipos que adoptan utility AI.",
+      "minimo_imprescindible": ["Visualización de curvas de respuesta", "Inspección de las puntuaciones de utilidad por frame para un agente seleccionado", "Gráficas de población en vivo", "Volcado de la decisión: qué comportamiento ganó y por qué"]
+    }
+  },
+
+  "validacion_por_patrones": {
+    "metodo": "Pattern-Oriented Modeling (POM)",
+    "fuente": "Grimm, V. et al. (2005), 'Pattern-Oriented Modeling of Agent-Based Complex Systems: Lessons from Ecology', Science 310(5750):987-991",
+    "el_argumento_central": "Un ecosistema es tan rico en información que un modelo inevitablemente OMITIRÁ información relevante o se SOBRE-PARAMETRIZARÁ y perderá poder predictivo. POM lo contrarresta enfocándose exclusivamente en patrones relevantes.",
+    "zona_de_Medawar": "Los modelos ocupan un continuo entre la sobresimplificación y la complejidad excesiva. El aprendizaje óptimo ocurre en un nivel INTERMEDIO que equilibra poder explicativo y tratabilidad.",
+    "la_idea_operativa_clave": "MÚLTIPLES PATRONES DÉBILES A DISTINTAS ESCALAS restringen la estructura del modelo mucho mejor que un solo patrón fuerte. Con un patrón, muchas estructuras erróneas lo reproducen. Con cinco patrones simultáneos a escalas distintas, casi ninguna sobrevive.",
+    "patrones_a_reproducir": [
+      { "patron": "Tamaño medio de manada Y SU DISTRIBUCIÓN", "nota": "No solo la media: la varianza es lo que discrimina modelos" },
+      { "patron": "Pirámide de edades de la población" },
+      { "patron": "Distribución espacial: agregada vs uniforme", "metrica": "Índice de Morisita, o razón varianza/media" },
+      { "patron": "Ritmo circadiano de actividad", "detalle": "Fracción del tiempo en cada comportamiento por hora del día" },
+      { "patron": "Distancia media de dispersión de juveniles" },
+      { "patron": "Estacionalidad de nacimientos" },
+      { "patron": "Ciclo depredador-presa: amplitud y DESFASE temporal", "nota": "Solo aplicable cuando se implementen depredadores" }
+    ],
+    "criterio_de_validacion_honesto": "Si la simulación reproduce estos patrones SIMULTÁNEAMENTE con un ÚNICO juego de parámetros, el modelo es defendible. Si hacen falta parámetros distintos para cada patrón, no lo es. Esto es lo que distingue una simulación de una animación elaborada.",
+    "advertencia_sobre_sobreajuste": "Con 50 parámetros libres se puede ajustar cualquier patrón. La calibración debe usar MENOS PARÁMETROS LIBRES QUE PATRONES A REPRODUCIR. Es el análogo ecológico de la navaja de Occam, y es fácil de violar sin darse cuenta.",
+    "test_de_integracion_barato": {
+      "metodo": "Matriz de Leslie",
+      "como": "Calcular lambda analíticamente a partir de los parámetros de fecundidad y supervivencia. Si la simulación individual NO converge a ese lambda y a esa distribución estable de edades, HAY UN BUG.",
+      "por_que_es_valioso": "Es el mejor test de integración posible para un sistema demográfico, y es barato de implementar",
+      "bonus": "La misma matriz sirve como simulación estadística en el LOD más bajo: un producto matriz-vector por tick reemplaza a mil agentes"
+    }
+  },
+
   "extensibilidad": {
     "anadir_una_especie_nueva": [
       "1. Ejecutar el protocolo de 02_PROTOCOLO_DE_INVESTIGACION.json",

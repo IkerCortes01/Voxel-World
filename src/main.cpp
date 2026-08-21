@@ -4605,7 +4605,7 @@ public:
                 return getTexture("Piedra.png");
 
             case BLOCK_IXTLE_TALLO:
-                return getTexture("Tallo de ixtle.png");
+                return getTexture("Tallo de Maguei en Pasto.png");
             case BLOCK_IXTLE_TALLO_ARENA:
                 // El maguey en arena tiene su propia textura de base, con el
                 // terreno arenoso incrustado en vez del pasto.
@@ -4614,9 +4614,9 @@ public:
             case BLOCK_IXTLE_PEQUENA:
             case BLOCK_IXTLE_GRANDE:
             case BLOCK_IXTLE_ENORME:
-                return getTexture("Ixtle.png");
+                return getTexture("Maguei.png");
             case BLOCK_IXTLE_PUNTA:
-                return getTexture("Puntas de Ixtle.png");
+                return getTexture("Puntas de Maguei.png");
 
             // Celdas COMPARTIDAS: llevan una hoja de ixtle dentro, asi que
             // usan su textura. La pieza acompanante la dibuja el mesher con
@@ -4624,7 +4624,7 @@ public:
             case BLOCK_IXTLE_CON_HIERBA:
             case BLOCK_IXTLE_CON_FLOR:
             case BLOCK_IXTLE_DOBLE:
-                return getTexture("Ixtle.png");
+                return getTexture("Maguei.png");
 
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
@@ -9156,7 +9156,27 @@ public:
         // solo aparece si el suelo sigue siendo valido en ese momento.
         if (!esSueloParaNopal(suelo)) return;
 
-        setBlock(worldX, baseY, worldZ, baseParaSuelo(suelo));
+        // ⭐ EL TALLO SE APOYA EN CUALQUIER NIVEL, SIN HUECO
+        //
+        // La BASE del nopal es un bloque COMPLETO: su textura lleva medio
+        // bloque de terreno y medio de tallo, y se dibuja llenando el voxel.
+        // Si debajo hay una capa parcial -- una tierra de 8 px, por ejemplo --
+        // la base queda colgando y se ve el hueco entre las dos.
+        //
+        // La solucion mas limpia es rellenar esa capa a bloque entero: el
+        // nopal es una planta grande, con raiz, y ahi el terreno esta
+        // asentado. Asi la base apoya a ras y no hace falta geometria
+        // especial ni una variante de base por cada nivel.
+        //
+        // Se usa el MISMO material, asi que el terreno no cambia de aspecto:
+        // solo se completa la capa que ya habia.
+        BlockType sueloFinal = suelo;
+        if (esNivelParcial(suelo)) {
+            sueloFinal = bloqueBaseDe(suelo);
+            setBlock(worldX, baseY - 1, worldZ, sueloFinal);
+        }
+
+        setBlock(worldX, baseY, worldZ, baseParaSuelo(sueloFinal));
 
         // --- TALLO: 3 a 6 bloques completos ---
         const int alturaTallo = 3 + rnd(1, 4);

@@ -10483,7 +10483,10 @@ public:
 
                     // ⭐ OPTIMIZACIÓN: Early exit si el bloque está completamente rodeado (no tiene caras visibles)
                     // Solo aplica a bloques opacos (no agua/lava/vegetación)
-                    bool isWaterOrLava = (block == BLOCK_WATER || block == BLOCK_LAVA || isCrossSprite(block));
+                    bool isWaterOrLava = (block == BLOCK_WATER ||
+                                          block == BLOCK_LAVA ||
+                                          isCrossSprite(block) ||
+                                          esNivelParcial(block));
                     if (!isWaterOrLava) {
                         BlockType top = getNeighborBlockCached(x, y, z, 0, 1, 0);
                         BlockType bottom = getNeighborBlockCached(x, y, z, 0, -1, 0);
@@ -10503,6 +10506,11 @@ public:
                         // descartaba y su cara superior DESAPARECÍA, dejando un
                         // agujero en el suelo justo bajo cada mata de hierba.
                         auto occludes = [](BlockType b) {
+                            // Un NIVEL PARCIAL deja hueco por arriba, asi que
+                            // tampoco tapa: si contara como opaco, el bloque
+                            // de al lado perderia su cara y el nivel se
+                            // dibujaria como si fuese un cubo entero.
+                            if (esNivelParcial(b)) return false;
                             return b != BLOCK_AIR && b != BLOCK_WATER &&
                                    b != BLOCK_LAVA && !isCrossSprite(b);
                         };
@@ -12438,6 +12446,16 @@ public:
             const float baseWZ = (float)(chunk->position.z * CHUNK_SIZE);
 
             auto esGreedyBlock = [&](BlockType b) {
+                // ⭐ LOS NIVELES NO PASAN POR EL GREEDY MESHING
+                //
+                // Aqui estaba el fallo: el greedy fusiona caras de bloques
+                // CUBICOS, asi que al aceptar un nivel parcial lo dibujaba
+                // como un cubo entero y la geometria de altura reducida no
+                // llegaba a verse nunca.
+                //
+                // Sacandolos de aqui, caen en la rama de sprites, que es la
+                // que emite su caja de 3 a 13 px con la textura recortada.
+                if (esNivelParcial(b)) return false;
                 return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
                        !isCrossSprite(b);
             };

@@ -89,8 +89,27 @@ public:
         // ---- 2. MONTANAS (ETAPA 4) ----
         // Requiere: poca erosion (roca resistente) Y estar tierra adentro.
         // La condicion de continentalidad evita montanas brotando del mar.
+        // ⭐ SIN MONTANAS, NO HAY BIOMAS DE MONTANA
+        //
+        // Estos dos biomas se asignaban SOLO por erosion baja, sin
+        // comprobar que hubiera montana de verdad. Al desactivar el
+        // MountainGenerator, el relieve paso a ser llano pero el bioma
+        // seguia saliendo: y como BIOME_MOUNTAIN_PEAKS pone PIEDRA en
+        // superficie, aparecian parches de roca desnuda con borde recto
+        // en medio de praderas y bosques. Es exactamente el "bioma
+        // incorrecto en medio de otro" que se veia.
+        //
+        // Comprobado en las capturas: una llanura de piedra pegada a un
+        // bosque verde, cortada en linea recta.
+        //
+        // Mientras las montanas esten apagadas, estas dos ramas no se
+        // toman y la columna cae en los biomas climaticos de abajo, que
+        // son los que corresponden a un terreno llano.
+        //
+        // Para recuperarlas basta con volver a poner MONTANAS_ACTIVAS a
+        // true en MountainGenerator y quitar este `false &&`.
         const bool inland = c.continentalness > COAST_MAX;
-        if (inland && c.erosion < MOUNTAIN_EROSION_MAX) {
+        if (false && inland && c.erosion < MOUNTAIN_EROSION_MAX) {
             // Los picos requieren erosion aun menor y weirdness alta,
             // por lo que aparecen como el nucleo de las cordilleras.
             if (c.erosion < PEAKS_EROSION_MAX && c.weirdness > 0.52f) {
@@ -98,6 +117,7 @@ public:
             }
             return BIOME_MOUNTAINS;
         }
+        (void)inland;
 
         // ---- 3. BIOMAS CLIMATICOS ----
         // Desierto: caliente Y seco (ambas condiciones, ETAPA 8).

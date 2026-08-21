@@ -13386,7 +13386,7 @@ public:
             // sube la carga si sobra margen de verdad (mas de 33 FPS).
             if (performanceSmoothed < 0.030f) {
                 if (MAX_CHUNKS_PER_FRAME < 2) MAX_CHUNKS_PER_FRAME++;
-                if (MAX_MESHES_PER_FRAME_DYNAMIC < 3) MAX_MESHES_PER_FRAME_DYNAMIC++;
+                if (MAX_MESHES_PER_FRAME_DYNAMIC < 6) MAX_MESHES_PER_FRAME_DYNAMIC++;
             }
             // Si rendimiento entre 50-60 FPS (16.67-20ms), mantener
             else if (performanceSmoothed < 0.0384f) {
@@ -13400,7 +13400,17 @@ public:
 
             // ⭐ LÍMITES ABSOLUTOS: Nunca exceder para garantizar estabilidad
             if (MAX_CHUNKS_PER_FRAME > 2) MAX_CHUNKS_PER_FRAME = 2;
-            if (MAX_MESHES_PER_FRAME_DYNAMIC > 3) MAX_MESHES_PER_FRAME_DYNAMIC = 3;
+            // ⭐ TOPE SUBIDO DE 3 A 6
+            //
+            // Medido andando: al cambiar de chunk se acumulaban hasta 14
+            // meshes pendientes, y con 3 por frame el terreno tardaba varios
+            // frames en aparecer -- ese es el hueco que se veia como "chunk
+            // invisible" mientras el jugador se mueve.
+            //
+            // Con 6 se vacia la cola al doble de rapido. El freno de
+            // emergencia (deltaTime > 80 ms) sigue estando, asi que si un
+            // frame se pasa de largo se vuelve a 1 al instante.
+            if (MAX_MESHES_PER_FRAME_DYNAMIC > 6) MAX_MESHES_PER_FRAME_DYNAMIC = 6;
         }
 
         int chunksGeneratedThisFrame = 0;
@@ -13454,6 +13464,7 @@ public:
         // chunks que aun estan sin mallar. Mientras quede cualquiera de las
         // tres cosas, se sigue escaneando.
         bool algunoSinMesh = false;
+
         for (const auto& par : chunks) {
             if (par.second && par.second->isGenerated && par.second->needsRebuild) {
                 algunoSinMesh = true;

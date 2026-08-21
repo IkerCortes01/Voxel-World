@@ -1482,8 +1482,30 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // apoya en la cara de arriba REAL y no flota, porque lo que se ve y lo
     // que se toca son lo mismo.
     if (esNivelParcial(type)) {
+        // ⭐ LA CAJA SE CALCULA CON LOS TRES EJES DEL NIVEL
+        //
+        // Antes solo el ALTO seguia al nivel; el ancho y el grosor se
+        // quedaban en el voxel entero. Resultado: un nivel 1 -- una lamina
+        // de 3 px -- se seleccionaba con una caja tan ancha como un bloque
+        // completo, y apuntando al aire de al lado ya se marcaba.
+        //
+        // Ahora los tres ejes se derivan del mismo nivel:
+        //
+        //   ALTO   = la altura del nivel (3, 4, 5, 6, 8, 10, 13 o 16 px)
+        //   ANCHO  = el voxel entero: una capa de terreno cubre su celda de
+        //            lado a lado, igual que el bloque del que viene
+        //   GROSOR = idem
+        //
+        // El ancho y el grosor NO se estrechan a proposito: una capa de
+        // tierra es una capa, no una columna. Lo que la hace distinta de un
+        // cubo es la altura, y eso es exactamente lo que refleja la caja.
+        //
+        // El centrado si cambia con el nivel: la capa se apoya en el suelo
+        // de su celda, asi que la caja arranca en 0 y sube lo que mida.
+        const float altoNivel = alturaDe(type);
+
         minX = 0.0f;  maxX = 1.0f;
-        minY = 0.0f;  maxY = alturaDe(type);
+        minY = 0.0f;  maxY = altoNivel;
         minZ = 0.0f;  maxZ = 1.0f;
         return true;
     }
@@ -1529,10 +1551,25 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     if (esIxtleHoja(type) || type == BLOCK_IXTLE_PUNTA) {
         constexpr float PX = 1.0f / 16.0f;
 
-        // La roseta abarca el voxel entero de lado: las hojas son de 10 px
-        // de ancho y se abren hacia fuera desde el centro.
-        minX = 0.0f;   maxX = 1.0f;
-        minZ = 0.0f;   maxZ = 1.0f;
+        // ⭐ LA CAJA SIGUE AL TAMANO DE LA MATA
+        //
+        // El maguey viene en cuatro tamanos -- brote, mediana, grande y
+        // ejemplar viejo -- y sus hojas se abren mas o menos segun cual sea.
+        // La caja usaba el voxel entero para los cuatro, asi que un brote
+        // pequeno se seleccionaba apuntando muy lejos de el.
+        //
+        // Ahora el ancho y el grosor salen de la MISMA escala que usa el
+        // mesher para dibujar la roseta, de modo que lo que se marca es lo
+        // que se ve.
+        const float escalaMata = escalaIxtle(type);
+        // La roseta abierta llega a ~2.3 bloques en la mediana; la caja se
+        // queda dentro del voxel (un jugador tiene que poder pasar al lado),
+        // pero se estrecha en las matas pequenas.
+        const float medioAncho =
+            (escalaMata >= 1.0f) ? 0.5f : (0.5f * escalaMata + 0.12f);
+
+        minX = 0.5f - medioAncho;   maxX = 0.5f + medioAncho;
+        minZ = 0.5f - medioAncho;   maxZ = 0.5f + medioAncho;
 
         // ALTO. La hoja mide 50 px y se dibuja de una pieza, pero su CAJA
         // se queda en un bloque: si midiera los 50 px reales, el jugador
@@ -1541,8 +1578,24 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         //
         // Es la misma solucion que ya usan las pencas del nopal: lo que se
         // selecciona es el bloque, no la silueta entera de la planta.
+        //
+        // Pero el ALTO si sigue al tamano: un brote no llega tan arriba como
+        // un ejemplar viejo, y la caja tiene que notarlo o se estaria
+        // marcando aire por encima de la planta.
+        //
+        // Se limita a un bloque: la roseta se dibuja mas alta, pero si la
+        // caja midiera lo mismo el jugador chocaria con ella muy por encima
+        // del suelo.
+        const float altoMata = (escalaMata >= 1.0f)
+                             ? 1.0f
+                             : (0.55f + 0.45f * escalaMata);
+
+        // La PUNTA es el remate: ocupa la parte alta y es mas corta.
+        const float alto = (type == BLOCK_IXTLE_PUNTA)
+                         ? (13.0f * PX) : altoMata;
+
         minY = 0.0f;
-        maxY = 1.0f;
+        maxY = alto;
         return true;
     }
 

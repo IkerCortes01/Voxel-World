@@ -693,6 +693,40 @@ struct TirasDesbabando {
 };
 std::vector<TirasDesbabando> g_tirasDesbabando;
 
+// ============================================================================
+// PASTO TAPADO: SE MUERE Y SE VUELVE TIERRA
+// ============================================================================
+// La hierba necesita luz. Si se le pone algo encima, en un minuto se seca y
+// el bloque pasa a ser TIERRA, como en cualquier juego del genero.
+//
+// Se guarda la posicion y el momento en que se tapo. La lista suele estar
+// vacia, asi que no cuesta nada: solo hay entradas mientras haya pasto
+// esperando a morir.
+struct PastoTapado {
+    int x, y, z;
+    double t0;
+};
+std::vector<PastoTapado> g_pastoTapado;
+
+// Un minuto de juego.
+constexpr double PASTO_MUERE_SEG = 60.0;
+
+// ¿Este bloque ahoga al pasto?
+//
+// Las RAMAS y las RAICES no: son parte de un arbol, no llenan el voxel y
+// dejan pasar la luz, asi que la hierba sigue viva debajo -- que es lo que
+// se pidio. Tampoco la vegetacion suelta ni el aire.
+inline bool ahogaAlPasto(BlockType encima) {
+    if (encima == BLOCK_AIR || encima == BLOCK_WATER) return false;
+    if (isRama(encima) || esRaiz(encima)) return false;   // la excepcion
+    if (encima == BLOCK_TALLGRASS) return false;
+    if (esIxtle(encima) || esCladodio(encima)) return false;
+    if (esGuijarro(encima)) return false;
+    // Un nivel parcial tampoco tapa del todo: deja hueco por arriba.
+    if (esNivelParcial(encima)) return false;
+    return true;
+}
+
 // Cuanto tarda el desbabado, en segundos.
 constexpr double TIRAS_DESBABAR_SEG = 10.0;
 
@@ -7064,16 +7098,37 @@ public:
                                       (unsigned)(worldZ * 668265263) ^ 0x7ed55d16u;
                         hn ^= hn >> 13; hn *= 1274126177u; hn ^= hn >> 16;
 
-                        // La mayoria del terreno se queda entero (nivel 8):
-                        // los niveles bajos son el remate de las lomas, no
-                        // la norma, o el suelo pareceria un serrucho.
-                        const unsigned d = hn % 100u;
-                        int nivel = 8;
-                        if (d < 6u)       nivel = 7;
-                        else if (d < 10u) nivel = 6;
-                        else if (d < 13u) nivel = 5;
-                        else if (d < 15u) nivel = 4;
+                        // ⭐ EL NIVEL SALE DE LA ALTURA REAL DEL TERRENO
+                        //
+                        // Esto es lo que hace los niveles INDISPENSABLES en
+                        // vez de un adorno: la altura del terreno ya no se
+                        // redondea a bloques enteros. La parte decimal que
+                        // antes se tiraba se convierte en el nivel de la
+                        // capa de arriba.
+                        //
+                        // Asi una loma que sube 2.4 bloques sube de verdad
+                        // 2.4: dos bloques enteros y una capa de nivel 4.
+                        // El terreno deja de ser una escalera de peldaños de
+                        // 16 px y pasa a tener el desnivel fino que se pidio.
+                        //
+                        // Y no es comun ni raro: es lo que toque segun la
+                        // altura, que es como debe ser.
+                        const float alturaExacta = col.surfaceHeightF;
+                        const float resto = alturaExacta - floorf(alturaExacta);
 
+                        // La fraccion decide el nivel, con los ocho escalones
+                        // repartidos por su altura en pixeles.
+                        int nivel;
+                        if      (resto < 0.156f) nivel = 1;   //  3 px
+                        else if (resto < 0.219f) nivel = 2;   //  4 px
+                        else if (resto < 0.281f) nivel = 3;   //  5 px
+                        else if (resto < 0.375f) nivel = 4;   //  6 px
+                        else if (resto < 0.500f) nivel = 5;   //  8 px
+                        else if (resto < 0.719f) nivel = 6;   // 10 px
+                        else if (resto < 0.906f) nivel = 7;   // 13 px
+                        else                     nivel = 8;   // 16 px
+
+                        (void)hn;
                         if (nivel < 8) {
                             chunk->setBlock(x, surfaceY, z,
                                             conNivel(sup, nivel));
@@ -10783,9 +10838,23 @@ public:
                                 const float PZ4[4] = { az, bz, bz, az };
                                 const float PY4[4] = { 0.0f, 0.0f, alto, alto };
                                 const float U4[4]  = { U0, U1, U1, U0 };
-                                const float V4[4]  = { U0, U0,
-                                                       U0 + (U1-U0)*alto,
-                                                       U0 + (U1-U0)*alto };
+                                // ⭐ LA TEXTURA SE RECORTA POR ARRIBA
+                                //
+                                // Un bloque de nivel 5 no es "la mitad de
+                                // abajo de la textura estirada": es la capa
+                                // de tierra que ha quedado, y lo que se ve de
+                                // ella es su parte SUPERIOR -- la que toca el
+                                // aire.
+                                //
+                                // Antes se tomaba desde U0 hacia arriba, que
+                                // daba el trozo de abajo del dibujo. Ahora se
+                                // toma desde el TOPE hacia abajo, de modo que
+                                // el bloque enseña justo la franja alta de la
+                                // imagen, con el pixel a su tamaño real.
+                                const float vTope = U1;
+                                const float vBase = U1 - (U1 - U0) * alto;
+                                const float V4[4]  = { vBase, vBase,
+                                                       vTope, vTope };
                                 for (int i = 0; i < 4; ++i) {
                                     vN.push_back(wx + PX4[i]);
                                     vN.push_back(wy + PY4[i]);
@@ -16433,6 +16502,38 @@ void actualizarVida(GameState* state, float deltaTime) {
     // --- TIRAS EN REMOJO: A LOS 10 SEGUNDOS SUELTAN LA BABA ---
     // Cada tira da UNA desbabada y DOS babas. Las tiras se quedan en su sitio
     // ya limpias, y la baba sale como item para recogerla.
+    // --- PASTO TAPADO: AL MINUTO SE VUELVE TIERRA ---
+    if (!g_pastoTapado.empty()) {
+        for (size_t i = 0; i < g_pastoTapado.size(); ) {
+            const PastoTapado& pt = g_pastoTapado[i];
+
+            // Si ya no hay pasto ahi (lo rompieron, lo cambiaron), se
+            // descarta el aviso en vez de convertir un bloque ajeno.
+            const BlockType actual = state->world.getBlock(pt.x, pt.y, pt.z);
+            if (actual != BLOCK_GRASS) {
+                g_pastoTapado[i] = g_pastoTapado.back();
+                g_pastoTapado.pop_back();
+                continue;
+            }
+
+            // Si lo han destapado, la hierba se salva.
+            const BlockType encima = state->world.getBlock(pt.x, pt.y + 1, pt.z);
+            if (!ahogaAlPasto(encima)) {
+                g_pastoTapado[i] = g_pastoTapado.back();
+                g_pastoTapado.pop_back();
+                continue;
+            }
+
+            if (state->tiempoJugadoSegundos - pt.t0 >= PASTO_MUERE_SEG) {
+                state->world.setBlock(pt.x, pt.y, pt.z, BLOCK_DIRT);
+                g_pastoTapado[i] = g_pastoTapado.back();
+                g_pastoTapado.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
+
     if (!g_tirasDesbabando.empty()) {
         for (size_t i = 0; i < g_tirasDesbabando.size(); ) {
             const TirasDesbabando& t = g_tirasDesbabando[i];
@@ -17444,6 +17545,19 @@ void placeBlock(GameState* state) {
 
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
             state->inventory.consumeSelected();
+
+            // ⭐ ¿SE HA TAPADO UN PASTO?
+            // Si debajo queda hierba y lo que se ha puesto la ahoga, se
+            // apunta para que se seque dentro de un minuto.
+            {
+                const BlockType debajo = state->world.getBlock(
+                    placePos.x, placePos.y - 1, placePos.z);
+                if (debajo == BLOCK_GRASS && ahogaAlPasto(blockToPlace)) {
+                    g_pastoTapado.push_back({ placePos.x, placePos.y - 1,
+                                              placePos.z,
+                                              g_tiempoJugadoSegundos });
+                }
+            }
             state->placeCooldown = 0.25f;  // 250ms cooldown
 
             // PENCA QUE SE CAE: si se coloca sobre suelo firme, se apunta

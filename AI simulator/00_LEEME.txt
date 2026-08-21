@@ -1,0 +1,124 @@
+================================================================================
+AI SIMULATOR — SISTEMA DE FAUNA CON ETOLOGÍA REAL
+================================================================================
+
+Carpeta:  D:\Respaldo\Voxel World\AI simulator
+Proyecto: Voxel World (motor propio, C++20 / OpenGL)
+Fecha:    20 de agosto de 2026
+
+--------------------------------------------------------------------------------
+QUÉ ES ESTO
+--------------------------------------------------------------------------------
+
+Dos cosas, en dos capas separadas:
+
+  CAPA 1 — EL FRAMEWORK (genérico)
+    Un sistema que, dada una especie nueva, define QUÉ hay que investigar,
+    CÓMO estructurar esos datos, y CÓMO convertirlos en una IA que se
+    comporta como ese animal. Sirve para cualquier especie, no solo para
+    la primera.
+
+  CAPA 2 — LA PRIMERA INSTANCIA
+    El pecarí de collar (Dicotyles tajacu) completamente especificado:
+    su biología real, sus hormonas, su manada, su ciclo de vida, y su
+    traducción a parámetros de simulación.
+
+La idea central: NO se inventa el comportamiento del animal. Se investiga
+en literatura científica, se extraen parámetros numéricos citables, y la IA
+emerge de esos parámetros. Si el dato no existe en la literatura, se dice
+que no existe en vez de rellenarlo a ojo.
+
+--------------------------------------------------------------------------------
+POR QUÉ EL PECARÍ DE COLLAR
+--------------------------------------------------------------------------------
+
+Es el "cerdo mexicano" en sentido estricto: fauna NATIVA de México, no una
+raza doméstica traída de Europa.
+
+  Dicotyles tajacu (antes Pecari tajacu, antes Tayassu tajacu)
+  Familia Tayassuidae — NO es un cerdo (Suidae). Linajes separados hace
+  ~37 millones de años. La confusión es puramente de aspecto.
+
+Y hay una coincidencia útil: el pecarí de collar aparece documentado
+arqueológicamente en La Joya, en la investigación olmeca de la carpeta
+documentación/Investigacion_Mexico. Es fauna del mismo bioma.
+
+--------------------------------------------------------------------------------
+ARCHIVOS
+--------------------------------------------------------------------------------
+
+  00_LEEME.txt                    Este archivo.
+
+  --- CAPA 1: EL FRAMEWORK ---
+  01_ARQUITECTURA_DEL_SISTEMA.json
+      La especificación completa del sistema: pipeline de investigación,
+      esquema de datos, arquitectura de decisión, sistema hormonal,
+      simulación de manada, ciclo de vida, y rendimiento.
+
+  02_PROTOCOLO_DE_INVESTIGACION.json
+      Qué buscar para una especie nueva, en qué fuentes, cómo validar los
+      datos y cómo marcar los huecos. Es el "cómo se añade otra especie".
+
+  --- CAPA 2: EL PECARÍ ---
+  10_PECARI_BIOLOGIA.json
+      Los datos biológicos crudos, con fuente y nivel de confianza en cada
+      uno. Es la salida del protocolo de investigación.
+
+  11_PECARI_IA.json
+      La traducción de esa biología a parámetros de simulación: necesidades,
+      hormonas, comportamientos, utilidades, manada.
+
+  12_PECARI_TRAZABILIDAD.json
+      Cada parámetro de la IA enlazado con el dato biológico del que sale.
+      Es lo que permite auditar el modelo y distinguir dato de invención.
+
+  --- DOCUMENTACIÓN DE PROCESO ---
+  90_PROCESO_PASO_A_PASO.json
+      El registro meticuloso de cada decisión de diseño, por qué se tomó,
+      qué alternativas se descartaron y con qué criterio.
+
+  99_FUENTES.json
+      Bibliografía completa de las dos capas.
+
+--------------------------------------------------------------------------------
+ESCALA DE CONFIANZA (se usa en todos los JSON)
+--------------------------------------------------------------------------------
+
+Todo parámetro lleva un campo "confianza":
+
+  MEDIDO       Valor publicado en literatura revisada por pares, con la
+               cita concreta. Es un número que alguien midió.
+
+  DERIVADO     Calculado a partir de valores MEDIDOS mediante una fórmula
+               explícita que se documenta.
+
+  INFERIDO     No medido en esta especie, pero tomado de una especie
+               hermana o del grupo taxonómico, con la analogía declarada.
+
+  ESTIMADO     Sin base en literatura. Es un ajuste de diseño para que la
+               simulación funcione. Se marca sin disimulo.
+
+  AUSENTE      La literatura NO tiene este dato. Se deja explícito el hueco
+               en vez de inventarlo.
+
+La regla: si un comportamiento del juego depende de un parámetro ESTIMADO,
+eso debe poder verse de un vistazo. De ahí el archivo de trazabilidad.
+
+--------------------------------------------------------------------------------
+ADVERTENCIA HONESTA SOBRE EL ALCANCE
+--------------------------------------------------------------------------------
+
+Este sistema NO es "una IA que investiga sola". Un motor de juego en C++ no
+puede leer papers. Lo que sí es realista, y es lo que se especifica aquí:
+
+  - Un PROTOCOLO reproducible de investigación (qué buscar, dónde, cómo
+    validarlo) que ejecuta un humano o un asistente con acceso a la web.
+  - Un ESQUEMA DE DATOS rígido en el que vuelcan esos hallazgos.
+  - Un MOTOR DE SIMULACIÓN que consume ese esquema y produce comportamiento.
+
+Es decir: la investigación es un paso de AUTORÍA, no de runtime. El sistema
+convierte investigación en comportamiento, pero alguien tiene que hacer la
+investigación. Prometer lo contrario sería vender humo.
+
+Lo que sí es automático: una vez rellenado el JSON de una especie, la IA
+sale de ahí sin escribir código nuevo.

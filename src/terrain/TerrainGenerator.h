@@ -47,6 +47,10 @@ struct ColumnData {
     ClimateData climate;
     BiomeType   biome;        // Bioma efectivo (ya resuelta la playa)
     int         surfaceHeight;// Altura del bloque solido mas alto
+    // Altura SIN redondear. Antes se tiraba al pasar a entero; ahora su
+    // parte decimal decide el NIVEL de la capa de arriba, de modo que el
+    // terreno sube de 3 en 3 pixeles en vez de a saltos de bloque.
+    float       surfaceHeightF;
     float       slope;        // |grad(altura)|, para playas y arboles
     bool        isBeach;
     bool        isOcean;
@@ -298,6 +302,7 @@ public:
         col.slope = BeachGenerator::ComputeSlope(hxm, hxp, hzm, hzp, D);
 
         col.surfaceHeight = (int)floorf(h);
+        col.surfaceHeightF = h;   // se conserva el decimal para el nivel
 
         // --------------------------------------------------------------------
         // RESOLUCION DEL BIOMA EFECTIVO

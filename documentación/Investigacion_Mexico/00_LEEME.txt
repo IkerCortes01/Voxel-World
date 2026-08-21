@@ -34,28 +34,40 @@ ARCHIVOS
 
   --- INVESTIGACIÓN (lectura) ---
   01_PANORAMA_GENERAL.txt         Quiénes fueron, cronología, sitios, colapso.
-  02_AGRICULTURA_Y_ALIMENTACION.txt
-  03_ARQUITECTURA_E_INGENIERIA.txt
-  04_TECNOLOGIA_Y_MATERIALES.txt  Piedra, jade, hule, chapopote, cerámica.
-  05_QUIMICA_Y_MINERALES.txt
-  06_MEDICINA_Y_PLANTAS.txt
+  02_AGRICULTURA_Y_ALIMENTACION.txt  Maíz, el debate de la subsistencia,
+                                  nixtamalización, fauna, almacenamiento.
+  03_ARQUITECTURA_E_INGENIERIA.txt   San Lorenzo, La Venta, LiDAR 2021,
+                                  técnicas, juego de pelota, urbanismo.
+  04_TECNOLOGIA_Y_MATERIALES.txt  Piedra, jade, hule, chapopote, cerámica,
+                                  tecnología orgánica.
+  05_QUIMICA_Y_MINERALES.txt      Hule, chapopote, pigmentos, espejos
+                                  cóncavos, nixtamalización, cerámica.
+  06_MEDICINA_Y_PLANTAS.txt       El capítulo con menos evidencia; se
+                                  explica por qué.
   07_ASTRONOMIA_CALENDARIO_ESCRITURA.txt
   08_SOCIEDAD_RELIGION_Y_ARTE.txt
-  09_FAUNA_Y_ECOSISTEMA.txt
+  09_FAUNA_Y_ECOSISTEMA.txt       El bioma: vegetación, clima, hidrología,
+                                  suelos, vulcanismo.
   10_DEBATES_Y_PSEUDOARQUEOLOGIA.txt   Qué está en disputa y qué es falso.
 
-  --- DATOS (.JSON, estructurados) ---
-  olmecas_general.json            Cronología, sitios, personajes, glosario.
-  olmecas_agricultura.json        Cultivos, técnicas, calendario agrícola.
-  olmecas_flora.json              Especies vegetales con nombre científico.
-  olmecas_fauna.json              Especies animales y su aprovechamiento.
-  olmecas_materiales.json         Minerales, rocas, materias primas.
-  olmecas_tecnologia.json         Procesos técnicos y cadenas operativas.
-  olmecas_arquitectura.json       Sitios, estructuras, medidas, técnicas.
-  olmecas_medicina.json           Plantas medicinales y usos.
-  olmecas_astronomia.json         Calendario, alineaciones, escritura.
-  olmecas_religion_arte.json      Deidades, iconografía, tipos de monumento.
-  olmecas_fuentes.json            Bibliografía y URLs de todo lo anterior.
+  LECTURA RECOMENDADA SI SOLO SE VA A LEER UNA COSA:
+    Para entender la cultura ......... 01
+    Para diseñar el mundo del juego .. 09 y DISENO_notas.txt
+    Para no meter la pata ............ 10
+
+  --- DATOS (.JSON, estructurados y validados) ---
+  olmecas_general.json            Cronología, sitios, cabezas colosales,
+                                  organización social, colapso, glosario.
+  olmecas_materiales.json         Minerales, rocas, materias primas,
+                                  técnicas líticas, redes de intercambio.
+  olmecas_arquitectura.json       Sitios, estructuras, medidas, LiDAR 2021,
+                                  técnicas constructivas, urbanismo.
+  olmecas_astronomia.json         Calendario, alineaciones, escritura,
+                                  numeración.
+  olmecas_flora_fauna.json        Especies con nombre científico, ecosistema,
+                                  agricultura, almacenamiento.
+  olmecas_fuentes.json            Bibliografía, instituciones, excavaciones
+                                  de referencia y lagunas declaradas.
 
   --- DISEÑO DE JUEGO (derivado) ---
   DISENO_bloques_propuestos.json  Bloques nuevos al estilo de BlockType.h

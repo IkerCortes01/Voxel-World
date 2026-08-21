@@ -15920,6 +15920,35 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 by0 += (float)y; by1 += (float)y;
                 bz0 += (float)z; bz1 += (float)z;
 
+                // ⭐ TOLERANCIA AL APUNTAR
+                //
+                // Un bloque que no llena su voxel -- una capa de 3 px, una
+                // penca, una hoja de maguey -- obliga a clavar el punto de
+                // mira EXACTAMENTE encima. Basta desviarse un pixel para que
+                // el rayo pase de largo y se seleccione lo de detras, que es
+                // justo lo molesto.
+                //
+                // Se agranda un poco la caja SOLO para la prueba del rayo:
+                // lo que se dibuja y lo que frena al jugador siguen siendo
+                // los valores exactos. El margen se calcula sobre el hueco
+                // que le sobra al bloque, asi que un cubo entero no se
+                // agranda nada -- no se le roba la seleccion a nadie.
+                {
+                    constexpr float TOL_MAX = 0.12f;   // 2 px de gracia
+                    const float huecoX = 1.0f - (bx1 - bx0);
+                    const float huecoY = 1.0f - (by1 - by0);
+                    const float huecoZ = 1.0f - (bz1 - bz0);
+                    const float tx = (huecoX * 0.5f < TOL_MAX)
+                                   ? huecoX * 0.5f : TOL_MAX;
+                    const float ty = (huecoY * 0.5f < TOL_MAX)
+                                   ? huecoY * 0.5f : TOL_MAX;
+                    const float tz = (huecoZ * 0.5f < TOL_MAX)
+                                   ? huecoZ * 0.5f : TOL_MAX;
+                    bx0 -= tx; bx1 += tx;
+                    by0 -= ty; by1 += ty;
+                    bz0 -= tz; bz1 += tz;
+                }
+
                 // Interseccion rayo-AABB (slab method).
                 float tEnt = 0.0f, tSal = maxDistance;
                 bool atraviesa = true;
@@ -23916,11 +23945,43 @@ int main() {
                     // Posicionar en el bloque seleccionado
                     glTranslatef(result.blockPos.x, result.blockPos.y, result.blockPos.z);
 
-                    // Escala ligeramente mayor para evitar z-fighting (técnica estándar)
-                    const float scale = 1.001f;  // Reducido para estar más pegado al bloque
-                    float offset = (1.0f - scale) / 2.0f;
-                    glTranslatef(offset, offset, offset);
-                    glScalef(scale, scale, scale);
+                    // ⭐ EL RESALTADO SE ADAPTA A LA FORMA DEL BLOQUE
+                    //
+                    // Antes se dibujaba siempre el cubo 0..1, asi que sobre
+                    // una capa de 3 px, una penca o un maguey aparecia un
+                    // recuadro enorme que no correspondia con lo que se iba
+                    // a romper.
+                    //
+                    // Ahora se pide la caja REAL -- la misma que usa la
+                    // colision y el raycast -- y el recuadro se ajusta a
+                    // ella. Lo que se resalta es lo que se toca.
+                    float selX0 = 0.0f, selY0 = 0.0f, selZ0 = 0.0f;
+                    float selX1 = 1.0f, selY1 = 1.0f, selZ1 = 1.0f;
+                    {
+                        const BlockType bsel = g_gameState->world.getBlock(
+                            result.blockPos.x, result.blockPos.y,
+                            result.blockPos.z);
+                        float bx0, by0, bz0, bx1, by1, bz1;
+                        if (nopalHitboxCon(bsel,
+                                [&](int dx, int dy, int dz) {
+                                    return g_gameState->world.getBlock(
+                                        result.blockPos.x + dx,
+                                        result.blockPos.y + dy,
+                                        result.blockPos.z + dz);
+                                },
+                                result.blockPos.x, result.blockPos.y,
+                                result.blockPos.z,
+                                bx0, by0, bz0, bx1, by1, bz1)) {
+                            selX0 = bx0; selY0 = by0; selZ0 = bz0;
+                            selX1 = bx1; selY1 = by1; selZ1 = bz1;
+                        }
+                    }
+
+                    // Un pelin por fuera, para que la linea no pelee con la
+                    // cara del bloque en el depth buffer.
+                    constexpr float MARGEN = 0.002f;
+                    selX0 -= MARGEN; selY0 -= MARGEN; selZ0 -= MARGEN;
+                    selX1 += MARGEN; selY1 += MARGEN; selZ1 += MARGEN;
 
                     // Color gris oscuro más sutil y transparente
                     glEnable(GL_BLEND);
@@ -23930,47 +23991,35 @@ int main() {
                     // Líneas más delgadas y sutiles
                     glLineWidth(1.5f);
 
-                    // Dibujar SOLO la cara que estás mirando (usando el normal)
-                    glBegin(GL_LINE_LOOP);  // LINE_LOOP dibuja un rectángulo cerrado con 4 vértices
+                    // ⭐ SE DIBUJA LA CAJA ENTERA, NO UNA SOLA CARA
+                    //
+                    // Antes se pintaba solo la cara que se estaba mirando.
+                    // Con bloques que no llenan el voxel -- una capa de 3 px,
+                    // una penca, un maguey -- eso deja al jugador sin saber
+                    // que va a romper: se ve un rectangulo suelto en el aire.
+                    //
+                    // Con las doce aristas de la caja REAL se entiende de un
+                    // vistazo la forma y el tamano de lo que hay debajo del
+                    // cursor.
+                    glBegin(GL_LINES);
+                    const float X0 = selX0, Y0 = selY0, Z0 = selZ0;
+                    const float X1 = selX1, Y1 = selY1, Z1 = selZ1;
 
-                    // Determinar qué cara dibujar según el normal
-                    if (result.normal.x == 1) {
-                        // Cara derecha (X+)
-                        glVertex3f(1, 0, 0);
-                        glVertex3f(1, 0, 1);
-                        glVertex3f(1, 1, 1);
-                        glVertex3f(1, 1, 0);
-                    } else if (result.normal.x == -1) {
-                        // Cara izquierda (X-)
-                        glVertex3f(0, 0, 0);
-                        glVertex3f(0, 1, 0);
-                        glVertex3f(0, 1, 1);
-                        glVertex3f(0, 0, 1);
-                    } else if (result.normal.y == 1) {
-                        // Cara arriba (Y+)
-                        glVertex3f(0, 1, 0);
-                        glVertex3f(1, 1, 0);
-                        glVertex3f(1, 1, 1);
-                        glVertex3f(0, 1, 1);
-                    } else if (result.normal.y == -1) {
-                        // Cara abajo (Y-)
-                        glVertex3f(0, 0, 0);
-                        glVertex3f(0, 0, 1);
-                        glVertex3f(1, 0, 1);
-                        glVertex3f(1, 0, 0);
-                    } else if (result.normal.z == 1) {
-                        // Cara frontal (Z+)
-                        glVertex3f(0, 0, 1);
-                        glVertex3f(1, 0, 1);
-                        glVertex3f(1, 1, 1);
-                        glVertex3f(0, 1, 1);
-                    } else if (result.normal.z == -1) {
-                        // Cara trasera (Z-)
-                        glVertex3f(0, 0, 0);
-                        glVertex3f(0, 1, 0);
-                        glVertex3f(1, 1, 0);
-                        glVertex3f(1, 0, 0);
-                    }
+                    // Las cuatro aristas de abajo
+                    glVertex3f(X0,Y0,Z0); glVertex3f(X1,Y0,Z0);
+                    glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
+                    glVertex3f(X1,Y0,Z1); glVertex3f(X0,Y0,Z1);
+                    glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y0,Z0);
+                    // Las cuatro de arriba
+                    glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
+                    glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y1,Z1);
+                    glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+                    glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y1,Z0);
+                    // Los cuatro pilares
+                    glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+                    glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y1,Z0);
+                    glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y1,Z1);
+                    glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y1,Z1);
 
                     glEnd();
 

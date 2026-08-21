@@ -10469,10 +10469,21 @@ public:
         // las siluetas y poco mas.
         constexpr float LUZ_DE_LUNA = 0.12f;
 
-        // Curva de luz: gamma para oscuridad no lineal + ambiente mínimo.
+        // Curva de luz: LINEAL, con un ambiente minimo.
+        //
+        // ⭐ SE QUITA EL GAMMA 1.2
+        //
+        // pow(raw, 1.2) oscurece TODO lo que no sea luz maxima, y bastante:
+        // medido, un 11% a media luz, un 20% con luz 6 y un 26% con luz 4.
+        // Sumado al sombreado por cara -- que ya baja los lados al 60% --
+        // las caras quedaban muy por debajo de lo que les toca y el terreno
+        // se veia apagado.
+        //
+        // Con la curva lineal, la luz que se ve es la que hay: el nivel 18
+        // sigue siendo 1.0 y los intermedios dejan de perder brillo.
         auto lightToFactor = [sol](uint8_t light) -> float {
             float raw = (float)light / 18.0f;
-            float f = pow(raw, 1.2f);
+            float f = raw;
             if (f < 0.15f) f = 0.15f;             // nunca negro puro
 
             // La fraccion de ESTE bloque que depende del sol es su propia
@@ -10870,7 +10881,10 @@ public:
                             // Son los mismos numeros que usa el greedy
                             // meshing en DIR_BRIGHT, para que un nivel y el
                             // bloque entero de al lado se vean igual.
-                            constexpr float BRILLO_LADO   = 0.8f;
+                            // Los mismos valores que DIR_BRIGHT, para que
+                            // un nivel y el bloque entero de al lado se vean
+                            // exactamente igual.
+                            constexpr float BRILLO_LADO   = 0.92f;
                             constexpr float BRILLO_ARRIBA = 1.0f;
 
                             // ⭐ LA LUZ SE TOMA DEL VECINO, NO DE LA PROPIA CELDA
@@ -12554,7 +12568,16 @@ public:
 
             // Órdenes de vértice y UV idénticos a las caras individuales de
             // arriba (mismo winding, mismo espejado de textura por cara).
-            const float DIR_BRIGHT[6] = { 1.0f, 0.5f, 0.8f, 0.8f, 0.6f, 0.6f };
+            // ⭐ SOMBREADO POR CARA MAS SUAVE
+            //
+            // Estaba en 1.0 / 0.5 / 0.8 / 0.6: la cara de abajo a la mitad y
+            // las de este-oeste al 60%, que con la curva de luz encima
+            // dejaba varias caras muy oscuras.
+            //
+            // Se sube el suelo del rango. Sigue habiendo relieve -- la cara
+            // de arriba es la mas clara y la de abajo la mas oscura, que es
+            // lo que da volumen -- pero ninguna cara se apaga.
+            const float DIR_BRIGHT[6] = { 1.0f, 0.75f, 0.92f, 0.92f, 0.85f, 0.85f };
             const int DIR_VEC[6][3] = {
                 { 0, 1, 0}, { 0,-1, 0},   // top, bottom
                 { 0, 0, 1}, { 0, 0,-1},   // north, south

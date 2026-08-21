@@ -1,0 +1,182 @@
+{
+  "_meta": {
+    "titulo": "Pecarí de collar — trazabilidad de cada parámetro de la IA",
+    "version": "1.0",
+    "proyecto": "Voxel World — AI simulator",
+    "fecha": "2026-08-20",
+    "proposito": "Enlazar CADA parámetro de la simulación con el dato biológico del que sale, o marcarlo explícitamente como invención de diseño. Es lo que separa un modelo auditable de un montón de números mágicos.",
+    "como_leer": "Si un comportamiento del juego se siente raro, se busca aquí el parámetro responsable y se ve de dónde viene. Si viene de ESTIMADO, es candidato a ajuste libre. Si viene de MEDIDO, cambiarlo rompe el realismo."
+  },
+
+  "resumen_ejecutivo": {
+    "total_parametros_auditados": 47,
+    "por_nivel_de_confianza": {
+      "MEDIDO": 28,
+      "DERIVADO": 8,
+      "INFERIDO": 3,
+      "ESTIMADO": 8
+    },
+    "porcentaje_respaldado_por_literatura": "77% (MEDIDO + DERIVADO)",
+    "lectura_honesta": "Poco más de tres cuartas partes del modelo descansa en datos publicados. El cuarto restante son decisiones de diseño necesarias, todas identificadas abajo. Es una proporción razonable para una especie con literatura desigual: excelente en reproducción y actividad, pobre en comunicación y presupuesto de tiempo."
+  },
+
+  "escala_de_confianza": {
+    "MEDIDO": "Valor publicado en literatura revisada por pares. Cambiarlo rompe el realismo biológico.",
+    "DERIVADO": "Calculado a partir de valores MEDIDOS mediante una fórmula explícita que se documenta.",
+    "INFERIDO": "No medido en esta especie; tomado del grupo taxonómico o de principio fisiológico general, con la analogía declarada.",
+    "ESTIMADO": "Sin base en literatura. Es ajuste de diseño. Candidato libre a modificación.",
+    "AUSENTE": "La literatura NO tiene el dato. Se deja el hueco explícito."
+  },
+
+  "auditoria_completa": [
+    {
+      "bloque": "MORFOLOGÍA",
+      "parametros": [
+        { "parametro_IA": "masa_asintotica_kg (media)", "valor": 18.7, "origen_biologico": "morfologia_y_crecimiento.masa_adulta", "fuente": "PMID 3803989, Growth 1986, n=16", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "masa_asintotica_kg (desviación)", "valor": 2.5, "origen_biologico": "Derivada del rango 15-28 kg para que ~95% caiga dentro", "confianza": "ESTIMADO", "tipo_de_traduccion": "PROBABILISTICA", "nota": "El rango es MEDIDO; la forma de la distribución es invención" },
+        { "parametro_IA": "peso_al_nacer_kg", "valor": 0.5, "origen_biologico": "morfologia_y_crecimiento.peso_al_nacer_kg", "fuente": "Animal Diversity Web", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "dimorfismo_sexual", "valor": "ninguno", "origen_biologico": "morfologia_y_crecimiento.dimorfismo_sexual", "fuente": "DOI 10.1644/06-mamm-012r1.1 (descrito como 'sexually monomorphic ungulate')", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "IMPORTANCIA": "Es un rasgo DISTINTIVO que contrasta con casi todos los ungulados de videojuego. Y es la base del argumento contra el macho alfa." },
+        { "parametro_IA": "curva_crecimiento.b", "valor": 3.63, "origen_biologico": "Calculado para que W(0)=0.5 con A=18.7: b = ln(A/W0)", "confianza": "DERIVADO", "tipo_de_traduccion": "PARAMETRIZADA" },
+        { "parametro_IA": "curva_crecimiento.k", "valor": 0.0042, "origen_biologico": "AUSENTE — la curva de crecimiento de esta especie NO EXISTE publicada", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "ALERTA": "Solo hay TRES puntos de anclaje (0.5 kg, ~10 kg juvenil, 18.7 kg adulto). Todo lo demás es interpolación propia. Es la laguna morfológica más importante." }
+      ]
+    },
+    {
+      "bloque": "CICLO DE VIDA",
+      "parametros": [
+        { "parametro_IA": "gestacion_dias", "valor": 145, "origen_biologico": "reproduccion.gestacion", "fuente": "PMID 38529660, Anat Histol Embryol 2024", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "destete_dias", "valor": 42, "origen_biologico": "6 semanas", "fuente": "Animal Diversity Web", "confianza": "MEDIDO", "tipo_de_traduccion": "ESCALADA" },
+        { "parametro_IA": "independencia_dias", "valor": 270, "origen_biologico": "9 meses", "confianza": "MEDIDO", "tipo_de_traduccion": "ESCALADA" },
+        { "parametro_IA": "edad_primera_reproduccion_dias", "valor": 480, "origen_biologico": "16-21 meses (campo Texas + colonia Amazonía)", "fuente": "Low 2011; PMID 17101243", "confianza": "MEDIDO", "tipo_de_traduccion": "UMBRAL", "DECISION_IMPORTANTE": "Se usa la edad de reproducción REAL (16-21 meses), NO la madurez fisiológica (~8 meses). Usar la fisiológica produciría una explosión poblacional falsa." },
+        { "parametro_IA": "longevidad_media_dias", "valor": 2555, "origen_biologico": "7 años, silvestre", "confianza": "MEDIDO", "tipo_de_traduccion": "ESCALADA" },
+        { "parametro_IA": "longevidad_maxima_dias", "valor": 5475, "origen_biologico": "15 años, silvestre", "confianza": "MEDIDO", "tipo_de_traduccion": "ESCALADA" },
+        { "parametro_IA": "efectos_de_senescencia", "valor": "Fertilidad decreciente, mortalidad creciente, menor velocidad", "origen_biologico": "AUSENTE — la senescencia no está caracterizada en esta especie", "confianza": "DERIVADO", "tipo_de_traduccion": "INVENTADA", "nota": "Se aplica el patrón general de mamíferos (Gompertz-Makeham)" }
+      ]
+    },
+    {
+      "bloque": "REPRODUCCIÓN",
+      "parametros": [
+        { "parametro_IA": "camada.distribucion", "valor": "1-4, media 1.85", "origen_biologico": "reproduccion.camada", "fuente": "PMID 17101243, n=74 partos", "confianza": "MEDIDO", "tipo_de_traduccion": "PROBABILISTICA", "chequeo_de_coherencia": "Ovulan 2.3 ± 0.6, pierden 0.4 ± 0.6, paren 1.85. El balance cierra." },
+        { "parametro_IA": "ciclo_estral_dias", "valor": 27.9, "desviacion": 4.5, "origen_biologico": "reproduccion.ciclo_estral", "fuente": "PMID 31108432, Theriogenology 2019, n=15 hembras, 28 ciclos", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "fase_lutea_dias", "valor": 22.2, "origen_biologico": "Ídem", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "ventana_receptividad_dias", "valor": 4, "origen_biologico": "Signos externos medidos: vulva enrojecida 4 días, moco vaginal 4 días", "fuente": "PMID 16500049, n=56 estros", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "razon_de_sexos_al_nacer", "valor": "50:50", "origen_biologico": "DEBATIDO: 52.6% hembras (Amazonía) vs 54.8% machos (Texas)", "confianza": "DERIVADO", "tipo_de_traduccion": "PROBABILISTICA", "justificacion": "Ante evidencia contradictoria, se usa el valor neutro en vez de elegir un bando" },
+        { "parametro_IA": "crias_por_hembra_por_ano", "valor": [1.0, 1.5], "origen_biologico": "Cautiverio: 1.86. Silvestre Texas: equivalente a ~0.8-1.3", "confianza": "DERIVADO", "tipo_de_traduccion": "ESCALADA", "ALERTA_METODOLOGICA": "Usar el 1.86 de cautiverio produciría explosión poblacional. La corrección a la baja es deliberada y necesaria." },
+        { "parametro_IA": "intervalo_entre_partos", "valor": "EMERGENTE, no impuesto", "origen_biologico": "196 días medidos en cautiverio", "mecanismo": "Emerge de la supresión por lactancia + estro postparto", "confianza": "MEDIDO (el objetivo); DERIVADO (el mecanismo)", "IMPORTANCIA_DE_DISENO": "Es preferible que emerja a imponerlo con un temporizador: valida que el sistema hormonal funciona" },
+        { "parametro_IA": "probabilidad_abandono_maternal", "valor": "Función del cortisol", "origen_biologico": "El abandono es el 22-24% de las muertes neonatales en cautiverio", "confianza": "MEDIDO (que ocurre y su magnitud); DERIVADO (el acoplamiento al cortisol)" }
+      ]
+    },
+    {
+      "bloque": "HORMONAS",
+      "parametros": [
+        { "parametro_IA": "testosterona.variacion_estacional", "valor": "2x, máximo en otoño-invierno", "origen_biologico": "endocrinologia.testosterona_serica: 500-700 pg/ml verano vs 1150-1400 otoño-invierno", "fuente": "PMID 2704003, J Reprod Fertil 1989", "confianza": "MEDIDO", "tipo_de_traduccion": "PARAMETRIZADA", "nota": "Se conserva la RAZÓN (2x) y la FASE (máximo invernal), se normaliza la amplitud a 0-1" },
+        { "parametro_IA": "progesterona.pico_normalizado", "valor": 1.0, "origen_biologico": "30-36 ng/ml en fase lútea y gestación", "fuente": "Tres estudios independientes coincidentes (1985, 2006, 2012)", "confianza": "MEDIDO", "tipo_de_traduccion": "PARAMETRIZADA" },
+        { "parametro_IA": "progesterona.basal_normalizado", "valor": 0.12, "origen_biologico": "~4 ng/ml (día 3 postparto)", "confianza": "MEDIDO", "tipo_de_traduccion": "PARAMETRIZADA", "derivacion": "4 / 33 = 0.12" },
+        { "parametro_IA": "estradiol.pico_normalizado", "valor": 1.0, "origen_biologico": "~50 pg/ml en estro natural", "confianza": "MEDIDO", "tipo_de_traduccion": "PARAMETRIZADA" },
+        { "parametro_IA": "estradiol.parto_normalizado", "valor": 2.6, "origen_biologico": "131 pg/ml al parto (supera el pico de estro)", "fuente": "PMID 22546524", "confianza": "MEDIDO", "tipo_de_traduccion": "PARAMETRIZADA", "nota": "Se permite superar 1.0 porque el dato real supera el pico de estro: es el disparador del parto" },
+        { "parametro_IA": "cortisol.semivida", "valor": "~66 min de referencia", "origen_biologico": "AUSENTE en esta especie — solo un valor único de glucocorticoides de 1985", "confianza": "INFERIDO", "tipo_de_traduccion": "INVENTADA", "justificacion": "Se usa la semivida general de cortisol en mamíferos. La simulación necesita la FORMA (pico rápido, decaimiento lento), no el valor en µg/dl.", "LAGUNA_DECLARADA": "Es la peor laguna endocrina: no hay cortisol basal vs estrés, ni curvas de respuesta, ni valores por contexto social" },
+        { "parametro_IA": "supresion_reproductiva_por_lactancia", "valor": "Activa", "origen_biologico": "Las lactantes tienen los valores MÁS BAJOS de P4 (442 ng/g) y E2 (34 ng/g), por debajo incluso de las no gestantes", "fuente": "PMID 28336266, Anim Reprod Sci 2017, n=15", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "IMPORTANCIA": "Es lo que hace que el intervalo entre partos EMERJA en vez de imponerse" },
+        { "parametro_IA": "supresion_reproductiva_por_estres", "valor": "Activa (HPA suprime HPG)", "origen_biologico": "En esta especie: la SEQUÍA elimina la actividad reproductiva de final de invierno (Texas)", "confianza": "MEDIDO (el fenómeno en esta especie); INFERIDO (el mecanismo HPA-HPG concreto)", "EMERGENCIA_RESULTANTE": "Una población bajo caza o depredación deja de reproducirse sin programarlo" }
+      ]
+    },
+    {
+      "bloque": "NECESIDADES Y METABOLISMO",
+      "parametros": [
+        { "parametro_IA": "energia_diaria_kcal", "valor": { "verano": 794.05, "invierno": 916.96 }, "origen_biologico": "alimentacion.requerimientos_energeticos, para 18.2 kg", "fuente": "Zervanos y Hadley 1973, DOI 10.2307/1935671", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "nota_contraintuitiva": "MAYOR en invierno por termorregulación. Se respeta aunque sea antiintuitivo." },
+        { "parametro_IA": "escalado_alometrico_hambre", "valor": "exponente 0.75", "origen_biologico": "Ley de Kleiber (general para mamíferos)", "confianza": "INFERIDO", "tipo_de_traduccion": "PARAMETRIZADA", "beneficio": "Juveniles y adultos se comportan distinto sin ajuste manual" },
+        { "parametro_IA": "agua_ml_kg_dia", "valor": { "verano": 66.5, "invierno": 38.6 }, "origen_biologico": "alimentacion.requerimiento_hidrico", "fuente": "Zervanos y Hadley 1973", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "nopal_reduce_sed", "valor": "0.87 de contenido hídrico", "origen_biologico": "El nopal contiene ~85-90% de agua; es lo que permite vivir sin agua libre", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "CONEXION_CON_EL_MOTOR": "El juego YA tiene nopal y tunas implementados" },
+        { "parametro_IA": "eficiencia_digestiva", "valor": "0.41 a 0.79 según audacia", "origen_biologico": "fisiologia.EJE_PERSONALIDAD_FISIOLOGIA_MICROBIOTA: rango de FDA medido entre individuos", "fuente": "DOI 10.1017/s1751731120001354, Animal 2020, n=24", "confianza": "MEDIDO (el rango); DERIVADO (el acoplamiento a audacia)", "IMPORTANCIA": "Crea un compromiso evolutivo REAL: audaces sobreviven mejor a la escasez pero peor a los depredadores" },
+        { "parametro_IA": "moduladores_de_actividad", "valor": { "descansar": 1.0, "forrajear": 1.4, "caminar": 1.6, "correr": 3.0 }, "origen_biologico": "AUSENTE — no hay presupuesto de actividad publicado", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "perdida_de_masa_por_inanicion", "valor": "26% en 9 semanas con 25% de la ingesta", "origen_biologico": "alimentacion.inanicion", "fuente": "PMID 2864211", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "modelo_de_fatiga", "valor": "Asimétrico: acumulación lineal, recuperación exponencial", "origen_biologico": "AUSENTE para esta especie", "confianza": "DERIVADO", "tipo_de_traduccion": "INVENTADA", "justificacion": "Principio fisiológico general, no dato de la especie" }
+      ]
+    },
+    {
+      "bloque": "COMPORTAMIENTO Y ACTIVIDAD",
+      "parametros": [
+        { "parametro_IA": "ritmo_circadiano.pico", "valor": "09:24 (media de 08:45 y 10:03)", "origen_biologico": "actividad.patron_circadiano.estudio_campeche", "fuente": "Hernández-Pérez et al. 2020, Rev Mex Biodiversidad, 54,473 días-trampa", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "IMPORTANCIA": "Es el dato mejor documentado para México, con un esfuerzo de muestreo enorme" },
+        { "parametro_IA": "clasificacion_circadiana", "valor": "DIURNO/CATEMERAL", "origen_biologico": "Replicado en Campeche, Chiapas, Costa Rica y Ecuador", "confianza": "MEDIDO", "ALERTA": "CONTRASTA con T. pecari, que es nocturno. Confundirlos sería un error grave." },
+        { "parametro_IA": "desplazamiento_por_competencia", "valor": "Adelanta el pico de 10:03 a 08:45", "origen_biologico": "Medido en presencia de cerdos asilvestrados", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "nota": "Detalle exquisito: la competencia desplaza el nicho temporal de forma medible" },
+        { "parametro_IA": "desplazamiento_por_caza", "valor": "Aumenta actividad nocturna", "origen_biologico": "Medido en Yasuní con gradiente de accesibilidad de cazadores", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "encamado_por_temperatura", "valor": "Suprime actividad en AMBOS extremos, con prioridad sobre el circadiano", "origen_biologico": "Trans-Pecos, Texas", "fuente": "DOI 10.2307/3672541", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "audacia.distribucion", "valor": "Normal(0.5, 0.18)", "origen_biologico": "comunicacion.personalidad: 'variabilidad pronunciada entre individuos en boldness'", "fuente": "PMID 34740780, Behavioural Processes 2021, n=26", "confianza": "MEDIDO (que existe y varía); ESTIMADO (los parámetros de la distribución)", "IMPORTANCIA": "Es un rasgo real y medido EN ESTA ESPECIE, no una invención genérica de diseño" },
+        { "parametro_IA": "distancia_diaria_recorrida", "valor": [1, 3], "unidad": "km", "origen_biologico": "AUSENTE — derivado geométricamente del ámbito hogareño (150-250 ha ≈ 1.3-1.6 km de lado)", "confianza": "DERIVADO", "tipo_de_traduccion": "INVENTADA", "ALERTA": "NO extrapolar el dato de T. pecari (3.8 km/día): esa especie tiene ámbitos 30x mayores" },
+        { "parametro_IA": "vocalizaciones", "valor": "A definir libremente", "origen_biologico": "AUSENTE — CERO estudios de repertorio acústico en esta especie", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "nota_de_diseno": "El castañeteo de dientes circula en divulgación pero NO está caracterizado en literatura revisada. Implementarlo es legítimo como decisión de diseño, siempre que no se presente como respaldado." }
+      ]
+    },
+    {
+      "bloque": "ESTRUCTURA SOCIAL",
+      "parametros": [
+        { "parametro_IA": "tamano_de_manada", "valor": { "selva": [6, 10], "semiarido": [5, 15] }, "origen_biologico": "estructura_social.tamano_de_manada", "confianza": "MEDIDO (fuera de México); INFERIDO (México)", "LAGUNA": "No existe un estudio mexicano que reporte tamaño de manada" },
+        { "parametro_IA": "NO_hay_macho_alfa", "valor": "Dominancia difusa, sin monopolio reproductivo", "origen_biologico": "estructura_social.jerarquia_de_dominancia", "confianza": "MEDIDO (por ausencia de evidencia positiva)", "DECISION_MAS_IMPORTANTE_DEL_MODELO": "No existe NINGÚN estudio que documente jerarquía lineal, macho alfa ni hembra dominante en D. tajacu. Implementarlo sería inventar biología. El monomorfismo sexual lo corrobora independientemente." },
+        { "parametro_IA": "cohesion_de_manada", "valor": "ALTA", "origen_biologico": "Comparación directa con cerdos asilvestrados: 'unidades altamente cohesivas'", "fuente": "DOI 10.2307/1382593, J Mammalogy 1995", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "fision_fusion", "valor": "DESACTIVADA", "origen_biologico": "Ídem — es lo contrario de los cerdos", "confianza": "MEDIDO", "nota": "Excepción: fracción minoritaria de solitarios, más frecuente en bosque secundario" },
+        { "parametro_IA": "dispersion.sexo", "valor": "MACHOS", "origen_biologico": "estructura_social.dispersion_juvenil", "fuente": "Cooper et al. 2009, Heredity, ADN mitocondrial + microsatélites", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "dispersion.edad", "valor": 480, "unidad": "días", "origen_biologico": "AUSENTE — solo se conoce la dirección del sesgo, no la edad", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "ambito_hogareno_ha", "valor": [150, 250], "origen_biologico": "estructura_social.ambito_hogareno (Guayana Francesa: 157-243 ha)", "confianza": "MEDIDO (fuera de México); INFERIDO (México)", "modulacion_medida": "Correlaciona positivamente con producción de fruta (P=0.036)" },
+        { "parametro_IA": "solapamiento_entre_manadas_pct", "valor": [20, 40], "origen_biologico": "46-81 ha de solapamiento sobre ámbitos de 157-243 ha", "confianza": "MEDIDO (un estudio)", "tipo_de_traduccion": "DERIVADA" },
+        { "parametro_IA": "marcaje_olfativo.frecuencia", "valor": "20% de los actos sociales", "origen_biologico": "estructura_social.glandula_dorsal", "fuente": "DOI 10.1111/j.1439-0310.1985.tb00511.x, Ethology 1985", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "nota": "Es LA cifra dura sobre comunicación en esta especie" },
+        { "parametro_IA": "marcaje.distribucion_espacial", "valor": "Mayor en los límites del ámbito", "origen_biologico": "Ídem", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "olor_grupal_compartido", "valor": "Función de identidad de manada", "origen_biologico": "Frotamiento mutuo documentado; la FUNCIÓN es inferencia", "confianza": "INFERIDO", "nota": "No hay prueba experimental de reconocimiento individual por olor en esta especie" },
+        { "parametro_IA": "alocuidado", "valor": "NO IMPLEMENTADO", "origen_biologico": "AUSENTE — ningún estudio cuantitativo", "confianza": "AUSENTE", "decision": "No implementarlo es más honesto que inventarlo. La evidencia indirecta (abandono maternal como causa mayor de muerte) sugiere cuidado facultativo, no cooperativo." }
+      ]
+    },
+    {
+      "bloque": "POBLACIÓN",
+      "parametros": [
+        { "parametro_IA": "densidad_objetivo", "valor": [1, 2], "unidad": "ind/km²", "origen_biologico": "habitat.densidad_poblacional", "confianza": "MEDIDO", "chequeo_de_coherencia": "El Edén, México (0.2 manadas/km² × 6-10 ind) da 1.2-2.0. Texas da 2.0. Dos métodos y dos regiones convergen." },
+        { "parametro_IA": "mortalidad_adulta_anual", "valor": [21.5, 27.5], "unidad": "%", "origen_biologico": "reproduccion.mortalidad.adulta_anual_silvestre", "fuente": "Low 2011, Texas", "confianza": "MEDIDO", "gradiente": "27.5% en zona más árida vs 21.5% en menos árida" },
+        { "parametro_IA": "mortalidad_neonatal", "valor": 26.9, "unidad": "%", "origen_biologico": "reproduccion.mortalidad.neonatal_cautiverio_pct", "confianza": "MEDIDO (cautiverio)", "ADVERTENCIA": "Es un dato de CAUTIVERIO. En libertad la depredación probablemente lo eleva." },
+        { "parametro_IA": "acoplamiento_fecundidad_lluvia", "valor": "425 vs 240 crías/100 hembras", "origen_biologico": "reproduccion.estacionalidad.productividad_ligada_a_lluvia", "fuente": "Low 2011", "confianza": "MEDIDO (Texas); INFERIDO (México)", "IMPORTANCIA": "Es el mejor dato para acoplar demografía y clima, y conecta con el ciclo estacional que el motor ya tiene" },
+        { "parametro_IA": "densidad_relativa_por_bioma", "valor": "Forest 1.0, Plains 0.6, Desert 0.5, Mountains 0.2", "origen_biologico": "Tipos de vegetación ocupados en México (MEDIDO); las proporciones concretas son invención", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "LAGUNA": "No existe tabla de densidad por tipo de hábitat en México" },
+        { "parametro_IA": "mecanismos_de_resiliencia", "valor": "Refugios, recolonización, densodependencia, límites duros", "origen_biologico": "NO es biológico: es la lección de Ultima Online", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "justificacion": "Un ecosistema sin amortiguadores frente al jugador colapsa. Es menos puro conceptualmente pero es lo que mantiene el mundo vivo." }
+      ]
+    },
+    {
+      "bloque": "ESCALA TEMPORAL",
+      "parametros": [
+        { "parametro_IA": "factor_de_compresion_biologica", "valor": 8, "origen_biologico": "NO es biológico: es ritmo de juego", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "regla_que_lo_disciplina": "Las PROPORCIONES entre procesos se conservan intactas. Si la gestación es 145/632 de la vida reproductiva en la realidad, debe seguir siéndolo en el juego." }
+      ]
+    }
+  ],
+
+  "los_ocho_parametros_ESTIMADO": {
+    "nota": "Estos son los únicos números sin respaldo en literatura. Son los candidatos legítimos a ajuste libre por sensación de juego.",
+    "lista": [
+      { "parametro": "curva_crecimiento.k", "por_que": "La curva de crecimiento de la especie NO existe publicada", "gravedad": "MEDIA — afecta a cuándo se ve crecer a los animales" },
+      { "parametro": "masa_asintotica.desviacion (2.5)", "por_que": "El rango es medido; la forma de la distribución no", "gravedad": "BAJA" },
+      { "parametro": "audacia.distribucion (media 0.5, sd 0.18)", "por_que": "Se sabe que el rasgo existe y varía; no su distribución", "gravedad": "BAJA — el rango de efectos sí está anclado en la digestibilidad medida" },
+      { "parametro": "moduladores_de_actividad (1.0/1.4/1.6/3.0)", "por_que": "No hay presupuesto de actividad publicado", "gravedad": "MEDIA" },
+      { "parametro": "dispersion.edad (480 días)", "por_que": "Solo se conoce la dirección del sesgo, no la edad", "gravedad": "MEDIA — afecta a la estructura de las manadas" },
+      { "parametro": "densidad_relativa_por_bioma", "por_que": "No hay tabla de densidad por hábitat en México", "gravedad": "MEDIA" },
+      { "parametro": "vocalizaciones", "por_que": "CERO estudios de repertorio acústico", "gravedad": "BAJA para el realismo biológico; ALTA para el realismo PERCIBIDO" },
+      { "parametro": "factor_de_compresion_biologica (8)", "por_que": "Es una decisión de ritmo de juego", "gravedad": "ALTA para la experiencia; NULA para el realismo" }
+    ]
+  },
+
+  "las_tres_decisiones_que_mas_dependen_de_datos_MEDIDOS": [
+    {
+      "decision": "NO implementar macho alfa",
+      "respaldo": "Ausencia total de evidencia publicada de jerarquía lineal en D. tajacu, MÁS el monomorfismo sexual medido que lo corrobora independientemente",
+      "consecuencia_si_se_ignora": "Se estaría inventando biología y contradiciendo dos líneas de evidencia convergentes"
+    },
+    {
+      "decision": "Ritmo DIURNO con pico a las ~09:24",
+      "respaldo": "54,473 días-trampa en Campeche más 8,463 en Chiapas, replicado en Costa Rica y Ecuador",
+      "consecuencia_si_se_ignora": "Sería el error más visible del modelo: un pecarí nocturno es sencillamente otra especie (T. pecari)"
+    },
+    {
+      "decision": "El nopal reduce la sed además del hambre",
+      "respaldo": "Requerimiento hídrico medido (66.5 ml/kg/día) más contenido de agua del nopal (~87%) más la constatación de que puede vivir sin agua libre",
+      "consecuencia_si_se_ignora": "Se perdería la adaptación más característica de la especie, y la conexión con el contenido que el juego ya tiene"
+    }
+  ],
+
+  "como_auditar_este_modelo": {
+    "pregunta_1": "¿Este comportamiento raro viene de un parámetro MEDIDO o ESTIMADO?",
+    "pregunta_2": "Si es MEDIDO, ¿lo estoy traduciendo mal, o la traducción de escala temporal lo distorsiona?",
+    "pregunta_3": "Si es ESTIMADO, es candidato libre a ajuste por sensación de juego",
+    "pregunta_4": "¿La tabla de vida da lambda ≈ 1.0? Si no, hay un error demográfico antes que conductual",
+    "regla_final": "Cambiar un parámetro MEDIDO exige justificarlo. Cambiar un ESTIMADO no exige nada: para eso está marcado."
+  }
+}

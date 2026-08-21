@@ -1,0 +1,250 @@
+================================================================================
+06 - MEDICINA Y PLANTAS MEDICINALES
+================================================================================
+
+--------------------------------------------------------------------------------
+ADVERTENCIA PREVIA, Y ES IMPORTANTE
+--------------------------------------------------------------------------------
+
+Este es el capítulo MÁS DÉBIL de toda la carpeta en términos de evidencia, y
+conviene decirlo de entrada en lugar de disimularlo.
+
+NO EXISTE NINGÚN TEXTO MÉDICO OLMECA. No hay recetarios, no hay herbarios,
+no hay descripciones de tratamientos. Los olmecas no dejaron escritura
+legible, así que no hay ni una sola frase suya sobre cómo curaban.
+
+Todo lo que circula bajo el título "medicina olmeca" procede de una de estas
+tres vías, y ninguna es documentación olmeca:
+
+  1. INFERENCIA POR FLORA DISPONIBLE. Sabemos qué plantas crecían en la
+     región y qué propiedades tienen. De ahí se infiere que las usarían.
+     Es razonable, y no es prueba.
+
+  2. CONTINUIDAD ETNOBOTÁNICA. Los pueblos posteriores de la misma región
+     (nahuas, popolucas, zoques, totonacos) usan ciertas plantas de cierta
+     manera. Se proyecta hacia atrás. Es la vía más productiva, y sigue
+     siendo analogía.
+
+  3. FUENTES COLONIALES. El Códice de la Cruz-Badiano (1552), la obra de
+     Sahagún, Francisco Hernández. Son documentos EXTRAORDINARIOS, pero
+     describen la medicina NAHUA DEL SIGLO XVI: están separados de los
+     olmecas por unos DOS MIL AÑOS y por otra cultura y otra lengua.
+
+Usar el Códice Badiano para hablar de medicina olmeca es como usar un
+tratado médico del Renacimiento para describir la medicina de la Edad de
+Bronce europea. Hay continuidades reales, pero no es lo mismo.
+
+Con eso claro, lo que sigue es lo que razonablemente se puede decir.
+
+================================================================================
+1. LO POCO QUE ES EVIDENCIA MATERIAL DIRECTA
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 EL COPAL
+--------------------------------------------------------------------------------
+  La EVIDENCIA MÁS ANTIGUA DE COPAL se encontró precisamente en El Manatí.
+  [CONSENSO]
+
+  Es resina aromática de árboles del género Bursera. Se quema como incienso,
+  y su humo tiene un papel ritual central en toda Mesoamérica posterior.
+
+  En medicina tradicional mesoamericana el copal se usa como
+  antiinflamatorio, para afecciones respiratorias y en limpias rituales. Que
+  los olmecas lo usaran ASÍ es [ESPECULATIVO]; que lo tuvieran y lo quemaran
+  es [CONSENSO].
+
+--------------------------------------------------------------------------------
+1.2 EL CACAO
+--------------------------------------------------------------------------------
+  Teobromina detectada por HPLC/MS en cerámica de El Manatí, fase Ojochi,
+  calibrado 1650-1500 a.C. Es la evidencia de consumo de cacao MÁS ANTIGUA
+  DEL MUNDO. [CONSENSO]
+
+  El cacao contiene TEOBROMINA y CAFEÍNA, ambos estimulantes reales del
+  sistema nervioso central. La teobromina además es vasodilatador y
+  diurético suave.
+
+  En la medicina mesoamericana posterior el cacao aparece como vehículo de
+  otros medicamentos (por su sabor y su grasa) y como estimulante. Para los
+  olmecas: tenemos la sustancia, no el uso. [PROBABLE que lo usaran como
+  estimulante; ESPECULATIVO cualquier uso médico concreto]
+
+--------------------------------------------------------------------------------
+1.3 LA SANGRÍA RITUAL
+--------------------------------------------------------------------------------
+  Espinas de raya reales halladas en la Tumba A de La Venta: SEIS colas
+  auténticas de ~15 cm, incrustadas con hematita cristalina. Junto a ellas,
+  un PUNZÓN DE JADE AZUL con la punta rota. [CONSENSO]
+
+  Son instrumentos de autosacrificio: perforarse partes del cuerpo para
+  ofrendar sangre. No es medicina en sentido terapéutico, pero es
+  intervención corporal ritualizada con instrumental específico, y en las
+  culturas mesoamericanas posteriores lo ritual y lo terapéutico no están
+  separados.
+
+--------------------------------------------------------------------------------
+1.4 EL CINABRIO — y una nota de honestidad
+--------------------------------------------------------------------------------
+  Cubría los entierros de élite de La Venta. Se ha propuesto que se creía
+  que servía para la PRESERVACIÓN DEL CUERPO. [PROBABLE]
+
+  Nota moderna: el cinabrio es sulfuro de mercurio y es TÓXICO. Su molienda
+  implicaba exposición. No hay forma de saber si lo sabían, y no hay
+  evidencia de intoxicación por mercurio en restos olmecas — entre otras
+  cosas porque apenas hay restos óseos.
+
+--------------------------------------------------------------------------------
+1.5 EL CASO DEL SAPO: CÓMO SE FABRICA UNA FALSA CERTEZA
+--------------------------------------------------------------------------------
+  Merece contarse porque es EL ejemplo de por qué este capítulo debe ser
+  cauteloso.
+
+  Durante décadas se afirmó que los olmecas usaban ritualmente el sapo Bufo
+  marinus (hoy Rhinella marina) por sus BUFOTOXINAS alucinógenas. La
+  afirmación aparece en libros serios.
+
+  EL ORIGEN: el Proyecto Río Chiquito halló que los huesos de sapo eran el
+  9,5% del total faunístico en la cañada del Macaya — 80 huesos en un solo
+  escalón. Cifra impresionante.
+
+  LA REFUTACIÓN: el proyecto de Ann Cyphers, sobre 1.400 muestras
+  faunísticas, recuperó UN SOLO HUESO DE BUFO, y en una perturbación
+  radicular moderna. Wing ya había señalado que no había marcas de
+  modificación humana en ninguno.
+
+  CONCLUSIÓN: deposición secundaria en un bloque de deslizamiento. NO ritual.
+  [RECHAZADO]
+
+  Y añádase que las bufotoxinas son CARDIOTÓXICAS: su consumo es peligroso,
+  no recreativo. La idea del "sapo alucinógeno mesoamericano" está bastante
+  más presente en la divulgación que en la evidencia.
+
+================================================================================
+2. LO QUE SE INFIERE POR CONTINUIDAD ETNOBOTÁNICA
+================================================================================
+
+Todo lo de este apartado es [ESPECULATIVO] para el periodo olmeca. Se
+incluye porque es lo mejor que hay, y porque para un juego es material
+perfectamente utilizable. Pero no es historia olmeca documentada.
+
+PLANTAS DE LA REGIÓN CON USO MEDICINAL DOCUMENTADO EN ÉPOCAS POSTERIORES:
+
+  COPALES Y RESINAS (Bursera spp.)
+    Antiinflamatorio, afecciones respiratorias, limpias rituales.
+    ✔ La planta SÍ está documentada [AD] en El Manatí.
+
+  TABACO (Nicotiana rustica / N. tabacum)
+    Central en la medicina y el ritual mesoamericanos: analgésico tópico,
+    antiparasitario, insecticida, y vehículo ritual. Nicotina real.
+    ⚠️ NO documentado [AD] en el Golfo formativo.
+
+  CHILE (Capsicum spp.)
+    Capsaicina: analgésico tópico real (es el principio de las pomadas
+    modernas), estimulante de la circulación, antimicrobiano.
+    ✔ Reportado por Cyphers en San Lorenzo.
+
+  ACHIOTE (Bixa orellana)
+    Antiséptico, protector solar, cicatrizante. Y colorante.
+    ✔ Macrorresto TENTATIVO en La Joya.
+
+  AGUACATE (Persea americana)
+    Hoja y semilla con usos digestivos y antiparasitarios documentados en
+    etnobotánica.
+    ✔ Macrorresto carbonizado en La Joya.
+
+  ZAPOTES (Pouteria sapota, Manilkara zapota)
+    Semilla y látex con usos varios.
+    ✔ Pouteria sapota documentado [AD] en La Joya.
+
+  NANCE (Byrsonima crassifolia)
+    Corteza astringente, antidiarreico.
+    ✔ Semillas documentadas [AD] en El Manatí.
+
+  JOBO (Spondias mombin)
+    Corteza y hoja con uso antimicrobiano y para heridas.
+    ✔ Documentado [AD] en El Manatí (madera de los bustos + semillas).
+
+  CEIBA (Ceiba pentandra)
+    Corteza con usos diuréticos y para afecciones de la piel.
+    ✔ Documentada [AD] en El Manatí.
+
+  PALO MULATO (Bursera simaruba)
+    Muy usado en la etnobotánica mexicana: la corteza para fiebre,
+    infecciones de la piel y —notablemente— como ANTÍDOTO DEL CONTACTO CON
+    EL "CHECHÉN" (Metopium brownei), con el que suele crecer al lado. Ese
+    emparejamiento planta-veneno/planta-remedio es un conocimiento
+    etnobotánico real y precioso.
+    ⚠️ No documentado [AD] para los olmecas.
+
+  NOPAL (Opuntia spp.) y MAGUEY (Agave spp.)
+    Cicatrizantes, antiinflamatorios, y el maguey como fuente de fibra y de
+    espinas para sangría.
+    ⚠️ NO documentados [AD] en el Golfo formativo. Y ojo: son más propios de
+    zonas áridas que de la costa húmeda del Golfo.
+
+  RUDA y EPAZOTE
+    Aparecen constantemente en textos de divulgación sobre "medicina
+    olmeca".
+    ⚠️ PROBLEMA GRAVE: LA RUDA (Ruta graveolens) ES EUROPEA. Llegó con los
+    españoles en el siglo XVI. Atribuirla a los olmecas es un error de
+    bulto que circula en varias páginas web. El epazote (Dysphania
+    ambrosioides) sí es americano y sí es antiparasitario real, pero no
+    está documentado en contexto olmeca.
+
+================================================================================
+3. QUÉ PODEMOS DECIR CON HONESTIDAD SOBRE SU MEDICINA
+================================================================================
+
+Sin textos ni restos suficientes, lo que se puede afirmar es estructural, no
+concreto:
+
+  1. TENÍAN ACCESO A UNA FARMACOPEA VEGETAL EXTRAORDINARIA. La selva
+     tropical del Golfo es uno de los ecosistemas con mayor diversidad de
+     plantas bioactivas del mundo. Es inconcebible que no la usaran.
+     [PROBABLE por inferencia fuerte]
+
+  2. LA MEDICINA Y EL RITUAL NO ESTABAN SEPARADOS. En toda Mesoamérica
+     documentada, curar es una actividad simultáneamente técnica y
+     religiosa, y el especialista ritual es también el curador. La
+     iconografía olmeca de transformación chamánica encaja con ese modelo.
+     [PROBABLE]
+
+  3. HABÍA INTERVENCIÓN CORPORAL RITUALIZADA con instrumental específico:
+     espinas de raya, punzones de jade, navajas de obsidiana. [CONSENSO en
+     los instrumentos]
+
+  4. CONOCÍAN AL MENOS UNA SUSTANCIA PSICOACTIVA REAL: el cacao
+     (teobromina, cafeína). [CONSENSO en la sustancia]
+
+  5. SU QUÍMICA PRÁCTICA ERA BUENA. Quien controla la vulcanización del
+     hule, la cocción diferencial de la cerámica y el procesado del
+     chapopote tiene una tradición empírica de manipulación de materiales
+     que difícilmente se detendría en la puerta del cuerpo humano.
+     [ESPECULATIVO pero razonable]
+
+LO QUE NO PODEMOS DECIR:
+  - Qué plantas concretas usaban para qué dolencias.
+  - Si tenían especialistas médicos diferenciados.
+  - Si practicaban cirugía, trepanación o reducción de fracturas.
+  - Cómo entendían la enfermedad.
+  - Cuál era su esperanza de vida o su perfil patológico (apenas hay hueso).
+
+================================================================================
+4. NOTA PARA EL DISEÑO DEL JUEGO
+================================================================================
+
+Que la evidencia sea débil NO es un problema para el juego: es una
+oportunidad. Al no haber documentación olmeca que contradecir, cualquier
+sistema de herbolaria que se construya sobre plantas REALES DE LA REGIÓN con
+propiedades REALES es perfectamente defendible como ambientación.
+
+RECOMENDACIÓN: construir la herbolaria del juego sobre las plantas que SÍ
+están documentadas arqueológicamente en el Golfo formativo (copal, cacao,
+chile, achiote, aguacate, nance, jobo, ceiba, coyol), usando sus propiedades
+etnobotánicas reales. Eso da un sistema que es a la vez inventado y honesto.
+
+EVITAR: la ruda (es europea), y presentar cualquier receta médica concreta
+como "lo que hacían los olmecas".
+
+Ver DISENO_notas.txt para la propuesta concreta.

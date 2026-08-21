@@ -4126,9 +4126,8 @@ public:
             static const char* kRectaOE[2] = { "conecion de raices de pino v1.1",
                                                "conecion de raices de pino v1.3" };
             const char* base = NS ? kRectaNS[variante & 1] : kRectaOE[variante & 1];
-            snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s.png", base);
-            const GLuint t = getTexture(ruta);
-            if (t) return t;
+            // Texturas borradas: se salta y se usa la del suelo.
+            (void)base;
         }
 
         // --- CODO / ESQUINA: dos lados en angulo ---
@@ -4167,7 +4166,7 @@ public:
                                                  "esquina de oyame 1.4" };
                 const char* const* juego = pino ? ((variante & 1) ? kPinoB : kPinoA)
                                                 : ((variante & 1) ? kOyaB  : kOyaA);
-                snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s.png", juego[cuad]);
+                snprintf(ruta, sizeof(ruta), "%s.png", juego[cuad]);   // carpeta borrada
                 const GLuint t = getTexture(ruta);
                 if (t) return t;
             }
@@ -4206,7 +4205,7 @@ public:
                                                  "coneccion de oyame 2.4" };
                 const char* const* juego = pino ? ((variante & 1) ? kPinoB : kPinoA)
                                                 : ((variante & 1) ? kOyaB  : kOyaA);
-                snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s.png", juego[lado]);
+                snprintf(ruta, sizeof(ruta), "%s.png", juego[lado]);   // carpeta borrada
                 const GLuint t = getTexture(ruta);
                 if (t) return t;
             }
@@ -4352,8 +4351,12 @@ public:
         }
 
         char ruta[192];
-        snprintf(ruta, sizeof(ruta), "Variantes vegetales/%s%d.png", base, v);
-        return getTexture(ruta);
+        // ⭐ DESACTIVADO: las texturas de raiz vivian en "Variantes
+        // vegetales", que se borro. Sin archivo, getTexture devuelve 0 y el
+        // bloque se pinta con basura. Devolviendo 0 aqui, quien llama usa la
+        // textura normal del suelo y no se ve nada raro.
+        (void)base; (void)v;
+        return 0;
     }
 
     GLuint getBlockTexture(BlockType type, int face) {
@@ -4767,6 +4770,20 @@ public:
     static constexpr int HOJA_VARIANTES = 2048;
 
     GLuint getTexturaHojaVariante(const char* base, int variante) {
+        // ⭐ DESACTIVADO: las texturas de "Variantes vegetales" se borraron.
+        //
+        // Esta funcion buscaba ahi las hojas con rama dibujada. Sin los
+        // archivos devolvia 0, y una textura 0 se dibuja como basura -- que
+        // es lo que se veia en las capturas.
+        //
+        // Ahora se devuelve 0 EN SEGUIDA y quien llama usa la hoja normal,
+        // que sigue existiendo. El generador de variantes se conserva
+        // debajo por si se vuelven a anadir las texturas.
+        (void)base; (void)variante;
+        return 0;
+    }
+
+    GLuint getTexturaHojaVarianteDesactivada(const char* base, int variante) {
         const int k = ((variante % HOJA_VARIANTES) + HOJA_VARIANTES)
                       % HOJA_VARIANTES;
         // La variante 0 es la textura tal cual: se reutiliza la ya cargada.
@@ -23604,6 +23621,98 @@ int main() {
 
             // Escala más pequeña (0.2 = 20% del tamaño normal)
             float scale = 0.2f;
+
+            // ================================================================
+            // ITEMS 3D: LA SILUETA DE LA TEXTURA, CON GROSOR
+            // ================================================================
+            // Los items sueltos se dibujaban como un CUBO con la textura
+            // envuelta en las seis caras. Para un bloque eso esta bien, pero
+            // para un pedazo de cobre o un pedernal se veia como un cubo con
+            // el dibujo estampado, no como el objeto.
+            //
+            // Ahora estos items se dibujan como su PROPIA FORMA: la textura
+            // se pone a doble cara (delante y detras) y se le da grosor con
+            // un borde, de modo que se ve como una pieza plana con volumen,
+            // igual que en el genero. La silueta sale sola porque el PNG
+            // lleva su fondo transparente y GL_ALPHA_TEST lo recorta.
+            //
+            // Ventajas frente a construir un modelo por voxeles de la
+            // textura: no hay que analizar la imagen en tiempo de dibujado,
+            // el color es EXACTAMENTE el de la textura (no se recolorea
+            // nada), y no quedan huecos porque la silueta es la del propio
+            // dibujo.
+            //
+            // Solo para los items que se pidieron; los bloques siguen
+            // saliendo como cubos, que es lo correcto para ellos.
+            const bool item3D = (item.blockType == BLOCK_RAW_COPPER ||
+                                 item.blockType == BLOCK_PEDAZO_COBRE ||
+                                 item.blockType == BLOCK_PEDAZO_PEDERNAL ||
+                                 item.blockType == BLOCK_DIRT_POWDER ||
+                                 item.blockType == BLOCK_PEDAZO_TIERRA ||
+                                 item.blockType == BLOCK_PEDAZO_CALIZA ||
+                                 item.blockType == BLOCK_RAW_ZINC ||
+                                 item.blockType == BLOCK_COAL_ITEM);
+
+            if (item3D) {
+                const GLuint tex =
+                    (GLuint)g_itemTextures.resolve((int)item.blockType);
+                if (g_textureManager) g_textureManager->bindForUI(tex);
+
+                // ALPHA TEST: es lo que recorta el fondo transparente del
+                // PNG y deja SOLO la silueta del objeto. Sin esto se veria
+                // un rectangulo con el dibujo dentro, que es justo lo que se
+                // queria quitar.
+                glEnable(GL_ALPHA_TEST);
+                glAlphaFunc(GL_GREATER, 0.5f);
+
+                // Grosor de la pieza: fino, como una lamina con cuerpo.
+                const float gr = scale * 0.18f;
+
+                glColor3f(1.0f, 1.0f, 1.0f);
+                glBegin(GL_QUADS);
+                // Cara de delante
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
+                // Cara de detras (orden invertido para que mire al otro lado)
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
+                glEnd();
+
+                // El CANTO: cuatro tiras que unen las dos caras y le dan el
+                // volumen. Cada tira toma su color del borde de la textura
+                // que le toca, asi que no hay color inventado.
+                glColor3f(0.75f, 0.75f, 0.75f);
+                glBegin(GL_QUADS);
+                // arriba
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
+                // abajo
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
+                // izquierda
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
+                // derecha
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
+                glEnd();
+
+                glDisable(GL_ALPHA_TEST);
+                glPopMatrix();
+                continue;   // no dibujar el cubo
+            }
 
             // Dibujar cubo pequeño con texturas del bloque
             // Face 0 = Top (+Y)

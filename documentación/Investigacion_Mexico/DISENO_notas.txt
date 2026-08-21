@@ -1,0 +1,291 @@
+================================================================================
+NOTAS DE DISEÑO: CÓMO ENCAJA ESTO CON EL MOTOR QUE YA EXISTE
+================================================================================
+
+Este archivo es la bisagra entre la investigación y Voxel World. No repite
+datos históricos: dice qué hacer con ellos.
+
+Está escrito contra el estado real del motor a 20 de agosto de 2026:
+src/BlockType.h (80 IDs), CraftingSystem (~línea 5665 de main.cpp),
+computeSkylight, updateWaterFlow, gastarHerramienta, y el sistema de
+codificación de información en el propio ID.
+
+================================================================================
+1. LO QUE EL MOTOR YA SABE HACER Y AQUÍ SE APROVECHA
+================================================================================
+
+Antes de proponer nada nuevo conviene ver qué hay. El motor ya resuelve
+cuatro problemas que esta investigación necesita:
+
+  INFORMACIÓN CODIFICADA EN EL ID
+    El chunk guarda un solo BlockType por celda, sin metadatos. El motor ya
+    esquiva esa limitación metiendo el dato en el propio ID: pencas
+    apiladas (X2/X3/Z2/Z3), grosor de raíz (4/8/12/16 px), tamaño de mata de
+    ixtle, y hasta DOS BLOQUES EN LA MISMA CELDA (BLOCK_IXTLE_CON_HIERBA).
+
+    APLICABLE A: grosor de contrafuerte de ceiba, etapas de domesticación
+    del teosinte, zonación del manglar por salinidad, variedad de obsidiana
+    por yacimiento de origen.
+
+  FORMA POR HASH DE POSICIÓN
+    La disposición de los guijarros y el trazado de las raíces salen de un
+    hash de la posición: miles de variantes sin gastar un byte, y con la
+    garantía de que dos bloques vecinos coinciden siempre.
+
+    APLICABLE A: dispersión de charcos de chapopote, forma de los cantos
+    rodados de basalto, disposición de cuentas de ilmenita.
+
+  FLUIDOS
+    updateWaterFlow y updateLavaFlow ya existen, con niveles y propagación.
+
+    APLICABLE A: los canales de basalto en U (conductores dirigidos) y la
+    bentonita (sellador impermeable).
+
+  DESGASTE DE HERRAMIENTA
+    gastarHerramienta cuenta en MEDIOS PUNTOS enteros para no acumular error
+    de redondeo. El hacha aguanta 125 bloques de madera.
+
+    APLICABLE A: la mecánica de abrasión, con la variante de que ahí se
+    consume además un ABRASIVO (arena de cuarzo), no solo la herramienta.
+
+  ATENUACIÓN DE LUZ POR VOLUMEN REAL
+    lightCost() ya calcula la atenuación según cuánto ocupa el bloque en su
+    voxel: una rama atenúa 1, una raíz según su grosor, las hojas 3.
+
+    APLICABLE A: el dosel de CUATRO ESTRATOS de la selva alta perennifolia,
+    con epífitas y bejucos al 18%. Encaja directamente.
+
+================================================================================
+2. LAS CINCO IDEAS MÁS APROVECHABLES DE TODA LA INVESTIGACIÓN
+================================================================================
+
+Si hubiera que quedarse con cinco cosas, serían estas. Van ordenadas por lo
+que aportan al juego, no por importancia histórica.
+
+--------------------------------------------------------------------------------
+2.1 LA ARCILLA TIENE COLOR, Y EL COLOR IMPORTA
+--------------------------------------------------------------------------------
+  HECHO: La Venta usó arcillas importadas de colores diferenciados (rojas,
+  amarillas, moradas, azul-verdosas) en capas discretas, seleccionadas por
+  CRITERIO CROMÁTICO-SIMBÓLICO, no por disponibilidad. Elegían el color de
+  la tierra con la que construían.
+
+  POR QUÉ ES LA MEJOR IDEA PARA UN JUEGO DE BLOQUES: da una paleta de
+  materiales de construcción con significado, no solo decorativa. Y es
+  históricamente exacta.
+
+  IMPLEMENTACIÓN: 4-5 bloques de arcilla de color, en vetas localizadas del
+  terreno. Que estén en sitios distintos obliga a explorar, y construir con
+  ellos cuesta transporte — igual que a ellos.
+
+--------------------------------------------------------------------------------
+2.2 CONSTRUIR PARA ENTERRAR
+--------------------------------------------------------------------------------
+  HECHO: los tres mosaicos de serpentina de La Venta (~485 bloques cada uno)
+  fueron cubiertos con arcilla y ENTERRADOS INMEDIATAMENTE tras terminarse.
+  Nunca estuvieron a la vista. La Ofrenda Masiva 3: 50 t de serpentina bajo
+  4.000 t de arcilla. Relación 80:1.
+
+  POR QUÉ ES POTENTE: es una idea contraintuitiva y no la he visto en ningún
+  juego. Una obra monumental cuyo sentido es NO SER VISTA. El 98,8% del
+  trabajo es taparla.
+
+  IMPLEMENTACIÓN POSIBLE: construir un mosaico y sepultarlo da progresión o
+  desbloqueo, pero el mosaico deja de ser visible y recuperable. El jugador
+  invierte y renuncia a la vez.
+
+  DETALLE PARA REDONDEARLO: la Ofrenda 4 fue enterrada y, GENERACIONES
+  DESPUÉS, reexcavada con precisión quirúrgica para inspeccionarla y vuelta
+  a cubrir. Un mundo que recuerda dónde enterró algo hace mucho.
+
+--------------------------------------------------------------------------------
+2.3 EL JADE NO SE PICA: SE DESGASTA
+--------------------------------------------------------------------------------
+  HECHO: sin metal, la piedra dura no se corta. Se abrade con arena de
+  cuarzo y agua. La cuerda de la sierra NO CORTA: transporta el abrasivo.
+
+  POR QUÉ IMPORTA: convierte el material más valioso del juego en algo que
+  no se obtiene picando más rápido, sino invirtiendo tiempo y un consumible.
+  Es una progresión cualitativa, no cuantitativa.
+
+  IMPLEMENTACIÓN: el jade no responde a herramientas normales. Requiere
+  sierra de cuerda + arena de cuarzo + agua, y es lento. El resultado se
+  siente como lo que era: el producto de un trabajo enorme.
+
+  BONUS HISTÓRICO: las "cucharas" olmecas se hacían SECCIONANDO UN HACHA por
+  su eje. Nada se desperdiciaba. Buena receta: hacha de jade → 2 cucharas.
+
+--------------------------------------------------------------------------------
+2.4 EL MAÍZ SIN PROCESAR NO ALIMENTA IGUAL
+--------------------------------------------------------------------------------
+  HECHO QUÍMICO: sin nixtamalización, la niacina del maíz está ligada y no
+  se asimila. Una dieta basada en maíz sin tratar produce PELAGRA. Las
+  poblaciones europeas que adoptaron el maíz sin la técnica la sufrieron
+  masivamente en los siglos XVIII-XIX. Los mesoamericanos nunca.
+
+  ⚠️ ADVERTENCIA HONESTA: NO hay evidencia arqueológica directa de
+  nixtamalización OLMECA. La directa más antigua es del Clásico maya. Para
+  el juego es utilizable; como afirmación histórica, no.
+
+  POR QUÉ ES BUENA MECÁNICA: enseña química nutricional real sin decir una
+  palabra. El jugador descubre por experiencia que el grano hay que
+  procesarlo, y la cadena completa (caliza → calcinar → cal → nixtamal →
+  metate → masa) es larga y tiene sentido en cada paso.
+
+--------------------------------------------------------------------------------
+2.5 EL AGUA ES LA INFRAESTRUCTURA
+--------------------------------------------------------------------------------
+  HECHO: solo el 10-15% de las tierras bajas quedaba sobre el nivel de
+  inundación. El Grijalva va de 87 a 6.286 m³/s: UN RANGO DE 72 VECES. Y el
+  basalto se movía FLOTANDO, no arrastrando.
+
+  POR QUÉ IMPORTA: da una geografía con lógica propia. La tierra alta es el
+  recurso escaso; los ríos son las carreteras; la estación decide qué se
+  puede mover.
+
+  IMPLEMENTACIÓN: transporte pesado por agua mucho más barato que por
+  tierra. Crecida estacional que cambia lo que es navegable. Eso reproduce
+  solo por qué los sitios están donde están.
+
+================================================================================
+3. PROPUESTA DE PROGRESIÓN
+================================================================================
+
+Derivada del archivo 04, apartado 7. Ordena el contenido por dificultad
+técnica real:
+
+  NIVEL 1 — RECOLECCIÓN DIRECTA
+    Chapopote de manadero. Arcilla. Arena. Fibras. Madera. Caña. Cantos
+    rodados de basalto.
+
+  NIVEL 2 — TRANSFORMACIÓN SIMPLE
+    Cerámica cocida. Cestería. Cordelería. Bajareque. Sal por evaporación.
+
+  NIVEL 3 — CONTROL DE PROCESO
+    Cerámica con control de atmósfera (oxidante/reductora). Chapopote
+    calentado y cargado con material orgánico. Nixtamalización. Cal por
+    calcinación. Pigmentos minerales.
+
+  NIVEL 4 — ABRASIÓN DE LARGA DURACIÓN
+    Pulido de serpentina. Perforación con taladro de arco. Talla de basalto.
+
+  NIVEL 5 — MÁXIMA ESPECIALIZACIÓN
+    Jadeíta por abrasión. Espejos cóncavos funcionales. Hule vulcanizado con
+    proporción ajustada.
+
+  NIVEL 6 — ORGANIZACIÓN COMO TECNOLOGÍA
+    Transporte de monumentos de 24 t. Movimiento masivo de tierra. Redes de
+    intercambio de 600 km.
+
+  Ese nivel 6 es el que suele olvidarse, y es el más interesante: la mayor
+  tecnología olmeca no fue una herramienta, fue la capacidad de coordinar a
+  mucha gente durante mucho tiempo hacia algo que no daba de comer a nadie.
+
+================================================================================
+4. EL BIOMA
+================================================================================
+
+Resumen operativo (detalle en 09_FAUNA_Y_ECOSISTEMA.txt):
+
+  RELIEVE: llanura casi plana a nivel del mar. Inversiones de POCOS METROS
+  que lo deciden todo. Islas y promontorios de tierra alta (10-15% del
+  territorio) rodeados de humedal. Al oeste, macizo volcánico con más de 250
+  conos: la única piedra.
+
+  VEGETACIÓN EN FRANJAS: selva de dosel 30-40 m con cuatro estratos;
+  manglar zonado por salinidad (rojo 0-45 ppt → negro hasta 70 ppt);
+  popal-tular herbáceo inundado; parches antropogénicos en barbecho.
+
+  CICLO ANUAL — y esto corrige lo que se suele suponer:
+    Lluvias: JUNIO A FEBRERO (nueve meses).
+    Secas: MARZO A MAYO (solo tres).
+    Mayo es a la vez el mes más caluroso y el más seco.
+    Nortes de septiembre a febrero: viento de hasta 100 km/h, 15% de la
+    lluvia anual, caídas de 10 °C.
+
+  EVENTOS RAROS: caída de ceniza volcánica cada pocos siglos. Mata
+  vegetación, hunde techos (2,5 cm añaden 14,7 kg/m²), y a largo plazo
+  FERTILIZA el suelo. Recuperación de 30-40 años.
+
+  RECURSOS POR ZONA:
+    Tierra alta ............ agricultura, asentamiento
+    Vega / levée ........... la tierra buena, renovada cada año
+    Humedal y meandros ..... pesca, tortuga, almacenamiento en vivo
+    Costa / estuario ....... róbalo, pargo, jurel (a dos días de viaje)
+    Montaña volcánica ...... basalto (a 60-150 km)
+    Escurrimientos ......... chapopote
+
+  IMPORTANTE PARA LA AMBIENTACIÓN: el paisaje NO era selva prístina. Para
+  1800 a.C. llevaba milenios bajo manejo humano. Es un MOSAICO
+  ANTROPOGÉNICO con parches en distintos estados de recuperación. El mundo
+  olmeca no es "civilización rodeada de naturaleza virgen".
+
+================================================================================
+5. SOBRE LA HERBOLARIA
+================================================================================
+
+El archivo 06 explica por qué la medicina olmeca es el capítulo con menos
+evidencia de toda la carpeta: no hay textos, y casi todo lo que circula es
+proyección desde fuentes coloniales dos mil años posteriores.
+
+Para el juego eso es una OPORTUNIDAD, no un problema: al no haber
+documentación que contradecir, un sistema de herbolaria construido sobre
+plantas reales de la región con propiedades reales es perfectamente
+defendible.
+
+RECOMENDACIÓN: usar solo plantas DOCUMENTADAS ARQUEOLÓGICAMENTE en el Golfo
+formativo, con sus propiedades etnobotánicas reales:
+
+  copal, cacao, chile, achiote, aguacate, nance, jobo, ceiba, coyol
+
+EVITAR:
+  - LA RUDA. Es europea, llegó en el siglo XVI. Aparece en varias páginas
+    web sobre "medicina olmeca" y es un error de bulto.
+  - El nopal y el maguey como plantas olmecas centrales: son más propios de
+    zonas áridas que de la costa húmeda del Golfo.
+  - Presentar cualquier receta concreta como "lo que hacían los olmecas".
+
+================================================================================
+6. QUÉ NO HACER
+================================================================================
+
+Del archivo 10, resumido para diseño:
+
+  NO usar "los olmecas vinieron de África / China / la Atlántida". Es falso,
+  está refutado en siete frentes distintos, y además está cargado
+  políticamente: su premisa implícita es que los mesoamericanos no pudieron
+  construir su propia civilización.
+
+  NO usar "cascos de astronauta". Los tocados de las cabezas son distintos
+  en cada pieza porque probablemente identifican al personaje.
+
+  NO usar profecías del 2012. La Cuenta Larga es EPI-OLMECA, posterior a
+  ellos, y el fin de un b'ak'tun es un cuentakilómetros que vuelve a cero.
+
+  NO presentar escritura olmeca legible como algo histórico. El Bloque de
+  Cascajal es discutido y NO está descifrado. Usarla en el juego es licencia
+  creativa perfectamente legítima; presentarla como hecho, no.
+
+  CUIDADO CON: atribuir a los olmecas el cero, el calendario de Cuenta Larga
+  o la escritura plena. Todo eso es epi-olmeca, de varios siglos después.
+  El calendario de 260 días SÍ parece contemporáneo suyo según Šprajc et al.
+  (2023), y ese sí se puede usar.
+
+================================================================================
+7. TRES DETALLES QUE VALEN UN JUEGO ENTERO
+================================================================================
+
+Por si sirven de semilla narrativa:
+
+  LA FORMA SIGUE A LA PIEDRA. Los olmecas no canteaban: buscaban entre los
+  cantos rodados que los lahares habían depositado ladera abajo, y elegían
+  los que YA SE PARECÍAN a una cabeza. El volcán daba la forma; el escultor
+  la terminaba.
+
+  EL MONUMENTO ES UN MONUMENTO RECICLADO. Las cabezas colosales 2 y 7 de San
+  Lorenzo fueron re-talladas a partir de TRONOS anteriores. El basalto era
+  tan caro que un rey se tallaba encima de otro.
+
+  EL ESPEJO ENCIENDE FUEGO. De cuatro espejos cóncavos de Arroyo Pesquero,
+  DOS demostraron encender fuego en pruebas reales. Pulidos con precisión
+  comparable a lentes ópticas modernas, sin metal, hace tres mil años.

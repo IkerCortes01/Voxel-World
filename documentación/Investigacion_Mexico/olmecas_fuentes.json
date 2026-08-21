@@ -1,0 +1,105 @@
+{
+  "_meta": {
+    "titulo": "Olmecas — bibliografía y fuentes de esta investigación",
+    "proyecto": "Voxel World",
+    "fecha_compilacion": "2026-08-20",
+    "idioma": "es",
+    "criterio_de_seleccion": "Se priorizó, por este orden: (1) instituciones mexicanas (INAH, UNAM, Arqueología Mexicana); (2) publicaciones revisadas por pares (Science, PNAS, Nature Human Behaviour, Current Anthropology, Latin American Antiquity, Ancient Mesoamerica, Antiquity, Journal of Archaeological Science); (3) repositorios especializados (Mesoweb, Dumbarton Oaks); (4) museos con catálogo documentado.",
+    "fuentes_rechazadas": "Se descartaron activamente sitios de pseudoarqueología (saturniancosmology.org, foros de Hancock), agregadores no verificados (Grokipedia, Crystalinks), y sitios de apologética religiosa que citan literatura real dentro de marcos pseudoarqueológicos (ScriptureCentral, bookofmormonresources). De estos últimos se extrajeron ÚNICAMENTE citas bibliográficas verificables, descartando la interpretación."
+  },
+
+  "publicaciones_academicas_clave": [
+    { "tema": "Escritura", "cita": "Rodríguez Martínez, M.C., Ortiz Ceballos, P., Coe, M.D., Diehl, R.A., Houston, S.D., Taube, K.A. y Delgado Calderón, A. (2006). 'Oldest Writing in the New World'. Science 313:1610-1614", "relevancia": "Publicación original del Bloque de Cascajal" },
+    { "tema": "Escritura", "cita": "Bruhns, K. y Kelker, N. (2007). Objeciones al Bloque de Cascajal. Science, 9 de marzo de 2007", "relevancia": "Las cinco críticas formales a la autenticidad" },
+    { "tema": "Escritura", "cita": "Englehardt, J., Insaurralde Caballero, M., Melgar Tísoc, E. et al. (2019). 'Digital Imaging and Archaeometric Analysis of the Cascajal Block'. Ancient Mesoamerica", "relevancia": "La defensa arqueométrica: PTM/RTI, XRF y SEM" },
+    { "tema": "Escritura", "cita": "Justeson, J. y Kaufman, T. (1993). 'A Decipherment of Epi-Olmec Hieroglyphic Writing'. Science 259:1703-1711", "relevancia": "El desciframiento discutido de la escritura istmeña" },
+    { "tema": "Escritura", "cita": "Houston, S. y Coe, M. (2003). 'Has Isthmian Writing Been Deciphered?'. Mexicon XXV:151-161", "relevancia": "La crítica principal al desciframiento" },
+    { "tema": "Astronomía", "cita": "Šprajc, I., Inomata, T. y Aveni, A. (2023). 'Origins of Mesoamerican astronomy and calendar: Evidence from the Olmec and Maya regions'. Science Advances 9(1):eabq7675", "relevancia": "EL HALLAZGO MÁS IMPORTANTE DE LA ÚLTIMA DÉCADA: adelanta varios siglos la evidencia del calendario de 260 días" },
+    { "tema": "Arquitectura", "cita": "Inomata, T. et al. (2021). 'Origins and spread of formal ceremonial complexes in the Olmec and Maya regions revealed by airborne lidar'. Nature Human Behaviour 5:1487-1501", "relevancia": "Los 478 complejos ceremoniales. NOTA: es Nature Human Behaviour, NO PNAS, como a veces se cita erróneamente" },
+    { "tema": "Arquitectura", "cita": "Gillespie, S.D. y Volk, M. (2022). 'An Archaeological Evaluation of the Olmec Royal Tombs at La Venta, Mexico'. Ancient Mesoamerica 33", "relevancia": "La reevaluación que cuestiona que hubiera cuerpos en las tumbas de La Venta" },
+    { "tema": "Arquitectura", "cita": "Gillespie, S.D. y Volk, M. (2014). 'A 3D model of Complex A, La Venta, Mexico'. Digital Applications in Archaeology and Cultural Heritage", "relevancia": "Reconstrucción del Complejo A destruido, a partir de registros inconsistentes" },
+    { "tema": "Arquitectura", "cita": "Drucker, P., Heizer, R.F. y Squier, R.J. (1959). 'Excavations at La Venta, Tabasco, 1955'. Bureau of American Ethnology Bulletin 170, Smithsonian Institution", "relevancia": "La fuente primaria de las Ofrendas Masivas. NO digitalizada en acceso abierto." },
+    { "tema": "Materiales", "cita": "Seitz, R., Harlow, G.E., Sisson, V.B. y Taube, K.E. (2001). \"'Olmec Blue' and Formative jade sources: new discoveries in Guatemala\". Antiquity 75(290):687-688", "relevancia": "Resuelve el problema del 'jade azul olmeca': las fuentes están AL SUR del río Motagua" },
+    { "tema": "Materiales", "cita": "Alva-Valdivia, L.M., Cyphers, A., De La Luz Rivas-Sánchez, M., Agarwal, A., Zurita-Noguera, J. y Urrutia-Fucugauchi, J. (2017). 'Mineralogical and magnetic characterization of Olmec ilmenite multi-perforated artifacts and inferences on source provenance'. European Journal of Mineralogy 29(5)", "relevancia": "Procedencia de la ilmenita: anortositas de Huitzo, Oaxaca" },
+    { "tema": "Materiales", "cita": "Carlson, J.B. (1975). 'Lodestone Compass: Chinese or Olmec Primacy?'. Science 189(4205):753-760", "relevancia": "La hipótesis de la brújula de hematita M-160. Publicada en revista seria, NO aceptada." },
+    { "tema": "Materiales", "cita": "Carlson, J.B. 'Olmec Concave Iron-Ore Mirrors: The Aesthetics of a Lithic Technology and the Lord of the Mirror'", "relevancia": "El catálogo de referencia de los espejos cóncavos" },
+    { "tema": "Materiales", "cita": "Cobean, R.H., Coe, M.D., Perry, E.A., Turekian, K.K. y Kharkar, D.P. (1971). 'Obsidian Trade at San Lorenzo Tenochtitlan'. Science 174:666-671", "relevancia": "Primer estudio de procedencia de obsidiana en un sitio olmeca" },
+    { "tema": "Materiales", "cita": "'Early Olmec obsidian trade and economic organization at San Lorenzo' (2013). Journal of Archaeological Science", "relevancia": "852 artefactos por INAA y XRF; 11-15 fuentes distintas" },
+    { "tema": "Cerámica", "cita": "Blomster, J.P., Neff, H. y Glascock, M.D. (2005). 'Olmec Pottery Production and Export in Ancient Mexico Determined Through Elemental Analysis'. Science 307:1068-1072", "relevancia": "La postura del flujo unidireccional desde San Lorenzo (INAA sobre 725 tiestos)" },
+    { "tema": "Cerámica", "cita": "Stoltman, J.B., Marcus, J., Flannery, K.V., Burton, J.H. y Moyle, R.G. (2005). 'Petrographic evidence shows that pottery exchange between the Olmec and their neighbors was two-way'. PNAS 102:11213-11218", "relevancia": "La refutación por petrografía de lámina delgada. 'Pots are not rocks'." },
+    { "tema": "Cerámica", "cita": "Sharer, R.J. et al. (2006). 'On the Logic of Archaeological Inference: Early Formative Pottery and the Evolution of Mesoamerican Societies'. Latin American Antiquity", "relevancia": "La crítica epistemológica al argumento de Blomster et al." },
+    { "tema": "Cerámica", "cita": "Cheetham, D. (2010). 'Cultural Imperatives in Clay: Early Olmec Carved Pottery from San Lorenzo and Cantón Corralito'. Ancient Mesoamerica", "relevancia": "Dónde quedó el debate: producción local paralela más intercambio bidireccional" },
+    { "tema": "Agricultura", "cita": "Pope, K.O., Pohl, M.E.D. y Jones, J.G. (2001). Science 292:1370-1373", "relevancia": "Polen de maíz en San Andrés desde ~5100 cal a.C." },
+    { "tema": "Agricultura", "cita": "Pohl, M.E.D., Piperno, D.R., Pope, K.O. y Jones, J.G. (2007). PNAS", "relevancia": "Fitolitos de rondel de olote; respuesta a la crítica de bioturbación. ACCESO ABIERTO." },
+    { "tema": "Agricultura", "cita": "Sluyter, A. y Domínguez, G. (2006). PNAS", "relevancia": "La crítica de bioturbación: las fechas tempranas del Golfo podrían ser 1.000-2.000 años demasiado antiguas" },
+    { "tema": "Agricultura", "cita": "Arnold III, P.J. (2009). 'Settlement and subsistence among the Early Formative Gulf Olmec'. Journal of Anthropological Archaeology 28:397-411", "relevancia": "La postura del 'cultivo no agrícola'. ACCESO ABIERTO." },
+    { "tema": "Agricultura", "cita": "Killion, T.W. (2013). 'Nonagricultural Cultivation and Social Complexity: The Olmec, Their Ancestors, and Mexico's Southern Gulf Coast Lowlands'. Current Anthropology 54(5)", "relevancia": "Desarrollo del modelo de recursos de humedal" },
+    { "tema": "Agricultura", "cita": "VanDerwarker, A.M. (2009). Arqueología Iberoamericana 1:17-40", "relevancia": "Datos arqueobotánicos de La Joya. ACCESO ABIERTO." },
+    { "tema": "Agricultura", "cita": "Goman, M. y Byrne, R. (1998). The Holocene 8(1):83-89", "relevancia": "Laguna Pompal: maíz desde 4830 cal BP, con desaparición y reaparición" },
+    { "tema": "Agricultura", "cita": "Powis, T. et al. 'Oldest chocolate in the New World'. Antiquity", "relevancia": "Teobromina en El Manatí, 1650-1500 a.C.: el consumo de cacao más antiguo del mundo" },
+    { "tema": "Agricultura", "cita": "Powis, T. et al. (2011). 'Cacao use and the San Lorenzo Olmec'. PNAS", "relevancia": "Extiende el uso de cacao al propio San Lorenzo" },
+    { "tema": "Nixtamalización", "cita": "'Evidence of nixtamalization at San Bartolo, Guatemala' (2022). Journal of Archaeological Science", "relevancia": "Esferulitas de almidón: la evidencia DIRECTA más antigua, y es del Clásico maya, no olmeca" },
+    { "tema": "Fauna", "cita": "Rodríguez Galicia, B. (2024). Revista Chicomoztoc 6(12):49-89, UNAM", "relevancia": "El estudio cuantitativo del róbalo: NISP 176, NMI 29. ACCESO ABIERTO." },
+    { "tema": "Fauna", "cita": "Wing, E. (1978). Reanálisis de los datos faunísticos de San Lorenzo", "relevancia": "RECÁLCULO CLAVE Y POCO CITADO: el róbalo aportó ~50% de la proteína; las especies acuáticas superaron el 60%. Supera la versión de 1980 del propio autor, que es la que circula en manuales." },
+    { "tema": "Fauna", "cita": "'Another Look at Bufo marinus and the San Lorenzo Olmec'. Current Anthropology 46(S5)", "relevancia": "La refutación del sapo alucinógeno: un solo hueso en 1.400 muestras, en perturbación moderna" },
+    { "tema": "Hule", "cita": "Hosler, D., Burkett, S.L. y Tarkanian, M.J. (1999). Science", "relevancia": "Caracterización experimental de la vulcanización con Ipomoea alba" },
+    { "tema": "Hule", "cita": "'Unraveling the Olmec rubber balls from El Manatí: a technological and compositional analysis' (2023). Archaeological and Anthropological Sciences", "relevancia": "CORRECCIÓN IMPORTANTE: NO encontró evidencia de vulcanización en las pelotas concretas de El Manatí" },
+    { "tema": "Chapopote", "cita": "Wendt, C.J. (2007). 'Los olmecas. Los primeros petroleros'. Arqueología Mexicana núm. 87", "relevancia": "La síntesis de referencia sobre el chapopote y sus tres redes de suministro (GC-MS)" },
+    { "tema": "Lengua", "cita": "Campbell, L. y Kaufman, T. (1976). 'A Linguistic Look at the Olmecs'. American Antiquity 41(1):80-89", "relevancia": "La hipótesis mixe-zoque" },
+    { "tema": "Lengua", "cita": "Dakin, K. y Wichmann, S. (2000). 'Cacao and Chocolate: A Uto-Aztecan Perspective'", "relevancia": "Refuta el origen mixe-zoqueano de 'cacao', debilitando una de las evidencias de la hipótesis" },
+    { "tema": "Pseudoarqueología", "cita": "Haslip-Viera, G., Ortiz de Montellano, B. y Barbour, W. (1997). 'Robbing Native American Cultures: Van Sertima's Afrocentricity and the Olmecs'. Current Anthropology 38(3):419-441", "relevancia": "LA refutación académica de referencia de la hipótesis del origen africano" },
+    { "tema": "Pseudoarqueología", "cita": "Ortiz de Montellano, B., Haslip-Viera, G. y Barbour, W. (1997). 'They Were NOT Here before Columbus: Afrocentric Hyperdiffusionism in the 1990s'. Ethnohistory 44(2):199-234", "relevancia": "Ídem, con desarrollo del argumento" },
+    { "tema": "Iconografía", "cita": "Joralemon, P.D. (años 70). Clasificación de las deidades olmecas", "relevancia": "La clasificación de referencia (Dios I a Dios X, luego refinada)" },
+    { "tema": "Juego de pelota", "cita": "Hill, W., Blake, M. y Clark, J.E. 'Ball court design dates back 3,400 years'. Nature", "relevancia": "Paso de la Amada: la cancha más antigua, y NO es olmeca sino mokaya" },
+    { "tema": "San Lorenzo", "cita": "Coe, M.D. y Diehl, R.A. (1980). 'In the Land of the Olmec'", "relevancia": "La monografía clásica. NO digitalizada en acceso abierto." },
+    { "tema": "San Lorenzo", "cita": "Cyphers, A. (2004). 'Escultura Olmeca de San Lorenzo Tenochtitlán'. UNAM", "relevancia": "La referencia sobre escultura de San Lorenzo" },
+    { "tema": "San Lorenzo", "cita": "Cyphers, A. (2021). 'El Palacio Rojo: Herencia de gobernantes olmecas'", "relevancia": "Publicación del Palacio Rojo" },
+    { "tema": "San Lorenzo", "cita": "'The Legacy of Ann Cyphers for Olmec Archaeology'. Ancient Mesoamerica", "relevancia": "Síntesis de la obra de Cyphers (falleció en 2023)" },
+    { "tema": "Subsistencia", "cita": "Cyphers, A., Zurita-Noguera, J. y Lane, R. (2013). 'Retos y riesgos en la vida olmeca'. IIA-UNAM", "relevancia": "LA MONOGRAFÍA DE SUBSISTENCIA CLAVE. No digitalizada: laguna documental importante." }
+  ],
+
+  "instituciones_y_repositorios": [
+    { "nombre": "INAH — Instituto Nacional de Antropología e Historia", "url": "https://www.inah.gob.mx", "uso": "Fichas de zonas arqueológicas, boletines, museos de sitio" },
+    { "nombre": "Arqueología Mexicana", "url": "https://arqueologiamexicana.mx", "uso": "Artículos de síntesis de especialistas mexicanos. La fuente en español más fiable para divulgación seria." },
+    { "nombre": "UNAM — IIA (Instituto de Investigaciones Antropológicas)", "uso": "Proyecto Arqueológico San Lorenzo Tenochtitlán (Ann Cyphers)" },
+    { "nombre": "Mesoweb", "url": "https://www.mesoweb.com", "uso": "Repositorio especializado en Mesoamérica" },
+    { "nombre": "Dumbarton Oaks", "url": "https://www.doaks.org/resources/olmec-art", "uso": "Catálogo razonado de arte olmeca, con fichas técnicas detalladas" },
+    { "nombre": "Museo Nacional de Antropología", "uso": "Ofrenda 4 de La Venta, piezas mayores" },
+    { "nombre": "Museo de Antropología de Xalapa", "uso": "Cabezas colosales" },
+    { "nombre": "Smarthistory", "uso": "Análisis didáctico de piezas concretas" }
+  ],
+
+  "excavaciones_de_referencia": [
+    { "sitio": "San Lorenzo Tenochtitlán", "investigadores": ["Matthew Stirling (1945)", "Michael Coe y Richard Diehl (1966-1968)", "Ann Cyphers, UNAM-IIA (desde 1990)"] },
+    { "sitio": "La Venta", "investigadores": ["Matthew Stirling", "Philip Drucker", "Robert Heizer", "Rebecca González Lauck (INAH)"] },
+    { "sitio": "El Manatí", "investigadores": ["Ponciano Ortiz", "María del Carmen Rodríguez"] },
+    { "sitio": "Tres Zapotes", "investigadores": ["Matthew Stirling", "Christopher Pool (desde 1995)"] },
+    { "sitio": "Chalcatzingo", "investigadores": ["Jorge Angulo", "Raúl Arana", "David C. Grove (1972-1976)"] },
+    { "sitio": "Teopantecuanitlán", "investigadores": ["Guadalupe Martínez Donjuán", "Christine Niederberger", "Rosa María Reina Robles"] },
+    { "sitio": "La Joya", "investigadores": ["Philip Arnold III", "Amber VanDerwarker"] }
+  ],
+
+  "lagunas_de_esta_investigacion": {
+    "nota": "Declaradas por honestidad. Cerrarlas requeriría acceso institucional a publicaciones tras muro de pago.",
+    "por_tema": [
+      { "tema": "Sal", "detalle": "Producción y comercio de sal en contextos olmecas del Formativo: sin fuentes localizadas" },
+      { "tema": "Obsidiana", "detalle": "Porcentajes exactos por fuente y por fase en San Lorenzo (JAS 2013, tras paywall)" },
+      { "tema": "Ilmenita", "detalle": "Cifras primarias verificadas del tonelaje (las de 150.000 piezas / 4,5 t proceden de sitios no académicos)" },
+      { "tema": "Ofrendas Masivas", "detalle": "Métricas precisas de las fosas (requiere Drucker, Heizer y Squier 1959)" },
+      { "tema": "Cinabrio", "detalle": "Procedencia geológica no determinada" },
+      { "tema": "Fauna de La Venta", "detalle": "La 'plétora de huesos de animales' de González Lauck 1996: conjunto sustancial e infraexplotado en la literatura sintética. LA LAGUNA MÁS IMPORTANTE." },
+      { "tema": "Antracología", "detalle": "Taxones de carbón de leña: inexistente en acceso abierto para toda la región" },
+      { "tema": "Manihot", "detalle": "Publicación formal de los fitolitos de yuca de San Lorenzo, citados por comunicación personal" },
+      { "tema": "Reptiles y moluscos", "detalle": "Sin cifras; tortugas sin identificación a nivel de género" },
+      { "tema": "Jaguar", "detalle": "No se localizó ningún resto osteológico documentado, solo iconografía y efigies de jade" },
+      { "tema": "LiDAR", "detalle": "Orientaciones exactas en grados de los complejos MFU y dimensiones de las calzadas (Nature, tras paywall)" },
+      { "tema": "Medicina", "detalle": "No existe ninguna fuente olmeca. Todo el capítulo 06 es inferencia declarada." }
+    ]
+  },
+
+  "nota_metodologica_final": {
+    "sobre_los_foros_y_redes": "La petición original pedía buscar en 'miles de foros, redes e imágenes'. No se hizo así, y conviene explicar por qué: el tema olmeca es uno de los más contaminados por pseudoarqueología que existe. Los foros y las redes están dominados por teorías de origen africano, contacto extraterrestre y 'olmecas atlantes', ninguna de las cuales resiste el registro arqueológico. El archivo 10_DEBATES_Y_PSEUDOARQUEOLOGIA.txt recoge lo que SÍ circula por esos espacios, precisamente para poder distinguirlo.",
+    "sobre_el_presupuesto_de_busqueda": "Las búsquedas web de esta sesión se agotaron durante la investigación (200 llamadas). Varias fuentes primarias devolvieron error 403 por muro de pago (ScienceDirect, Cambridge, Science.org, ResearchGate, Academia.edu). Casi todo el dato duro citable procede de los PDF de acceso abierto que sí pudieron leerse íntegros.",
+    "sobre_las_correcciones": "Durante la investigación se corrigieron varias premisas erróneas de partida, entre ellas: el estudio LiDAR de Inomata es de Nature Human Behaviour y no de PNAS; la Estela 1 de El Baúl es de 37 d.C. y no de 36 a.C.; la Cuenta Larga es estrictamente epi-olmeca; y los jades 'olmecoides' de Costa Rica corresponden a una red de 300 a.C.-800 d.C., posterior al apogeo olmeca."
+  }
+}

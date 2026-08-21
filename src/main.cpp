@@ -279,6 +279,17 @@ struct Vec3i {
 // ============================================================================
 
 #include <functional>
+// ============================================================================
+// VERSION DEL JUEGO
+// ============================================================================
+// Se muestra en la esquina inferior del menu principal.
+#ifndef GAME_VERSION_STRING
+#define GAME_VERSION_STRING "260720a"
+#endif
+#ifndef GAME_BUILD_DATE
+#define GAME_BUILD_DATE __DATE__
+#endif
+
 #include "BlockType.h"
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "WorldName.h"
@@ -322,6 +333,7 @@ const MineralInfo MINERAL_DATA[] = {
 };
 
 void getBlockColor(BlockType type, float& r, float& g, float& b) {
+    if (esNivelParcial(type)) type = bloqueBaseDe(type);
     switch (type) {
         case BLOCK_GRASS:     r = 0.3f; g = 0.8f; b = 0.2f; break;
         case BLOCK_DIRT:      r = 0.6f; g = 0.4f; b = 0.2f; break;
@@ -1423,6 +1435,19 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Una mata de lechuguilla es baja y no llena el voxel. La caja cubre el
     // circulo que abarcan las hojas y llega hasta donde llegan las puntas,
     // de modo que el jugador la selecciona donde la ve.
+    // --- NIVELES: LA CAJA MIDE LO QUE SE VE ---
+    //
+    // Un bloque de nivel 5 ocupa 8 px de alto, y su caja mide exactamente
+    // eso. De ahi sale lo que se pidio: si encima se pone otro bloque, se
+    // apoya en la cara de arriba REAL y no flota, porque lo que se ve y lo
+    // que se toca son lo mismo.
+    if (esNivelParcial(type)) {
+        minX = 0.0f;  maxX = 1.0f;
+        minY = 0.0f;  maxY = alturaDe(type);
+        minZ = 0.0f;  maxZ = 1.0f;
+        return true;
+    }
+
     // --- PEDAZOS DE PIEDRA ---
     // Los guijarros ocupan el suelo de la celda. La caja es baja pero
     // SOLIDA: el jugador no los atraviesa, se sube encima como en un
@@ -1561,10 +1586,18 @@ bool isBlockSolid(BlockType type) {
     // ramaHitbox), asi que el jugador choca justo donde ve el bloque.
     if (type == BLOCK_TALLGRASS || type == BLOCK_ORANGE_FLOWER) return false;
 
+    // Los niveles parciales SI frenan: son terreno, solo que mas bajo. Su
+    // caja la da nopalHitboxCon(), asi que el jugador se sube encima como en
+    // un escalon en vez de atravesarlos.
+    if (esNivelParcial(type)) return true;
+
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA;
 }
 
 bool isBlockOpaque(BlockType type) {
+    // Un nivel parcial deja hueco por arriba, asi que no puede tapar la cara
+    // del bloque de al lado: si lo hiciera, se verian agujeros.
+    if (esNivelParcial(type)) return false;
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
     if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
@@ -1577,6 +1610,8 @@ bool isBlockOpaque(BlockType type) {
 
 // Obtener tiempo de rotura de un bloque en segundos (como Minecraft)
 float getBlockBreakTime(BlockType type) {
+    // Un nivel parcial cuesta lo mismo que su bloque entero.
+    if (esNivelParcial(type)) type = bloqueBaseDe(type);
     switch (type) {
         case BLOCK_DIRT:      return 0.5f;   // Tierra - rápido
         case BLOCK_GRASS:     return 0.6f;   // Pasto - rápido
@@ -1693,6 +1728,7 @@ constexpr float SURVIVAL_HARD_BREAK_TIME = 600.0f;   // 10 minutos
 
 // ¿Es uno de los bloques que cuestan 10 minutos a mano?
 inline bool esBloqueDuroASurvival(BlockType type) {
+    if (esNivelParcial(type)) type = bloqueBaseDe(type);
     switch (type) {
         // --- PIEDRA y sus formas labradas ---
         case BLOCK_STONE:
@@ -4322,6 +4358,12 @@ public:
 
     GLuint getBlockTexture(BlockType type, int face) {
         // face: 0=top, 1=bottom, 2=north, 3=south, 4=east, 5=west
+
+        // ⭐ NIVELES: un bloque parcial usa la MISMA textura que el entero.
+        // No hay textura nueva ni recorte: lo que cambia es la geometria, y
+        // las UV se ajustan al alto real del bloque para que el dibujo no se
+        // estire (ver el mesher).
+        if (esNivelParcial(type)) type = bloqueBaseDe(type);
 
         switch (type) {
             case BLOCK_GRASS:
@@ -6984,6 +7026,44 @@ public:
 
                 // Bloque de suelo sobre el que se decora. Se consulta una
                 // sola vez y lo comparten árboles y hierba.
+                // ============================================================
+                // NIVELES EN LA SUPERFICIE
+                // ============================================================
+                // El bloque de arriba del todo puede ser una capa parcial en
+                // vez de un cubo entero. Eso da el desnivel suave que se
+                // pidio: el terreno sube de 3 en 3 pixeles en vez de saltar
+                // un bloque de golpe.
+                //
+                // SOLO en la superficie: bajo tierra el bloque sigue siendo
+                // entero, porque una capa parcial ahi dejaria huecos dentro
+                // de la roca. Las cuevas ya se tallan aparte.
+                {
+                    const BlockType arriba = chunk->getBlock(x, surfaceY + 1, z);
+                    const BlockType sup = chunk->getBlock(x, surfaceY, z);
+                    // Solo si esta despejado por arriba: un bloque tapado no
+                    // se ve, asi que no gana nada siendo parcial.
+                    if (arriba == BLOCK_AIR && primerNivelDe(sup) != BLOCK_AIR) {
+                        unsigned hn = (unsigned)(worldX * 374761393) ^
+                                      (unsigned)(worldZ * 668265263) ^ 0x7ed55d16u;
+                        hn ^= hn >> 13; hn *= 1274126177u; hn ^= hn >> 16;
+
+                        // La mayoria del terreno se queda entero (nivel 8):
+                        // los niveles bajos son el remate de las lomas, no
+                        // la norma, o el suelo pareceria un serrucho.
+                        const unsigned d = hn % 100u;
+                        int nivel = 8;
+                        if (d < 6u)       nivel = 7;
+                        else if (d < 10u) nivel = 6;
+                        else if (d < 13u) nivel = 5;
+                        else if (d < 15u) nivel = 4;
+
+                        if (nivel < 8) {
+                            chunk->setBlock(x, surfaceY, z,
+                                            conNivel(sup, nivel));
+                        }
+                    }
+                }
+
                 const BlockType ground = chunk->getBlock(x, surfaceY, z);
 
                 // ============================================================
@@ -10440,7 +10520,10 @@ public:
                     //    de al lado.
                     //  - Alpha 1.0 + GL_ALPHA_TEST (ya activo en el motor)
                     //    recorta el fondo transparente del PNG.
-                    if (isCrossSprite(block)) {
+                    // Los NIVELES entran por aqui (no llenan el voxel, asi
+                    // que no valen para el greedy meshing), pero tienen su
+                    // propia rama mas abajo con la caja de altura reducida.
+                    if (isCrossSprite(block) || esNivelParcial(block)) {
                         GLuint texture = g_textureManager->getBlockTexture(block, 0);
 
                         // NOTA: la marca de union con el cladodio ya NO se
@@ -10657,6 +10740,70 @@ public:
                         // El numero de hojas (11-30 en la planta real) sale
                         // del hash de la posicion, de modo que cada mata es
                         // distinta y siempre la misma al recargar el chunk.
+                        // ============================================
+                        // NIVELES: UNA CAJA MAS BAJA, SIN DEFORMAR
+                        // ============================================
+                        // El bloque ocupa solo su altura (3 a 13 px). La
+                        // clave para que la textura NO se estire es que las
+                        // UV verticales se recorten a esa misma fraccion: un
+                        // bloque de 8 px enseña la MITAD de la imagen, no la
+                        // imagen entera aplastada.
+                        if (esNivelParcial(block)) {
+                            const float alto = alturaDe(block);
+                            const GLuint texN =
+                                g_textureManager->getBlockTexture(block, 0);
+                            const GLuint texL =
+                                g_textureManager->getBlockTexture(block, 2);
+
+                            auto& vN = verticesByTexture[texL];
+                            auto& cN = colorsByTexture[texL];
+                            auto& uN = uvsByTexture[texL];
+
+                            // LADOS: la V se recorta al alto real, asi que
+                            // el pixel sigue siendo cuadrado.
+                            auto lado = [&](float ax,float az,float bx,float bz){
+                                const float PX4[4] = { ax, bx, bx, ax };
+                                const float PZ4[4] = { az, bz, bz, az };
+                                const float PY4[4] = { 0.0f, 0.0f, alto, alto };
+                                const float U4[4]  = { U0, U1, U1, U0 };
+                                const float V4[4]  = { U0, U0,
+                                                       U0 + (U1-U0)*alto,
+                                                       U0 + (U1-U0)*alto };
+                                for (int i = 0; i < 4; ++i) {
+                                    vN.push_back(wx + PX4[i]);
+                                    vN.push_back(wy + PY4[i]);
+                                    vN.push_back(wz + PZ4[i]);
+                                    cN.push_back(cr); cN.push_back(cg);
+                                    cN.push_back(cb); cN.push_back(ca);
+                                    uN.push_back(U4[i]); uN.push_back(V4[i]);
+                                }
+                            };
+                            lado(0.0f, 0.0f, 1.0f, 0.0f);   // -Z
+                            lado(1.0f, 1.0f, 0.0f, 1.0f);   // +Z
+                            lado(0.0f, 1.0f, 0.0f, 0.0f);   // -X
+                            lado(1.0f, 0.0f, 1.0f, 1.0f);   // +X
+
+                            // TAPA: la cara de arriba, con su textura propia
+                            // (la del pasto es distinta de la del lado).
+                            auto& vT = verticesByTexture[texN];
+                            auto& cT = colorsByTexture[texN];
+                            auto& uT = uvsByTexture[texN];
+                            const float TX[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+                            const float TZ[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
+                            const float TU[4] = { U0, U0, U1, U1 };
+                            const float TV[4] = { U0, U1, U1, U0 };
+                            for (int i = 0; i < 4; ++i) {
+                                vT.push_back(wx + TX[i]);
+                                vT.push_back(wy + alto);
+                                vT.push_back(wz + TZ[i]);
+                                cT.push_back(cr); cT.push_back(cg);
+                                cT.push_back(cb); cT.push_back(ca);
+                                uT.push_back(TU[i]); uT.push_back(TV[i]);
+                            }
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
                         // ============================================
                         // PEDAZOS DE PIEDRA: MILES DE DISPOSICIONES
                         // ============================================
@@ -15508,6 +15655,10 @@ struct BlockDrop {
 std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
     std::vector<BlockDrop> drops;
 
+    // Un nivel parcial suelta su bloque entero: el jugador recoge "tierra",
+    // no "tierra de nivel 3".
+    if (esNivelParcial(blockType)) blockType = bloqueBaseDe(blockType);
+
     switch (blockType) {
         // ⭐ LOS GUIJARROS SUELTAN SU ITEM, NO EL BLOQUE
         //
@@ -15990,7 +16141,10 @@ void prewarmItemTextures() {
     //     sprites con su propio reparto de caras.
     if (g_textureManager) {
         static const BlockType GIRABLES[] = {
-            BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_COBBLESTONE,
+            // El PASTO se queda fuera: su cara de arriba lleva el degradado
+            // verde que engrana con la tierra de los lados, y al girarla ese
+            // borde deja de casar entre bloques vecinos.
+            BLOCK_DIRT, BLOCK_STONE, BLOCK_COBBLESTONE,
             BLOCK_LIMESTONE, BLOCK_SAND, BLOCK_GRAVEL, BLOCK_CLAY,
             BLOCK_CLAY_DIRT, BLOCK_CLAY_SAND, BLOCK_SNOW,
             BLOCK_LEAVES, BLOCK_LEAVES_ENCINO, BLOCK_LEAVES_OYAMEL

@@ -1,0 +1,108 @@
+{
+  "_meta": {
+    "titulo": "Propuesta de bloques y materiales olmecas para Voxel World",
+    "proyecto": "Voxel World",
+    "fecha_compilacion": "2026-08-20",
+    "idioma": "es",
+    "naturaleza": "CAPA DE DISEÑO, derivada de la investigación pero SEPARADA de ella. Aquí sí se inventa cuando hace falta que algo funcione como mecánica; cada invención va marcada.",
+    "convenciones_del_motor": {
+      "referencia": "src/BlockType.h",
+      "regla_de_ids": "Los bloques nuevos van SIEMPRE al final del enum, antes de la sección RETIRADOS, para no desplazar IDs de mundos guardados. BlockCompat.h traduce IDs viejos al cargar.",
+      "constante_a_actualizar": "BLOCK_LAST_PLACEABLE y BLOCK_TYPE_MAX si se añaden bloques colocables",
+      "patron_aprovechable": "El motor ya codifica información en el propio ID (pencas apiladas, grosor de raíz, tamaño de mata, celdas compartidas). Esa técnica encaja perfectamente con varias de las propuestas de abajo."
+    },
+    "escala_de_justificacion": {
+      "HISTORICO": "Documentado arqueológicamente; ver los archivos de investigación",
+      "PLAUSIBLE": "Coherente con lo documentado, sin evidencia directa",
+      "JUEGO": "Invención de diseño para que funcione como mecánica"
+    }
+  },
+
+  "bloques_de_terreno_y_bioma": [
+    {
+      "id_sugerido": "BLOCK_ARCILLA_ROJA",
+      "nombre": "Arcilla roja",
+      "justificacion": "HISTORICO",
+      "base": "La Venta usó arcillas IMPORTADAS de colores diferenciados (rojas, amarillas, moradas, azul-verdosas) en capas discretas, seleccionadas por criterio cromático-simbólico, no por disponibilidad",
+      "propuesta_de_juego": "Bloque de tierra de color, colocable. Se obtiene en vetas concretas del terreno, no en cualquier sitio.",
+      "dureza_sugerida": "Como la tierra",
+      "nota_de_diseno": "Este es probablemente el hallazgo MÁS aprovechable de toda la investigación para un juego de bloques: una civilización que elegía el color de la tierra con la que construía."
+    },
+    { "id_sugerido": "BLOCK_ARCILLA_AMARILLA", "nombre": "Arcilla amarilla", "justificacion": "HISTORICO", "base": "Ídem", "propuesta_de_juego": "Ídem" },
+    { "id_sugerido": "BLOCK_ARCILLA_MORADA", "nombre": "Arcilla morada", "justificacion": "HISTORICO", "base": "Ídem", "propuesta_de_juego": "Ídem" },
+    { "id_sugerido": "BLOCK_ARCILLA_VERDIAZUL", "nombre": "Arcilla azul-verdosa", "justificacion": "HISTORICO", "base": "Ídem", "propuesta_de_juego": "Ídem" },
+    {
+      "id_sugerido": "BLOCK_BENTONITA",
+      "nombre": "Bentonita",
+      "justificacion": "HISTORICO",
+      "base": "Arcilla esmectítica que SE EXPANDE AL HIDRATARSE Y SELLA. Los olmecas la usaban para crear subsuelo impermeable bajo el pavimento y en mampostería con mortero de lodo.",
+      "propuesta_de_juego": "Bloque que IMPERMEABILIZA: colocado bajo un suelo, impide que el agua lo atraviese. Mecánica real derivada de una propiedad real.",
+      "nota_de_diseno": "Da una mecánica de construcción genuina y poco vista: un material que no se usa por su aspecto sino por lo que hace con el agua."
+    },
+    {
+      "id_sugerido": "BLOCK_CHAPOPOTE",
+      "nombre": "Chapopote",
+      "justificacion": "HISTORICO",
+      "base": "Bitumen natural que brota en escurrimientos de la llanura costera. Recurso de SUPERFICIE, recolectable, no extraído.",
+      "propuesta_de_juego": "Aparece como charcos o vetas negras en la superficie del bioma de llanura. Se recoge a mano.",
+      "usos_derivados": ["Impermeabilizar", "Adhesivo en recetas", "Pintura negra", "Sellado de recipientes"],
+      "nota_de_diseno": "Genera una cadena de crafteo entera y es visualmente muy reconocible."
+    },
+    { "id_sugerido": "BLOCK_BASALTO", "nombre": "Basalto", "justificacion": "HISTORICO", "base": "De la Sierra de los Tuxtlas. La única piedra dura de la región, importada a 60-150 km.", "propuesta_de_juego": "Piedra dura, solo presente en el bioma volcánico. Necesaria para las construcciones nobles.", "dureza_sugerida": "Alta: más que la piedra común" },
+    { "id_sugerido": "BLOCK_CANTO_BASALTO", "nombre": "Canto rodado de basalto", "justificacion": "HISTORICO", "base": "Los olmecas NO canteaban roca madre: aprovechaban cantos rodados esféricos depositados por lahares, eligiendo los que ya se parecían a una cabeza.", "propuesta_de_juego": "Bloque redondeado que aparece en las laderas del volcán. Es la materia prima de la escultura monumental.", "nota_de_diseno": "Mecánicamente precioso: el jugador no pica una cantera, BUSCA el canto con la forma adecuada." },
+    { "id_sugerido": "BLOCK_SERPENTINA", "nombre": "Serpentina", "justificacion": "HISTORICO", "base": "Roca verde, más blanda que la jadeíta. El material de las ofrendas masivas y los mosaicos.", "propuesta_de_juego": "Piedra verde trabajable. Se pule en bloques para mosaicos." },
+    { "id_sugerido": "BLOCK_JADEITA", "nombre": "Jadeíta", "justificacion": "HISTORICO", "base": "Del valle del Motagua, a 600 km. Dureza 6,5-7 Mohs y tenacidad excepcional: no se corta, solo se abrade.", "propuesta_de_juego": "Mineral raro, en vetas muy escasas y lejanas. NO debería poder picarse con herramienta normal: requiere la cadena de abrasión.", "nota_de_diseno": "Ver la mecánica de abrasión en DISENO_recetas_propuestas.json. Es lo que hace del jade algo distinto de 'otro mineral azul'." },
+    { "id_sugerido": "BLOCK_ILMENITA", "nombre": "Ilmenita", "justificacion": "HISTORICO", "base": "Mineral de hierro-titanio de las anortositas de Huitzo, Oaxaca. Los olmecas produjeron toneladas de cuentas multiperforadas con función desconocida.", "propuesta_de_juego": "Mineral oscuro. Se perfora con taladro de arco para hacer cuentas.", "nota_de_diseno": "Su función real se desconoce: eso da libertad total para inventarle una en el juego sin contradecir nada." },
+    { "id_sugerido": "BLOCK_MAGNETITA", "nombre": "Magnetita", "justificacion": "HISTORICO", "base": "Mineral de hierro magnético. Materia prima de los espejos cóncavos.", "propuesta_de_juego": "Mineral que, pulido, da espejo. Y que puede tener comportamiento magnético como guiño a la hipótesis de Carlson." },
+    { "id_sugerido": "BLOCK_HEMATITA", "nombre": "Hematita", "justificacion": "HISTORICO", "base": "Óxido de hierro. Tres funciones distintas: espejos, pigmento rojo y material lapidario. Los olmecas teñían con ella los pisos de arena del Palacio Rojo.", "propuesta_de_juego": "Mineral rojo. Molido da pigmento; pulido da espejo." },
+    { "id_sugerido": "BLOCK_CINABRIO", "nombre": "Cinabrio", "justificacion": "HISTORICO", "base": "Sulfuro de mercurio. Rojo bermellón intenso. Cubría los entierros de élite de La Venta.", "propuesta_de_juego": "Mineral rojo intenso y raro, asociado a zonas volcánicas.", "nota_opcional": "Es tóxico de verdad. Si se quiere, puede tener un efecto negativo al manipularlo sin protección: es históricamente honesto y mecánicamente interesante.", "justificacion_del_efecto": "JUEGO" },
+    { "id_sugerido": "BLOCK_OBSIDIANA_VERDE", "nombre": "Obsidiana verde", "justificacion": "HISTORICO", "base": "De Pachuca / Sierra de las Navajas. Los olmecas manejaban obsidiana de 11 a 15 fuentes distintas, de hasta 600 km.", "propuesta_de_juego": "Variedad de obsidiana con color propio según el yacimiento. Da el filo más agudo posible.", "nota_de_diseno": "Varias variedades por origen permitiría una mecánica de comercio o exploración: cada color viene de un sitio distinto del mapa." },
+    { "id_sugerido": "BLOCK_CALIZA", "nombre": "Piedra caliza", "justificacion": "HISTORICO", "base": "Usada en Teopantecuanitlán para canales hidráulicos de más de 1 m de altura. Calcinada da cal.", "propuesta_de_juego": "Piedra blanda y clara. Calcinada en horno produce cal." },
+    { "id_sugerido": "BLOCK_CAL", "nombre": "Cal", "justificacion": "HISTORICO", "base": "CaCO3 → CaO + CO2 al calcinar; luego CaO + H2O → Ca(OH)2 al apagar. Necesaria para la nixtamalización.", "propuesta_de_juego": "Producto de calcinar caliza o conchas. Ingrediente de la nixtamalización." }
+  ],
+
+  "bloques_de_vegetacion": [
+    { "id_sugerido": "BLOCK_CEIBA_TRONCO", "nombre": "Tronco de ceiba", "justificacion": "HISTORICO", "base": "Ceiba pentandra, hasta 60,4 m, con contrafuertes que suben 12-15 m. Madera de los bustos rituales de El Manatí. Árbol sagrado en toda Mesoamérica.", "propuesta_de_juego": "Árbol enorme con CONTRAFUERTES en la base: la geometría de raíz que el motor ya sabe hacer (BLOCK_RAIZ_*) encaja perfectamente aquí, pero en vertical y mucho más grandes.", "nota_de_diseno": "El sistema de raíces de cuatro grosores que ya existe se puede reutilizar tal cual para los contrafuertes de la ceiba." },
+    { "id_sugerido": "BLOCK_HULE_TRONCO", "nombre": "Tronco de hule", "justificacion": "HISTORICO", "base": "Castilla elastica. Se sangra la corteza con incisiones diagonales para recoger el látex.", "propuesta_de_juego": "Árbol sangrable: con una herramienta se le hacen incisiones y suelta látex periódicamente, sin talarlo.", "nota_de_diseno": "Mecánica de recurso RENOVABLE por interacción repetida, distinta de talar. Muy fiel a lo real." },
+    { "id_sugerido": "BLOCK_CACAO", "nombre": "Cacao", "justificacion": "HISTORICO", "base": "Theobroma cacao. La evidencia de consumo más antigua del mundo está en El Manatí, 1650-1500 a.C.", "propuesta_de_juego": "Árbol con mazorcas que crecen DIRECTAMENTE DEL TRONCO (caulifloria), que es como crece de verdad." },
+    { "id_sugerido": "BLOCK_MANGLE_ROJO", "nombre": "Mangle rojo", "justificacion": "HISTORICO", "base": "Rhizophora mangle, tolerancia 0-45 ppt, RAÍCES ZANCUDAS características", "propuesta_de_juego": "Árbol de agua salobre con raíces aéreas en arco. Solo crece en la franja de salinidad correcta." },
+    { "id_sugerido": "BLOCK_MANGLE_NEGRO", "nombre": "Mangle negro", "justificacion": "HISTORICO", "base": "Avicennia germinans, tolerancia hasta 70 ppt, NEUMATÓFOROS (raíces que respiran hacia arriba)", "propuesta_de_juego": "Árbol con raíces verticales que emergen del suelo como espárragos. Ocupa la franja más salada.", "nota_de_diseno": "La ZONACIÓN POR SALINIDAD del manglar es un gradiente real y visible. Da un bioma con estructura interna, no uniforme." },
+    { "id_sugerido": "BLOCK_TULE", "nombre": "Tule", "justificacion": "HISTORICO", "base": "Typha domingensis, dominante del popal-tular, con lámina de inundación de 5,5 a 69,5 cm", "propuesta_de_juego": "Planta alta de humedal, crece en agua poco profunda. Materia prima de petates y cestería." },
+    { "id_sugerido": "BLOCK_POPAL", "nombre": "Popal", "justificacion": "HISTORICO", "base": "Thalia geniculata, del humedal herbáceo", "propuesta_de_juego": "Planta de hoja ancha de humedal" },
+    { "id_sugerido": "BLOCK_MAIZ", "nombre": "Maíz", "justificacion": "HISTORICO", "base": "Zea mays. Documentado por polen y fitolitos de rondel de olote.", "propuesta_de_juego": "Cultivo por etapas de crecimiento. Su grano necesita NIXTAMALIZARSE para ser plenamente nutritivo." },
+    { "id_sugerido": "BLOCK_TEOSINTE", "nombre": "Teosinte", "justificacion": "HISTORICO", "base": "Zea mays ssp. parviglumis, el ancestro silvestre. 2 hileras de granos, espiga dehiscente, grano encerrado en cápsula dura.", "propuesta_de_juego": "Planta silvestre que, cultivada y seleccionada durante generaciones, se convierte en maíz.", "nota_de_diseno": "Una mecánica de DOMESTICACIÓN a lo largo del tiempo sería históricamente preciosa y muy poco vista en juegos. Ver DISENO_notas.txt.", "justificacion_de_la_mecanica": "JUEGO" },
+    { "id_sugerido": "BLOCK_COYOL", "nombre": "Palma de coyol", "justificacion": "HISTORICO", "base": "Acrocomia mexicana. Documentada [AD] en La Joya y El Manatí. Se le saca vino sangrando el tronco.", "propuesta_de_juego": "Palma con fruto comestible; el tronco se puede sangrar para obtener savia fermentable." },
+    { "id_sugerido": "BLOCK_RAMON", "nombre": "Ramón", "justificacion": "PLAUSIBLE", "base": "Brosimum alicastrum: 150-180 kg de fruto al año durante más de un siglo. Una de las plantas alimenticias más productivas del trópico americano. NO documentado [AD] en el Golfo formativo, pero ecológicamente presente.", "propuesta_de_juego": "Árbol de rendimiento altísimo y sostenido: una vez plantado, alimenta durante muchísimo tiempo." },
+    { "id_sugerido": "BLOCK_COPAL", "nombre": "Copal", "justificacion": "HISTORICO", "base": "Resina de Bursera. La evidencia más antigua está en El Manatí. Se quema como incienso.", "propuesta_de_juego": "Se recoge del árbol como resina; quemado produce humo ritual." }
+  ],
+
+  "bloques_constructivos": [
+    { "id_sugerido": "BLOCK_BAJAREQUE", "nombre": "Bajareque", "justificacion": "HISTORICO", "base": "Entramado de varas o carrizo revestido de barro. LA técnica dominante de toda la arquitectura no monumental olmeca.", "propuesta_de_juego": "Bloque de construcción básico, barato, hecho de varas + barro. Es la casa normal.", "nota_de_diseno": "Importante para la ambientación: la arquitectura olmeca corriente NO es de piedra. La piedra es excepcional y cara." },
+    { "id_sugerido": "BLOCK_TIERRA_APISONADA", "nombre": "Tierra apisonada", "justificacion": "HISTORICO", "base": "Muros de 40 cm de espesor en el Palacio Rojo. Plataformas y pirámides enteras de arcilla compactada.", "propuesta_de_juego": "Bloque estructural resistente hecho compactando tierra. La base de la monumentalidad olmeca." },
+    { "id_sugerido": "BLOCK_TECHO_PALMA", "nombre": "Techo de palma", "justificacion": "HISTORICO", "base": "Techos perecederos de palma sobre estructura de postes", "propuesta_de_juego": "Bloque de techumbre ligero" },
+    { "id_sugerido": "BLOCK_PISO_ARENA_ROJA", "nombre": "Piso de arena roja", "justificacion": "HISTORICO", "base": "El Palacio Rojo de San Lorenzo tenía pisos de arena teñida con HEMATITA IMPORTADA, en múltiples capas superpuestas", "propuesta_de_juego": "Bloque decorativo de prestigio: arena + hematita. Marca los espacios de élite." },
+    { "id_sugerido": "BLOCK_DRENAJE_BASALTO", "nombre": "Canal de basalto en U", "justificacion": "HISTORICO", "base": "Canaletas de basalto en sección de U, tapadas con losas, enterradas, con pendiente del 2%. Un tramo de 170 m aún conduce agua tras tres milenios. Selladas con chapopote.", "propuesta_de_juego": "Bloque funcional que TRANSPORTA AGUA en la dirección de su pendiente. Se sella con chapopote para que no filtre.", "nota_de_diseno": "El motor ya tiene sistema de fluidos (updateWaterFlow). Este bloque sería un conductor dirigido, y es históricamente exacto." },
+    { "id_sugerido": "BLOCK_COLUMNA_BASALTO", "nombre": "Columna de basalto", "justificacion": "HISTORICO", "base": "Columnas naturales de basalto traídas de Punta Roca Partida a más de 80 km. Formaban el cerco del Complejo A de La Venta: arquitectura de exclusión.", "propuesta_de_juego": "Bloque de prestigio, caro de conseguir. Sirve para delimitar recintos." },
+    { "id_sugerido": "BLOCK_MOSAICO_SERPENTINA", "nombre": "Mosaico de serpentina", "justificacion": "HISTORICO", "base": "Tres mosaicos de ~4,5 x 6 m con hasta 485 bloques cada uno, ENTERRADOS INMEDIATAMENTE tras terminarse. Nunca estuvieron a la vista.", "propuesta_de_juego": "Bloque decorativo de piedra verde pulida", "nota_de_diseno": "La idea de una obra monumental hecha PARA SER ENTERRADA es narrativamente potentísima y no la he visto en ningún juego." }
+  ],
+
+  "items_y_herramientas": [
+    { "id_sugerido": "BLOCK_TALADRO_ARCO", "nombre": "Taladro de arco", "justificacion": "HISTORICO", "base": "Accionado por cuerda de arco; permite mayor precisión y velocidad angular constante. Produce las perforaciones BICÓNICAS típicas.", "propuesta_de_juego": "Herramienta que PERFORA cuentas y objetos. Necesaria para la ilmenita y el jade.", "receta_conceptual": "Palo + hilo (de ixtle, que el motor ya tiene) + punta de pedernal u obsidiana" },
+    { "id_sugerido": "BLOCK_SIERRA_CUERDA", "nombre": "Sierra de cuerda", "justificacion": "HISTORICO", "base": "Cordón movido en vaivén, alimentado con abrasivo húmedo. LA CUERDA NO CORTA: transporta el abrasivo.", "propuesta_de_juego": "Herramienta que corta piedra dura, pero LENTAMENTE y consumiendo arena abrasiva.", "nota_de_diseno": "El motor ya tiene desgaste de herramienta (gastarHerramienta en Inventory.h). Aquí lo que se consume no es solo la herramienta: es el ABRASIVO. Es una variante mecánica interesante." },
+    { "id_sugerido": "BLOCK_ARENA_CUARZO", "nombre": "Arena de cuarzo", "justificacion": "HISTORICO", "base": "El abrasivo. Es lo que realmente desgasta la piedra dura.", "propuesta_de_juego": "Consumible necesario para todo trabajo de piedra dura" },
+    { "id_sugerido": "BLOCK_ESPEJO_MAGNETITA", "nombre": "Espejo cóncavo", "justificacion": "HISTORICO", "base": "Discos de mineral de hierro pulidos con curvatura cóncava, con precisión comparable a lentes ópticas modernas y reflectividad de hasta 55%. DOS ejemplares reales de Arroyo Pesquero demostraron encender fuego en pruebas.", "propuesta_de_juego": "Objeto que ENCIENDE FUEGO concentrando la luz solar. Solo funciona de día y con cielo despejado.", "nota_de_diseno": "Es un encendedor histórico, verificado experimentalmente, y con una limitación natural (necesita sol) que lo hace interesante en vez de trivial." },
+    { "id_sugerido": "BLOCK_PELOTA_HULE", "nombre": "Pelota de hule", "justificacion": "HISTORICO", "base": "12 pelotas de El Manatí, 1700-1600 a.C., de 8 a 25 cm de diámetro. Los objetos de hule más antiguos del mundo.", "propuesta_de_juego": "Objeto que REBOTA con física propia. Para el juego de pelota." },
+    { "id_sugerido": "BLOCK_HACHA_JADE", "nombre": "Hacha votiva de jade", "justificacion": "HISTORICO", "base": "Hachas pulidas en forma de pétalo, con el filo en el lado más ancho. CEREMONIALES, no funcionales.", "propuesta_de_juego": "Objeto de prestigio, no herramienta. Sirve como ofrenda.", "nota_de_diseno": "Un objeto valiosísimo que NO sirve para trabajar es una idea de diseño poco común y muy fiel: su valor es social, no utilitario." },
+    { "id_sugerido": "BLOCK_CUENTA_ILMENITA", "nombre": "Cuenta de ilmenita", "justificacion": "HISTORICO", "base": "Toneladas de ellas en San Lorenzo, multiperforadas con taladro rotatorio. FUNCIÓN DESCONOCIDA.", "propuesta_de_juego": "Libre. Al no saberse su función real, cualquier uso que se le dé no contradice nada." },
+    { "id_sugerido": "BLOCK_PUNZON_RAYA", "nombre": "Espina de raya", "justificacion": "HISTORICO", "base": "Seis colas auténticas de ~15 cm en la Tumba A de La Venta, incrustadas con hematita. Instrumento de sangría ritual.", "propuesta_de_juego": "Objeto ritual" },
+    { "id_sugerido": "BLOCK_METATE", "nombre": "Metate", "justificacion": "HISTORICO", "base": "Piedra de moler, de basalto. El uso utilitario mayoritario del basalto en volumen.", "propuesta_de_juego": "Estación de trabajo que MUELE grano. Necesaria para procesar el maíz." }
+  ],
+
+  "notas_de_integracion_con_el_motor": {
+    "informacion_en_el_ID": "El motor ya codifica datos en el propio BlockType (pencas apiladas X2/X3/Z2/Z3, grosor de raíz, tamaño de mata de ixtle, celdas compartidas). Esa técnica encaja con: grosor de contrafuerte de ceiba, etapas de crecimiento del maíz, zonación del manglar por salinidad, y variedad de obsidiana por yacimiento.",
+    "forma_por_hash_de_posicion": "El motor ya genera la disposición de los guijarros y el trazado de las raíces con un hash de la posición, sin gastar bytes. Aplicable a: dispersión de charcos de chapopote, forma de los cantos rodados de basalto, disposición de las cuentas.",
+    "sistema_de_fluidos": "updateWaterFlow ya existe. Los canales de basalto en U serían conductores dirigidos, y la bentonita un sellador.",
+    "desgaste_de_herramienta": "gastarHerramienta ya existe en Inventory.h, contando en medios puntos. La mecánica de abrasión añadiría un consumible aparte (arena de cuarzo) además del desgaste.",
+    "sistema_de_luz": "computeSkylight ya modela atenuación por volumen real del bloque (lightCost). El dosel de cuatro estratos de la selva alta perennifolia, con epífitas y bejucos, encaja directamente con ese sistema."
+  }
+}

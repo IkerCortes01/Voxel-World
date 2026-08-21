@@ -267,18 +267,60 @@ enum BlockType {
     BLOCK_PEDAZO_TIERRA,         // 70 Terrones de tierra suelta
     BLOCK_PEDAZO_COBRE,          // 71 Cobre crudo del suelo
 
+    // ------------------------------------------------------------------
+    // NIVELES DE BLOQUE (capas acumulables)
+    // ------------------------------------------------------------------
+    // Un bloque de terreno no tiene por que llenar su voxel: puede ser una
+    // capa fina que se va acumulando. Hay OCHO niveles, y cada uno mide lo
+    // suyo en pixeles:
+    //
+    //     nivel 1 ->  3 px      nivel 5 ->  8 px
+    //     nivel 2 ->  4 px      nivel 6 -> 10 px
+    //     nivel 3 ->  5 px      nivel 7 -> 13 px
+    //     nivel 4 ->  6 px      nivel 8 -> 16 px (el bloque de siempre)
+    //
+    // El nivel 8 NO gasta ID: es el bloque normal que ya existia. Solo los
+    // siete parciales necesitan uno, y solo para las familias de TERRENO,
+    // que son las que se ven al caminar.
+    //
+    // Van en bloques de siete seguidos para que el nivel se saque del ID con
+    // una resta, sin tabla: nivel = (id - primero) + 1.
+    BLOCK_GRASS_L1, BLOCK_GRASS_L2, BLOCK_GRASS_L3, BLOCK_GRASS_L4,
+    BLOCK_GRASS_L5, BLOCK_GRASS_L6, BLOCK_GRASS_L7,          // 72-78
+
+    BLOCK_DIRT_L1, BLOCK_DIRT_L2, BLOCK_DIRT_L3, BLOCK_DIRT_L4,
+    BLOCK_DIRT_L5, BLOCK_DIRT_L6, BLOCK_DIRT_L7,             // 79-85
+
+    BLOCK_STONE_L1, BLOCK_STONE_L2, BLOCK_STONE_L3, BLOCK_STONE_L4,
+    BLOCK_STONE_L5, BLOCK_STONE_L6, BLOCK_STONE_L7,          // 86-92
+
+    BLOCK_SAND_L1, BLOCK_SAND_L2, BLOCK_SAND_L3, BLOCK_SAND_L4,
+    BLOCK_SAND_L5, BLOCK_SAND_L6, BLOCK_SAND_L7,             // 93-99
+
+    BLOCK_GRAVEL_L1, BLOCK_GRAVEL_L2, BLOCK_GRAVEL_L3, BLOCK_GRAVEL_L4,
+    BLOCK_GRAVEL_L5, BLOCK_GRAVEL_L6, BLOCK_GRAVEL_L7,       // 100-106
+
+    BLOCK_SNOW_L1, BLOCK_SNOW_L2, BLOCK_SNOW_L3, BLOCK_SNOW_L4,
+    BLOCK_SNOW_L5, BLOCK_SNOW_L6, BLOCK_SNOW_L7,             // 107-113
+
+    BLOCK_CLAYD_L1, BLOCK_CLAYD_L2, BLOCK_CLAYD_L3, BLOCK_CLAYD_L4,
+    BLOCK_CLAYD_L5, BLOCK_CLAYD_L6, BLOCK_CLAYD_L7,          // 114-120
+
+    BLOCK_CLAYS_L1, BLOCK_CLAYS_L2, BLOCK_CLAYS_L3, BLOCK_CLAYS_L4,
+    BLOCK_CLAYS_L5, BLOCK_CLAYS_L6, BLOCK_CLAYS_L7,          // 121-127
+
     // ========================================================================
     // ITEMS
     // ========================================================================
     // No son bloques colocables del terreno: viven en el enum porque el
     // inventario los trata igual. Van DESPUÉS del último bloque para que la
     // lista de bloques (0..BLOCK_LAST_PLACEABLE) sea contigua.
-    BLOCK_DIRT_POWDER,      // 72 Polvo de tierra
-    BLOCK_STICK,            // 73 Palo
-    BLOCK_HOE,              // 74 Hoz
-    BLOCK_COAL_ITEM,        // 75 Carbón (item)
-    BLOCK_RAW_ZINC,         // 76 Zinc crudo
-    BLOCK_RAW_COPPER,       // 77 Cobre crudo
+    BLOCK_DIRT_POWDER,      // 128 Polvo de tierra
+    BLOCK_STICK,            // 129 Palo
+    BLOCK_HOE,              // 130 Hoz
+    BLOCK_COAL_ITEM,        // 131 Carbón (item)
+    BLOCK_RAW_ZINC,         // 132 Zinc crudo
+    BLOCK_RAW_COPPER,       // 133 Cobre crudo
 
     // ========================================================================
     // RETIRADOS
@@ -287,20 +329,20 @@ enum BlockType {
     // implementarse (sin textura, sin dureza, sin generación). Se conservan al
     // final, fuera del rango util, para que el código que aún los menciona
     // siga compilando sin ocupar un ID de la lista buena.
-    BLOCK_IRON_ORE,         // 78 (sin implementar)
-    BLOCK_BRICKS,           // 79 (sin implementar)
-    BLOCK_GLASS,            // 80 (sin implementar)
-    BLOCK_ORANGE_FLOWER,    // 81 (retirado del juego)
-    BLOCK_HILO_IXTLE,       // 82 Hilo de ixtle (de piedra + hoja)
-    BLOCK_HACHA_PIEDRA,     // 83 Hacha de piedra (herramienta)
+    BLOCK_IRON_ORE,         // 134 (sin implementar)
+    BLOCK_BRICKS,           // 135 (sin implementar)
+    BLOCK_GLASS,            // 136 (sin implementar)
+    BLOCK_ORANGE_FLOWER,    // 137 (retirado del juego)
+    BLOCK_HILO_IXTLE,       // 138 Hilo de ixtle (de piedra + hoja)
+    BLOCK_HACHA_PIEDRA,     // 139 Hacha de piedra (herramienta)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 84 (ya no se genera)
+    BLOCK_BEDROCK           // 140 (ya no se genera)
 };
 
-// Último bloque COLOCABLE de la lista ordenada (los guijarros de cobre).
+// Último bloque COLOCABLE (el último nivel de arena arcillosa).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_PEDAZO_COBRE;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_CLAYS_L7;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {
@@ -317,6 +359,80 @@ inline int grosorRaiz(BlockType t) {
         case BLOCK_RAIZ_ENORME:  return 16;
         default:                 return 0;
     }
+}
+
+// ============================================================================
+// NIVELES: ALTURA DE UN BLOQUE PARCIAL
+// ============================================================================
+// Los ocho niveles y su altura en pixeles. El 8 es el bloque entero.
+inline int alturaNivelPx(int nivel) {
+    switch (nivel) {
+        case 1: return 3;
+        case 2: return 4;
+        case 3: return 5;
+        case 4: return 6;
+        case 5: return 8;
+        case 6: return 10;
+        case 7: return 13;
+        default: return 16;   // nivel 8: el bloque de siempre
+    }
+}
+
+// Primer ID de cada familia con niveles. Devuelve BLOCK_AIR si el bloque no
+// admite niveles (troncos, minerales, plantas, construidos...).
+inline BlockType primerNivelDe(BlockType completo) {
+    switch (completo) {
+        case BLOCK_GRASS:      return BLOCK_GRASS_L1;
+        case BLOCK_DIRT:       return BLOCK_DIRT_L1;
+        case BLOCK_STONE:      return BLOCK_STONE_L1;
+        case BLOCK_SAND:       return BLOCK_SAND_L1;
+        case BLOCK_GRAVEL:     return BLOCK_GRAVEL_L1;
+        case BLOCK_SNOW:       return BLOCK_SNOW_L1;
+        case BLOCK_CLAY_DIRT:  return BLOCK_CLAYD_L1;
+        case BLOCK_CLAY_SAND:  return BLOCK_CLAYS_L1;
+        default:               return BLOCK_AIR;
+    }
+}
+
+// ¿Este bloque es un nivel parcial (1..7)?
+inline bool esNivelParcial(BlockType t) {
+    return (int)t >= (int)BLOCK_GRASS_L1 && (int)t <= (int)BLOCK_CLAYS_L7;
+}
+
+// Que nivel es (1..8). Un bloque entero es 8; lo que no tiene niveles, 8.
+inline int nivelDe(BlockType t) {
+    if (!esNivelParcial(t)) return 8;
+    return (((int)t - (int)BLOCK_GRASS_L1) % 7) + 1;
+}
+
+// El bloque COMPLETO al que pertenece este nivel.
+inline BlockType bloqueBaseDe(BlockType t) {
+    if (!esNivelParcial(t)) return t;
+    const int fam = ((int)t - (int)BLOCK_GRASS_L1) / 7;
+    switch (fam) {
+        case 0: return BLOCK_GRASS;
+        case 1: return BLOCK_DIRT;
+        case 2: return BLOCK_STONE;
+        case 3: return BLOCK_SAND;
+        case 4: return BLOCK_GRAVEL;
+        case 5: return BLOCK_SNOW;
+        case 6: return BLOCK_CLAY_DIRT;
+        default: return BLOCK_CLAY_SAND;
+    }
+}
+
+// El ID que corresponde a un bloque y un nivel. Nivel 8 -> el bloque entero.
+inline BlockType conNivel(BlockType completo, int nivel) {
+    if (nivel >= 8) return completo;
+    if (nivel < 1) nivel = 1;
+    const BlockType primero = primerNivelDe(completo);
+    if (primero == BLOCK_AIR) return completo;   // no admite niveles
+    return (BlockType)((int)primero + (nivel - 1));
+}
+
+// Altura en bloques (0..1) que ocupa este bloque. Es su colision EXACTA.
+inline float alturaDe(BlockType t) {
+    return (float)alturaNivelPx(nivelDe(t)) / 16.0f;
 }
 
 // ¿Es un guijarro suelto del suelo, de cualquier material?

@@ -216,22 +216,36 @@ public:
         // interior continental se queda en ~78 y no en 104: 78 + 58 = 136
         // seguiria pasandose, de modo que MountainGenerator ademas aplica
         // una compresion suave cerca del techo (ver MAX_TERRAIN_HEIGHT).
+        // ⭐ TALUD SUAVIZADO
+        //
+        // El tramo 0.28 -> 0.36 subia 18 bloques de golpe (34 -> 52), y ese
+        // salto es lo que producia chunks que "bajan mucho de nivel": dos
+        // columnas vecinas con continentalidad ligeramente distinta acaban a
+        // decenas de bloques una de otra, y en el borde entre ambas aparece
+        // un muro. Como el terreno de al lado ya estaba mallado, el resultado
+        // se veia como un corte o un agujero.
+        //
+        // Se reparte la subida en mas puntos y se recorta el rango total
+        // (14->82 pasa a 30->80): el fondo del mar deja de estar tan hondo,
+        // asi que ninguna transicion tiene que salvar tanto desnivel.
         static const Spline::Point CONTINENT_SPLINE[] = {
-            { 0.00f, 14.0f },  // Abismo oceanico
-            { 0.15f, 26.0f },  // Fondo profundo
-            { 0.28f, 34.0f },  // Base del talud continental
-            { 0.36f, 52.0f },  // Talud: ascenso rapido
-            { 0.44f, 56.0f },  // Plataforma continental (poco profunda)
+            { 0.00f, 30.0f },  // Abismo oceanico (era 14: demasiado hondo)
+            { 0.15f, 38.0f },  // Fondo profundo
+            { 0.28f, 45.0f },  // Base del talud continental
+            { 0.32f, 49.0f },  // Talud: ascenso repartido
+            { 0.36f, 53.0f },  //   en cuatro tramos en vez de uno
+            { 0.40f, 55.0f },
+            { 0.44f, 57.0f },  // Plataforma continental (poco profunda)
             // Transicion costera RAPIDA: se cruza el nivel del mar en un
             // intervalo estrecho de continentalidad. Si la costa es plana,
             // una fraccion enorme del mundo queda a +-3 bloques del mar y
             // todo se convierte en playa. Esta pendiente concentra la linea
             // de costa en una franja delgada, como en la realidad.
             { 0.50f, 64.0f },  // Linea de costa (SEA_LEVEL=62)
-            { 0.58f, 69.0f },  // Llanura costera
-            { 0.72f, 74.0f },  // Tierra interior
-            { 0.88f, 78.0f },  // Altiplano
-            { 1.00f, 82.0f }   // Interior elevado
+            { 0.58f, 68.0f },  // Llanura costera
+            { 0.72f, 72.0f },  // Tierra interior
+            { 0.88f, 76.0f },  // Altiplano
+            { 1.00f, 80.0f }   // Interior elevado
         };
         constexpr int CONTINENT_POINTS =
             (int)(sizeof(CONTINENT_SPLINE) / sizeof(CONTINENT_SPLINE[0]));

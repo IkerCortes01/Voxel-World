@@ -1,0 +1,205 @@
+{
+  "_meta": {
+    "titulo": "Propuesta de recetas y cadenas de proceso olmecas para Voxel World",
+    "proyecto": "Voxel World",
+    "fecha_compilacion": "2026-08-20",
+    "idioma": "es",
+    "naturaleza": "CAPA DE DISEÑO derivada de la investigación. Cada receta indica su base histórica real y qué parte es invención.",
+    "convenciones_del_motor": {
+      "referencia": "CraftingSystem en src/main.cpp (~línea 5665)",
+      "formato": "CraftingRecipe con pattern[9] (3x3), result, resultCount y shapeless",
+      "patron_existente": "El motor ya distingue recetas CON FORMA (la posición importa) y SIN FORMA (shapeless). Las cadenas de proceso de abajo aprovechan ambas.",
+      "precedente_util": "La cadena del nopal que ya existe en el juego (penca → mojado en agua → tiras → desbabar en agua → sin baba + baba) es exactamente el tipo de proceso multi-etapa con transformación en el mundo que piden varias de estas recetas."
+    },
+    "escala_de_justificacion": {
+      "HISTORICO": "El proceso está documentado arqueológicamente",
+      "PLAUSIBLE": "Coherente con lo documentado, sin evidencia directa",
+      "JUEGO": "Invención de diseño"
+    }
+  },
+
+  "cadena_del_hule": {
+    "titulo": "El hule: la primera química de polímeros del mundo",
+    "justificacion": "HISTORICO",
+    "base_real": "Látex de Castilla elastica mezclado con jugo de Ipomoea alba. Los compuestos azufrados de la enredadera entrecruzan las cadenas de poliisopreno: una vulcanización rudimentaria, 3.500 años antes de Goodyear. Caracterizado experimentalmente por Hosler, Burkett y Tarkanian (MIT), Science 1999.",
+    "advertencia_historica": "Un análisis de 2023 NO encontró evidencia de vulcanización con Ipomoea en las pelotas concretas de El Manatí. La técnica está documentada en Mesoamérica, pero no probada en esas piezas. Para el juego se puede usar sin problema; conviene no afirmar que está probada en El Manatí.",
+    "pasos": [
+      { "paso": 1, "accion": "Sangrar el árbol de hule con incisiones diagonales", "entrada": "BLOCK_HULE_TRONCO + herramienta de corte", "salida": "Látex crudo", "nota": "NO se tala el árbol: es un recurso renovable por interacción repetida" },
+      { "paso": 2, "accion": "Recoger la enredadera", "entrada": "Planta de Ipomoea alba (quiebraplatos)", "salida": "Jugo de enredadera" },
+      { "paso": 3, "accion": "Mezclar en proporción", "entrada": "Látex + jugo", "salida": "Hule utilizable", "detalle_historico": "LA PROPORCIÓN CAMBIA EL RESULTADO: ~50/50 da máxima elasticidad (pelotas); otras proporciones dan material más resistente al desgaste (suelas, bandas, adhesivos). No era una receta: era un ajuste deliberado según el uso final." }
+    ],
+    "productos_finales": [
+      { "producto": "Pelota de hule", "proporcion": "50% látex / 50% enredadera", "propiedad": "Máxima elasticidad; rebota" },
+      { "producto": "Banda o suela de hule", "proporcion": "Distinta", "propiedad": "Resistente al desgaste" },
+      { "producto": "Hule adhesivo", "propiedad": "Pegamento e impermeabilizante" }
+    ],
+    "nota_de_diseno": "Una receta cuyo RESULTADO DEPENDE DE LA PROPORCIÓN, no solo de los ingredientes, es mecánicamente rica y históricamente exacta. El motor tendría que soportar recetas con cantidades variables, o bien codificar cada proporción como receta shapeless distinta con distinto número de ingredientes."
+  },
+
+  "cadena_del_chapopote": {
+    "titulo": "El chapopote: los primeros petroleros de Mesoamérica",
+    "justificacion": "HISTORICO",
+    "base_real": "Bitumen natural recogido de escurrimientos, calentado y mezclado con carga orgánica (pastos, hojas de palma, olotes) que modifica su viscosidad y propiedades mecánicas, igual que un árido en el asfalto moderno.",
+    "pasos": [
+      { "paso": 1, "accion": "Recoger", "entrada": "Charco de chapopote en superficie", "salida": "Chapopote crudo", "nota": "Recurso de superficie: no se perfora nada" },
+      { "paso": 2, "accion": "Calentar", "entrada": "Chapopote crudo + fuego", "salida": "Chapopote líquido" },
+      { "paso": 3, "accion": "Cargar con material orgánico", "entrada": "Chapopote líquido + pastos/hojas de palma/olotes", "salida": "Chapopote procesado", "nota": "La carga orgánica es un AGREGADO que cambia las propiedades mecánicas" }
+    ],
+    "usos": [
+      { "uso": "Sellar embarcación", "justificacion": "HISTORICO", "nota": "Descrito como el uso MÁS IMPORTANTE. Sin canoas impermeables no hay transporte de basalto." },
+      { "uso": "Sellar canal de basalto", "justificacion": "HISTORICO" },
+      { "uso": "Sellar recipiente", "justificacion": "HISTORICO" },
+      { "uso": "Adhesivo para enmangar herramientas", "justificacion": "HISTORICO", "receta_conceptual": "Cabeza de piedra + palo + chapopote → herramienta enmangada" },
+      { "uso": "Pintura negra facial y corporal", "justificacion": "HISTORICO", "nota": "Hay figurillas olmecas con chapopote aplicado como pintura negra sobre el rostro" },
+      { "uso": "Recubrimiento de pisos", "justificacion": "PROBABLE" }
+    ]
+  },
+
+  "cadena_de_la_piedra_dura": {
+    "titulo": "Abrasión: cómo se trabaja el jade sin metal",
+    "justificacion": "HISTORICO",
+    "principio": "LA HERRAMIENTA ES EL ABRASIVO, NO EL ÚTIL. No se corta la piedra dura: se desgasta. La cuerda no corta, transporta el cuarzo.",
+    "base_real": "La jadeíta tiene dureza 6,5-7 Mohs y tenacidad excepcional. Sin metal, la única vía es la abrasión con arena de cuarzo, jade en polvo o polvo de piedra, siempre con agua.",
+    "pasos": [
+      { "paso": 1, "accion": "Percusión / desbaste", "entrada": "Bloque de jadeíta + percutor de piedra", "salida": "Preforma", "nota": "Golpeo repetido para desbastar la forma general" },
+      { "paso": 2, "accion": "Aserrado con sierra de cuerda", "entrada": "Preforma + sierra de cuerda + arena de cuarzo + agua", "salida": "Pieza cortada", "nota": "LENTO. Consume arena de cuarzo. Produce cortes de sección en V." },
+      { "paso": 3, "accion": "Perforación con taladro de arco", "entrada": "Pieza + taladro de arco + arena de cuarzo", "salida": "Pieza perforada", "nota": "Perforaciones BICÓNICAS, taladradas desde ambas caras. Deja núcleo cilíndrico si es taladro tubular." },
+      { "paso": 4, "accion": "Incisión con punta de cuarzo", "entrada": "Pieza + punta de cuarzo", "salida": "Pieza incisa", "nota": "Curiosamente, incidir es FÁCIL antes del pulido: la superficie rugosa agarra la punta" },
+      { "paso": 5, "accion": "Pulido progresivo", "entrada": "Pieza + abrasivos cada vez más finos", "salida": "Pieza acabada", "nota": "Hasta brillo especular" }
+    ],
+    "nota_de_diseno": "El jade NO debería poder picarse con una herramienta normal. Debería requerir esta cadena, ser lenta, y consumir arena de cuarzo como recurso aparte. Eso hace que una pieza de jade se sienta como lo que era: el resultado de una inversión de trabajo enorme.",
+    "economia_de_material_historica": "Las 'cucharas' olmecas se obtenían SECCIONANDO UN HACHA a lo largo de su eje. Nada se desperdiciaba. Sería una receta bonita: hacha de jade → 2 cucharas."
+  },
+
+  "cadena_del_espejo": {
+    "titulo": "El espejo cóncavo que enciende fuego",
+    "justificacion": "HISTORICO",
+    "base_real": "Discos de magnetita, hematita o ilmenita pulidos con curvatura cóncava, con precisión comparable a lentes ópticas modernas y reflectividad de hasta 55%. De cuatro espejos de Arroyo Pesquero, DOS demostraron encender fuego en pruebas reales.",
+    "pasos": [
+      { "paso": 1, "accion": "Obtener el mineral", "entrada": "BLOCK_MAGNETITA o BLOCK_HEMATITA", "salida": "Bloque de mineral de hierro" },
+      { "paso": 2, "accion": "Desbastar el disco", "entrada": "Mineral + percutor", "salida": "Disco tosco" },
+      { "paso": 3, "accion": "Rebajar la concavidad", "entrada": "Disco + abrasivo + agua", "salida": "Disco cóncavo", "nota": "Aquí está la dificultad real: conseguir una curvatura regular que enfoque" },
+      { "paso": 4, "accion": "Pulir a espejo", "entrada": "Disco cóncavo + abrasivos finos", "salida": "BLOCK_ESPEJO_MAGNETITA" }
+    ],
+    "funcion_en_juego": {
+      "principal": "Encender fuego concentrando la luz solar",
+      "limitacion_natural": "Solo funciona de día y con cielo despejado",
+      "justificacion": "HISTORICO — verificado experimentalmente sobre piezas reales",
+      "usos_secundarios": ["Adivinación / objeto ritual", "Marcador de rango: se llevaban colgados al pecho"]
+    },
+    "nota_de_diseno": "El motor ya tiene ciclo día/noche con luzSolar(). La condición 'solo de día y despejado' es directamente comprobable con lo que ya existe."
+  },
+
+  "cadena_del_maiz": {
+    "titulo": "Del teosinte a la tortilla",
+    "justificacion": "HISTORICO en la química; ESPECULATIVO en si los olmecas nixtamalizaban",
+    "advertencia_historica": "NO existe evidencia arqueológica directa de nixtamalización olmeca. La evidencia directa más antigua (esferulitas de almidón) es del Clásico maya. Y el comal es muy posterior al Formativo: el maíz olmeca probablemente se consumía como ATOLES, GACHAS Y BEBIDAS, no como tortilla.",
+    "pasos": [
+      { "paso": 1, "accion": "Calcinar caliza o conchas", "entrada": "BLOCK_CALIZA + fuego intenso", "salida": "Cal viva", "quimica_real": "CaCO3 → CaO + CO2" },
+      { "paso": 2, "accion": "Apagar la cal", "entrada": "Cal viva + agua", "salida": "BLOCK_CAL", "quimica_real": "CaO + H2O → Ca(OH)2", "nota_historica": "En la zona olmeca la caliza no abunda, lo que hace más probable la vía de CONCHAS QUEMADAS o de CENIZA VEGETAL como alternativa alcalina" },
+      { "paso": 3, "accion": "Nixtamalizar", "entrada": "Maíz + cal + agua + calor", "salida": "Nixtamal", "quimica_real": "El álcali disuelve la hemicelulosa, afloja el pericarpio y LIBERA LA NIACINA LIGADA. Calcio +750% con 85% de biodisponibilidad. Mejor balance de lisina y triptófano." },
+      { "paso": 4, "accion": "Moler en metate", "entrada": "Nixtamal + BLOCK_METATE", "salida": "Masa" },
+      { "paso": 5, "accion": "Preparar", "entrada": "Masa", "salida": "Atole, gachas o tamal", "nota": "Para el periodo olmeca esto es más fiel que la tortilla" }
+    ],
+    "mecanica_nutricional_propuesta": {
+      "idea": "El maíz SIN nixtamalizar alimenta menos que el nixtamalizado, o incluso produce un efecto negativo tras consumo prolongado exclusivo",
+      "base_real": "Sin nixtamalización, una dieta basada en maíz produce PELAGRA por deficiencia de niacina. Las poblaciones europeas que adoptaron el maíz sin la técnica la sufrieron masivamente en los siglos XVIII-XIX. Los mesoamericanos nunca la tuvieron.",
+      "justificacion": "HISTORICO en la química; JUEGO en la implementación",
+      "nota_de_diseno": "Es una de las mecánicas más elegantes que se pueden sacar de esta investigación: enseña química nutricional real sin decir una palabra. El jugador descubre por experiencia que hay que procesar el grano."
+    }
+  },
+
+  "cadena_de_la_domesticacion": {
+    "titulo": "De teosinte a maíz",
+    "justificacion": "HISTORICO en la biología; JUEGO en la mecánica",
+    "base_real": "Zea mays ssp. parviglumis (teosinte) tiene 2 hileras de granos, espiga dehiscente que se desgrana sola, y grano encerrado en cápsula dura. El maíz tiene 8-22 hileras, espiga indehiscente y grano desnudo. Los genes clave son tb1 (tallo único) y tga1 (elimina la cápsula).",
+    "mecanica_propuesta": "Plantar teosinte, cosechar, y REPLANTAR SELECCIONANDO las mejores espigas. Tras N generaciones, la planta se convierte en maíz. Cada generación mejora un escalón.",
+    "etapas_sugeridas": [
+      { "etapa": 1, "planta": "Teosinte silvestre", "hileras": 2, "rendimiento": "Muy bajo" },
+      { "etapa": 2, "planta": "Teosinte seleccionado", "hileras": 4, "rendimiento": "Bajo" },
+      { "etapa": 3, "planta": "Proto-maíz", "hileras": 8, "rendimiento": "Medio" },
+      { "etapa": 4, "planta": "Maíz", "hileras": "12-22", "rendimiento": "Alto" }
+    ],
+    "nota_de_diseno": "Una mecánica de domesticación a lo largo de generaciones es históricamente preciosa y muy poco vista. El motor ya sabe codificar etapas en el propio ID del bloque (como hace con los tamaños de mata de ixtle), así que encaja sin infraestructura nueva.",
+    "advertencia": "En la realidad esto tomó milenios. Comprimirlo a unas pocas generaciones de juego es una licencia necesaria y evidente."
+  },
+
+  "cadena_de_la_ceramica": {
+    "titulo": "Control de atmósfera en la cocción",
+    "justificacion": "HISTORICO",
+    "base_real": "Cocción a 700-900 °C. El COLOR depende de la atmósfera: oxidante (con oxígeno) da rojizos y anaranjados por oxidación del hierro a Fe3+; reductora (con humo, oxígeno limitado) da grises y negros. Los olmecas produjeron ambas de forma diferenciada.",
+    "el_caso_notable": {
+      "tipo": "Loza negra de borde blanco (white-rimmed blackware)",
+      "tecnica": "COCCIÓN DIFERENCIAL: la vasija se cuece de modo que el BORDE queda en atmósfera oxidante (blanco) mientras el CUERPO queda en atmósfera reductora (negro)",
+      "metodo": "Típicamente invirtiendo la vasija en el fuego, o controlando su posición en la pila y el momento de sofocación con material orgánico",
+      "significado": "El efecto es deliberado y reproducible, no accidental. Es control muy fino de atmósfera en horno abierto."
+    },
+    "mecanica_propuesta": {
+      "idea": "El mismo barro da piezas de color distinto según CÓMO se cueza: con aire libre o sofocando el fuego con material orgánico",
+      "justificacion": "HISTORICO",
+      "nota_de_diseno": "Dos recetas con el mismo ingrediente y distinto proceso, dando productos visualmente distintos. Enseña química de estado sólido sin explicarla."
+    },
+    "limitaciones_historicas": ["SIN TORNO: no existe en Mesoamérica precolombina. Modelado a mano, por rollos o con moldes simples.", "SIN VIDRIADO: requiere fundentes y temperaturas que Mesoamérica no alcanzó antes de la Conquista."]
+  },
+
+  "cadena_del_monumento": {
+    "titulo": "Mover 24 toneladas sin rueda ni animales",
+    "justificacion": "HISTORICO",
+    "base_real": "Cantos rodados esféricos de basalto depositados por lahares, seleccionados por su forma. Desbastados EN CANTERA para reducir masa, transportados por trineo y rodillos en tierra y por BALSA en agua, aprovechando la temporada de lluvias. Estimación: ~1.500 personas durante 3-4 meses por cabeza.",
+    "pasos": [
+      { "paso": 1, "accion": "Buscar el canto adecuado", "lugar": "Laderas del volcán", "nota": "No se cantea: se BUSCA el canto rodado cuya forma ya sirve" },
+      { "paso": 2, "accion": "Desbastar en cantera", "nota": "Reducción de masa deliberada para abaratar el transporte: ingeniería logística" },
+      { "paso": 3, "accion": "Transportar por tierra", "medios": ["Trineo de madera", "Rodillos de tronco"], "nota": "Lento y carísimo en trabajo" },
+      { "paso": 4, "accion": "Transportar por agua", "medios": ["Balsa fluvial"], "nota": "Infinitamente más barato. Aprovechando la crecida estacional." },
+      { "paso": 5, "accion": "Acabado final", "lugar": "En el centro ceremonial", "medios": ["Percutores de mano", "Abrasión", "Pulido"] },
+      { "paso": 6, "accion": "Pintar", "justificacion": "PROBABLE", "nota": "Probablemente estuvieron pintadas con colores vivos" }
+    ],
+    "reciclaje": {
+      "hecho_historico": "Las cabezas colosales 2 y 7 de San Lorenzo fueron RE-TALLADAS a partir de tronos previos. El basalto era tan caro que se reutilizaba.",
+      "receta_conceptual": "Trono de basalto + herramientas → Cabeza colosal",
+      "nota_de_diseno": "Una receta que consume un monumento para hacer otro es narrativamente fuerte, y es literalmente lo que ocurrió."
+    },
+    "nota_de_diseno": "Si el juego permite mover bloques monumentales, el coste debería ser COLECTIVO y por AGUA mucho más barato que por tierra. Eso reproduce solo la geografía real: los sitios están donde están por los ríos."
+  },
+
+  "cadena_de_la_ofrenda": {
+    "titulo": "Construir para enterrar",
+    "justificacion": "HISTORICO",
+    "base_real": "Los tres mosaicos de serpentina de La Venta (~485 bloques cada uno) fueron cubiertos con arcilla de color y ENTERRADOS INMEDIATAMENTE tras terminarse. Nunca estuvieron a la vista. La Ofrenda Masiva 3: 50 t de serpentina bajo 4.000 t de arcilla, relación 80:1.",
+    "mecanica_propuesta": {
+      "idea": "Construir un mosaico y sepultarlo produce algún beneficio (prestigio, progresión, desbloqueo), pero el mosaico deja de ser visible y recuperable",
+      "justificacion": "JUEGO en la recompensa; HISTORICO en el acto",
+      "nota_de_diseno": "Es la idea más contraintuitiva y más potente de toda la investigación: una obra monumental hecha PARA NO SER VISTA. El 98,8% del esfuerzo era la arcilla que la tapaba. No conozco ningún juego que haya hecho algo así."
+    },
+    "detalle_extraordinario": "La Ofrenda 4 fue enterrada y, GENERACIONES DESPUÉS, reexcavada con precisión quirúrgica para inspeccionarla, y vuelta a cubrir. Implica que la ubicación se transmitió con exactitud a lo largo de mucho tiempo."
+  },
+
+  "recetas_menores": [
+    { "nombre": "Cuerda de fibra", "entrada": "Fibra vegetal (el motor ya tiene hilo de ixtle)", "salida": "Cuerda", "justificacion": "PLAUSIBLE" },
+    { "nombre": "Taladro de arco", "entrada": "Palo + cuerda + punta de pedernal u obsidiana", "salida": "BLOCK_TALADRO_ARCO", "justificacion": "HISTORICO" },
+    { "nombre": "Sierra de cuerda", "entrada": "Cuerda + marco de madera", "salida": "BLOCK_SIERRA_CUERDA", "justificacion": "HISTORICO" },
+    { "nombre": "Petate", "entrada": "Tule (Typha domingensis)", "salida": "Estera", "justificacion": "HISTORICO", "nota": "Se hallaron petates y fibras en El Manatí" },
+    { "nombre": "Cesta", "entrada": "Fibra vegetal", "salida": "Cesta", "justificacion": "PLAUSIBLE", "nota": "El transporte de tierra a cesto es como se movieron millones de m³ en San Lorenzo" },
+    { "nombre": "Pigmento rojo", "entrada": "BLOCK_HEMATITA + moler", "salida": "Ocre rojo", "justificacion": "HISTORICO" },
+    { "nombre": "Pigmento bermellón", "entrada": "BLOCK_CINABRIO + moler", "salida": "Bermellón", "justificacion": "HISTORICO", "nota": "Tóxico de verdad" },
+    { "nombre": "Piso de arena roja", "entrada": "Arena + ocre rojo", "salida": "BLOCK_PISO_ARENA_ROJA", "justificacion": "HISTORICO", "nota": "Los pisos del Palacio Rojo, con hematita importada" },
+    { "nombre": "Bajareque", "entrada": "Varas o carrizo + barro", "salida": "BLOCK_BAJAREQUE", "justificacion": "HISTORICO" },
+    { "nombre": "Copal", "entrada": "Resina de Bursera", "salida": "Incienso", "justificacion": "HISTORICO", "nota": "La evidencia más antigua de copal está en El Manatí" },
+    { "nombre": "Bebida de cacao", "entrada": "Semilla de cacao + agua", "salida": "Bebida", "justificacion": "HISTORICO", "nota": "Teobromina detectada en cerámica de El Manatí, 1650-1500 a.C.: el consumo de cacao más antiguo del mundo" },
+    { "nombre": "Vino de coyol", "entrada": "Savia de palma de coyol", "salida": "Bebida fermentada", "justificacion": "PLAUSIBLE" },
+    { "nombre": "Pescado ahumado", "entrada": "Pescado + humo", "salida": "Conserva", "justificacion": "HISTORICO", "duracion_real": "Peces pequeños ahumados: ~5 meses; marinos grandes salados y ahumados: ~1 mes" },
+    { "nombre": "Sal", "entrada": "Agua salada + evaporación o hervido", "salida": "Sal", "justificacion": "PROBABLE", "nota": "Laguna de investigación: la producción de sal olmeca no está documentada" }
+  ],
+
+  "progresion_tecnologica_sugerida": {
+    "nota": "Ordenada por dificultad creciente, derivada del archivo 04_TECNOLOGIA_Y_MATERIALES.txt",
+    "niveles": [
+      { "nivel": 1, "nombre": "Recolección directa", "contenido": ["Chapopote de manadero", "Arcilla", "Arena", "Fibras", "Madera", "Caña", "Cantos rodados"] },
+      { "nivel": 2, "nombre": "Transformación simple", "contenido": ["Cerámica cocida", "Cestería", "Cordelería", "Bajareque", "Coas y mazos", "Sal por evaporación"] },
+      { "nivel": 3, "nombre": "Control de proceso", "contenido": ["Cerámica con control de atmósfera", "Chapopote calentado y cargado", "Nixtamalización", "Cal por calcinación", "Pigmentos minerales"] },
+      { "nivel": 4, "nombre": "Abrasión de larga duración", "contenido": ["Pulido de serpentina", "Perforación con taladro de caña", "Talla de basalto"] },
+      { "nivel": 5, "nombre": "Máxima especialización", "contenido": ["Jadeíta trabajada por abrasión", "Espejos cóncavos funcionales", "Hule vulcanizado con proporción ajustada"] },
+      { "nivel": 6, "nombre": "Organización social como tecnología", "contenido": ["Transporte de monumentos de 24 t a 100 km", "Movimiento de millones de m³ de tierra", "Redes de intercambio de 600+ km"], "nota": "Este nivel es el que suele olvidarse. La mayor tecnología olmeca no fue una herramienta: fue la capacidad de coordinar a mucha gente durante mucho tiempo hacia un objetivo que no daba de comer a nadie." }
+    ]
+  }
+}

@@ -4605,8 +4605,11 @@ public:
                 return getTexture("Piedra.png");
 
             case BLOCK_IXTLE_TALLO:
-            case BLOCK_IXTLE_TALLO_ARENA:
                 return getTexture("Tallo de ixtle.png");
+            case BLOCK_IXTLE_TALLO_ARENA:
+                // El maguey en arena tiene su propia textura de base, con el
+                // terreno arenoso incrustado en vez del pasto.
+                return getTexture("Tallo de Maguei en arena.png");
             case BLOCK_IXTLE_HOJA:
             case BLOCK_IXTLE_PEQUENA:
             case BLOCK_IXTLE_GRANDE:
@@ -9140,6 +9143,19 @@ public:
 
         // --- BASE: hereda el terreno sobre el que crece ---
         const BlockType suelo = getBlock(worldX, baseY - 1, worldZ);
+
+        // ⭐ NADA DE NOPALES EN LA ROCA
+        //
+        // La comprobacion de suelo se hacia SOLO en el sitio que decide
+        // donde sembrar, y ahi se miraba `ground` -- el bloque de superficie
+        // ANTES de que la generacion siguiera tocando la columna. Si algo lo
+        // cambiaba despues (una veta, una cueva que aflora, una capa de
+        // nivel), el nopal ya estaba encargado y crecia igual sobre piedra.
+        //
+        // Repitiendo la comprobacion AQUI, justo antes de plantar, el nopal
+        // solo aparece si el suelo sigue siendo valido en ese momento.
+        if (!esSueloParaNopal(suelo)) return;
+
         setBlock(worldX, baseY, worldZ, baseParaSuelo(suelo));
 
         // --- TALLO: 3 a 6 bloques completos ---
@@ -12899,8 +12915,15 @@ public:
                                 // En ARENA se usa la variante de arena:
                                 // la lechuguilla es planta de desierto y la
                                 // mayoria crece en suelo arenoso.
+                                //
+                                // Vale tambien si el suelo es una CAPA de
+                                // arena (un nivel parcial): lo que cuenta es
+                                // el material, no si el bloque esta entero.
+                                const BlockType matSuelo = esNivelParcial(b)
+                                                         ? bloqueBaseDe(b) : b;
                                 const BlockType cual =
-                                    (b == BLOCK_SAND || b == BLOCK_CLAY_SAND)
+                                    (matSuelo == BLOCK_SAND ||
+                                     matSuelo == BLOCK_CLAY_SAND)
                                     ? BLOCK_IXTLE_TALLO_ARENA
                                     : BLOCK_IXTLE_TALLO;
                                 const GLuint suelo =
@@ -16432,6 +16455,9 @@ void prewarmItemTextures() {
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_TIERRA, 0);
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_CALIZA, 0);
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_COBRE, 0);
+        // El tallo de maguey en arena: lo pide el mesher, que corre en otro
+        // hilo, asi que se carga aqui con el contexto GL activo.
+        g_textureManager->getBlockTexture(BLOCK_IXTLE_TALLO_ARENA, 0);
         g_textureManager->getBlockTexture(BLOCK_TUNA, 0);
         g_textureManager->getBlockTexture(BLOCK_TUNA_AMARILLA, 0);
         g_textureManager->getBlockTexture(BLOCK_TUNA_ROJA, 0);

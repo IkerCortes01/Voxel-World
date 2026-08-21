@@ -472,6 +472,12 @@ bool isCrossSprite(BlockType type) {
 // Se define por EXCLUSION (todo menos roca y minerales) para que un bloque
 // natural nuevo herede el comportamiento sin tener que acordarse de anadirlo.
 bool esSueloParaNopal(BlockType type) {
+    // ⭐ UN NIVEL PARCIAL SIRVE DE SUELO IGUAL QUE SU BLOQUE ENTERO
+    //
+    // Una capa de tierra de 8 px sigue siendo tierra: si no se tradujera
+    // aqui, las plantas dejarian de crecer justo donde el terreno tiene
+    // relieve fino, que es casi todas partes.
+    if (esNivelParcial(type)) type = bloqueBaseDe(type);
     switch (type) {
         // Roca y minerales: el nopal NO crece aqui.
         case BLOCK_STONE:
@@ -1488,8 +1494,15 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // escalon bajo.
     if (esGuijarro(type)) {
         constexpr float PX = 1.0f / 16.0f;
+        // La caja BAJA con el guijarro: si debajo hay una capa parcial, el
+        // monton se posa en su cara de arriba, y la colision tiene que
+        // seguirlo o el jugador chocaria contra aire.
+        float apoyo = 0.0f;
+        const BlockType abajo = get(0, -1, 0);
+        if (esNivelParcial(abajo)) apoyo = alturaDe(abajo) - 1.0f;
+
         minX = 0.0f;  maxX = 1.0f;
-        minY = 0.0f;  maxY = 6.0f * PX;   // lo que levanta el monton
+        minY = apoyo;  maxY = apoyo + 6.0f * PX;   // lo que levanta el monton
         minZ = 0.0f;  maxZ = 1.0f;
         return true;
     }
@@ -10841,7 +10854,29 @@ public:
 
                             // LADOS: la V se recorta al alto real, asi que
                             // el pixel sigue siendo cuadrado.
+                            // ⭐ LA MISMA LUZ QUE UN BLOQUE NORMAL
+                            //
+                            // Los bloques macizos se sombrean POR CARA: la de
+                            // arriba a plena luz, la de abajo al 50% y los
+                            // lados al 80% y 60%. Eso es lo que da el
+                            // volumen; sin ello, un bloque se ve plano y
+                            // "apagado" al lado de los demas.
+                            //
+                            // Los niveles se dibujaban con la luz uniforme de
+                            // los sprites (que para una planta esta bien,
+                            // porque no tiene caras claras), y por eso no
+                            // encajaban con el terreno de alrededor.
+                            //
+                            // Son los mismos numeros que usa el greedy
+                            // meshing en DIR_BRIGHT, para que un nivel y el
+                            // bloque entero de al lado se vean igual.
+                            constexpr float BRILLO_LADO   = 0.8f;
+                            constexpr float BRILLO_ARRIBA = 1.0f;
+
                             auto lado = [&](float ax,float az,float bx,float bz){
+                                const float lr = cr * BRILLO_LADO;
+                                const float lg = cg * BRILLO_LADO;
+                                const float lb = cb * BRILLO_LADO;
                                 const float PX4[4] = { ax, bx, bx, ax };
                                 const float PZ4[4] = { az, bz, bz, az };
                                 const float PY4[4] = { 0.0f, 0.0f, alto, alto };
@@ -10867,8 +10902,8 @@ public:
                                     vN.push_back(wx + PX4[i]);
                                     vN.push_back(wy + PY4[i]);
                                     vN.push_back(wz + PZ4[i]);
-                                    cN.push_back(cr); cN.push_back(cg);
-                                    cN.push_back(cb); cN.push_back(ca);
+                                    cN.push_back(lr); cN.push_back(lg);
+                                    cN.push_back(lb); cN.push_back(ca);
                                     uN.push_back(U4[i]); uN.push_back(V4[i]);
                                 }
                             };
@@ -10890,8 +10925,10 @@ public:
                                 vT.push_back(wx + TX[i]);
                                 vT.push_back(wy + alto);
                                 vT.push_back(wz + TZ[i]);
-                                cT.push_back(cr); cT.push_back(cg);
-                                cT.push_back(cb); cT.push_back(ca);
+                                cT.push_back(cr * BRILLO_ARRIBA);
+                                cT.push_back(cg * BRILLO_ARRIBA);
+                                cT.push_back(cb * BRILLO_ARRIBA);
+                                cT.push_back(ca);
                                 uT.push_back(TU[i]); uT.push_back(TV[i]);
                             }
 
@@ -10921,6 +10958,29 @@ public:
                         if (esGuijarro(block)) {
                             constexpr float PXL = 1.0f / 16.0f;
                             constexpr float EPS = 0.0005f;
+
+                            // ⭐ SE POSAN SOBRE LO QUE HAYA DEBAJO
+                            //
+                            // Si el bloque de abajo es una capa parcial -- una
+                            // tierra de 8 px, por ejemplo -- el guijarro tiene
+                            // que apoyarse EN SU CARA DE ARRIBA, no en el
+                            // suelo del voxel: si no, queda flotando con un
+                            // hueco debajo.
+                            //
+                            // Se resta 1 al voxel porque el guijarro esta en
+                            // el bloque de encima del suelo.
+                            float apoyo = 0.0f;
+                            {
+                                const BlockType abajo =
+                                    getNeighborBlockCached(x, y, z, 0, -1, 0);
+                                if (esNivelParcial(abajo)) {
+                                    // La capa de abajo llega hasta aqui; el
+                                    // guijarro empieza justo donde ella acaba,
+                                    // que en coordenadas de ESTE voxel es un
+                                    // valor negativo.
+                                    apoyo = alturaDe(abajo) - 1.0f;
+                                }
+                            }
 
                             unsigned hp = (unsigned)((int)wx * 73856093)
                                         ^ (unsigned)((int)wy * 19349663)
@@ -10984,7 +11044,8 @@ public:
                                     pz_[i] = cz + ex[i]*si + ez[i]*co;
                                 }
 
-                                const float y0 = EPS, y1 = EPS + alto;
+                                const float y0 = apoyo + EPS;
+                                const float y1 = apoyo + EPS + alto;
 
                                 // Emite un quad con la textura entera.
                                 // NINGUNA CARA SE PIERDE.
@@ -11362,6 +11423,19 @@ public:
                                 }
                             };
 
+                            // ⭐ LA MATA SE APOYA EN LA CAPA DE ABAJO
+                            // Igual que los guijarros: si debajo hay una capa
+                            // parcial, la planta nace en su cara de arriba y
+                            // no flota.
+                            float apoyoMata = 0.0f;
+                            {
+                                const BlockType abajo =
+                                    getNeighborBlockCached(x, y, z, 0, -1, 0);
+                                if (esNivelParcial(abajo)) {
+                                    apoyoMata = alturaDe(abajo) - 1.0f;
+                                }
+                            }
+
                             const float c = 0.5f;
                             const float giro0 =
                                 (float)(mezcla(3) % 360u) * 3.14159265f / 180.0f;
@@ -11450,8 +11524,10 @@ public:
                                     const float ax = c + dx * 1.5f * PXL;
                                     const float az = c + dz * 1.5f * PXL;
                                     // Con hueco debajo, la hoja nace mas
-                                    // abajo para tapar el aire.
-                                    const float ay = EPS -
+                                    // abajo para tapar el aire. Y si la capa
+                                    // de abajo es parcial, arranca en su cara
+                                    // de arriba en vez de flotar.
+                                    const float ay = EPS + apoyoMata -
                                         (float)huecoAbajo;
 
                                     // Punta de la hoja: sube `subida` y sale

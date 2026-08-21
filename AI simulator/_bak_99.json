@@ -1,0 +1,66 @@
+{
+  "_meta": {
+    "titulo": "Fuentes del sistema de simulación de fauna",
+    "version": "1.0",
+    "proyecto": "Voxel World — AI simulator",
+    "fecha": "2026-08-20",
+    "estructura": "Dos bloques: fuentes de BIOLOGÍA (el pecarí) y fuentes de ARQUITECTURA (el sistema de IA). Se mantienen separadas porque son literaturas distintas y se validan con criterios distintos."
+  },
+
+  "criterios_de_seleccion": {
+    "biologia": "Se priorizó literatura primaria revisada por pares, monografías Mammalian Species de la American Society of Mammalogists, y fuentes institucionales mexicanas (CONABIO, UNAM). Se descartaron blogs, wikis de fans y sitios de mascotas, que reciclan cifras sin fuente rastreable.",
+    "arquitectura": "Se priorizaron papers de IEEE/ACM, la serie Game AI Pro, charlas técnicas documentadas de GDC, y literatura de modelado basado en agentes en ecología. Se descartó marketing de motores y tutoriales sin fundamento."
+  },
+
+  "advertencia_sobre_datos_de_cautiverio": {
+    "problema": "Buena parte de los datos reproductivos y de crecimiento de fauna silvestre proceden de animales en cautiverio, porque medir hormonas en libertad es muy difícil.",
+    "en_que_difieren": ["Longevidad: SUBE en cautiverio", "Tamaño de camada: puede subir", "Edad de madurez sexual: BAJA", "Tamaño de grupo: es artificial", "Presupuesto de actividad: se desploma", "Niveles de cortisol: alterados"],
+    "regla_adoptada": "Todo dato de cautiverio se etiqueta como tal y NO se mezcla con datos de vida libre en el mismo campo."
+  },
+
+  "fuentes_biologia": {
+    "nota": "Se completa con los resultados de la investigación. Cada entrada incluye qué dato concreto aporta.",
+    "categorias_consultadas": [
+      { "categoria": "Monografías de especie", "referencia_clave": "Mammalian Species (American Society of Mammalogists) — la ficha de la especie es el mejor punto de partida cuando existe: resume morfología, distribución, ecología y reproducción con bibliografía completa" },
+      { "categoria": "Revistas de mastozoología", "ejemplos": ["Journal of Mammalogy", "Mammalian Biology", "Therya (México)", "Acta Zoológica Mexicana"] },
+      { "categoria": "Revistas de comportamiento", "ejemplos": ["Animal Behaviour", "Behavioural Processes", "Applied Animal Behaviour Science"] },
+      { "categoria": "Revistas de reproducción y endocrinología", "ejemplos": ["Theriogenology", "General and Comparative Endocrinology", "Animal Reproduction Science"] },
+      { "categoria": "Fuentes institucionales", "ejemplos": ["CONABIO (Comisión Nacional para el Conocimiento y Uso de la Biodiversidad)", "IUCN Red List", "Animal Diversity Web (Universidad de Michigan)", "Smithsonian National Zoo"] }
+    ],
+    "entradas": []
+  },
+
+  "fuentes_arquitectura": {
+    "utility_ai": [
+      { "autor": "Dave Mark", "obra": "Behavioral Mathematics for Game AI", "aporta": "El tratamiento de referencia de las funciones de utilidad, curvas de respuesta y el problema de la compensación por número de consideraciones" },
+      { "autor": "Dave Mark y Kevin Dill", "obra": "Improving AI Decision Modeling Through Utility Theory (GDC)", "aporta": "Arquitectura de Infinite Axis Utility System" },
+      { "obra": "Game AI Pro (serie, ed. Steve Rabin)", "aporta": "Capítulos sobre utility systems, behavior trees y su combinación en producción real" }
+    ],
+    "behavior_trees": [
+      { "autores": "Michele Colledanchise y Petter Ögren", "obra": "Behavior Trees in Robotics and AI: An Introduction", "aporta": "Tratamiento formal de árboles de comportamiento, incluida su equivalencia con máquinas de estados y sus límites" }
+    ],
+    "comportamiento_colectivo": [
+      { "autor": "Craig Reynolds", "obra": "Flocks, Herds, and Schools: A Distributed Behavioral Model (SIGGRAPH 1987)", "aporta": "El modelo Boids: separación, alineación, cohesión. Base de todo comportamiento colectivo en gráficos.", "limitacion_documentada": "Produce agregación sin estructura social: los agentes son intercambiables" }
+    ],
+    "modelado_basado_en_agentes": [
+      { "autores": "Volker Grimm et al.", "obra": "Protocolo ODD (Overview, Design concepts, Details) — A standard protocol for describing individual-based and agent-based models", "aporta": "EL estándar de documentación de modelos basados en agentes en ecología. Adoptado por este sistema.", "importancia": "Hace el modelo comparable con literatura científica en vez de una caja negra" },
+      { "autores": "Grimm y Railsback", "obra": "Individual-based Modeling and Ecology", "aporta": "Pattern-oriented modeling: cómo validar un modelo contra patrones observados en la naturaleza" }
+    ],
+    "crecimiento_y_demografia": [
+      { "modelo": "Curva de Gompertz", "aporta": "Modelo de crecimiento asimétrico, el que mejor ajusta el crecimiento de mamíferos", "razon_de_eleccion": "La logística es simétrica y sobreestima el crecimiento tardío; von Bertalanffy se usa más en peces" },
+      { "modelo": "Matrices de Leslie / tablas de vida", "aporta": "Estructura demográfica por clases de edad y validación de estabilidad poblacional" },
+      { "modelo": "Ley de Kleiber", "expresion": "tasa metabólica ~ masa^0.75", "aporta": "Comprobación alométrica para detectar errores de transcripción en los datos" }
+    ],
+    "casos_documentados_en_juegos": [
+      { "caso": "Ultima Online (1997)", "aporta": "LA lección sobre colapso de ecosistemas ante la depredación del jugador. Motivó la inclusión de amortiguadores demográficos en este sistema.", "por_que_importa": "Es el fracaso mejor documentado del género, y el más instructivo" },
+      { "caso": "The Sims", "aporta": "El sistema de necesidades (needs/drives) con decaimiento y su conversión en prioridad de acción" },
+      { "caso": "Red Dead Redemption 2", "aporta": "Fauna con ciclos de actividad y LOD de simulación por distancia" },
+      { "caso": "Rain World", "aporta": "Ecosistema con criaturas de comportamiento emergente y relaciones tróficas reales" }
+    ]
+  },
+
+  "lagunas_declaradas": {
+    "nota": "Se completan tras la investigación. La política es declarar los huecos en vez de rellenarlos.",
+    "entradas": []
+  }
+}

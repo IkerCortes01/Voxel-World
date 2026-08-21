@@ -164,12 +164,89 @@
           "importancia_de_diseno": "Esta hormona es la que evita que el animal se comporte como un autómata que olvida el peligro en cuanto sale de la pantalla."
         }
       ],
+      "que_distingue_una_hormona_de_una_variable_normal": {
+        "nota": "Estas cuatro propiedades son el criterio de diseño. Si el modelo no las cumple, no es una hormona: es una variable de estado con un nombre pretencioso.",
+        "propiedades": [
+          { "propiedad": "Difusión global, no dirigida", "detalle": "Afecta a todos los subsistemas con receptor, no a un destinatario concreto" },
+          { "propiedad": "Escala temporal lenta", "detalle": "Opera en minutos, horas o días, no en frames. Contrasta deliberadamente con la señalización neural rápida." },
+          { "propiedad": "Efecto MODULADOR, no ejecutor", "detalle": "Cambia ganancias y umbrales; NO dispara acciones directamente. Este es el punto crucial de diseño." },
+          { "propiedad": "Retroalimentación negativa CON RETARDO", "detalle": "La salida inhibe la producción, pero con lag. El lag es lo que genera OSCILACIÓN, y la oscilación es de donde salen los ciclos." }
+        ]
+      },
       "modelo_matematico": {
-        "ecuacion_general": "H(t+dt) = H(t) + (produccion(estado) - k_decaimiento * H(t)) * dt",
-        "tipo": "Ecuación diferencial de primer orden con producción dependiente del estado",
+        "ecuacion_general": "dH/dt = S(t) - k_degradacion * H(t)",
+        "donde": "S(t) es la tasa de secreción dependiente del estado",
+        "tipo": "Ecuación diferencial de primer orden",
         "por_que_esta_forma": "Reproduce el comportamiento real de un sistema endocrino: acumulación gradual, decaimiento exponencial hacia la línea base, y saturación. Es la forma más simple que captura la dinámica correcta.",
-        "ciclos": "Para hormonas cíclicas (estrógeno, progesterona), la producción incluye un término dependiente de la fase del ciclo, que avanza con el tiempo y se reinicia tras ovulación, gestación o parto.",
-        "retroalimentacion": "Progesterona alta suprime la producción de estrógeno (bucle negativo real). Cortisol alto suprime testosterona y estrógeno (supresión reproductiva por estrés, bien documentada en mamíferos)."
+        "semividas_reales_de_referencia": {
+          "adrenalina": "~2 minutos",
+          "cortisol": "~66 minutos",
+          "testosterona": "~10-100 minutos",
+          "nota_de_uso": "Usar órdenes de magnitud reales aunque se comprima la escala temporal: la RAZÓN entre semividas es lo que produce la dinámica correcta",
+          "confianza": "INFERIDO — valores fisiológicos generales; verificar antes de citar formalmente"
+        }
+      },
+      "modelo_del_ciclo_estral": {
+        "decision_de_diseno": "NO simular ecuaciones diferenciales del eje HPG completo. Es innecesario y frágil.",
+        "modelo_elegido": "Modelo de FASE con envolventes",
+        "formulacion": [
+          "fase(t+dt) = (fase(t) + dt / T_ciclo) mod 1    // fase normalizada [0,1)",
+          "E2(fase)  = pico gaussiano centrado en fase ~0.15   // estradiol, proestro",
+          "LH(fase)  = pulso estrecho en fase ~0.20            // surge de LH, ovulación",
+          "P4(fase)  = meseta en fase [0.25, 0.80]             // progesterona, diestro"
+        ],
+        "fases_biologicas_reales": [
+          { "fase": "Proestro", "descripcion": "Crecen los folículos, sube el estrógeno, se desarrolla el endometrio. NO receptiva aún." },
+          { "fase": "Estro", "descripcion": "Fase receptiva. Los folículos maduran y el estrógeno ejerce su mayor influencia. Signos: hinchazón vulvar, reflejo de lordosis en cuadrúpedos." },
+          { "fase": "Metaestro/Diestro", "descripcion": "Dominado por el cuerpo lúteo produciendo progesterona. A diferencia del ciclo menstrual, el revestimiento uterino NO se desprende: se reorganiza." },
+          { "fase": "Anestro", "descripcion": "Reposo, típicamente estacional. Controlado por la exposición a la LUZ a través de la glándula pineal, que libera melatonina." }
+        ],
+        "eje_regulador_real": "hipotálamo → GnRH → hipófisis → FSH y LH → ovarios → estrógeno y progesterona. Común a todos los mamíferos.",
+        "duraciones_reales_de_referencia": { "rata": "4-5 días", "vaca": "21 días", "caballo": "~3 semanas", "elefante": "16 semanas" },
+        "el_truco_fisiologico_que_hay_que_modelar": {
+          "hallazgo": "El estradiol ejerce feedback NEGATIVO a concentraciones bajas y feedback POSITIVO por encima de un umbral. Ese cambio de signo es lo que dispara el surge de LH.",
+          "consecuencia": "Si se modela solo feedback negativo, NUNCA se obtiene el pico ovulatorio. Modelar el interruptor como una sigmoide con umbral alto.",
+          "confianza": "MEDIDO — fisiología reproductiva establecida"
+        },
+        "fotoperiodo": {
+          "descripcion": "Especies de día corto (oveja: otoño/invierno) vs día largo (caballo: primavera/verano)",
+          "implementacion": "gate_estacional(dia) = sigmoide(k * (fotoperiodo(dia) - umbral)); T_ciclo_efectivo = T_ciclo / max(epsilon, gate_estacional)",
+          "por_que_es_valioso": "Implementación trivial y altísimo retorno de realismo, porque ACOPLA la simulación al ciclo día/noche que el motor YA tiene (horaDelMundo, luzSolar)"
+        }
+      },
+      "modelo_del_estres_HPA": {
+        "principio": "Dos escalas temporales, y la ASIMETRÍA es lo esencial",
+        "formulacion": [
+          "dA/dt = k_A * amenaza(t) - lambda_A * A        // adrenalina, lambda grande",
+          "dC/dt = k_C * A(t - retardo) - lambda_C * C     // cortisol, lambda pequeño"
+        ],
+        "escalas": { "adrenalina": "segundos: sube casi instantánea con la amenaza, decae rápido", "cortisol": "minutos a horas: sube con RETARDO, decae LENTO" },
+        "efectos": {
+          "adrenalina_alta": ["Velocidad de reacción", "Ganancia de huida", "Gasto energético elevado"],
+          "cortisol_cronicamente_alto": ["SUPRIME la reproducción (interacción HPA-HPG)", "Suprime inmunidad", "Reduce la ganancia de peso"]
+        },
+        "LA_EMERGENCIA_QUE_JUSTIFICA_TODO_EL_SISTEMA": {
+          "resultado": "Una población bajo presión de depredación DEJA DE REPRODUCIRSE sin que nadie lo programe explícitamente",
+          "mecanismo": "La interacción cruzada HPA→HPG lo produce solo",
+          "criterio_de_validacion": "Si el sistema hormonal no produce al menos un efecto emergente de este tipo, no está ganándose su complejidad. Es la prueba de que las hormonas aportan algo que unas banderas booleanas no aportarían.",
+          "confianza": "MEDIDO — la supresión reproductiva por estrés está bien documentada en mamíferos"
+        }
+      },
+      "modelo_afectivo_complementario": {
+        "elegido": "Espacio PAD (Pleasure-Arousal-Dominance)",
+        "fuente": "Mehrabian, A. y Russell, J.A. (1974)",
+        "por_que_PAD_y_no_OCC": {
+          "OCC_descartado": "El modelo OCC (Ortony, Clore y Collins, 1988) define 22 emociones derivadas de valoración cognitiva. Está construido sobre estándares morales, atribución de responsabilidad y expectativas proposicionales.",
+          "razon_del_descarte": "Un pecarí no siente vergüenza ni reproche. Aplicar OCC a animales no humanos es ANTROPOMORFISMO DISFRAZADO DE RIGOR. Se descarta explícitamente.",
+          "por_que_PAD_si": "Es DIMENSIONAL y CONTINUO, no categórico ni proposicional. Mapea directamente a estados fisiológicos observables en animales."
+        },
+        "mapeo_a_fisiologia_animal": [
+          { "dimension": "Arousal", "equivale_a": "Activación simpática, adrenalina/noradrenalina", "efectos": "Frecuencia cardiaca, vigilancia, velocidad de reacción, ganancia de animación" },
+          { "dimension": "Pleasure", "equivale_a": "Valencia, estado de recompensa/aversión", "efectos": "Aproximación vs evitación" },
+          { "dimension": "Dominance", "equivale_a": "Rango social, testosterona/cortisol", "efectos": "Mapea DIRECTAMENTE al sistema de jerarquías" }
+        ],
+        "nota": "La tercera dimensión, que en humanos virtuales es la más discutible, es en fauna la MÁS útil: la dominancia social sí es un eje etológico real y medible.",
+        "uso_correcto": "NO disparar emociones discretas. Mantener un vector PAD continuo, modificado por eventos, y LEERLO como modulador de utilidades y animación. Es una capa de modulación, no de decisión."
       }
     },
 
@@ -198,10 +275,39 @@
         { "nombre": "Gaussiana", "expresion": "y = e^(-(x-c)^2 / (2*s^2))", "uso": "Preferencia por un valor central. Perfecta para termorregulación: el confort está en un rango, no en un extremo." }
       ],
       "metodo_de_seleccion": {
-        "elegido": "Selección ponderada entre los N mejores",
-        "por_que_no_el_maximo_absoluto": "Elegir siempre el máximo produce animales deterministas y repetitivos, y provoca oscilación cuando dos utilidades están empatadas (el animal alterna entre comer y beber en cada frame).",
-        "solucion": "Tomar los 3-4 comportamientos de mayor utilidad y elegir entre ellos con probabilidad proporcional a su puntuación. Añade variación individual sin volverlo errático.",
-        "histéresis": "El comportamiento actual recibe un bonus (~15%) para evitar cambios constantes. Biológicamente equivale a la persistencia conductual real: un animal que está comiendo tiende a seguir comiendo."
+        "elegido": "DUAL-UTILITY (Kevin Dill, Game AI Pro 2, cap. 3)",
+        "correccion_de_diseno": "Esta decisión SUSTITUYE a la propuesta inicial de 'top-N ponderado'. La investigación reveló que Dual-Utility resuelve mejor el problema y es el estándar del campo.",
+        "el_problema_que_resuelve": "Intentar que UN SOLO escalar exprese a la vez 'categoría de urgencia' y 'grado de preferencia' es el fallo de diseño más frecuente en sistemas de utilidad. Con un solo número, 'huir de un depredador' compite numéricamente con 'acicalarse', y basta un ajuste desafortunado de curvas para que el animal se rasque mientras lo cazan.",
+        "la_solucion": "Cada opción tiene DOS números: un RANK (entero, prioridad categórica dura) y un WEIGHT (float, deseabilidad dentro del rango). Se filtra al rank más alto disponible, y dentro de ese rank se hace selección ponderada aleatoria.",
+        "resultado": "'Huir del depredador' es rank 10 y nunca compite con 'rascarse' (rank 1). Pero entre tres rutas de huida posibles hay variedad estocástica real.",
+        "rangos_propuestos_para_fauna": [
+          { "rank": 10, "categoria": "Supervivencia inmediata", "comportamientos": ["HUIR", "DEFENDER"] },
+          { "rank": 8, "categoria": "Necesidad fisiológica crítica", "comportamientos": ["BEBER con sed extrema", "TERMORREGULAR en riesgo"] },
+          { "rank": 5, "categoria": "Necesidad fisiológica normal", "comportamientos": ["FORRAJEAR", "BEBER", "DESCANSAR"] },
+          { "rank": 3, "categoria": "Reproducción y social", "comportamientos": ["BUSCAR_PAREJA", "CORTEJAR", "CUIDAR_CRIA", "SEGUIR_MANADA"] },
+          { "rank": 1, "categoria": "Mantenimiento y ocio", "comportamientos": ["ACICALAR", "MARCAR_TERRITORIO", "EXPLORAR"] }
+        ],
+        "momentum_obligatorio": {
+          "necesidad": "NO es opcional. Sin inercia, dos acciones que alternan el liderazgo frame a frame paralizan al agente.",
+          "implementacion": "Bonificar la acción en curso (factor ~1.2) o imponer un tiempo mínimo de compromiso",
+          "justificacion_biologica": "Corresponde a la persistencia conductual real: un animal que está comiendo tiende a seguir comiendo"
+        }
+      },
+      "compensation_factor": {
+        "el_problema": "Multiplicar consideraciones tiene una propiedad deseable (cualquier eje en 0 veta la acción: no puedo comer si no hay comida) y una fatal: con muchos ejes la utilidad colapsa hacia 0 por simple multiplicación de números menores que 1. Cuatro ejes a 0,8 dan 0,41.",
+        "por_que_importa": "Es un detalle de implementación que casi nadie menciona y que hace o rompe un sistema de utilidad real. Sin él, el sistema se comporta mal en cuanto se pasa de 3 ejes.",
+        "formula": [
+          "modificacion = 1 - (1 / n)",
+          "makeUpValue = (1 - c_i) * modificacion",
+          "c_i' = c_i + (makeUpValue * c_i)",
+          "U = producto de todos los c_i'"
+        ],
+        "fuente": "Dave Mark, Infinite Axis Utility System",
+        "confianza": "Documentado en la literatura de utility AI; verificar la formulación exacta en Behavioral Mathematics for Game AI antes de implementar"
+      },
+      "normalizacion": {
+        "importancia": "Sin normalización consistente NO se pueden comparar utilidades entre acciones heterogéneas. Es donde fallan la mayoría de implementaciones caseras.",
+        "formula": "x_norm = clamp((x - x_min) / (x_max - x_min), 0, 1)"
       },
       "catalogo_de_comportamientos_base": [
         { "id": "FORRAJEAR", "necesidad": "hambre", "descripcion": "Buscar y consumir alimento" },
@@ -261,15 +367,72 @@
         "nota": "La manada NO es un agente. Es una relación entre agentes. No decide nada por sí misma; el comportamiento de grupo EMERGE de decisiones individuales."
       },
       "cohesion": {
-        "modelo_base": "Boids de Reynolds (1987): separación, alineación, cohesión",
-        "limitacion_conocida_de_boids": "Boids produce bandadas visualmente convincentes pero SIN estructura social: todos los agentes son intercambiables. Un rebaño de mamíferos no funciona así: tiene jerarquía, parentesco y roles.",
-        "extension_necesaria": "Ponderar las fuerzas de boids por la relación social entre individuos. Una madre pesa más para su cría que un macho cualquiera. Eso convierte una bandada en una manada."
+        "modelo_base": "Boids de Reynolds (1987), 'Flocks, herds and schools: A distributed behavioral model', SIGGRAPH: separación, alineación, cohesión",
+        "limitacion_conocida_de_boids": "Boids produce bandadas visualmente convincentes pero SIN estructura social: todos los agentes son intercambiables. Un rebaño de mamíferos no funciona así: tiene jerarquía, parentesco y roles. Boids puro produce un banco de peces, no una manada de ungulados.",
+        "extension_1_relacion_social": "Ponderar las fuerzas de boids por la relación social entre individuos. Una madre pesa más para su cría que un macho cualquiera. Eso convierte una bandada en una manada.",
+        "extension_2_vecindad_topologica": {
+          "hallazgo": "Los animales reales usan vecindad TOPOLÓGICA, no métrica",
+          "evidencia": "Ballerini, M. et al. (2008), 'Interaction ruling animal collective behavior depends on topological rather than metric distance: Evidence from a field study', PNAS 105(4). Los estorninos interactúan con sus ~6-7 vecinos más próximos INDEPENDIENTEMENTE de la distancia.",
+          "por_que_es_superior": "Mantiene la cohesión bajo densidad variable. Con radio métrico fijo, una bandada dispersa se desintegra; con k-vecinos más próximos, no.",
+          "implementacion": "Usar k-nearest (k≈7), no radio fijo",
+          "bonus_de_rendimiento": "Coincide con el atajo de optimización: muestrear ~8 vecinos de la celda del spatial hash es visualmente indistinguible de usar los 200, Y es lo que hace el animal real. La optimización y la biología coinciden.",
+          "confianza": "MEDIDO — estudio de campo publicado en PNAS"
+        },
+        "alternativa_mas_controlable": {
+          "modelo": "Couzin, I. et al. (2002), 'Collective Memory and Spatial Sorting in Animal Groups', Journal of Theoretical Biology 218",
+          "descripcion": "Define ZONAS CONCÉNTRICAS (repulsión / orientación / atracción) y demuestra transiciones entre enjambre, toroide y grupo paralelo variando el ancho de las zonas",
+          "ventaja": "Más controlable que boids clásico: el comportamiento colectivo se ajusta con tres radios en vez de tres pesos de difícil calibración"
+        },
+        "advertencia_de_ajuste": "Los pesos de las tres reglas de boids tienen un rango estrecho de valores estables; fuera de él se obtiene colapso a un punto u oscilación. Y dependen de la escala espacial, la velocidad y el radio de vecindad: cambiar cualquiera obliga a reajustar todo."
+      },
+      "liderazgo_emergente": {
+        "problema_del_liderazgo_asignado": "Marcar un individuo como líder es barato y controlable, pero visiblemente artificial: el líder nunca cambia y la manada se ve teledirigida.",
+        "modelo_elegido": "Liderazgo emergente por peso de información",
+        "fuente": "Couzin, I., Krause, J., Franks, N. y Levin, S. (2005), 'Effective leadership and decision-making in animal groups on the move', Nature 433:513-516",
+        "hallazgo_clave": "Basta con que una fracción MUY PEQUEÑA de individuos informados (~5% en grupos grandes) guíe a todo el grupo con precisión, SIN señalización explícita y sin que nadie sepa quién está informado. La fracción necesaria DECRECE con el tamaño del grupo.",
+        "formula": "d_i = w * g_i_normalizado + (1-w) * s_i_social_normalizado",
+        "donde": "g_i es el vector hacia el objetivo (CERO para los no informados), s_i la dirección social de boids, w el peso de la información",
+        "elegancia_del_mecanismo": "El liderazgo CAE FUERA DEL SISTEMA en vez de programarse. Un animal muy sediento que recuerda un abrevadero se convierte en líder de forma natural porque su vector objetivo es fuerte. Esto acopla el sistema de necesidades, el de memoria y el social en un solo mecanismo.",
+        "confianza": "MEDIDO — publicado en Nature"
       },
       "jerarquia_de_dominancia": {
-        "modelo": "Relaciones por pares con resultado de encuentros",
-        "establecimiento": "Cada encuentro agonístico actualiza la relación entre los dos individuos",
-        "determinantes_del_resultado": ["Peso y tamaño (de la curva de crecimiento)", "Edad", "Nivel hormonal", "Historial de encuentros previos", "Componente aleatorio pequeño"],
-        "advertencia_biologica": "NO todas las especies tienen jerarquía lineal, y suponerlo es un error frecuente. Hay especies con jerarquías difusas, otras con dominancia solo en contexto alimentario, y otras sin jerarquía detectable. Este dato DEBE venir de la literatura de la especie, no darse por supuesto.",
+        "tipos_documentados": [
+          { "tipo": "LINEAL (pecking order)", "descripcion": "Cada miembro es dominante o sumiso respecto a CADA otro miembro", "ejemplos_reales": "Hienas manchadas y pardas" },
+          { "tipo": "DESPÓTICA", "descripcion": "Uno o dos miembros dominantes, todos los demás IGUALMENTE sumisos", "ejemplos_reales": "Gorilas, macacos japoneses, licaones" }
+        ],
+        "modelo_elegido": "Puntuación Elo dinámica",
+        "por_que_Elo": "Es incremental (no requiere recalcular la matriz completa de relaciones), maneja de forma natural la incertidumbre y el cambio temporal, y es el método validado en etología para jerarquías dinámicas",
+        "fuente": "Neumann, C. et al. (2011), 'Assessing dominance hierarchies: validation and advantages of progressive evaluation with Elo-rating', Animal Behaviour 82",
+        "alternativas_consideradas": ["Índice h' de linealidad (de Vries 1995)", "David's score (David 1987)"],
+        "por_que_no_esas": "Ambas son métricas de ANÁLISIS a posteriori sobre datos completos, no mecanismos incrementales aptos para simulación en tiempo real",
+        "formulas": {
+          "probabilidad_esperada": "E_A = 1 / (1 + 10^((R_B - R_A)/400))",
+          "actualizacion": "R_A' = R_A + K*(S_A - E_A), con S_A en {1, 0.5, 0}",
+          "nota_sobre_K": "Ajustar K según edad y condición: los jóvenes suben rápido"
+        },
+        "autoconsistencia": {
+          "principio": "Decidir el resultado del encuentro con el PROPIO Elo más ruido, de forma que los rangos EMERJAN en vez de asignarse",
+          "formula": "P(A gana) = sigmoide(k*(RHP_A - RHP_B))",
+          "RHP": "Resource Holding Potential = f(masa, edad, testosterona, condición, rango previo)"
+        },
+        "winner_loser_effects": {
+          "descripcion": "Tras ganar, sube la probabilidad de ganar de nuevo (mediado por testosterona); tras perder, baja",
+          "implementacion": "Modificador temporal decreciente sobre el RHP",
+          "por_que_es_crucial": "Es la fuente principal de LINEALIDAD EMERGENTE. Sin él se obtienen jerarquías desordenadas; con él emergen las jerarquías lineales que la etología observa. Es un mecanismo de dos líneas con efecto estructural enorme.",
+          "confianza": "INFERIDO — fenómeno bien documentado en etología, verificar la formulación concreta"
+        },
+        "el_coste_de_ser_alfa": {
+          "hallazgo_contraintuitivo": "Los machos de babuino de alto rango tienen niveles altos TANTO de testosterona COMO de glucocorticoides, indicando estrés elevado que REDUCE el fitness por inmunosupresión",
+          "implicacion_de_diseno": "Ser dominante debe tener un coste real en el modelo: mayor estrés, mayor gasto, menor supervivencia a largo plazo. Eso produce rotación de dominancia y dinámica poblacional interesante en vez de un alfa eterno.",
+          "matiz_importante": "El patrón de cortisol VARÍA SEGÚN LA ESTABILIDAD de la jerarquía: en jerarquías estables los dominantes tienen MENOS cortisol que los subordinados; durante transiciones inestables, se INVIERTE.",
+          "confianza": "MEDIDO en primates; INFERIDO para otras especies"
+        },
+        "teoria_de_juegos_de_contiendas": {
+          "referencia": "Maynard Smith, J. y Parker, G. (1976), 'The logic of asymmetric contests', Animal Behaviour 24",
+          "principio_de_diseno": "Los animales EVALÚAN antes de pelear y casi siempre resuelven sin combate",
+          "criterio_de_calibracion": "Si la simulación produce peleas constantes, está mal calibrada. La mayoría de encuentros deben resolverse con exhibición (display) y retirada."
+        },
+        "advertencia_biologica": "NO todas las especies tienen jerarquía lineal, y suponerlo es un error frecuente. Hay especies con jerarquías difusas, otras con dominancia solo en contexto alimentario, y otras sin jerarquía detectable. Este dato DEBE venir de la literatura de la especie concreta.",
         "efectos_del_rango": ["Prioridad de acceso a alimento y agua", "Prioridad de apareamiento", "Posición espacial dentro del grupo"]
       },
       "fision_fusion": {

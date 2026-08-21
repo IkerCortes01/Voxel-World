@@ -1629,6 +1629,115 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
 }
 
 // ============================================================================
+// FORMA DE UN BLOQUE: LISTA DE CAJAS
+// ============================================================================
+// PROBLEMA QUE RESUELVE
+// ---------------------
+// nopalHitboxCon() -- el proveedor de formas que ya usaban el raycast, la
+// colision y el resaltado -- devuelve UNA sola caja por bloque. Para un cubo
+// o una losa basta, pero una escalera, una valla o un nopal con brotes son
+// VARIAS piezas, y con un solo AABB el contorno acaba siendo el cubo entero
+// que envuelve a todas.
+//
+// Aqui se extiende a una LISTA de cajas. No se duplica geometria: la lista
+// se arma llamando al mismo proveedor de siempre, asi que cualquier bloque
+// que ya tuviera forma la conserva, y uno nuevo la hereda sin tocar nada.
+//
+// COMO SE ANADE UNA FORMA NUEVA
+// -----------------------------
+// No hace falta un `if` por bloque en el selector. Basta con que el bloque
+// tenga su caja en nopalHitboxCon(), que es donde ya se declaran todas. El
+// selector, la colision y el raycast la recogen solos.
+//
+// Para un bloque de VARIAS piezas se anade un caso en formaDeBloque(), que
+// es el unico sitio que sabe de piezas multiples.
+// Declaraciones adelantadas: formaDeBloque() las usa y se definen mas abajo.
+bool ramaEncadena(BlockType b);
+bool raizEncadena(BlockType b);
+
+struct CajaForma {
+    float x0, y0, z0, x1, y1, z1;
+};
+
+// Cuantas piezas puede tener un bloque como mucho. Ocho cubre escaleras
+// (2), vallas (5: poste + 4 brazos) y el nopal con sus brotes.
+constexpr int MAX_PIEZAS_FORMA = 8;
+
+struct FormaBloque {
+    CajaForma piezas[MAX_PIEZAS_FORMA];
+    int n;
+
+    FormaBloque() : n(0) {}
+    void anadir(float x0,float y0,float z0,float x1,float y1,float z1) {
+        if (n >= MAX_PIEZAS_FORMA) return;
+        piezas[n++] = { x0,y0,z0,x1,y1,z1 };
+    }
+};
+
+// Devuelve TODAS las piezas de un bloque, en coordenadas locales (0..1).
+//
+// Es la unica funcion que el selector necesita conocer: le da igual si el
+// bloque es un cubo, una losa o una planta. Y como se apoya en
+// nopalHitboxCon(), hereda automaticamente la forma de todo lo que ya
+// estaba declarado ahi.
+template <typename TGet>
+FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
+    FormaBloque f;
+
+    // --- CELDA COMPARTIDA: dos bloques en el mismo voxel ---
+    // Cada uno con su caja, que es lo que ya permitia seleccionarlos por
+    // separado. El contorno tiene que mostrar las dos.
+    if (esCompartido(type)) {
+        float a0,b0,c0,a1,b1,c1;
+        cajaDePieza(type, false, a0,b0,c0, a1,b1,c1);
+        f.anadir(a0,b0,c0, a1,b1,c1);
+        cajaDePieza(type, true, a0,b0,c0, a1,b1,c1);
+        f.anadir(a0,b0,c0, a1,b1,c1);
+        return f;
+    }
+
+    // --- RAMAS Y RAICES: nucleo + un brazo por conexion ---
+    // Su forma ya se deduce de los vecinos en el mesher; aqui se replica
+    // con cajas para que el contorno siga los brazos en vez de envolverlos
+    // en un cubo.
+    if (isRama(type) || esRaiz(type)) {
+        const float G = esRaiz(type)
+                      ? (float)grosorRaiz(type) / 16.0f
+                      : 4.0f / 16.0f;
+        const float n0 = 0.5f - G * 0.5f;
+        const float n1 = 0.5f + G * 0.5f;
+
+        auto enlaza = [&](int dx,int dy,int dz) {
+            const BlockType v = get(dx,dy,dz);
+            if (esRaiz(type)) return raizEncadena(v);
+            return ramaEncadena(v);
+        };
+
+        // El nucleo, siempre.
+        f.anadir(n0,n0,n0, n1,n1,n1);
+        // Un brazo por cada lado conectado.
+        if (enlaza(-1,0,0)) f.anadir(0.0f,n0,n0, n0,n1,n1);
+        if (enlaza( 1,0,0)) f.anadir(n1,n0,n0, 1.0f,n1,n1);
+        if (enlaza(0,-1,0)) f.anadir(n0,0.0f,n0, n1,n0,n1);
+        if (enlaza(0, 1,0)) f.anadir(n0,n1,n0, n1,1.0f,n1);
+        if (enlaza(0,0,-1)) f.anadir(n0,n0,0.0f, n1,n1,n0);
+        if (enlaza(0,0, 1)) f.anadir(n0,n0,n1, n1,n1,1.0f);
+        return f;
+    }
+
+    // --- EL RESTO: una caja, la que ya declaraba el proveedor ---
+    float x0,y0,z0,x1,y1,z1;
+    if (nopalHitboxCon(type, get, wx, wy, wz, x0,y0,z0, x1,y1,z1)) {
+        f.anadir(x0,y0,z0, x1,y1,z1);
+        return f;
+    }
+
+    // --- Bloque cubico normal ---
+    f.anadir(0.0f,0.0f,0.0f, 1.0f,1.0f,1.0f);
+    return f;
+}
+
+// ============================================================================
 // RAMAS: PALOS DE 4x4 PIXELES QUE CONECTAN EN 6 DIRECCIONES
 // ============================================================================
 // Una rama NO llena su voxel: es un palo de 4/16 de bloque de grosor que
@@ -15961,6 +16070,62 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 return result;
             }
 
+            // ⭐ EL RAYCAST PRUEBA TODAS LAS PIEZAS
+            //
+            // Un bloque de varias piezas -- una rama con brazos, una celda
+            // compartida -- se atravesaba antes contra su caja envolvente,
+            // asi que se podia seleccionar apuntando al hueco entre piezas.
+            //
+            // Ahora se prueba pieza a pieza: si el rayo no toca NINGUNA, se
+            // sigue buscando detras. El punto de impacto corresponde a la
+            // geometria real.
+            {
+                const FormaBloque fm = formaDeBloque(block,
+                    [&](int dx, int dy, int dz) {
+                        return world.getBlock(x + dx, y + dy, z + dz);
+                    }, x, y, z);
+
+                if (fm.n > 1) {
+                    bool tocaAlguna = false;
+                    for (int pz = 0; pz < fm.n && !tocaAlguna; ++pz) {
+                        const CajaForma& c = fm.piezas[pz];
+                        const float P0[3] = { c.x0 + (float)x,
+                                              c.y0 + (float)y,
+                                              c.z0 + (float)z };
+                        const float P1[3] = { c.x1 + (float)x,
+                                              c.y1 + (float)y,
+                                              c.z1 + (float)z };
+                        float tEnt = 0.0f, tSal = maxDistance;
+                        bool ok = true;
+                        const float O[3] = { origin.x, origin.y, origin.z };
+                        const float D[3] = { direction.x, direction.y,
+                                             direction.z };
+                        for (int e = 0; e < 3 && ok; ++e) {
+                            if (fabsf(D[e]) < 1e-6f) {
+                                if (O[e] < P0[e] || O[e] > P1[e]) ok = false;
+                            } else {
+                                float t1 = (P0[e] - O[e]) / D[e];
+                                float t2 = (P1[e] - O[e]) / D[e];
+                                if (t1 > t2) { const float tp=t1; t1=t2; t2=tp; }
+                                if (t1 > tEnt) tEnt = t1;
+                                if (t2 < tSal) tSal = t2;
+                                if (tEnt > tSal) ok = false;
+                            }
+                        }
+                        if (ok) tocaAlguna = true;
+                    }
+                    if (!tocaAlguna) continue;   // ninguna pieza: sigue detras
+
+                    result.hit = true;
+                    result.blockPos = Vec3i(x, y, z);
+                    result.previousPos = prevBlock;
+                    result.normal = Vec3i(prevBlock.x - x, prevBlock.y - y,
+                                          prevBlock.z - z);
+                    result.distance = t;
+                    return result;
+                }
+            }
+
             float bx0, by0, bz0, bx1, by1, bz1;
             if (nopalHitboxCon(block,
                     [&](int dx, int dy, int dz) {
@@ -24008,33 +24173,47 @@ int main() {
                     // Ahora se pide la caja REAL -- la misma que usa la
                     // colision y el raycast -- y el recuadro se ajusta a
                     // ella. Lo que se resalta es lo que se toca.
-                    float selX0 = 0.0f, selY0 = 0.0f, selZ0 = 0.0f;
-                    float selX1 = 1.0f, selY1 = 1.0f, selZ1 = 1.0f;
-                    {
-                        const BlockType bsel = g_gameState->world.getBlock(
+                    // ⭐ SE PIDE LA FORMA COMPLETA, CON TODAS SUS PIEZAS
+                    //
+                    // formaDeBloque() devuelve la lista de cajas del bloque,
+                    // sea un cubo, una losa, una planta o una rama con sus
+                    // brazos. El selector no sabe -- ni necesita saber -- de
+                    // que bloque se trata: dibuja lo que le den.
+                    //
+                    // Eso es lo que lo hace generico: un bloque nuevo con una
+                    // forma nueva se contornea solo, sin tocar este codigo.
+                    const BlockType bsel = g_gameState->world.getBlock(
+                        result.blockPos.x, result.blockPos.y,
+                        result.blockPos.z);
+
+                    // ⭐ CACHE: la forma solo se recalcula si cambia el
+                    // bloque mirado o su posicion. Mientras el jugador siga
+                    // apuntando a lo mismo, se reutiliza la de antes.
+                    static FormaBloque formaCache;
+                    static BlockType tipoCache = BLOCK_AIR;
+                    static Vec3i posCache(-99999, -99999, -99999);
+
+                    if (bsel != tipoCache ||
+                        result.blockPos.x != posCache.x ||
+                        result.blockPos.y != posCache.y ||
+                        result.blockPos.z != posCache.z) {
+                        formaCache = formaDeBloque(bsel,
+                            [&](int dx, int dy, int dz) {
+                                return g_gameState->world.getBlock(
+                                    result.blockPos.x + dx,
+                                    result.blockPos.y + dy,
+                                    result.blockPos.z + dz);
+                            },
                             result.blockPos.x, result.blockPos.y,
                             result.blockPos.z);
-                        float bx0, by0, bz0, bx1, by1, bz1;
-                        if (nopalHitboxCon(bsel,
-                                [&](int dx, int dy, int dz) {
-                                    return g_gameState->world.getBlock(
-                                        result.blockPos.x + dx,
-                                        result.blockPos.y + dy,
-                                        result.blockPos.z + dz);
-                                },
-                                result.blockPos.x, result.blockPos.y,
-                                result.blockPos.z,
-                                bx0, by0, bz0, bx1, by1, bz1)) {
-                            selX0 = bx0; selY0 = by0; selZ0 = bz0;
-                            selX1 = bx1; selY1 = by1; selZ1 = bz1;
-                        }
+                        tipoCache = bsel;
+                        posCache = result.blockPos;
                     }
 
-                    // Un pelin por fuera, para que la linea no pelee con la
-                    // cara del bloque en el depth buffer.
-                    constexpr float MARGEN = 0.002f;
-                    selX0 -= MARGEN; selY0 -= MARGEN; selZ0 -= MARGEN;
-                    selX1 += MARGEN; selY1 += MARGEN; selZ1 += MARGEN;
+                    // Separacion del contorno respecto a la superficie.
+                    // Lo justo para que la linea no pelee con la cara del
+                    // bloque en el depth buffer, sin que parezca flotando.
+                    constexpr float SELECTION_OFFSET = 0.002f;
 
                     // Color gris oscuro más sutil y transparente
                     glEnable(GL_BLEND);
@@ -24044,35 +24223,38 @@ int main() {
                     // Líneas más delgadas y sutiles
                     glLineWidth(1.5f);
 
-                    // ⭐ SE DIBUJA LA CAJA ENTERA, NO UNA SOLA CARA
+                    // ⭐ SE DIBUJAN LAS ARISTAS DE CADA PIEZA
                     //
-                    // Antes se pintaba solo la cara que se estaba mirando.
-                    // Con bloques que no llenan el voxel -- una capa de 3 px,
-                    // una penca, un maguey -- eso deja al jugador sin saber
-                    // que va a romper: se ve un rectangulo suelto en el aire.
-                    //
-                    // Con las doce aristas de la caja REAL se entiende de un
-                    // vistazo la forma y el tamano de lo que hay debajo del
-                    // cursor.
+                    // Un bloque de varias piezas -- una escalera, una valla,
+                    // una rama con brazos -- se contornea pieza a pieza, asi
+                    // que el selector sigue su silueta real en vez de
+                    // envolverlo todo en el cubo que lo contiene.
                     glBegin(GL_LINES);
-                    const float X0 = selX0, Y0 = selY0, Z0 = selZ0;
-                    const float X1 = selX1, Y1 = selY1, Z1 = selZ1;
+                    for (int pz = 0; pz < formaCache.n; ++pz) {
+                        const CajaForma& c = formaCache.piezas[pz];
+                        const float X0 = c.x0 - SELECTION_OFFSET;
+                        const float Y0 = c.y0 - SELECTION_OFFSET;
+                        const float Z0 = c.z0 - SELECTION_OFFSET;
+                        const float X1 = c.x1 + SELECTION_OFFSET;
+                        const float Y1 = c.y1 + SELECTION_OFFSET;
+                        const float Z1 = c.z1 + SELECTION_OFFSET;
 
-                    // Las cuatro aristas de abajo
-                    glVertex3f(X0,Y0,Z0); glVertex3f(X1,Y0,Z0);
-                    glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
-                    glVertex3f(X1,Y0,Z1); glVertex3f(X0,Y0,Z1);
-                    glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y0,Z0);
-                    // Las cuatro de arriba
-                    glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
-                    glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y1,Z1);
-                    glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
-                    glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y1,Z0);
-                    // Los cuatro pilares
-                    glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
-                    glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y1,Z0);
-                    glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y1,Z1);
-                    glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y1,Z1);
+                        // Las cuatro aristas de abajo
+                        glVertex3f(X0,Y0,Z0); glVertex3f(X1,Y0,Z0);
+                        glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
+                        glVertex3f(X1,Y0,Z1); glVertex3f(X0,Y0,Z1);
+                        glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y0,Z0);
+                        // Las cuatro de arriba
+                        glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
+                        glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y1,Z1);
+                        glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+                        glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y1,Z0);
+                        // Los cuatro pilares
+                        glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+                        glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y1,Z0);
+                        glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y1,Z1);
+                        glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y1,Z1);
+                    }
 
                     glEnd();
 

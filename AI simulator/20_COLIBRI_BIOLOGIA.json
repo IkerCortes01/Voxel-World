@@ -1,0 +1,635 @@
+{
+  "_meta": {
+    "titulo": "Colibrí de pico ancho — datos biológicos para el simulador",
+    "version": "1.0",
+    "proyecto": "Voxel World — AI simulator",
+    "fecha": "2026-08-21",
+    "rol": "Salida de la ejecución del protocolo 02 sobre esta especie. Es el bloque 'Input data' del protocolo ODD.",
+    "regla": "Cada valor lleva confianza, condición (libre/cautiverio), región y fuente. Los huecos se declaran AUSENTE en vez de rellenarse.",
+    "es_la_segunda_especie": "El pecarí (archivos 10-12) fue la primera instancia del framework. Esta es la segunda, y sirve además como PRUEBA DE ESFUERZO del framework: un ave voladora, nectarívora, solitaria y heterotérmica ejercita capas que un ungulado social no ejercitaba."
+  },
+
+  "por_que_esta_especie_pone_a_prueba_el_framework": {
+    "resumen": "El pecarí y el colibrí son casi opuestos en todos los ejes que el framework modela. Eso es deliberado: si el mismo esquema de datos describe a los dos, el esquema es realmente genérico.",
+    "contrastes": [
+      { "eje": "Locomoción", "pecari": "Terrestre, caminar y correr", "colibri": "VUELO ESTACIONARIO (hovering), el modo de locomoción más caro que existe en vertebrados", "implicacion": "El framework declara en 01 que 'una forma de locomoción nueva (volar)' SÍ requiere código. Este archivo confirma esa predicción." },
+      { "eje": "Sociabilidad", "pecari": "Manada altamente cohesiva, 6-10 individuos", "colibri": "SOLITARIO Y TERRITORIAL, agresivo con coespecíficos", "implicacion": "La capa 2 (social) se usa INVERTIDA: la proximidad genera estrés y agresión, no confort. El framework ya lo previó en 'contacto_social: en solitarias, invertida'." },
+      { "eje": "Jerarquía", "pecari": "Igualitaria, sin macho alfa", "colibri": "Dominancia por territorio, con desplazamiento por tamaño corporal", "implicacion": "Ejercita el sistema Elo/RHP que en el pecarí quedó deliberadamente difuso." },
+      { "eje": "Termorregulación", "pecari": "Homeotermo estricto, se encama en extremos", "colibri": "HETEROTERMO: entra en TORPOR nocturno, bajando la temperatura corporal hasta 25-30 °C por debajo de la normal", "implicacion": "Es una capacidad que NO existía en el modelo del pecarí y que obliga a extender el sistema de necesidades. Es el hallazgo más importante de este archivo." },
+      { "eje": "Margen energético", "pecari": "Puede ayunar semanas (pierde 26% de masa en 9 semanas)", "colibri": "HORAS. Un colibrí que no come en una noche fría MUERE.", "implicacion": "Invierte por completo la escala temporal de la necesidad de hambre. Es la diferencia cualitativa más grande entre las dos especies." },
+      { "eje": "Cuidado parental", "pecari": "Ambos sexos en manada; crías precociales-ish", "colibri": "HEMBRA EN SOLITARIO. El macho no aporta absolutamente nada tras la cópula.", "implicacion": "El sexo deja de ser un modificador hormonal menor y pasa a definir DOS presupuestos de tiempo radicalmente distintos." }
+    ],
+    "conclusion_metodologica": "El framework sobrevive al contraste, pero con dos extensiones obligatorias declaradas en 21_COLIBRI_IA.json: (1) locomoción de vuelo con coste energético explícito, y (2) el estado de TORPOR como cuarto régimen metabólico. Ninguna de las dos existía para el pecarí."
+  },
+
+  "advertencias_criticas_de_uso": {
+    "sesgo_de_la_literatura_de_colibries": {
+      "problema": "La fisiología de colibríes está MUY bien estudiada, pero casi nunca en la especie que a uno le interesa",
+      "detalle": "Los datos de torpor, tasa metabólica y memoria espacial provienen abrumadoramente de un puñado de especies modelo: Selasphorus rufus, Selasphorus platycercus, Calypte anna, Archilochus alexandri, Eulampis jugularis y Lampornis clemenciae. Todas son de EUA, Canadá o el Caribe.",
+      "consecuencia": "Para Cynanthus latirostris existen datos EXCELENTES de gusto, dieta y territorialidad (incluidos estudios mexicanos), pero los parámetros de TORPOR y ENERGÉTICA se toman por analogía de otras especies de la familia. Se marcan INFERIDO sin excepción.",
+      "atenuante_real": "La fisiología del vuelo estacionario y del torpor está fuertemente restringida por la masa corporal y es notablemente conservada dentro de Trochilidae. La inferencia entre colibríes de masa similar es mucho más segura que, por ejemplo, inferir de cerdo a pecarí. Pero sigue siendo inferencia."
+    },
+    "el_dato_erroneo_que_hay_que_descartar": {
+      "afirmacion_circulante": "Algunas compilaciones (incluida la ficha de Wikipedia en inglés) afirman que los pollos 'vuelan a las 6-8 MESES en cautiverio'",
+      "veredicto": "ES FALSO O ESTÁ MAL TRANSCRITO. Ningún ave de 3 gramos permanece en el nido 6 meses; el nido mide 2.5 cm de alto.",
+      "valor_correcto": "21-26 días hasta el volantón, coherente con el resto de Trochilidae",
+      "leccion_de_metodo": "Es un ejemplo real de por qué el protocolo exige el check de COHERENCIA DIMENSIONAL. El error se detecta por absurdo físico, no por consultar otra fuente.",
+      "confianza": "El descarte es MEDIDO por incoherencia; el valor sustituto es MEDIDO en compilaciones ornitológicas"
+    },
+    "limitaciones_de_la_sesion_de_investigacion": {
+      "no_accesibles": [
+        "Birds of the World (Cornell) — contenido completo tras muro de pago; solo se obtuvo la introducción libre",
+        "Royal Society Proceedings B — HTTP 403 (el paper del 'adipostato' de 2025, que sería la mejor fuente sobre la REGLA de entrada en torpor)",
+        "bioRxiv PDF de torpor — HTTP 403",
+        "Animal Diversity Web — la conexión falló en esta sesión; sus datos se obtuvieron indirectamente"
+      ],
+      "consecuencia_honesta": "El modelo de torpor de este documento se basa en valores agregados de la familia y en el paper de espectro heterotérmico de 2022, NO en la regla cuantitativa del adipostato de 2025. Si se consigue ese paper, la regla de decisión de torpor debe REVISARSE: es la laguna más importante de este archivo.",
+      "estatus_de_conservacion": "IUCN Preocupación Menor y CITES Apéndice II obtenidos de compilación secundaria; NO verificados contra la ficha oficial de IUCN, que no fue accesible. El estatus NOM-059-SEMARNAT NO está verificado."
+    }
+  },
+
+  "taxonomia": {
+    "nombre_cientifico_vigente": "Cynanthus latirostris",
+    "autoridad": "Swainson, 1827",
+    "localidad_tipo": "Valle de México, cerca de la Ciudad de México (designada por Robert Moore, 1939)",
+    "etimologia": "Del latín latus ('ancho') + -rostris ('-pico'), por el pico ancho y rojo",
+    "familia": "Trochilidae",
+    "orden": "Apodiformes",
+    "clado": "Clado de las esmeraldas (Emerald clade), formado hace 10-15 millones de años",
+    "nombres_comunes_es": ["Colibrí de pico ancho", "Colibrí piquiancho", "Chupamirto pico ancho", "Chuparrosa"],
+    "nombres_comunes_en": ["Broad-billed Hummingbird"],
+    "subespecies_reconocidas": [
+      { "subespecie": "C. l. magicus", "autoridad": "Mulsant y Verreaux, 1872", "distribucion": "Suroeste de EUA, Sonora, Sinaloa, Nayarit" },
+      { "subespecie": "C. l. propinquus", "autoridad": "Moore, 1939", "distribucion": "Guanajuato, norte de Michoacán" },
+      { "subespecie": "C. l. latirostris", "autoridad": "Swainson, 1827", "distribucion": "Tamaulipas, San Luis Potosí, Veracruz", "nota": "Es la subespecie NOMINAL y la del Valle de México (localidad tipo)" }
+    ],
+    "cambios_taxonomicos_recientes_criticos": {
+      "advertencia": "DOS antiguas subespecies fueron ELEVADAS A ESPECIE. La literatura anterior a ese cambio las incluye bajo C. latirostris.",
+      "especies_segregadas": [
+        { "especie": "Cynanthus lawrencei", "nombre": "Colibrí de las Tres Marías", "nota": "Endémico de las Islas Marías" },
+        { "especie": "Cynanthus doubledayi", "nombre": "Colibrí corona turquesa", "nota": "Costa del Pacífico sur" }
+      ],
+      "consecuencia_para_la_busqueda": "Un dato antiguo atribuido a 'C. latirostris' puede proceder en realidad de una de estas dos. Verificar la localidad del estudio antes de aceptar el dato.",
+      "confianza": "MEDIDO"
+    },
+    "por_que_esta_especie_y_no_otra": {
+      "contexto": "México tiene aproximadamente 58 especies de colibrí. 'Colibrí mexicano' es un nombre común AMBIGUO, exactamente del tipo que la Fase 0 del protocolo obliga a desambiguar antes de investigar.",
+      "criterios_de_seleccion": [
+        "MEXICANIDAD: su distribución es casi enteramente mexicana, y su LOCALIDAD TIPO es el Valle de México. Es difícil encontrar un colibrí más 'mexicano' en sentido nomenclatural estricto.",
+        "RESIDENCIA: las poblaciones mexicanas son RESIDENTES todo el año. Una especie migratoria obligaría a modelar migración de larga distancia, que es un subsistema aparte y que dejaría al animal ausente medio año.",
+        "ENCAJE CON EL MOTOR: habita matorral espinoso, cañadas áridas y bosque tropical seco, que mapean a BIOME_DESERT, BIOME_PLAINS y BIOME_FOREST. Y su dieta incluye agaves y cactáceas, que el motor YA TIENE implementados.",
+        "CALIDAD DE DATOS: existe literatura mexicana específica (Pedregal de San Ángel) y un estudio de umbrales gustativos hecho SOBRE ESTA ESPECIE, lo cual es raro y valioso.",
+        "DIMORFISMO: fuerte y visualmente evidente, lo que da variedad visual gratis y ejercita el modelo sexual del framework"
+      ],
+      "alternativas_consideradas_y_descartadas": [
+        { "especie": "Selasphorus platycercus (zumbador de cola ancha)", "por_que_descartada": "Tiene la MEJOR literatura de torpor y energética con diferencia, pero es migratoria y sus datos provienen de Colorado y Arizona. Menos mexicana.", "nota": "Se usa igualmente como fuente de INFERENCIA fisiológica en este documento" },
+        { "especie": "Basilinna leucotis (colibrí orejiblanco)", "por_que_descartada": "Excelente encaje con BIOME_MOUNTAINS y con los bloques de oyamel y encino del motor, pero menos endémica y con menos literatura propia" }
+      ]
+    },
+    "especies_usadas_para_inferencia_fisiologica": [
+      { "especie": "Archilochus alexandri", "masa_g": 2.9, "usada_para": "Torpor profundo: es la más cercana en masa a C. latirostris entre las especies con datos de torpor" },
+      { "especie": "Selasphorus rufus", "usada_para": "Memoria espacial, traplining e intervalos de revisita" },
+      { "especie": "Selasphorus platycercus", "usada_para": "Energética, torpor y uso de sustratos metabólicos" },
+      { "especie": "Calypte anna", "usada_para": "Torpor y termorregulación" },
+      { "especie": "Eulampis jugularis", "usada_para": "Regulación del consumo de oxígeno en torpor (estudio clásico de 1970)" },
+      { "advertencia_general": "Ninguna de estas es C. latirostris. Todo parámetro tomado de ellas se marca INFERIDO." }
+    ],
+    "confianza": "MEDIDO"
+  },
+
+  "morfologia_y_crecimiento": {
+    "masa_adulta": {
+      "rango_g": [3.0, 4.0],
+      "valor_central_g": 3.3,
+      "dimorfismo": "El macho es LIGERAMENTE más pesado",
+      "fuente": "AnAge (senescence.info) para el valor central de 3.3 g; compilación ornitológica para el rango",
+      "confianza": "MEDIDO",
+      "nota_de_escala": "Es aproximadamente 5,700 veces más ligero que el pecarí (18.7 kg). Toda la dinámica temporal del animal se deriva de esta cifra."
+    },
+    "medidas_corporales": {
+      "longitud_total_cm": [8, 10],
+      "envergadura_cm": 13,
+      "pico": { "descripcion": "Largo, ancho, ROJO BRILLANTE con punta negra", "nota": "El pico rojo es diagnóstico de la especie en ambos sexos y es su rasgo visual más identificable" },
+      "fuente": "Compilación ornitológica",
+      "confianza": "MEDIDO"
+    },
+    "dimorfismo_sexual": {
+      "estado": "FUERTE Y VISUALMENTE EVIDENTE",
+      "macho": "Verde oscuro iridiscente, GORGUERA AZUL, cobertoras infracaudales blancas, cola azul-negruzca",
+      "hembra": "Vientre pálido y liso, LISTA POSTOCULAR BLANCA, plumas de la cola con puntas blancas",
+      "juvenil": "Se parece a la hembra; los machos desarrollan las plumas iridiscentes de la garganta progresivamente",
+      "polluelo": "Cuerpo pardo, plumón anaranjado, pico anaranjado",
+      "contraste_con_el_pecari": "El pecarí es prácticamente MONOMÓRFICO y eso fue el argumento clave contra el macho alfa. Aquí el dimorfismo es fuerte, lo que es coherente con un sistema de apareamiento POLIGÍNICO con competencia intrasexual y elección de hembra. La lógica del framework se aplica en la dirección contraria y da el resultado contrario.",
+      "confianza": "MEDIDO"
+    },
+    "longevidad": {
+      "maxima_registrada_silvestre_anos": 8.8,
+      "fuente": "BBL — Longevity Records of North American Birds, USGS (vía AnAge, calidad de dato 'aceptable')",
+      "esperanza_de_vida_tipica": {
+        "estado": "AUSENTE",
+        "nota": "Solo existe el récord máximo, que es un valor extremo y NO representa la vida media. En passeriformes y apodiformes pequeños la mortalidad del primer año suele ser muy alta.",
+        "sustituto_declarado": "Se estima una vida media de 3-4 años para el modelo demográfico, marcado ESTIMADO. Ver 22_COLIBRI_TRAZABILIDAD.json."
+      },
+      "confianza": "MEDIDO (el máximo); AUSENTE (la media)"
+    },
+    "madurez_sexual": {
+      "valor_dias": 365,
+      "ambos_sexos": true,
+      "fuente": "AnAge",
+      "nota": "Un año para ambos sexos. Coherente con un ave pequeña de vida corta: se reproduce en la primera temporada tras nacer.",
+      "confianza": "MEDIDO"
+    },
+    "curva_de_crecimiento": {
+      "estado": "AUSENTE para esta especie",
+      "que_se_busco": "Curva masa-edad de pollos de C. latirostris con puntos desde la eclosión hasta el volantón",
+      "resultado": "NO ENCONTRADA. Es la misma laguna que en el pecarí, y por la misma razón: nadie publica curvas de crecimiento de especies sin interés económico.",
+      "puntos_de_anclaje_disponibles": [
+        { "edad": "huevo", "dimensiones_mm": [12, 8], "nota": "Huevo de 12 x 8 mm; la masa no consta" },
+        { "edad": "volantón (21-26 d)", "masa": "Próxima a la adulta", "nota": "En colibríes el volantón sale del nido con masa similar o incluso SUPERIOR a la adulta" },
+        { "edad": "adulto", "masa_g": 3.3 }
+      ],
+      "particularidad_importante": "En colibríes el crecimiento es EXTREMADAMENTE rápido y comprimido: de huevo a volantón en ~21-26 días. La curva de Gompertz sigue siendo aplicable, pero con una k un orden de magnitud mayor que la del pecarí.",
+      "confianza": "AUSENTE (la curva); MEDIDO (los anclajes de tiempo)"
+    }
+  },
+
+  "fisiologia": {
+    "IMPORTANCIA_CENTRAL": "En el pecarí la fisiología era un bloque de apoyo. En el colibrí es EL BLOQUE PRINCIPAL: casi todo el comportamiento de este animal es una consecuencia directa de su presupuesto energético.",
+
+    "tasa_metabolica": {
+      "vuelo_estacionario_hovering": {
+        "valor": 40,
+        "unidad": "ml O2 / (g · h)",
+        "nota": "Es la TASA METABÓLICA MASA-ESPECÍFICA MÁS ALTA CONOCIDA ENTRE VERTEBRADOS",
+        "confianza": "MEDIDO (en Trochilidae); INFERIDO (para C. latirostris concretamente)"
+      },
+      "reposo": {
+        "valor": 4,
+        "unidad": "ml O2 / (g · h)",
+        "razon_hovering_reposo": 10,
+        "nota": "El vuelo estacionario cuesta 10 VECES el reposo. Este factor 10 es el número más importante de todo el modelo del colibrí.",
+        "confianza": "MEDIDO (en Trochilidae); INFERIDO (para esta especie)"
+      },
+      "torpor": {
+        "valor": 0.053,
+        "desviacion": 0.007,
+        "unidad": "ml O2 / (g · h)",
+        "comparacion_euthermia_a_20C": { "valor": 0.817, "desviacion": 0.04, "unidad": "ml O2 / (g · h)" },
+        "razon_de_ahorro": "Aproximadamente 15x respecto a la euthermia a 20 °C",
+        "fuente": "Literatura clásica de torpor en colibríes (Eulampis jugularis y otros)",
+        "confianza": "MEDIDO (en otras especies); INFERIDO (para esta)"
+      },
+      "escala_completa_a_recordar": {
+        "nota": "Los tres regímenes abarcan casi TRES ÓRDENES DE MAGNITUD: 0.053 (torpor) → 4 (reposo) → 40 (hovering). Un modelo que no represente ese rango no está modelando un colibrí.",
+        "razon_extremos": 755
+      }
+    },
+
+    "frecuencia_cardiaca": {
+      "en_vuelo_lpm": 1300,
+      "nota": "Hasta 1,300 latidos por minuto en vuelo",
+      "en_torpor": { "estado": "AUSENTE para esta especie", "nota_general": "En la familia desciende drásticamente, hasta el orden de decenas de lpm" },
+      "confianza": "MEDIDO (en Trochilidae); INFERIDO (para esta especie)"
+    },
+
+    "frecuencia_de_aleteo": {
+      "rango_hz": [50, 60],
+      "nota": "Las frecuencias de aleteo más altas de cualquier ave, y las oscilaciones de extremidad más rápidas de cualquier vertebrado",
+      "valor_citado_para_algunas_especies_hz": 80,
+      "uso_en_simulacion": "Parámetro de ANIMACIÓN, no de decisión. Pero es el rasgo visual más característico y, por la lección de Rain World, la legibilidad importa tanto como la simulación.",
+      "confianza": "MEDIDO (en Trochilidae)"
+    },
+
+    "TORPOR": {
+      "IMPORTANCIA": "Es la adaptación fisiológica MÁS IMPORTANTE de la especie y la que no tenía análogo en el pecarí. Merece su propio subsistema en la IA.",
+      "definicion": "Estado de heterotermia controlada en el que el ave abandona la regulación de su temperatura corporal y la deja caer hacia la ambiental, reduciendo su metabolismo de forma masiva.",
+      "por_que_existe": "Un colibrí no puede almacenar suficiente energía para pasar una noche de 10-12 horas sin comer a tasa metabólica normal. El torpor no es un lujo: es lo que le permite amanecer vivo.",
+
+      "espectro_heterotermico": {
+        "hallazgo_clave": "El torpor NO es binario. Es un ESPECTRO con al menos cuatro estados distinguibles, y un mismo individuo usa varios EN LA MISMA NOCHE.",
+        "fuente": "Journal of Experimental Biology 225(2), 2022, 'A heterothermic spectrum in hummingbirds' (PMID 34989393)",
+        "estados_medidos": [
+          { "estado": "NORMOTERMIA", "temperatura_superficie_ocular_C": [31, 38] },
+          { "estado": "TORPOR SUPERFICIAL", "descripcion": "2-20 °C por debajo del nivel normotérmico de reposo", "temperatura_C": [19.5, 29.0], "ventaja": "Permite recalentarse en MENOS DE 5 MINUTOS" },
+          { "estado": "TRANSICIÓN", "tasa_de_cambio_C_por_min": 0.45, "desviacion": 0.06 },
+          { "estado": "TORPOR PROFUNDO", "temperatura_superficie_C": [5.9, 24.1], "nota": "Sigue de cerca la temperatura ambiente", "coste": "El recalentamiento tarda 20-30 MINUTOS" }
+        ],
+        "IMPLICACION_DE_DISENO_CRUCIAL": "El torpor profundo tiene una LATENCIA DE DESPERTAR de 20-30 minutos. Un ave en torpor profundo es prácticamente INDEFENSA durante ese tiempo. Eso convierte la decisión de entrar en torpor profundo en un COMPROMISO REAL entre ahorro energético y vulnerabilidad, no en una optimización trivial.",
+        "confianza": "MEDIDO"
+      },
+
+      "uso_por_especie_medido": {
+        "nota": "Porcentaje de la noche en cada estado. Muestra que la estrategia depende fuertemente de la MASA CORPORAL.",
+        "datos": [
+          { "especie": "Archilochus alexandri", "masa_g": 2.9, "n": 7, "torpor_profundo_pct": 49, "normotermia_pct": 34, "torpor_superficial_pct": 5, "transicion_pct": 12, "relevancia": "LA MÁS RELEVANTE: masa de 2.9 g, muy próxima a los 3.3 g de C. latirostris" },
+          { "especie": "Eugenes fulgens", "masa_g": 7.6, "n": 12, "torpor_profundo_pct": 17, "normotermia_pct": 43, "torpor_superficial_pct": 33, "transicion_pct": 8 },
+          { "especie": "Lampornis clemenciae", "masa_g": 8.4, "n": 14, "torpor_profundo_pct": 4, "normotermia_pct": 67, "torpor_superficial_pct": 25, "transicion_pct": 3 }
+        ],
+        "PATRON_CLARISIMO": "Cuanto MENOR es la masa, MÁS torpor profundo se usa. De 2.9 g (49% de la noche) a 8.4 g (4%). La relación es monótona y muy marcada.",
+        "aplicacion_a_esta_especie": "C. latirostris pesa 3.3 g, entre A. alexandri (2.9 g) y los grandes. Se interpola cerca del extremo pequeño: uso ALTO de torpor profundo.",
+        "confianza": "MEDIDO (en las tres especies); INFERIDO (la interpolación a C. latirostris)"
+      },
+
+      "ahorro_energetico": {
+        "reduccion_metabolica_pct": [60, 90],
+        "valor_extremo_citado_pct": 95,
+        "ahorro_medio_respecto_a_tasa_basal_pct": 60,
+        "confianza": "MEDIDO (en Trochilidae)"
+      },
+
+      "temperatura_corporal_en_torpor": {
+        "rango_familia_C": [3, 22],
+        "caida_respecto_a_normal_C": [23, 37],
+        "dato_de_Selasphorus_platycercus": { "temperatura_corporal_C": 12.2, "condicion_ambiental_C": "por debajo de 10 °C" },
+        "confianza": "MEDIDO (en otras especies); INFERIDO (para esta)"
+      },
+
+      "LA_REGLA_DE_DECISION": {
+        "estado": "PARCIALMENTE AUSENTE — es la laguna más importante de este archivo",
+        "que_se_busco": "La regla cuantitativa que decide CUÁNDO un colibrí entra en torpor y a qué profundidad",
+        "mejor_fuente_identificada": "Proceedings of the Royal Society B 292(2038), 2025: 'The hummingbird's adipostat: can a simple rule explain torpor frequency and duration in hummingbirds?'",
+        "problema": "NO ACCESIBLE en esta sesión (HTTP 403). Su título indica exactamente lo que el modelo necesita: una REGLA SIMPLE basada en reservas de grasa.",
+        "hipotesis_de_trabajo_adoptada": "Modelo de ADIPOSTATO: la decisión de entrar en torpor depende del nivel de reservas energéticas al anochecer, comparado con lo que la noche va a costar. Es coherente con el título del paper y con toda la literatura de balance energético.",
+        "formulacion_provisional": "entrar_en_torpor SI (reservas_actuales < coste_previsto_de_la_noche_a_tasa_normal)",
+        "gravedad_del_hueco": "MEDIA-ALTA. La FORMA del mecanismo es segura y bien fundada; los UMBRALES concretos no lo están.",
+        "instruccion_obligatoria": "Si se consigue acceso al paper de 2025, REVISAR esta regla antes de considerar el modelo cerrado."
+      }
+    },
+
+    "uso_de_sustratos_metabolicos": {
+      "hallazgo": "Alimentándose, el colibrí obtiene aproximadamente el 90% de su energía de los AZÚCARES RECIÉN INGERIDOS, no de reservas",
+      "capacidad_de_oxidacion_de_azucar": "Transporta, capta y oxida azúcares circulantes a tasas hasta 55 VECES mayores que el máximo observado en cualquier mamífero no volador",
+      "velocidad_de_conmutacion": "Puede pasar de depender exclusivamente de lípidos endógenos a depender exclusivamente de azúcar recién ingerido en tan solo 20-30 MINUTOS",
+      "cociente_respiratorio": { "ayuno": 0.7, "alimentado": "Por encima de 1.0", "interpretacion": "Confirma el cambio de lípidos a azúcares" },
+      "tiempo_de_residencia_del_carbono_en_reservas_dias": [1, 2],
+      "fuente": "Journal of Experimental Biology 209(14):2622, 2006 (PMID 16809453) para Selasphorus platycercus; revisión genómica de 2023 (PMC10317124)",
+      "IMPLICACION_DE_DISENO": "El colibrí funciona con DOS DEPÓSITOS distintos: (1) azúcar circulante de uso inmediato, que es lo que quema mientras está activo, y (2) grasa acumulada, que es lo que quema de noche y en torpor. Modelarlo con una sola barra de 'hambre' pierde el mecanismo central de la especie.",
+      "confianza": "MEDIDO (en otras especies de Trochilidae); INFERIDO (para C. latirostris)"
+    },
+
+    "ingesta_diaria": {
+      "valor": "Entre 1.5 y 3 veces su propia masa corporal en néctar al día",
+      "nota_de_verificacion": "Es una cifra muy citada en fuentes divulgativas y consistente entre ellas, pero NO se localizó la medición primaria en esta sesión",
+      "coherencia_energetica": "Es coherente con una tasa metabólica de hovering de 40 ml O2/(g·h) y un néctar de ~44% de azúcar: el balance cierra en el orden de magnitud correcto",
+      "margen_de_ayuno": {
+        "valor": "HORAS, no días",
+        "contraste_explicito": "El pecarí pierde el 26% de su masa en 9 SEMANAS con un cuarto de su ingesta. El colibrí muere en una noche fría sin reservas.",
+        "confianza": "MEDIDO cualitativamente; AUSENTE la cifra exacta de supervivencia sin alimento"
+      },
+      "confianza": "INFERIDO — cifra divulgativa consistente, sin fuente primaria localizada. Marcada así deliberadamente."
+    },
+
+    "temperatura_corporal_normal": {
+      "estado": "AUSENTE para esta especie",
+      "sustituto": "Se infiere del rango normotérmico medido de 31-38 °C de temperatura superficial ocular en las tres especies del estudio de 2022, y del rango típico aviar (39-42 °C interno)",
+      "confianza": "INFERIDO"
+    }
+  },
+
+  "alimentacion": {
+    "categoria_trofica": "NECTARÍVORO con complemento INSECTÍVORO obligado",
+    "aclaracion_importante": {
+      "error_frecuente": "Suponer que el colibrí solo bebe néctar",
+      "realidad": "El néctar aporta ENERGÍA (azúcar puro), pero carece casi por completo de PROTEÍNA. Los insectos son la única fuente de nitrógeno, y son OBLIGATORIOS, especialmente para las hembras que producen huevos y para el crecimiento de los pollos.",
+      "implicacion_de_diseno": "Se necesitan DOS necesidades alimentarias distintas, no una: hambre_energetica (néctar) y hambre_proteica (insectos). Tienen escalas temporales completamente distintas: la energética es de minutos, la proteica de días.",
+      "confianza": "MEDIDO"
+    },
+
+    "nectar": {
+      "concentracion_de_azucar_medida_pct": 43.7,
+      "nota": "Concentración media de azúcar en el néctar de las flores visitadas",
+      "confianza": "MEDIDO",
+      "preferencias_de_azucar_MEDIDAS_EN_ESTA_ESPECIE": {
+        "IMPORTANCIA": "Este es uno de los POCOS estudios fisiológicos hechos directamente sobre C. latirostris. Es dato de primera mano, no inferencia.",
+        "fuente": "Medina-Tapia, N., Ayala-Berdon, J., Morales-Pérez, L., Mirón Melo, L. y Schondube, J.E. (2012). 'Do hummingbirds have a sweet-tooth? Gustatory sugar thresholds and sugar selection in the broad-billed hummingbird Cynanthus latirostris'. Comparative Biochemistry and Physiology Part A. PMID 22155281",
+        "n": 8,
+        "metodo": "Comederos pareados con solución azucarada o agua pura",
+        "concentraciones_probadas_mmol_L": [146, 730, 1022],
+        "hallazgo_principal": "Detecta la FRUCTOSA a concentraciones MÁS BAJAS que la sacarosa o la glucosa",
+        "umbrales_diferenciados": "Los umbrales gustativos difieren entre los tres azúcares probados",
+        "uso_en_simulacion": "Permite que distintas flores del juego tengan distinto ATRACTIVO según su azúcar dominante, con base medida en esta misma especie. Es el nivel de detalle que distingue un modelo investigado de uno inventado.",
+        "confianza": "MEDIDO — en esta especie exacta"
+      }
+    },
+
+    "plantas_visitadas": {
+      "en_mexico": {
+        "ESPECIE_CLAVE_INVERNAL": {
+          "planta": "Echeveria gibbiflora (Crassulaceae)",
+          "importancia": "Recurso floral CRÍTICO durante el INVIERNO en el centro de México",
+          "hallazgo_notable": "Sus flores son polinizadas por UNA SOLA especie de colibrí — C. latirostris — y NUNCA son visitadas por insectos. Es una relación planta-polinizador prácticamente exclusiva.",
+          "nectar_medido": { "dias_de_apertura_y_produccion": [7, 8], "acumulacion_maxima_ul_por_dia": 14.5, "dias_de_maxima_produccion": [4, 6], "nota": "La flor produce durante 7-8 días, con el máximo entre los días 4 y 6 de vida de la flor" },
+          "localidad": "Reserva Ecológica del Pedregal de San Ángel, Ciudad de México",
+          "fuente": "Vargas, C.F. y Parra-Tabla, V. 'Floral abundance, territoriality, and the importance of Echeveria gibbiflora to Cynanthus latirostris (Apodiformes: Trochilidae) during winter'. The Southwestern Naturalist",
+          "IMPORTANCIA_PARA_LA_SIMULACION": "El dato de 14.5 µl/día y 7-8 días de vida de la flor es EXACTAMENTE lo que se necesita para modelar la RECARGA DE NÉCTAR de una flor individual. Es la base del sistema de traplining.",
+          "confianza": "MEDIDO — en México y en esta especie"
+        },
+        "otras_mexicanas_citadas": ["Bejuco blanco", "Pochote", "Fairy-duster (Calliandra)", "Cactáceas diversas"],
+        "confianza": "MEDIDO (la lista); AUSENTE (las proporciones de la dieta)"
+      },
+      "en_el_norte_de_su_rango": {
+        "lista": ["Agave (agaves y magueyes)", "Madreselva del desierto (Anisacanthus)", "Asclepias (algodoncillo)", "Bouvardia", "Castilleja (Indian paintbrush)", "Chilopsis linearis (desert willow)", "Erythrina flabelliformis (colorín)", "Fouquieria splendens (ocotillo)", "Lonicera sempervirens", "Penstemon (scarlet bugler)", "Stachys coccinea (Texas betony)"],
+        "AGAVE_ES_CLAVE": {
+          "hallazgo": "El segundo periodo de disponibilidad de néctar, de finales de junio a principios de septiembre, tiene al AGAVE como productor PRINCIPAL de néctar",
+          "por_que_importa_para_este_proyecto": "El motor YA TIENE maguey/agave implementado (BLOCK_IXTLE_*), incluyendo BLOCK_IXTLE_CON_FLOR — es decir, un maguey CON FLOR. La conexión con contenido existente es directa e inmediata.",
+          "confianza": "MEDIDO"
+        },
+        "confianza": "MEDIDO"
+      },
+      "estacionalidad_del_recurso": {
+        "patron_medido": "Hay al menos DOS periodos de disponibilidad de néctar al año, con un segundo periodo de finales de junio a principios de septiembre en el que el néctar está MÁS UNIFORMEMENTE DISTRIBUIDO",
+        "consecuencia_conductual_crucial": "Cuando el néctar está uniformemente distribuido, la TERRITORIALIDAD DEJA DE SER RENTABLE. Ver el bloque de defendibilidad económica en estructura_social.",
+        "confianza": "MEDIDO"
+      }
+    },
+
+    "insectos": {
+      "grupos_documentados": ["Diptera voladores", "Ephemeroptera"],
+      "localidad": "Guadalupe Canyon",
+      "tecnica": "Captura al vuelo (hawking) y espigueo de vegetación (gleaning)",
+      "proporcion_en_la_dieta": { "estado": "AUSENTE", "nota": "No se localizó una cuantificación de la fracción de insectos en la dieta de esta especie" },
+      "confianza": "MEDIDO (que ocurre y qué grupos); AUSENTE (la proporción)"
+    },
+
+    "tecnica_de_alimentacion": {
+      "descripcion": "Extiende el pico y la lengua larga dentro de la flor mientras MANTIENE EL VUELO ESTACIONARIO",
+      "coste_implicito": "Comer cuesta 40 ml O2/(g·h). Es la única especie del simulador para la que ALIMENTARSE ES LA ACTIVIDAD MÁS CARA que realiza.",
+      "consecuencia_de_diseno": "Invierte una suposición implícita del modelo del pecarí, donde forrajear era barato. Aquí el balance neto de una visita floral puede ser NEGATIVO si la flor está poco cargada. Eso es lo que hace interesante la decisión de qué flor visitar.",
+      "confianza": "MEDIDO"
+    }
+  },
+
+  "estructura_social": {
+    "modelo_general": "SOLITARIO Y TERRITORIAL. No hay grupo social estable de ningún tipo.",
+    "contraste_deliberado_con_el_pecari": "Donde el pecarí tenía manada cohesiva, filopatría femenina y linajes maternos, el colibrí no tiene NADA de eso. La capa 2 del framework se usa aquí casi enteramente para AGRESIÓN y TERRITORIO, no para cohesión.",
+
+    "territorialidad": {
+      "quien_defiende": "AMBOS SEXOS defienden territorios de alimentación",
+      "que_se_defiende": ["Territorios de alimentación (recursos florales)", "Sitios de reproducción (los machos)"],
+      "conductas_agonisticas": ["Persecución (chasing)", "Picados (diving)", "Exhibiciones", "Combate físico ocasional"],
+      "severidad": "La agresión puede llegar a combate real; hay registros de peleas graves en la familia",
+
+      "LA_TEORIA_QUE_GOBIERNA_TODO": {
+        "nombre": "DEFENDIBILIDAD ECONÓMICA (economic defendability)",
+        "principio": "Para que un recurso merezca ser defendido, su rendimiento debe cubrir el déficit energético que causa defenderlo",
+        "hallazgo_medido_clave": "Los niveles MÁS ALTOS de competencia ocurren en sitios con abundancia INTERMEDIA de recursos. Con pocos recursos no vale la pena defender; con muchos, defender cuesta más de lo que aporta.",
+        "forma_de_la_funcion": "CURVA EN U INVERTIDA respecto a la abundancia de recursos",
+        "IMPORTANCIA_PARA_LA_IA": "Este es el equivalente en el colibrí al compromiso audacia/digestión del pecarí: un mecanismo REAL, MEDIDO y NO TRIVIAL del que emerge comportamiento variado sin programarlo caso por caso. Un colibrí que defiende siempre está mal modelado; uno que nunca defiende, también.",
+        "corroboracion_en_esta_especie": "El estudio de Echeveria gibbiflora en el Pedregal relaciona explícitamente ABUNDANCIA FLORAL con TERRITORIALIDAD en C. latirostris, que es exactamente esta predicción puesta a prueba en la especie que nos interesa",
+        "confianza": "MEDIDO"
+      },
+
+      "modulacion_por_calidad_del_recurso": {
+        "hallazgo": "Se defienden MÁS agresivamente los recursos de mayor rendimiento",
+        "evidencia": "Selasphorus rufus en Colorado defendió recursos de alto rendimiento más agresivamente que los de bajo rendimiento",
+        "confianza": "MEDIDO (en S. rufus); INFERIDO (para C. latirostris)"
+      },
+
+      "dominancia_interespecifica": {
+        "hallazgo": "El desplazamiento de un colibrí más PEQUEÑO por uno más GRANDE en recursos de alta calidad es frecuente",
+        "implicacion": "La masa corporal es un determinante directo del RHP (Resource Holding Potential) del framework. Si se añaden más especies de colibrí al juego, la jerarquía interespecífica sale gratis de la masa.",
+        "confianza": "MEDIDO"
+      },
+
+      "coste_energetico_de_la_agresion": {
+        "principio": "La agresión es MUY costosa por la tasa metabólica alta, así que se emplea ESTRATÉGICAMENTE para mantener dominancia, no en batallas constantes y agotadoras",
+        "criterio_de_calibracion": "Es el mismo criterio que el framework ya establece citando a Maynard Smith y Parker: si la simulación produce peleas constantes, está mal calibrada. Aquí el argumento es aún más fuerte porque el coste energético es medible.",
+        "confianza": "MEDIDO"
+      },
+
+      "tamano_del_territorio": {
+        "estado": "AUSENTE para esta especie",
+        "que_se_busco": "Superficie del territorio de alimentación en m² o ha para C. latirostris",
+        "nota": "En la familia los territorios de alimentación son del orden de decenas a centenares de metros cuadrados, muy lejos de las 150-250 ha del pecarí",
+        "sustituto_declarado": "Se define por NÚMERO DE FLORES DEFENDIBLES en vez de por superficie, que es además más natural para un mundo de vóxeles. Marcado ESTIMADO."
+      }
+    },
+
+    "sistema_de_apareamiento": {
+      "clasificacion": "PROMISCUO / POLIGÍNICO. Sin vínculo de pareja de ningún tipo.",
+      "cuidado_parental": {
+        "hembra": "TODO: construye el nido, incuba y cría a los pollos EN SOLITARIO",
+        "macho": "NADA. Interactúa con la hembra solo para copular.",
+        "dato_medido": "Las hembras en Guadalupe Canyon pasaban aproximadamente el 60% de cada hora en el nido",
+        "IMPORTANCIA_DE_DISENO": "Ese 60% es un dato de PRESUPUESTO DE TIEMPO directamente utilizable. Una hembra anidando tiene solo el 40% del tiempo para forrajear, lo cual, con el margen energético de un colibrí, es una restricción severísima y genera comportamiento distinto del macho automáticamente.",
+        "confianza": "MEDIDO"
+      },
+      "exhibicion_de_cortejo": {
+        "nombre": "EXHIBICIÓN PENDULAR (pendulum display)",
+        "descripcion": "El macho vuela en vuelo estacionario y luego describe ARCOS de ida y vuelta, repetidos AL MENOS 4 VECES",
+        "vocalizacion_asociada": "Un 'zing' quejumbroso durante la exhibición",
+        "uso_en_simulacion": "Es una animación concreta y citable, no una invención. Por la lección de F.E.A.R., este tipo de señalización es el mejor retorno de realismo percibido por hora invertida.",
+        "confianza": "MEDIDO"
+      },
+      "hibridacion_documentada": [
+        { "con": "Eugenes fulgens (colibrí magnífico / de Rivoli)" },
+        { "con": "Amazilia violiceps (colibrí corona violeta)" }
+      ],
+      "confianza": "MEDIDO"
+    }
+  },
+
+  "comunicacion": {
+    "canal_principal": "ACÚSTICO Y VISUAL. A diferencia del pecarí, cuyo canal principal era OLFATIVO (20% de los actos sociales), aquí el olfato es irrelevante.",
+    "vocalizaciones_catalogadas": [
+      { "tipo": "Parloteo (chatter)", "emisor": "Ambos sexos", "descripcion": "'chi-dit' rápido, comparado con el del reyezuelo (Regulus calendula)" },
+      { "tipo": "Llamada de exhibición", "emisor": "Macho", "descripcion": "'Zing' quejumbroso durante la exhibición pendular" },
+      { "tipo": "Canto", "estado": "POCO CONOCIDO", "nota": "La literatura lo declara explícitamente poco estudiado" }
+    ],
+    "senales_visuales": {
+      "gorguera_iridiscente": "La gorguera azul del macho es una señal DIRECCIONAL: la iridiscencia depende del ángulo, y el macho la orienta deliberadamente hacia el receptor",
+      "uso_en_simulacion": "Da un motivo BIOLÓGICO para que el macho se oriente hacia el jugador o hacia un rival, en vez de ser un detalle cosmético"
+    },
+    "sonido_mecanico": {
+      "nota": "En varias especies de colibrí las plumas producen sonidos mecánicos (trinos alares) durante el vuelo o la exhibición",
+      "estado_en_esta_especie": "AUSENTE — no se localizó documentación de trino alar diagnóstico en C. latirostris, a diferencia de Selasphorus platycercus donde sí es característico",
+      "advertencia": "NO copiar el trino alar de S. platycercus a esta especie. Sería inventar un rasgo diagnóstico ajeno."
+    },
+    "confianza": "MEDIDO (las tres vocalizaciones); AUSENTE (el canto y el sonido mecánico)"
+  },
+
+  "reproduccion": {
+    "temporada": {
+      "en_mexico": { "meses": "Enero a agosto", "pico": "Mediados de marzo en Sonora y el occidente", "confianza": "MEDIDO" },
+      "en_el_norte_del_rango": { "meses": "Mediados de abril a mediados de agosto", "intentos_por_temporada": 2, "confianza": "MEDIDO" },
+      "duracion_en_criadores_del_norte": "Anidación durante hasta CINCO MESES del año",
+      "multiples_nidadas": { "valor": true, "nota": "Capaz de múltiples nidadas en la misma temporada", "confianza": "MEDIDO" },
+      "ACOPLAMIENTO_CON_EL_RECURSO": "La temporada reproductiva sigue a la disponibilidad floral, no al fotoperiodo puro. En México empieza en enero, coincidiendo con el periodo en que Echeveria gibbiflora es el recurso invernal clave."
+    },
+    "nido": {
+      "altura_sobre_el_suelo_m": { "maximo": 2, "media": 1.1 },
+      "dimensiones": { "altura_cm": 2.5, "diametro_interior_cm": 1.9 },
+      "materiales": ["Telaraña", "Semillas", "Gramíneas", "Hojas y flores secas", "Plumón vegetal blanco", "Líquenes (rara vez, como decoración)"],
+      "nota_distintiva": "Los nidos de esta especie están construidos BAJO y RARA VEZ decorados con líquenes, a diferencia de otros colibríes que los camuflan sistemáticamente",
+      "constructor": "La hembra en solitario",
+      "uso_en_simulacion": "La TELARAÑA como material es un detalle notable: hace que el nido sea elástico y se expanda conforme crecen los pollos. Es un candidato excelente a mecánica de recolección o a detalle visual.",
+      "confianza": "MEDIDO"
+    },
+    "huevos": {
+      "tamano_de_puesta": 2,
+      "rango": [1, 2],
+      "dimensiones_mm": [12, 8],
+      "descripcion": "Blancos, alargados",
+      "confianza": "MEDIDO"
+    },
+    "incubacion": {
+      "valor_dias": 17,
+      "fuente": "AnAge",
+      "rango_citado_en_otras_fuentes_dias": [14, 23],
+      "instruccion": "Usar 17 días. El rango 14-23 procede de compilaciones menos precisas.",
+      "incubadora": "Solo la hembra",
+      "confianza": "MEDIDO"
+    },
+    "periodo_de_pollo": {
+      "valor_dias": [21, 26],
+      "nota_critica": "Ver 'el_dato_erroneo_que_hay_que_descartar' en las advertencias: la cifra de '6-8 meses' que circula en compilaciones es imposible y debe rechazarse",
+      "confianza": "MEDIDO (compilación ornitológica); el descarte del valor erróneo es DERIVADO por incoherencia dimensional"
+    },
+    "ciclo_completo_del_nido": {
+      "calculo": "17 días de incubación + 21-26 días de pollo = 38-43 días desde la puesta hasta el volantón",
+      "confianza": "DERIVADO"
+    },
+    "mortalidad": {
+      "estado": "AUSENTE",
+      "que_se_busco": "Éxito de nidada, mortalidad de pollos, mortalidad del primer año en C. latirostris",
+      "gravedad": "ALTA para el modelo demográfico. Es la laguna más grave de este archivo junto con la regla del torpor.",
+      "sustituto_declarado": "Se calibrará por la restricción de estabilidad poblacional (lambda ≈ 1.0), como exige la fase 3 del protocolo. Marcado ESTIMADO."
+    },
+    "endocrinologia": {
+      "estado": "AUSENTE POR COMPLETO para esta especie",
+      "que_se_busco": "Perfiles de testosterona, estradiol, progesterona, corticosterona en C. latirostris",
+      "resultado": "NO EXISTE literatura endocrina para esta especie",
+      "nota_importante_de_clase": "En AVES la hormona de estrés principal es la CORTICOSTERONA, no el cortisol. El framework (01_ARQUITECTURA) modela cortisol porque su primera instancia fue un mamífero. Para el colibrí el nombre debe cambiar, aunque la DINÁMICA del eje HPA es equivalente.",
+      "sustituto_declarado": "Curvas normalizadas con forma INFERIDA del patrón aviar general: testosterona estacional ligada a la temporada reproductiva, corticosterona con dinámica rápida-lenta idéntica en forma a la del cortisol",
+      "gravedad": "MEDIA — la simulación necesita la forma de las curvas, no valores en ng/ml. Es exactamente la misma situación que en el pecarí.",
+      "confianza": "AUSENTE"
+    }
+  },
+
+  "actividad_y_espacio": {
+    "patron_circadiano": {
+      "clasificacion": "ESTRICTAMENTE DIURNO",
+      "razon_fisiologica": "No es una preferencia: es una OBLIGACIÓN. Un colibrí no puede forrajear de noche porque localiza las flores visualmente, y además la noche es cuando aplica el torpor.",
+      "estructura_del_dia": {
+        "amanecer": "CRÍTICO. El ave sale del torpor con las reservas agotadas y DEBE alimentarse de inmediato. Es el momento de máxima urgencia energética del ciclo.",
+        "dia": "Alternancia de forrajeo y descanso en percha. NO está en vuelo continuo: el vuelo estacionario es demasiado caro para sostenerlo.",
+        "atardecer": "Alimentación intensiva para acumular las reservas de la noche. Segundo pico de urgencia.",
+        "noche": "Percha y, según el balance energético, torpor"
+      },
+      "nota_de_diseno_importante": "El patrón BIMODAL (pico al amanecer y al atardecer) emerge naturalmente del balance energético: no hace falta programarlo como horario. Es un buen test de validación del modelo.",
+      "confianza": "MEDIDO (la diurnalidad); DERIVADO (la estructura bimodal)"
+    },
+    "presupuesto_de_actividad": {
+      "hallazgo_clave": "Los colibríes pasan la MAYOR PARTE del día PERCHADOS, no volando",
+      "razon": "Consecuencia directa del coste del hovering: 10x el reposo. Volar continuamente es energéticamente imposible.",
+      "cifra_exacta": { "estado": "AUSENTE para esta especie", "nota_general_de_la_familia": "Comúnmente se cita del orden del 75-80% del tiempo diurno perchado, pero no se localizó la fuente primaria en esta sesión" },
+      "ERROR_DE_DISENO_A_EVITAR": "El error más común al implementar colibríes en videojuegos es tenerlos VOLANDO TODO EL TIEMPO. Es espectacular y es falso. Un colibrí real está quieto la mayor parte del día.",
+      "confianza": "MEDIDO (que perchan la mayor parte del tiempo); AUSENTE (el porcentaje exacto)"
+    },
+    "MEMORIA_ESPACIAL_Y_TRAPLINING": {
+      "IMPORTANCIA": "Es la capacidad COGNITIVA más notable del grupo, y el segundo pilar de la IA de esta especie junto al torpor.",
+      "definicion_de_trapline": "Ruta de forrajeo en la que el ave repite el ORDEN en que visita una serie de localizaciones, como un trampero revisando sus trampas",
+      "hallazgos_medidos": [
+        { "hallazgo": "Los machos territoriales de Selasphorus rufus repitieron el orden de visita de flores artificiales en arreglos que crecieron de 2 a 5 flores", "confianza": "MEDIDO" },
+        { "hallazgo": "Los colibríes silvestres CRONOMETRAN sus visitas según el calendario de RECARGA de néctar de cada flor", "confianza": "MEDIDO" },
+        { "hallazgo": "Con flores artificiales de recarga variable (10 a 40 minutos), aprendieron rápidamente el momento óptimo de revisita para cada una", "confianza": "MEDIDO" },
+        { "hallazgo": "Con tres parches recargando a los 20 minutos, repitieron el orden de visita; visitaban los dos primeros antes de los 20 min pero el tercero a intervalos de aproximadamente 20 minutos", "confianza": "MEDIDO" },
+        { "hallazgo": "Evitan revisitar flores ya vaciadas en intervalos de retención que van de unos minutos a MÁS DE UNA HORA", "confianza": "MEDIDO" }
+      ],
+      "los_tres_sistemas_de_memoria_implicados": [
+        { "sistema": "Memoria ESPACIAL", "funcion": "Dónde está cada flor" },
+        { "sistema": "Memoria TEMPORAL", "funcion": "Cuándo estará recargada cada flor" },
+        { "sistema": "Memoria SECUENCIAL", "funcion": "En qué orden recorrerlas" }
+      ],
+      "CONTRASTE_CON_EL_FRAMEWORK_ACTUAL": {
+        "problema_detectado": "El framework (01_ARQUITECTURA, memoria_del_agente) especifica una memoria de 5-10 lugares de alimento con olvido por no revisita. Eso es ADECUADO para un pecarí y CLARAMENTE INSUFICIENTE para un colibrí.",
+        "que_falta": "El framework no contempla memoria TEMPORAL (cuándo estará lista una flor) ni SECUENCIAL (en qué orden). Ambas están MEDIDAS en este grupo.",
+        "veredicto": "Es una EXTENSIÓN OBLIGATORIA del framework, no un detalle de la especie. Se especifica en 21_COLIBRI_IA.json.",
+        "valor_para_el_proyecto": "El traplining es visible, legible y distintivo: el jugador puede APRENDER la ruta del colibrí y anticiparla. Por la lección de Rain World, eso es exactamente el tipo de simulación que vale la pena porque SE VE."
+      },
+      "confianza": "MEDIDO (en Selasphorus rufus); INFERIDO (para C. latirostris, pero el traplining está descrito en toda la familia)"
+    },
+    "migracion": {
+      "poblaciones_mexicanas": "RESIDENTES todo el año",
+      "poblaciones_del_norte": { "estatus": "MIGRATORIAS", "salida": "Principios de noviembre", "regreso": "Principios de marzo", "destino": "Migran al sur, hacia el área de las poblaciones mexicanas residentes" },
+      "decision_para_el_modelo": "Modelar la población MEXICANA RESIDENTE. La migración de larga distancia queda fuera de alcance y se declara así.",
+      "confianza": "MEDIDO"
+    }
+  },
+
+  "habitat": {
+    "tipos_de_vegetacion": [
+      "Matorral espinoso árido",
+      "Bosque tropical caducifolio (selva baja caducifolia)",
+      "Bosque de galería ripario",
+      "Cañadas desérticas",
+      "Encinares de montaña baja",
+      "Sotos ribereños"
+    ],
+    "arboles_asociados_documentados": ["Sicomoro de Arizona (Platanus wrightii)", "Álamo de Fremont (Populus fremontii)", "Mezquite (Prosopis)"],
+    "rango_altitudinal": {
+      "en_mexico_m": [1494, 3048],
+      "habitat_reproductivo": "Generalmente por debajo de 2,000 m",
+      "nota": "El rango documentado de 1,494-3,048 m es amplio y abarca desde tierras medias hasta bosque de montaña",
+      "confianza": "MEDIDO"
+    },
+    "distribucion": {
+      "descripcion": "Del suroeste de EUA al sur hasta el centro-oeste de Veracruz y el norte de Guerrero",
+      "nucleo": "Casi enteramente mexicana",
+      "confianza": "MEDIDO"
+    },
+    "densidad_poblacional": {
+      "estado": "AUSENTE",
+      "que_se_busco": "Individuos por km² o por hectárea en poblaciones mexicanas",
+      "gravedad": "MEDIA-ALTA para las reglas de aparición",
+      "sustituto_declarado": "Se derivará de la DISPONIBILIDAD FLORAL en vez de fijarse como densidad absoluta, lo cual es además más correcto biológicamente: la densidad de un nectarívoro territorial está determinada por el recurso. Marcado ESTIMADO.",
+      "nota_de_diseno": "Esta ausencia se convierte en una ventaja: acoplar la densidad al recurso produce dinámica estacional automática."
+    },
+    "estatus_de_conservacion": {
+      "IUCN": "Preocupación Menor (Least Concern)",
+      "CITES": "Apéndice II",
+      "ADVERTENCIA": "Obtenidos de compilación secundaria, NO verificados contra las fichas oficiales, que no fueron accesibles en esta sesión. NO citar como verificados.",
+      "NOM_059_SEMARNAT": "NO VERIFICADO",
+      "nota": "CITES Apéndice II aplica a toda la familia Trochilidae, no es específico de esta especie",
+      "confianza": "INFERIDO — pendiente de verificación"
+    }
+  },
+
+  "depredacion": {
+    "depredadores_documentados": {
+      "estado": "AUSENTE para esta especie concretamente",
+      "que_se_busco": "Lista de depredadores documentados y tasas de depredación en C. latirostris",
+      "conocimiento_general_del_grupo": "Los colibríes adultos son presa de halcones pequeños y accipitrinos ágiles, y ocasionalmente de arañas grandes, mantis religiosas y ranas. Los NIDOS son mucho más vulnerables: serpientes, aves rapaces y jays.",
+      "advertencia_metodologica": "Esta lista general NO debe presentarse como dato de esta especie. Se marca INFERIDO."
+    },
+    "respuesta_antidepredatoria": {
+      "principal": "HUIDA por velocidad y maniobrabilidad. Un colibrí es prácticamente incapturable en vuelo para la mayoría de depredadores.",
+      "LA_VULNERABILIDAD_REAL": {
+        "hallazgo": "El momento de máxima vulnerabilidad NO es el vuelo, sino el TORPOR PROFUNDO",
+        "razon": "El recalentamiento desde torpor profundo tarda 20-30 minutos. Durante ese tiempo el ave no puede volar.",
+        "IMPORTANCIA_DE_DISENO": "Esto cierra un bucle precioso: la decisión energética (entrar en torpor para sobrevivir a la noche) crea la vulnerabilidad (no poder huir). Es un compromiso auténtico entre dos presiones de selección, MEDIDO y no inventado.",
+        "confianza": "MEDIDO (la latencia de recalentamiento); DERIVADO (la implicación de vulnerabilidad)"
+      },
+      "mobbing": {
+        "nota": "Los colibríes son notoriamente agresivos y atacan a aves MUCHO mayores, incluidos halcones, cerca de sus nidos",
+        "confianza": "MEDIDO cualitativamente en la familia"
+      }
+    }
+  },
+
+  "resumen_de_lagunas_declaradas": {
+    "proposito": "Las ausencias visibles son una invitación a mejorar el modelo. Las invisibles son una mentira que se propaga.",
+    "lagunas_por_gravedad": [
+      { "laguna": "La REGLA CUANTITATIVA de entrada en torpor (adipostato)", "gravedad": "ALTA", "por_que": "Es el mecanismo central de la especie y el paper que la contiene (Proc R Soc B 2025) no fue accesible", "sustituto": "Regla de adipostato con forma correcta y umbrales ESTIMADOS", "como_cerrarla": "Conseguir acceso a Proceedings of the Royal Society B 292(2038):20242489" },
+      { "laguna": "Mortalidad y éxito reproductivo", "gravedad": "ALTA", "por_que": "Sin ella el modelo demográfico no tiene anclaje empírico", "sustituto": "Calibración por restricción de lambda ≈ 1.0" },
+      { "laguna": "Densidad poblacional", "gravedad": "MEDIA-ALTA", "por_que": "Afecta directamente a las reglas de aparición", "sustituto": "Densidad derivada de la disponibilidad floral" },
+      { "laguna": "Endocrinología completa", "gravedad": "MEDIA", "por_que": "La simulación necesita la forma de las curvas, no valores absolutos", "sustituto": "Patrón aviar general normalizado, con corticosterona en lugar de cortisol" },
+      { "laguna": "Presupuesto de actividad cuantificado (% perchado)", "gravedad": "MEDIA", "por_que": "Es un patrón de validación importante", "sustituto": "Se deja EMERGER del balance energético y se valida contra la afirmación cualitativa" },
+      { "laguna": "Tamaño del territorio en superficie", "gravedad": "BAJA", "por_que": "Se sustituye por número de flores defendibles, que encaja mejor con un mundo de vóxeles" },
+      { "laguna": "Proporción de insectos en la dieta", "gravedad": "BAJA-MEDIA", "sustituto": "Necesidad proteica con umbral ESTIMADO" },
+      { "laguna": "Depredadores específicos", "gravedad": "BAJA", "por_que": "El juego definirá sus propios depredadores; lo importante es la ventana de vulnerabilidad del torpor, que sí está medida" },
+      { "laguna": "Tasa metabólica y torpor medidos EN ESTA ESPECIE", "gravedad": "MEDIA", "atenuante": "La fisiología está fuertemente restringida por la masa y es conservada en Trochilidae. La inferencia es razonable, pero es inferencia." }
+    ],
+    "balance_honesto": "Esta especie tiene datos EXCELENTES en gusto (medido en ella misma), dieta, recurso invernal mexicano, territorialidad, nido y reproducción. Y datos INFERIDOS en toda la fisiología energética, que es paradójicamente la parte más importante para la IA. La inferencia es defendible porque la fisiología de colibríes escala con la masa, pero debe declararse en cada parámetro."
+  }
+}

@@ -1,0 +1,465 @@
+{
+  "_meta": {
+    "titulo": "Colibrí de pico ancho — especificación de la IA",
+    "version": "1.0",
+    "proyecto": "Voxel World — AI simulator",
+    "fecha": "2026-08-21",
+    "rol": "Traducción de 20_COLIBRI_BIOLOGIA.json a parámetros de simulación. Es el bloque 'Submodelos' del protocolo ODD.",
+    "regla": "Cada parámetro enlaza con su origen biológico. Los inventados se marcan ESTIMADO sin disimulo. Ver 22_COLIBRI_TRAZABILIDAD.json para la auditoría completa."
+  },
+
+  "EXTENSIONES_OBLIGATORIAS_DEL_FRAMEWORK": {
+    "proposito": "El framework de 01_ARQUITECTURA_DEL_SISTEMA.json se diseñó y probó con un ungulado terrestre. Esta especie exige tres extensiones. Se declaran aquí en vez de colarlas silenciosamente, porque cambian el MOTOR, no solo los datos.",
+    "aviso_de_coherencia": "El propio framework predijo dos de las tres: en 'extensibilidad.lo_que_SI_requiere_codigo' ya listaba 'una forma de locomoción nueva (volar)' y 'una hormona con dinámica que no encaje'. La predicción se cumplió. La tercera (memoria temporal) NO estaba prevista y es un hallazgo nuevo.",
+
+    "extension_1_locomocion_de_vuelo": {
+      "que_falta": "El framework asume locomoción terrestre: getGroundHeight, isSolid para colisión, navegación sobre superficie",
+      "que_se_necesita": "Movimiento en 3 dimensiones libres, con el suelo como obstáculo y no como soporte",
+      "impacto_en_IFaunaWorldQuery": "MÍNIMO. Los métodos existentes bastan: isSolid para no atravesar bloques, getBlock para localizar flores. NO hace falta ampliar la interfaz.",
+      "impacto_en_el_motor": "Se necesita un modo de locomoción alternativo con coste energético explícito por modo (ver 'coste_energetico_por_modo'). Es código nuevo, pero acotado.",
+      "modos_de_vuelo_a_distinguir": [
+        { "modo": "PERCHADO", "coste_relativo": 1.0, "nota": "El estado por defecto. La mayor parte del día." },
+        { "modo": "VUELO_ESTACIONARIO", "coste_relativo": 10.0, "nota": "Hovering. Es como se alimenta." },
+        { "modo": "VUELO_DIRECCIONAL", "coste_relativo": 7.0, "confianza": "ESTIMADO", "nota": "El vuelo hacia delante es algo MÁS BARATO que el estacionario en colibríes, por sustentación aerodinámica. La cifra concreta es estimada." },
+        { "modo": "PERSECUCION", "coste_relativo": 12.0, "confianza": "ESTIMADO", "nota": "Vuelo agresivo, más caro aún" }
+      ],
+      "confianza": "MEDIDO (la razón hovering/reposo de 10x); ESTIMADO (los otros modos)"
+    },
+
+    "extension_2_estado_de_TORPOR": {
+      "que_falta": "El framework modela necesidades que solo suben y bajan. No contempla que un animal SUSPENDA su fisiología.",
+      "que_se_necesita": "Un cuarto régimen metabólico, por debajo del descanso, con entrada condicionada, latencia de salida y vulnerabilidad asociada",
+      "por_que_no_es_solo_otro_comportamiento": "Porque no es una ACCIÓN: es un ESTADO FISIOLÓGICO que altera todas las tasas de todas las necesidades simultáneamente y que bloquea la capacidad de responder. Un comportamiento del catálogo no puede hacer eso.",
+      "impacto_en_el_motor": "Se añade un campo 'regimen_metabolico' al agente que MULTIPLICA todas las tasas de decaimiento. Es una extensión pequeña de código con efecto grande.",
+      "beneficio_colateral": "Este mecanismo servirá luego para cualquier especie que hiberne o estive. Es una inversión reutilizable, no un parche para una especie."
+    },
+
+    "extension_3_memoria_TEMPORAL_y_SECUENCIAL": {
+      "que_falta": "El framework especifica memoria de 5-10 lugares con olvido por no revisita. Guarda DÓNDE, no CUÁNDO ni EN QUÉ ORDEN.",
+      "que_se_necesita": "Cada lugar de alimento recordado necesita además: instante de la última visita, tasa de recarga aprendida, y posición en una secuencia",
+      "por_que_es_obligatorio_y_no_opcional": "Porque está MEDIDO: los colibríes cronometran sus revisitas según la recarga de cada flor, y repiten el orden. Omitirlo no simplifica el modelo: lo hace incorrecto.",
+      "impacto_en_el_motor": "Ampliar el registro de memoria de {posicion} a {posicion, t_ultima_visita, periodo_recarga_estimado, indice_en_ruta}. Es barato.",
+      "valor_de_juego": "ALTO. Es simulación LEGIBLE: el jugador puede aprender la ruta del colibrí y esperarlo en una flor. Cumple la regla derivada de Rain World de priorizar legibilidad.",
+      "confianza": "MEDIDO (la capacidad); DERIVADO (la estructura de datos)"
+    }
+  },
+
+  "escala_temporal": {
+    "problema_inverso_al_del_pecari": {
+      "pecari": "Sus procesos eran DEMASIADO LENTOS para el jugador: 145 días de gestación, 16-21 meses hasta reproducirse. Hubo que COMPRIMIR con un factor adicional de 8.",
+      "colibri": "Sus procesos son DEMASIADO RÁPIDOS: el ciclo de hambre se mide en MINUTOS y el ciclo de torpor en HORAS. Comprimirlos los volvería invisibles.",
+      "consecuencia": "El factor de compresión biológica adicional NO debe aplicarse igual a los dos ejes de esta especie."
+    },
+    "factor_del_mundo": {
+      "valor": 60,
+      "origen": "Heredado del reloj del motor: MINUTOS_POR_DIA = 24 en main.cpp, es decir 1 día de juego = 24 minutos reales",
+      "confianza": "MEDIDO en el código del motor"
+    },
+    "DECISION_DE_DOS_EJES": {
+      "problema": "El protocolo (fase 4) advierte: 'El factor de compresión temporal debe ser ÚNICO y global'. Aquí esa regla ENTRA EN CONFLICTO con la biología de la especie.",
+      "analisis": "Los procesos del colibrí se reparten en dos escalas muy separadas: la ENERGÉTICA (minutos a horas) y la DEMOGRÁFICA (días a años). Un solo factor no puede servir a ambas: el que hace visible el ciclo de vida hace invisible el torpor.",
+      "decision_adoptada": {
+        "eje_energetico": { "factor_adicional": 1, "razon": "NO comprimir. El ciclo diario de energía y torpor ya encaja de forma natural en el día de juego de 24 minutos reales: el ave se alimenta durante el día de juego y entra en torpor en la noche de juego. Es una coincidencia afortunada del reloj que ya existe." },
+        "eje_demografico": { "factor_adicional": 8, "razon": "MISMO FACTOR QUE EL PECARÍ, deliberadamente. Mantiene la coherencia ENTRE ESPECIES: un año de colibrí y un año de pecarí deben durar lo mismo en el juego, o el mundo se vuelve incoherente." }
+      },
+      "justificacion_de_la_desviacion": "Se desvía de la regla de factor único, y se declara. La razón: la regla existe para evitar que 'animales incoherentes' (gestación rápida, crecimiento lento) surjan dentro de UN individuo. Aquí la separación no es entre procesos comparables del mismo tipo, sino entre el metabolismo diario y el ciclo vital, que en la realidad TAMBIÉN están separados por tres órdenes de magnitud. Se conserva el espíritu de la regla (proporciones internas intactas dentro de cada eje) aunque no su letra.",
+      "verificacion_obligatoria": "Comprobar que ambos ejes usan el MISMO factor demográfico que el pecarí (8). Si un día se cambia el del pecarí, hay que cambiar este.",
+      "confianza": "ESTIMADO — es una decisión de ritmo de juego, no un dato biológico"
+    },
+    "consecuencias_concretas": [
+      { "proceso": "Incubación", "real": "17 días", "en_juego": "~2.1 días de juego (17/8), es decir ~51 minutos reales" },
+      { "proceso": "Periodo de pollo", "real": "21-26 días", "en_juego": "~2.6-3.3 días de juego" },
+      { "proceso": "Ciclo completo del nido", "real": "38-43 días", "en_juego": "~4.8-5.4 días de juego (~2 horas reales)" },
+      { "proceso": "Madurez sexual", "real": "365 días", "en_juego": "~46 días de juego (~18 horas reales)" },
+      { "proceso": "Longevidad máxima", "real": "8.8 años", "en_juego": "~400 días de juego" },
+      { "proceso": "Ciclo de torpor", "real": "Una noche", "en_juego": "Una noche de juego (~12 min reales), SIN comprimir" },
+      { "proceso": "Recarga de una flor", "real": "El néctar se acumula a lo largo del día", "en_juego": "Escala del día de juego, SIN comprimir" }
+    ]
+  },
+
+  "individuo": {
+    "atributos_persistentes": {
+      "nota": "Se generan al nacer y no cambian. Definen quién es este animal concreto.",
+      "campos": [
+        { "campo": "id", "tipo": "entero" },
+        { "campo": "sexo", "tipo": "enum {MACHO, HEMBRA}", "distribucion": "50:50", "confianza": "ESTIMADO — no se localizó razón de sexos al nacer para esta especie", "IMPORTANCIA": "En esta especie el sexo NO es un modificador menor: define dos presupuestos de tiempo radicalmente distintos. Ver 'divergencia_conductual_por_sexo'." },
+        { "campo": "masa_asintotica_g", "tipo": "float", "distribucion": "Normal(3.3, 0.25) truncada a [3.0, 4.0]", "origen": "biologia.morfologia.masa_adulta", "confianza": "MEDIDO (media y rango); ESTIMADO (la desviación)", "nota": "El macho recibe un +3% sobre la media, por el dato de que es 'ligeramente más pesado'. Es un dimorfismo de masa pequeño, a diferencia del de plumaje que es enorme." },
+        { "campo": "agresividad", "tipo": "float [0,1]", "distribucion": "Normal(0.5, 0.18) truncada a [0,1]", "confianza": "ESTIMADO", "ADVERTENCIA_DE_HONESTIDAD": "Este rasgo NO tiene el respaldo que tenía la audacia del pecarí. En el pecarí la variación individual estaba MEDIDA con consecuencias fisiológicas demostradas. Aquí es una invención de diseño para dar variedad. Se marca ESTIMADO y NO se le atribuye base empírica." },
+        { "campo": "eficiencia_metabolica", "tipo": "float [0.9, 1.1]", "confianza": "ESTIMADO", "nota": "Variación individual pequeña en el coste energético. Invención de diseño." }
+      ]
+    },
+
+    "divergencia_conductual_por_sexo": {
+      "IMPORTANCIA": "Es el rasgo emergente más fuerte de esta especie, y sale de UN SOLO dato medido: la hembra hace todo el cuidado parental y pasa el 60% de cada hora en el nido.",
+      "el_macho": {
+        "presupuesto": "100% del tiempo disponible para sí mismo",
+        "prioridades": ["Defender territorio de alimentación", "Exhibirse ante hembras (exhibición pendular)", "Expulsar rivales"],
+        "riesgo": "Alto gasto en agresión y exhibición, sin compensación reproductiva garantizada"
+      },
+      "la_hembra": {
+        "presupuesto": "Solo el 40% del tiempo disponible mientras incuba o cría",
+        "origen_del_dato": "MEDIDO: 60% de cada hora en el nido (Guadalupe Canyon)",
+        "prioridades": ["Forrajear con máxima eficiencia en poco tiempo", "Recolectar insectos (proteína para los pollos)", "Volver al nido"],
+        "CONSECUENCIA_EMERGENTE": "Con el margen energético de un colibrí, perder el 60% del tiempo de forrajeo es una restricción brutal. La hembra anidante NO PUEDE permitirse defender un territorio, ni perseguir rivales, ni desplazarse lejos. Su comportamiento se vuelve radicalmente distinto del macho SIN programar dos IAs: sale del presupuesto de tiempo.",
+        "prediccion_verificable": "Una hembra anidante debería mostrar traplines MÁS CORTOS y MÁS CERCANOS al nido que un macho territorial. Es un patrón de validación."
+      },
+      "confianza": "MEDIDO (el 60%); DERIVADO (todas las consecuencias)"
+    },
+
+    "SISTEMA_ENERGETICO_DE_DOS_DEPOSITOS": {
+      "IMPORTANCIA_MAXIMA": "Es el núcleo de la IA de esta especie. Sustituye a la barra de 'hambre' única del framework.",
+      "justificacion_biologica": "MEDIDO: alimentándose, el ave obtiene ~90% de su energía de azúcares recién ingeridos; en ayuno pasa a lípidos endógenos, con un cociente respiratorio que cambia de >1.0 a 0.7. Son dos combustibles con dos dinámicas.",
+      "por_que_no_basta_una_barra": "Con una sola barra de hambre no se puede representar el hecho central de la especie: que puede estar 'saciada' de azúcar circulante y aun así no tener reservas de grasa para pasar la noche. La decisión de torpor depende de la SEGUNDA barra, no de la primera.",
+
+      "deposito_1_azucar_circulante": {
+        "semantica": "Energía de uso inmediato. Es lo que quema mientras vuela.",
+        "rango": [0.0, 1.0],
+        "capacidad": "Pequeña. Se agota en el orden de decenas de minutos de actividad.",
+        "llenado": "Instantáneo al alimentarse de néctar",
+        "vaciado": "tasa = tasa_base * coste_relativo_del_modo_de_vuelo",
+        "conversion_a_deposito_2": "El excedente por encima de 1.0 se convierte en grasa, con pérdida",
+        "eficiencia_de_conversion": { "valor": 0.85, "confianza": "ESTIMADO" },
+        "confianza": "MEDIDO (el mecanismo); ESTIMADO (la capacidad concreta)"
+      },
+      "deposito_2_reservas_de_grasa": {
+        "semantica": "Reserva a medio plazo. Es lo que quema de noche y en torpor.",
+        "rango": [0.0, 1.0],
+        "tiempo_de_residencia": { "valor_real_dias": [1, 2], "origen": "MEDIDO: tiempo medio de residencia de un átomo de carbono en las reservas", "uso": "Define la tasa de rotación del depósito" },
+        "llenado": "Solo por excedente del depósito 1, con eficiencia 0.85",
+        "vaciado": "Continuo y lento durante el día; DOMINANTE durante la noche",
+        "ES_LA_VARIABLE_QUE_DECIDE_EL_TORPOR": "La regla de adipostato compara ESTE depósito con el coste previsto de la noche",
+        "confianza": "MEDIDO (existencia y rotación); ESTIMADO (la capacidad concreta)"
+      },
+      "deposito_3_proteina": {
+        "semantica": "Necesidad nutricional independiente, satisfecha SOLO por insectos",
+        "rango": [0.0, 1.0],
+        "escala_temporal": "DÍAS, no minutos. Es dos órdenes de magnitud más lenta que la energética.",
+        "justificacion": "MEDIDO: el néctar es azúcar casi puro y carece de proteína. Los insectos son obligatorios, especialmente para hembras que producen huevos y para el crecimiento de pollos.",
+        "modulacion": "La demanda SUBE fuertemente en la hembra durante la formación de huevos y durante la crianza de pollos",
+        "efecto_si_se_agota": "No mata a corto plazo, pero impide la reproducción y frena el crecimiento de los pollos",
+        "confianza": "MEDIDO (que es obligatoria); ESTIMADO (los umbrales y tasas)"
+      },
+      "nota_de_implementacion": "Los tres depósitos son floats. El coste computacional de tener tres en vez de uno es despreciable, y el layout SoA que el framework recomienda los vectoriza igual de bien."
+    },
+
+    "REGIMENES_METABOLICOS": {
+      "nota": "Sustituye al modificador simple de actividad del pecarí. Aquí el régimen multiplica TODAS las tasas.",
+      "regimenes": [
+        { "regimen": "TORPOR_PROFUNDO", "multiplicador_metabolico": 0.013, "derivacion": "0.053 / 4.0 respecto al reposo", "temperatura_corporal_C": [5.9, 24.1], "latencia_de_salida_min": [20, 30], "vulnerabilidad": "MÁXIMA — no puede volar", "confianza": "MEDIDO (en otras especies); INFERIDO (para esta)" },
+        { "regimen": "TORPOR_SUPERFICIAL", "multiplicador_metabolico": 0.4, "temperatura_corporal_C": [19.5, 29.0], "latencia_de_salida_min": 5, "vulnerabilidad": "MEDIA", "confianza": "MEDIDO (temperaturas y latencia); ESTIMADO (el multiplicador)" },
+        { "regimen": "REPOSO_PERCHADO", "multiplicador_metabolico": 1.0, "referencia": "4 ml O2/(g·h)", "confianza": "MEDIDO" },
+        { "regimen": "VUELO_DIRECCIONAL", "multiplicador_metabolico": 7.0, "confianza": "ESTIMADO" },
+        { "regimen": "VUELO_ESTACIONARIO", "multiplicador_metabolico": 10.0, "referencia": "40 ml O2/(g·h)", "confianza": "MEDIDO" },
+        { "regimen": "PERSECUCION", "multiplicador_metabolico": 12.0, "confianza": "ESTIMADO" }
+      ],
+      "rango_total": "Del 0.013 al 12.0: un factor de casi 1000 entre el estado más barato y el más caro. Ningún otro animal del simulador tendrá un rango parecido."
+    },
+
+    "MODELO_DE_TORPOR": {
+      "IMPORTANCIA": "Es el subsistema distintivo de esta especie. Si el torpor no funciona, el colibrí no es un colibrí.",
+      "regla_de_decision": {
+        "modelo": "ADIPOSTATO",
+        "formulacion": [
+          "coste_nocturno_previsto = tasa_reposo * horas_de_noche_restantes * factor_frio(temperatura_ambiente)",
+          "deficit = coste_nocturno_previsto - reservas_de_grasa",
+          "SI deficit <= 0                    → NORMOTERMIA (tiene de sobra)",
+          "SI 0 < deficit < umbral_profundo   → TORPOR_SUPERFICIAL",
+          "SI deficit >= umbral_profundo      → TORPOR_PROFUNDO"
+        ],
+        "umbral_profundo": { "valor": 0.35, "confianza": "ESTIMADO", "LAGUNA_DECLARADA": "Este umbral debería salir del paper del adipostato (Proc R Soc B 2025), que NO fue accesible. La FORMA de la regla es defendible; el número no." },
+        "origen_de_la_forma": "MEDIDO indirectamente: el título y planteamiento del paper de 2025 confirman que existe una regla simple basada en reservas. Y toda la literatura de balance energético apoya esta estructura.",
+        "confianza": "INFERIDO (la forma); ESTIMADO (los umbrales)"
+      },
+      "validacion_contra_dato_medido": {
+        "patron_a_reproducir": "Un ave de ~3 g debe pasar aproximadamente el 49% de la noche en torpor profundo, 5% en superficial, 34% normotérmica y 12% en transición",
+        "origen": "MEDIDO en Archilochus alexandri (2.9 g, n=7), la especie de masa más próxima",
+        "USO_COMO_TEST": "Este es un patrón de validación DURO y cuantitativo. Si el modelo de adipostato calibrado no reproduce aproximadamente ese reparto, los umbrales están mal. Es exactamente el tipo de validación que exige el Pattern-Oriented Modeling del framework.",
+        "confianza": "MEDIDO"
+      },
+      "modulacion_por_masa": {
+        "hallazgo": "MEDIDO: el uso de torpor profundo cae monótonamente con la masa — 49% a 2.9 g, 17% a 7.6 g, 4% a 8.4 g",
+        "implementacion": "El umbral se escala con la masa del individuo, de modo que un colibrí grande del mismo modelo usaría menos torpor sin tocar el código",
+        "beneficio": "Si algún día se añade otra especie de colibrí, el comportamiento de torpor sale correcto automáticamente",
+        "confianza": "MEDIDO"
+      },
+      "coste_de_recalentamiento": {
+        "hecho": "Salir del torpor NO es gratis: hay que generar calor",
+        "implementacion": "Descontar un pulso de reservas al despertar, proporcional a la profundidad del torpor",
+        "valor": { "profundo": 0.15, "superficial": 0.03, "unidad": "fracción del depósito de grasa", "confianza": "ESTIMADO" },
+        "por_que_importa": "Sin coste de recalentamiento, el torpor sería gratis y el ave lo usaría siempre. El coste es lo que hace la decisión interesante."
+      },
+      "LA_VENTANA_DE_VULNERABILIDAD": {
+        "mecanismo": "Durante la latencia de salida (20-30 min desde torpor profundo) el ave NO PUEDE VOLAR",
+        "implementacion": "Mientras regimen == TORPOR_PROFUNDO y hasta que termine la transición, el comportamiento HUIR está DESHABILITADO",
+        "IMPORTANCIA_DE_DISENO": "Cierra un bucle causal auténtico y medido: la decisión de ahorrar energía CREA el riesgo de depredación. El ave que apuró más su presupuesto energético es la que amanece más vulnerable. Es el equivalente estructural al compromiso audacia/digestión del pecarí, y como aquel, sale de datos y no de diseño.",
+        "oportunidad_de_juego": "Un colibrí en torpor profundo es capturable por el jugador al amanecer. Es una mecánica que EMERGE de la biología y que enseña al jugador algo real sobre el animal.",
+        "confianza": "MEDIDO (la latencia); DERIVADO (la consecuencia de vulnerabilidad)"
+      },
+      "condiciones_ambientales": {
+        "temperatura": "Cuanto más fría la noche, mayor el coste nocturno previsto y más probable el torpor",
+        "acoplamiento_con_el_motor": "Si el motor no expone temperatura, se deriva de la hora y el bioma, como ya prevé IFaunaWorldQuery",
+        "confianza": "MEDIDO (la dependencia); ESTIMADO (la función concreta)"
+      }
+    },
+
+    "MEMORIA_DE_FLORES_Y_TRAPLINING": {
+      "IMPORTANCIA": "Segundo pilar de la IA junto al torpor. Es lo que hace que el ave se vea inteligente en vez de errática.",
+      "estructura_de_datos": {
+        "por_cada_flor_recordada": [
+          { "campo": "posicion", "tipo": "vec3" },
+          { "campo": "t_ultima_visita", "tipo": "tiempo de juego" },
+          { "campo": "rendimiento_observado", "tipo": "float", "descripcion": "Cuánto néctar dio la última vez" },
+          { "campo": "periodo_recarga_estimado", "tipo": "float", "descripcion": "APRENDIDO por experiencia, no dado" },
+          { "campo": "indice_en_ruta", "tipo": "entero", "descripcion": "Posición en el trapline" }
+        ],
+        "capacidad": { "valor": 12, "confianza": "ESTIMADO", "justificacion": "MEDIDO que manejan al menos 5 flores en arreglos experimentales y que evitan revisitas durante más de una hora. 12 es un valor de diseño generoso pero no absurdo, y es barato." }
+      },
+      "aprendizaje_del_periodo_de_recarga": {
+        "modelo": "Media móvil exponencial sobre el rendimiento observado en función del tiempo transcurrido",
+        "formulacion": "Si al visitar tras dt el rendimiento fue bajo → subir el periodo estimado; si fue alto → el periodo estimado era correcto o excesivo",
+        "origen": "MEDIDO: con flores artificiales de recarga entre 10 y 40 minutos, aprendieron rápidamente el momento óptimo de revisita para cada una",
+        "confianza": "MEDIDO (que aprenden); ESTIMADO (el algoritmo concreto)"
+      },
+      "utilidad_de_visitar_una_flor": {
+        "formulacion": "U(flor) = recarga_estimada(t_ahora - t_ultima_visita) * calidad_azucar(flor) / (1 + coste_de_vuelo(distancia))",
+        "componentes": [
+          { "componente": "recarga_estimada", "curva": "Saturante (la flor se llena hasta un máximo y ya no acumula más)", "origen": "MEDIDO en Echeveria gibbiflora: 14.5 µl/día de acumulación máxima, flor abierta 7-8 días con máximo en los días 4-6" },
+          { "componente": "calidad_azucar", "origen": "MEDIDO EN ESTA ESPECIE: detecta fructosa a concentraciones más bajas que sacarosa o glucosa", "implementacion": "Flores ricas en fructosa reciben un bonus de atractivo" },
+          { "componente": "coste_de_vuelo", "origen": "DERIVADO de la tasa metabólica de vuelo y la distancia", "IMPORTANCIA": "Es lo que hace que el balance de una visita pueda ser NEGATIVO. Una flor lejana y poco cargada NO merece el viaje. De aquí sale el trapline eficiente sin programar un algoritmo de rutas." }
+        ],
+        "EMERGENCIA_BUSCADA": "El trapline no se programa: EMERGE de elegir repetidamente la flor de mayor utilidad, porque el término de coste de vuelo favorece flores cercanas y el término de recarga favorece las no visitadas recientemente. El resultado es un circuito.",
+        "confianza": "MEDIDO (los componentes); DERIVADO (la combinación)"
+      },
+      "olvido": {
+        "modelo": "Las flores no visitadas en mucho tiempo se degradan y acaban expulsadas de la memoria",
+        "origen": "El framework ya lo especifica para el pecarí; se conserva",
+        "confianza": "ESTIMADO"
+      }
+    },
+
+    "necesidades": {
+      "nota_de_cambio_respecto_al_framework": "El framework define 7 necesidades base. Aquí 'hambre' se DESDOBLA en tres depósitos y 'contacto_social' se INVIERTE.",
+      "energia_inmediata": {
+        "origen": "Depósito 1 (azúcar circulante)",
+        "escala_temporal": "MINUTOS",
+        "curva_de_urgencia": "Cuadrática (k=2), como en el pecarí: la urgencia se acelera",
+        "letal_si": "Se agota junto con el depósito 2",
+        "confianza": "MEDIDO (el mecanismo)"
+      },
+      "reservas": {
+        "origen": "Depósito 2 (grasa)",
+        "escala_temporal": "HORAS",
+        "uso_principal": "Alimenta la decisión de torpor",
+        "curva": "Logística — importa poco hasta que baja de cierto punto, y entonces importa muchísimo"
+      },
+      "proteina": {
+        "origen": "Depósito 3",
+        "escala_temporal": "DÍAS",
+        "curva": "Logística de umbral bajo",
+        "confianza": "MEDIDO (que existe); ESTIMADO (los parámetros)"
+      },
+      "fatiga": {
+        "modelo": "ASIMÉTRICO: acumulación lineal por actividad, recuperación exponencial al perchar",
+        "NOTA_IMPORTANTE": "En esta especie la fatiga es casi REDUNDANTE con la energía: el ave se posa porque volar es caro, no porque esté 'cansada'. Se mantiene con peso bajo para no duplicar el mismo mecanismo dos veces.",
+        "advertencia_de_diseno": "Es un caso donde copiar el framework sin pensar produciría un modelo redundante. El presupuesto de actividad debe salir de la ENERGÍA, no de la fatiga.",
+        "confianza": "DERIVADO"
+      },
+      "estres_termico": {
+        "modelo": "Gaussiano centrado en la zona de confort",
+        "particularidad": "En esta especie el estrés térmico por frío NO se resuelve buscando refugio, sino ENTRANDO EN TORPOR. Es una respuesta cualitativamente distinta a la del pecarí, que se encamaba.",
+        "zona_termoneutral": { "estado": "AUSENTE", "confianza": "ESTIMADO" }
+      },
+      "seguridad": {
+        "determinantes": [
+          { "factor": "Proximidad de depredador aéreo", "peso": "Dominante" },
+          { "factor": "REGIMEN METABÓLICO PROPIO", "peso": "Dominante", "nota": "Estar en torpor profundo reduce la seguridad percibida a casi cero, porque la huida está bloqueada. Es un determinante que ninguna otra especie del simulador tendrá." },
+          { "factor": "Cobertura vegetal para perchar" }
+        ],
+        "confianza": "DERIVADO"
+      },
+      "contacto_social": {
+        "activa": true,
+        "SIGNO_INVERTIDO": "En el pecarí, la proximidad a coespecíficos SATISFACÍA una necesidad. Aquí la proximidad de un coespecífico en el territorio GENERA ESTRÉS Y AGRESIÓN.",
+        "justificacion": "MEDIDO: especie solitaria y territorial, ambos sexos defienden territorios de alimentación",
+        "nota_de_framework": "El framework ya lo previó explícitamente: 'Solo se activa en especies sociales. En solitarias, invertida: proximidad genera estrés.' Se confirma que la previsión era correcta.",
+        "excepcion": "La hembra con pollos: la proximidad de SUS pollos es positiva. Es la única relación social positiva de la especie."
+      },
+      "impulso_reproductivo": { "fuente": "Sistema endocrino, modulado además por disponibilidad floral" }
+    },
+
+    "sistema_endocrino": {
+      "ADVERTENCIA_DE_CLASE": {
+        "cambio_obligatorio": "En AVES la hormona de estrés es la CORTICOSTERONA, no el cortisol",
+        "que_significa_para_el_motor": "La DINÁMICA es idéntica (eje HPA, pico rápido con adrenalina, decaimiento lento). Solo cambia el nombre y los valores absolutos, que de todos modos se modelan normalizados.",
+        "por_que_declararlo": "Porque el framework escribió 'cortisol' asumiendo mamíferos. Un modelo que dijera que un ave tiene cortisol sería un error factual visible para cualquier biólogo.",
+        "confianza": "MEDIDO — fisiología comparada establecida"
+      },
+      "estado_general": {
+        "hecho": "NO EXISTE literatura endocrina para C. latirostris",
+        "consecuencia": "TODO este bloque es INFERIDO del patrón aviar general. Se declara sin disimulo.",
+        "atenuante": "Es la misma situación que en el pecarí, donde la endocrinología también era el bloque más débil. La simulación necesita la FORMA de las curvas, no los ng/ml."
+      },
+      "testosterona_macho": {
+        "patron": "Estacional, ligado a la temporada reproductiva (enero-agosto en México, pico a mediados de marzo)",
+        "formula": "T_norm(dia) = envolvente gaussiana centrada en el pico reproductivo de la región",
+        "efectos": ["Aumenta la utilidad de EXHIBIRSE", "Aumenta la agresividad territorial", "Aumenta el RHP en conflictos"],
+        "confianza": "INFERIDO — la estacionalidad reproductiva está MEDIDA, la curva hormonal no"
+      },
+      "estradiol_hembra": {
+        "patron": "Ligado a la formación de huevos",
+        "ACOPLAMIENTO_CLAVE": "MODULADO POR EL DEPÓSITO DE PROTEÍNA. Una hembra sin reservas proteicas no pone huevos.",
+        "justificacion": "MEDIDO cualitativamente: los insectos son obligatorios para la producción de huevos",
+        "resultado_emergente": "La reproducción queda acoplada a la disponibilidad de INSECTOS, no solo de néctar. Un año con muchas flores pero pocos insectos produce pocos pollos. Es emergencia correcta.",
+        "confianza": "INFERIDO (la curva); MEDIDO (la dependencia proteica)"
+      },
+      "corticosterona": {
+        "modelo": "Dos escalas temporales, igual que el cortisol del framework",
+        "formulas": ["dA/dt = k_A * amenaza(t) - lambda_A * A     (rápida)", "dC/dt = k_C * A(t - retardo) - lambda_C * C  (lenta)"],
+        "disparadores": ["Depredador detectado", "Intruso en el territorio", "Déficit energético severo", "Derrota en conflicto territorial", "Frío extremo"],
+        "efectos": ["Prioriza huida", "SUPRIME el impulso reproductivo", "Aumenta el gasto energético"],
+        "LA_EMERGENCIA_ESPERADA": {
+          "resultado": "Una población bajo presión deja de reproducirse sin programarlo",
+          "matiz_propio_de_esta_especie": "Aquí hay un segundo camino, MÁS FUERTE y MÁS MEDIDO, hacia el mismo resultado: el gasto energético del estrés compite directamente con las reservas necesarias para reproducirse. En un animal con margen energético de horas, el estrés se traduce en déficit calórico casi inmediatamente.",
+          "confianza": "INFERIDO"
+        }
+      }
+    },
+
+    "comportamientos": {
+      "nota": "Cada comportamiento tiene un RANK (prioridad categórica dura) y consideraciones que producen su WEIGHT. Ver arquitectura, dual-utility.",
+      "catalogo": [
+        { "id": "HUIR", "rank": 10, "consideraciones": ["proximidad_depredador (logística)", "linea_de_vision"], "BLOQUEO_CRITICO": "DESHABILITADO mientras regimen == TORPOR_PROFUNDO y durante la transición de salida. Es la ventana de vulnerabilidad medida.", "nota": "Un colibrí normotérmico es casi incapturable; uno en torpor es indefenso. La diferencia es total." },
+        { "id": "ALIMENTARSE_URGENTE", "rank": 9, "consideraciones": ["energia_inmediata (cuadrática k=2)", "distancia_a_flor_conocida"], "justificacion_del_rank_alto": "En esta especie el hambre severa mata en HORAS, no en semanas. Merece un rank propio por encima de la necesidad fisiológica normal, cosa que en el pecarí no hacía falta.", "confianza": "MEDIDO (el margen de horas)" },
+        { "id": "ENTRAR_EN_TORPOR", "rank": 9, "condicion": "Anochecer Y regla de adipostato positiva", "nota": "No es exactamente un comportamiento sino una transición de régimen, pero se modela como comportamiento para que compita en el selector de forma legible" },
+        { "id": "TERMORREGULAR", "rank": 8, "acciones": ["Buscar percha resguardada", "Buscar sol al amanecer"], "nota": "El asoleamiento matinal ayuda al recalentamiento y reduce su coste. Es un comportamiento con función energética directa." },
+        { "id": "FORRAJEAR_NECTAR", "rank": 5, "consideraciones": ["energia_inmediata (cuadrática)", "utilidad_de_la_mejor_flor_recordada", "seguridad_del_lugar"], "mecanismo": "Selecciona la flor de mayor utilidad de la memoria; si ninguna supera el umbral, pasa a EXPLORAR" },
+        { "id": "CAZAR_INSECTOS", "rank": 5, "consideraciones": ["proteina (logística)", "disponibilidad_de_insectos"], "tecnicas": ["Captura al vuelo (hawking)", "Espigueo de vegetación (gleaning)"], "modulacion": "Prioridad MUY elevada en hembra con pollos", "confianza": "MEDIDO (que ocurre); ESTIMADO (los parámetros)" },
+        { "id": "PERCHAR", "rank": 5, "consideraciones": ["energia (invertida: se percha para NO gastar)", "seguridad_de_la_percha"], "IMPORTANCIA": "Es el comportamiento MÁS FRECUENTE de la especie. Debe ganar la mayor parte del tiempo o el modelo está mal.", "criterio_de_validacion": "Si el colibrí simulado vuela más del ~25% del día, el modelo energético está mal calibrado." },
+        { "id": "DEFENDER_TERRITORIO", "rank": 4, "consideraciones": ["intruso_detectado", "DEFENDIBILIDAD_ECONOMICA", "energia_disponible", "agresividad_individual"], "LA_CONSIDERACION_CLAVE": { "nombre": "defendibilidad_economica", "forma": "GAUSSIANA sobre la abundancia local de recursos", "justificacion": "MEDIDO: la competencia es máxima con abundancia INTERMEDIA. Con poca, no compensa defender; con mucha, defender cuesta más de lo que aporta.", "IMPORTANCIA": "Es el mecanismo emergente central de esta especie, equivalente al compromiso audacia/digestión del pecarí. Un colibrí que defiende siempre está mal modelado.", "confianza": "MEDIDO" }, "modulacion_por_sexo": "Reducida drásticamente en hembra anidante, que no tiene presupuesto de tiempo para ello" },
+        { "id": "EXHIBIRSE", "rank": 3, "condicion_macho": "Testosterona alta Y hembra detectada", "mecanismo_medido": "EXHIBICIÓN PENDULAR: vuelo estacionario seguido de arcos de ida y vuelta repetidos AL MENOS 4 VECES, con vocalización 'zing'", "confianza": "MEDIDO", "nota_de_diseno": "Es una animación concreta y citable. Por la lección de F.E.A.R., la señalización visible es el mejor retorno de realismo por hora invertida." },
+        { "id": "CONSTRUIR_NIDO", "rank": 3, "condicion": "SOLO HEMBRA, en temporada reproductiva", "materiales_medidos": ["Telaraña", "Plumón vegetal", "Gramíneas", "Líquenes (rara vez)"], "altura_objetivo_m": 1.1, "confianza": "MEDIDO" },
+        { "id": "INCUBAR", "rank": 3, "condicion": "SOLO HEMBRA con huevos", "duracion_dias": 17, "presupuesto_medido": "60% de cada hora en el nido", "IMPORTANCIA": "Este 60% es el origen de toda la divergencia conductual entre sexos", "confianza": "MEDIDO" },
+        { "id": "ALIMENTAR_POLLOS", "rank": 3, "condicion": "SOLO HEMBRA con pollos", "requisito": "Requiere el depósito de PROTEÍNA: los pollos necesitan insectos, no solo néctar", "duracion_dias": [21, 26], "confianza": "MEDIDO" },
+        { "id": "EXPLORAR", "rank": 1, "descripcion": "Buscar flores nuevas cuando la memoria no ofrece nada rentable", "IMPORTANCIA_ESPECIAL": "En esta especie explorar no es solo evitar que el agente se congele: es el mecanismo por el que se CONSTRUYE el trapline. Sin exploración no hay memoria que explotar.", "compromiso": "Explorar cuesta energía sin retorno garantizado. El balance exploración/explotación es real y energético aquí, no abstracto." },
+        { "id": "ASEARSE", "rank": 1, "descripcion": "Acicalamiento del plumaje en percha", "nota": "Comportamiento de relleno para las percha largas. Sin base cuantitativa en esta especie; ESTIMADO." }
+      ],
+      "nota_sobre_ranks": "El rank 9 para ALIMENTARSE_URGENTE y ENTRAR_EN_TORPOR es una desviación deliberada de la tabla del framework, justificada por el margen energético de horas de la especie. En el pecarí, comer nunca era cuestión de vida o muerte inmediata; aquí sí."
+    },
+
+    "ritmo_circadiano": {
+      "clasificacion": "ESTRICTAMENTE DIURNO — no es preferencia, es obligación",
+      "estructura_emergente": {
+        "principio": "NO se programa un horario. El patrón bimodal EMERGE del balance energético.",
+        "amanecer": "Sale del torpor con reservas agotadas → energia_inmediata en mínimo → ALIMENTARSE_URGENTE gana con enorme margen. Pico de actividad automático.",
+        "media_manana_a_tarde": "Reservas recuperadas → PERCHAR gana la mayor parte del tiempo, con forrajeo intercalado siguiendo el trapline",
+        "atardecer": "El coste nocturno previsto empieza a pesar → forrajeo intensivo para llenar el depósito de grasa. Segundo pico automático.",
+        "noche": "PERCHAR y, según el adipostato, TORPOR"
+      },
+      "criterio_de_validacion": "El patrón BIMODAL debe emerger sin estar programado. Si hay que forzarlo con una gaussiana horaria como en el pecarí, el modelo energético no está funcionando.",
+      "contraste_con_el_pecari": "En el pecarí el ritmo circadiano era un MODULADOR DE UTILIDAD explícito, con una gaussiana centrada en las 09:24 tomada de datos de foto-trampeo. Aquí es una CONSECUENCIA del balance energético. Es un modelo mejor, y es posible porque la energética de la especie está mucho más restringida.",
+      "confianza": "MEDIDO (la diurnalidad); DERIVADO (la estructura bimodal emergente)"
+    }
+  },
+
+  "territorio_y_competencia": {
+    "modelo": "Territorio definido por CONJUNTO DE FLORES DEFENDIDAS, no por superficie geométrica",
+    "justificacion": "El tamaño en superficie es AUSENTE en la literatura, pero además el modelo por recursos es más correcto biológicamente (lo que se defiende son flores, no metros cuadrados) y encaja mejor con un mundo de vóxeles.",
+    "decision_de_defender": {
+      "regla": "Se defiende el subconjunto de flores para el que el rendimiento esperado supera el coste esperado de defensa",
+      "formulacion": "defender(F) SI rendimiento_diario(F) > coste_de_expulsiones_previstas(F)",
+      "resultado_emergente": "Con recursos escasos no defiende (no compensa); con recursos abundantes no defiende (no hace falta y cuesta demasiado); con recursos intermedios defiende agresivamente. Reproduce la CURVA EN U INVERTIDA medida.",
+      "confianza": "MEDIDO (el patrón); DERIVADO (la formulación)"
+    },
+    "resolucion_de_conflictos": {
+      "modelo": "RHP con puntuación Elo, como especifica el framework",
+      "RHP": "f(masa, agresividad_individual, testosterona, residencia_previa, energia_disponible)",
+      "el_termino_distintivo": { "nombre": "energia_disponible", "razon": "Un colibrí con las reservas bajas NO PUEDE permitirse pelear, por muy dominante que sea. La energía entra directamente en el potencial de combate.", "consecuencia": "La dominancia FLUCTÚA a lo largo del día con el estado energético. No es un rango estable como en el pecarí.", "confianza": "DERIVADO" },
+      "ventaja_del_residente": { "valor": 1.3, "confianza": "ESTIMADO", "justificacion": "Principio general de teoría de juegos de contiendas (Maynard Smith y Parker), ya citado en el framework" },
+      "dominancia_interespecifica": { "regla": "La masa corporal domina. Un colibrí mayor desplaza a uno menor de recursos de alta calidad.", "beneficio": "Si se añaden más especies de colibrí, la jerarquía interespecífica sale gratis de la masa.", "confianza": "MEDIDO" },
+      "criterio_de_calibracion": "La mayoría de encuentros deben resolverse con PERSECUCIÓN y retirada, no con combate. Si la simulación produce peleas constantes, está mal calibrada — y aquí el argumento es más fuerte que en el pecarí porque el coste energético del combate es medible."
+    }
+  },
+
+  "poblacion": {
+    "densidad_objetivo": {
+      "modelo": "DERIVADA DEL RECURSO, no fijada como constante",
+      "justificacion": "La densidad poblacional de esta especie es AUSENTE en la literatura. Pero derivarla del recurso es además MÁS CORRECTO: la densidad de un nectarívoro territorial está determinada por la disponibilidad floral.",
+      "formulacion": "individuos_objetivo(region) = flores_disponibles(region) / flores_necesarias_por_individuo",
+      "beneficio_de_diseno": "Produce dinámica estacional automática: cuando florece el agave (finales de junio a principios de septiembre), la densidad sube. Cuando el recurso escasea, baja.",
+      "confianza": "ESTIMADO (los valores); DERIVADO (el mecanismo)"
+    },
+    "demografia": {
+      "puesta": 2,
+      "nidadas_por_temporada": 2,
+      "incubacion_dias": 17,
+      "periodo_de_pollo_dias": [21, 26],
+      "madurez_dias": 365,
+      "longevidad_maxima_anos": 8.8,
+      "longevidad_media_anos": { "valor": [3, 4], "confianza": "ESTIMADO", "ALERTA": "La vida media es AUSENTE. Solo existe el récord máximo de 8.8 años, que es un valor extremo y no representa la esperanza de vida." },
+      "mortalidad": { "estado": "AUSENTE", "solucion_obligatoria": "Calibrar por la restricción de estabilidad: ajustar la mortalidad hasta que lambda ≈ 1.0 en la tabla de vida", "confianza": "ESTIMADO" },
+      "validacion_obligatoria": "Construir la matriz de Leslie con estos valores y verificar lambda ≈ 1.0. Con 2 nidadas de 2 huevos al año y madurez al año, la fecundidad potencial es ALTA: si la mortalidad juvenil no es alta también, la población explota. Es exactamente el escenario que el protocolo marca como CRÍTICO."
+    },
+    "aparicion_por_bioma": {
+      "nota": "Mapeo a los biomas que el motor define en BiomeTypes.h",
+      "reglas": [
+        { "bioma_motor": "BIOME_FOREST", "densidad_relativa": 1.0, "justificacion": "Bosque tropical caducifolio y bosque de galería ripario son hábitat óptimo documentado" },
+        { "bioma_motor": "BIOME_PLAINS", "densidad_relativa": 0.7, "justificacion": "Matorral espinoso y vegetación arbustiva" },
+        { "bioma_motor": "BIOME_DESERT", "densidad_relativa": 0.6, "justificacion": "Cañadas desérticas documentadas, dependiente de agaves y cactáceas en flor", "condicion": "Requiere presencia de flores; sin ellas la densidad cae a 0" },
+        { "bioma_motor": "BIOME_MOUNTAINS", "densidad_relativa": 0.4, "justificacion": "El rango altitudinal medido en México llega a 3,048 m, pero el hábitat reproductivo está generalmente por debajo de 2,000 m", "confianza": "MEDIDO (el rango); ESTIMADO (la densidad relativa)" },
+        { "bioma_motor": "BIOME_BEACH", "densidad_relativa": 0.1 },
+        { "bioma_motor": "BIOME_OCEAN / BIOME_OCEAN_DEEP", "densidad_relativa": 0.0 },
+        { "bioma_motor": "BIOME_MOUNTAIN_PEAKS", "densidad_relativa": 0.0 }
+      ],
+      "regla_de_aparicion": "Aparecer como INDIVIDUOS SUELTOS, nunca como grupo. Es lo contrario de la regla del pecarí, y sale directamente de que la especie es solitaria.",
+      "REGLA_DURA": "NO aparecer en una región sin flores. Esta especie no puede existir sin recurso nectarífero, a diferencia del pecarí que era generalista.",
+      "confianza": "MEDIDO (los hábitats); ESTIMADO (las densidades relativas)"
+    },
+    "resiliencia_obligatoria": {
+      "justificacion": "Lección de Ultima Online: un ecosistema sin amortiguadores frente a la depredación del jugador COLAPSA",
+      "riesgo_especifico_de_esta_especie": "Es MÁS frágil que el pecarí ante la destrucción del hábitat: si el jugador arrasa las flores de una región, la población local se extingue sin necesidad de cazar un solo individuo. Es un vector de colapso que el pecarí no tenía.",
+      "mecanismos": [
+        { "mecanismo": "Recolonización", "detalle": "Inmigración desde regiones vecinas cuando el recurso se recupera" },
+        { "mecanismo": "Regeneración floral garantizada", "detalle": "Las flores deben regenerarse aunque el jugador las destruya, o la especie desaparece del mundo permanentemente" },
+        { "mecanismo": "Límites duros", "detalle": "Mínimo poblacional por región con flores" }
+      ],
+      "instrumentacion": "Gráficas de población Y DE DISPONIBILIDAD FLORAL en tiempo real. En esta especie hay que instrumentar el recurso, no solo la población, porque el recurso es la variable causal."
+    }
+  },
+
+  "conexiones_con_el_contenido_existente_del_motor": {
+    "nota": "Se auditó el inventario de bloques real del motor (src/BlockType.h) antes de escribir esta sección. Las conexiones son verificadas, no supuestas.",
+    "conexiones_verificadas": [
+      { "elemento_del_motor": "BLOCK_IXTLE_CON_FLOR", "conexion_biologica": "Es un maguey/agave CON FLOR. El agave es el productor PRINCIPAL de néctar en el segundo periodo de disponibilidad (finales de junio a principios de septiembre), dato MEDIDO.", "oportunidad": "LA MEJOR CONEXIÓN DISPONIBLE. Ya existe en el motor un bloque que es exactamente una fuente de néctar documentada para esta especie. Convertirlo en flor visitable es trabajo mínimo con respaldo biológico total.", "verificado_en": "src/BlockType.h" },
+      { "elemento_del_motor": "BLOCK_ORANGE_FLOWER", "conexion_biologica": "Flor genérica ya implementada", "oportunidad": "Fuente de néctar inmediata. Se le puede asignar un perfil de azúcar y una tasa de recarga.", "verificado_en": "src/BlockType.h" },
+      { "elemento_del_motor": "BLOCK_NOPAL_* y las tunas", "conexion_biologica": "Las cactáceas están documentadas entre las plantas visitadas en México. Las flores de nopal son visitadas por colibríes.", "oportunidad": "El nopal ya tiene ciclo de fruto implementado; añadirle una fase de FLOR previa al fruto es coherente con la botánica real y da recurso nectarífero al desierto.", "verificado_en": "src/BlockType.h" },
+      { "elemento_del_motor": "Ciclo día/noche (horaDelMundo, luzSolar, MINUTOS_POR_DIA=24)", "conexion_biologica": "El ciclo de torpor es estrictamente nocturno y la actividad estrictamente diurna", "oportunidad": "El reloj ya existe y, por casualidad afortunada, su escala encaja sin comprimir el eje energético", "verificado_en": "src/main.cpp" },
+      { "elemento_del_motor": "GetBiomeAt del generador de terreno", "conexion_biologica": "Reglas de aparición por bioma", "oportunidad": "La consulta ya existe" },
+      { "elemento_del_motor": "BLOCK_LEAVES_ENCINO, BLOCK_WOOD_ENCINO", "conexion_biologica": "Los encinares de montaña baja son hábitat documentado, y el ave necesita PERCHAS — que es donde pasa la mayor parte del día", "oportunidad": "Las ramas y hojas existentes sirven directamente como sitios de percha y de nido", "verificado_en": "src/BlockType.h" },
+      { "elemento_del_motor": "BLOCK_RAMA_ENCINO, BLOCK_RAMA_OYAMEL, BLOCK_RAMA_PINO", "conexion_biologica": "Nido construido a 1.1 m de altura media, sobre rama", "oportunidad": "Sitio de nidificación con altura medida", "verificado_en": "src/BlockType.h" }
+    ],
+    "LO_QUE_FALTA_EN_EL_MOTOR": {
+      "honestidad_obligatoria": "El motor NO tiene un sistema de flores con néctar. Tiene bloques de flor (BLOCK_ORANGE_FLOWER, BLOCK_IXTLE_CON_FLOR) pero sin estado de recarga ni contenido de néctar.",
+      "lo_minimo_necesario": [
+        "Un estado de NÉCTAR por bloque de flor, con recarga temporal (base medida: 14.5 µl/día durante 7-8 días en Echeveria gibbiflora)",
+        "Un perfil de azúcar por especie de flor (para explotar el dato medido de preferencia por fructosa)",
+        "Regeneración de flores, sin la cual la especie se extingue si el jugador las destruye"
+      ],
+      "encaje_con_el_framework": "Esto es EXACTAMENTE el patrón de 'smart objects' de Los Sims que el framework ya recomienda: el bloque de flor ANUNCIA qué necesidad satisface y en qué cantidad. No hay que tocar el código del ave para añadir una flor nueva.",
+      "estimacion_honesta": "Es la única pieza de contenido nueva que esta especie exige. Sin ella el colibrí no tiene de qué vivir."
+    }
+  },
+
+  "criterios_de_validacion_especificos": {
+    "nota": "Aplicación del Pattern-Oriented Modeling del framework a esta especie. Múltiples patrones débiles a distintas escalas restringen el modelo mejor que uno fuerte.",
+    "patrones_a_reproducir": [
+      { "patron": "Reparto de la noche entre regímenes térmicos", "objetivo": "~49% torpor profundo, ~5% superficial, ~34% normotermia, ~12% transición para un ave de ~3 g", "origen": "MEDIDO en Archilochus alexandri", "importancia": "ES EL MEJOR TEST CUANTITATIVO DISPONIBLE. Es un patrón duro y específico." },
+      { "patron": "Presupuesto de actividad diurno", "objetivo": "La mayor parte del día PERCHADO; menos del ~25% en vuelo", "origen": "MEDIDO cualitativamente", "importancia": "Detecta el error de diseño más común: colibríes volando sin parar" },
+      { "patron": "Bimodalidad de la actividad", "objetivo": "Picos al amanecer y al atardecer, EMERGENTES y no programados", "origen": "DERIVADO del balance energético" },
+      { "patron": "Curva en U invertida de la territorialidad", "objetivo": "Máxima agresión con abundancia INTERMEDIA de recursos", "origen": "MEDIDO", "importancia": "Es el patrón que valida el mecanismo de defendibilidad económica" },
+      { "patron": "Estabilidad de traplines", "objetivo": "Rutas repetidas con orden estable e intervalos de revisita ajustados a la recarga", "origen": "MEDIDO en Selasphorus rufus" },
+      { "patron": "Divergencia conductual por sexo", "objetivo": "La hembra anidante debe mostrar rutas más cortas y cercanas al nido que el macho", "origen": "DERIVADO del 60% de tiempo en el nido" },
+      { "patron": "Estabilidad demográfica", "objetivo": "lambda ≈ 1.0", "origen": "Restricción, no dato" }
+    ],
+    "advertencia_sobre_sobreajuste": "El framework exige usar MENOS PARÁMETROS LIBRES QUE PATRONES A REPRODUCIR. Aquí hay 7 patrones. Los parámetros libres principales son: umbral_profundo del adipostato, coste de recalentamiento, capacidad de los depósitos 1 y 2, umbral proteico y ventaja del residente. Son 6 frente a 7 patrones: la restricción se cumple, pero por poco margen. Conviene no añadir más parámetros libres sin añadir patrones."
+  }
+}

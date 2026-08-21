@@ -1,0 +1,212 @@
+{
+  "_meta": {
+    "titulo": "Colibrí de pico ancho — trazabilidad de cada parámetro de la IA",
+    "version": "1.0",
+    "proyecto": "Voxel World — AI simulator",
+    "fecha": "2026-08-21",
+    "proposito": "Enlazar CADA parámetro de la simulación con el dato biológico del que sale, o marcarlo explícitamente como invención de diseño. Es lo que separa un modelo auditable de un montón de números mágicos.",
+    "como_leer": "Si un comportamiento del juego se siente raro, se busca aquí el parámetro responsable y se ve de dónde viene. Si viene de ESTIMADO, es candidato a ajuste libre. Si viene de MEDIDO, cambiarlo rompe el realismo."
+  },
+
+  "resumen_ejecutivo": {
+    "total_parametros_auditados": 58,
+    "por_nivel_de_confianza": {
+      "MEDIDO": 24,
+      "DERIVADO": 9,
+      "INFERIDO": 8,
+      "ESTIMADO": 17
+    },
+    "porcentaje_respaldado_por_literatura": "57% (MEDIDO + DERIVADO)",
+    "comparacion_con_el_pecari": {
+      "pecari": "77% respaldado (28 MEDIDO, 8 DERIVADO de 47)",
+      "colibri": "57% respaldado (24 MEDIDO, 9 DERIVADO de 58)",
+      "por_que_es_PEOR": "No es casualidad ni descuido. Tiene tres causas concretas y declarables.",
+      "causa_1": "El pecarí tiene interés cinegético y de producción en cautiverio, lo que financió estudios reproductivos y endocrinos detallados. El colibrí no tiene interés económico: nadie financia medir su cortisol.",
+      "causa_2": "La fisiología del colibrí está muy estudiada, pero en OTRAS especies. Todo el bloque energético y de torpor, que es el más importante para la IA, es INFERIDO por analogía. En el pecarí, en cambio, los datos reproductivos eran de la propia especie.",
+      "causa_3": "El paper clave sobre la regla de torpor (Proc R Soc B 2025) NO fue accesible. Solo ese hueco degrada varios parámetros de MEDIDO a ESTIMADO.",
+      "lectura_honesta": "Un 57% es peor que el 77% del pecarí, pero sigue siendo un modelo defendible: los parámetros ESTIMADOS están concentrados en umbrales de calibración, no en la ESTRUCTURA del modelo. La arquitectura (dos depósitos, torpor por adipostato, defendibilidad económica, traplining) está toda respaldada; lo que falta son números finos.",
+      "regla_derivada": "Los 17 parámetros ESTIMADOS son la lista de la compra de la próxima sesión de investigación. Están todos abajo, marcados."
+    }
+  },
+
+  "escala_de_confianza": {
+    "MEDIDO": "Valor publicado en literatura revisada por pares. Cambiarlo rompe el realismo biológico.",
+    "DERIVADO": "Calculado a partir de valores MEDIDOS mediante una fórmula explícita que se documenta.",
+    "INFERIDO": "No medido en esta especie; tomado del grupo taxonómico o de principio fisiológico general, con la analogía declarada.",
+    "ESTIMADO": "Sin base en literatura. Es ajuste de diseño. Candidato libre a modificación.",
+    "AUSENTE": "La literatura NO tiene el dato. Se deja el hueco explícito."
+  },
+
+  "ADVERTENCIA_TRANSVERSAL": {
+    "aplica_a": "TODO el bloque de fisiología energética y torpor",
+    "contenido": "Ninguna medición de tasa metabólica, torpor, frecuencia cardiaca o aleteo procede de Cynanthus latirostris. Todas proceden de otras especies de Trochilidae (Archilochus alexandri, Selasphorus rufus, S. platycercus, Calypte anna, Eulampis jugularis, Lampornis clemenciae, Eugenes fulgens).",
+    "atenuante_legitimo": "La fisiología del vuelo estacionario y del torpor está fuertemente restringida por la masa corporal y es notablemente conservada dentro de la familia. La inferencia entre colibríes de masa similar es MUCHO más segura que, por ejemplo, inferir de cerdo a pecarí — que el protocolo prohíbe explícitamente.",
+    "por_que_no_se_marca_todo_MEDIDO": "Porque sigue siendo inferencia. Marcar como MEDIDO un dato tomado de otra especie sería exactamente el tipo de deshonestidad que el archivo de trazabilidad existe para impedir."
+  },
+
+  "auditoria_completa": [
+    {
+      "bloque": "MORFOLOGÍA Y CICLO DE VIDA",
+      "parametros": [
+        { "parametro_IA": "masa_asintotica_g (media)", "valor": 3.3, "origen_biologico": "morfologia_y_crecimiento.masa_adulta", "fuente": "AnAge / senescence.info, calidad 'aceptable'", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "masa_asintotica_g (desviación)", "valor": 0.25, "origen_biologico": "Derivada del rango 3.0-4.0 g", "confianza": "ESTIMADO", "tipo_de_traduccion": "PROBABILISTICA", "nota": "El rango es MEDIDO; la forma de la distribución es invención" },
+        { "parametro_IA": "dimorfismo_de_masa", "valor": "+3% en el macho", "origen_biologico": "'El macho es ligeramente más pesado'", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "nota": "La DIRECCIÓN es MEDIDA; la magnitud del 3% es invención. Contrasta con el dimorfismo de PLUMAJE, que es enorme y sí está descrito." },
+        { "parametro_IA": "madurez_sexual_dias", "valor": 365, "origen_biologico": "morfologia_y_crecimiento.madurez_sexual", "fuente": "AnAge", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "longevidad_maxima_anos", "valor": 8.8, "origen_biologico": "morfologia_y_crecimiento.longevidad", "fuente": "BBL — Longevity Records of North American Birds, USGS", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "ADVERTENCIA": "Es un RÉCORD, no una media. Usarlo como esperanza de vida sería un error grave de modelado demográfico." },
+        { "parametro_IA": "longevidad_media_anos", "valor": [3, 4], "origen_biologico": "AUSENTE — no existe esperanza de vida publicada", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "ALERTA": "Es uno de los parámetros ESTIMADOS más influyentes: gobierna toda la estructura de edades de la población." },
+        { "parametro_IA": "curva_crecimiento_k", "valor": "Un orden de magnitud mayor que la del pecarí", "origen_biologico": "AUSENTE — la curva de crecimiento de esta especie NO EXISTE publicada", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "atenuante": "Los tiempos de anclaje SÍ están medidos (17 d incubación, 21-26 d hasta volantón), lo que restringe fuertemente la curva aunque no la determine." }
+      ]
+    },
+    {
+      "bloque": "FISIOLOGÍA ENERGÉTICA — el núcleo del modelo",
+      "nota_del_bloque": "Ver ADVERTENCIA_TRANSVERSAL. Ningún dato de este bloque procede de C. latirostris.",
+      "parametros": [
+        { "parametro_IA": "coste_relativo_VUELO_ESTACIONARIO", "valor": 10.0, "origen_biologico": "fisiologia.tasa_metabolica: 40 ml O2/(g·h) en hovering frente a 4 en reposo", "confianza": "INFERIDO", "tipo_de_traduccion": "DERIVADA", "IMPORTANCIA": "ES EL NÚMERO MÁS IMPORTANTE DE TODO EL MODELO. De él salen el presupuesto de actividad, el patrón bimodal, la necesidad de torpor y la decisión de defender territorio. Si este número está mal, todo lo demás está mal.", "nota": "El valor 10x está MEDIDO en Trochilidae; se marca INFERIDO solo porque no es esta especie." },
+        { "parametro_IA": "coste_relativo_VUELO_DIRECCIONAL", "valor": 7.0, "origen_biologico": "AUSENTE — el vuelo hacia delante es más barato que el estacionario por sustentación, pero no se localizó la cifra", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "coste_relativo_PERSECUCION", "valor": 12.0, "origen_biologico": "AUSENTE", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "multiplicador_TORPOR_PROFUNDO", "valor": 0.013, "origen_biologico": "fisiologia.tasa_metabolica.torpor: 0.053 ± 0.007 ml O2/(g·h) frente a 4.0 en reposo", "confianza": "INFERIDO", "tipo_de_traduccion": "DERIVADA", "derivacion": "0.053 / 4.0 = 0.0133" },
+        { "parametro_IA": "multiplicador_TORPOR_SUPERFICIAL", "valor": 0.4, "origen_biologico": "AUSENTE — el estudio de 2022 midió TEMPERATURAS del torpor superficial, no tasas metabólicas", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "nota": "Se interpola entre normotermia (1.0) y torpor profundo (0.013), sesgado hacia el extremo alto porque el torpor superficial es solo 2-20 °C por debajo del reposo." },
+        { "parametro_IA": "capacidad_deposito_azucar_circulante", "valor": "Decenas de minutos de actividad", "origen_biologico": "MEDIDO cualitativamente: ~90% de la energía en alimentación viene de azúcares recién ingeridos; conmutación de sustrato en 20-30 min", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "nota": "El MECANISMO de dos depósitos está MEDIDO; la capacidad concreta del primero no." },
+        { "parametro_IA": "capacidad_deposito_grasa", "valor": "1-2 días de rotación", "origen_biologico": "fisiologia.uso_de_sustratos: tiempo medio de residencia del carbono de 1 a 2 días", "confianza": "INFERIDO", "tipo_de_traduccion": "PARAMETRIZADA", "nota": "El tiempo de residencia MEDIDO restringe bien la tasa de rotación del depósito" },
+        { "parametro_IA": "eficiencia_conversion_azucar_a_grasa", "valor": 0.85, "origen_biologico": "AUSENTE", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "sistema_de_dos_depositos", "valor": "Arquitectura adoptada", "origen_biologico": "fisiologia.uso_de_sustratos_metabolicos: cociente respiratorio de 0.7 en ayuno a >1.0 alimentado; conmutación lípidos↔azúcar en 20-30 min", "fuente": "PMID 16809453, J Exp Biol 2006 (Selasphorus platycercus); PMC10317124 (2023)", "confianza": "MEDIDO (el mecanismo, en otra especie)", "tipo_de_traduccion": "PARAMETRIZADA", "IMPORTANCIA": "Es la decisión ARQUITECTÓNICA más importante del modelo, y está respaldada. Sustituye a la barra única de hambre del framework." },
+        { "parametro_IA": "necesidad_proteica_separada", "valor": "Tercer depósito", "origen_biologico": "alimentacion.insectos: el néctar carece de proteína; los insectos son obligatorios", "confianza": "MEDIDO (que es obligatoria)", "tipo_de_traduccion": "PARAMETRIZADA", "nota_de_hueco": "La PROPORCIÓN de insectos en la dieta es AUSENTE, así que todos los umbrales de este depósito son ESTIMADO" },
+        { "parametro_IA": "umbral_deposito_proteina", "valor": "Umbral logístico bajo", "origen_biologico": "AUSENTE", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "ingesta_diaria", "valor": "1.5-3x la masa corporal en néctar", "origen_biologico": "alimentacion.ingesta_diaria", "confianza": "INFERIDO", "tipo_de_traduccion": "DIRECTA", "ADVERTENCIA_DE_FUENTE": "Cifra muy citada y consistente entre fuentes divulgativas, pero NO se localizó la medición primaria. Se marca INFERIDO deliberadamente en vez de MEDIDO. Es coherente con la energética por cálculo independiente, lo que da confianza en el orden de magnitud." }
+      ]
+    },
+    {
+      "bloque": "TORPOR — el subsistema distintivo",
+      "parametros": [
+        { "parametro_IA": "regla_de_entrada_en_torpor", "valor": "Adipostato: comparar reservas con coste nocturno previsto", "origen_biologico": "Proceedings of the Royal Society B 292(2038):20242489 (2025), 'The hummingbird's adipostat: can a simple rule explain torpor frequency and duration in hummingbirds?'", "confianza": "INFERIDO", "tipo_de_traduccion": "PARAMETRIZADA", "LAGUNA_CRITICA": "EL PAPER NO FUE ACCESIBLE (HTTP 403). La FORMA de la regla se deduce de su título y del consenso de la literatura de balance energético; los UMBRALES concretos NO están respaldados.", "instruccion_obligatoria": "Si se consigue acceso a este paper, REVISAR esta regla antes de considerar cerrado el modelo. Es la laguna más importante del archivo." },
+        { "parametro_IA": "umbral_profundo del adipostato", "valor": 0.35, "origen_biologico": "AUSENTE", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "metodo_de_calibracion_declarado": "NO ajustar a ojo. Calibrar hasta reproducir el reparto nocturno medido (49/5/34/12) en un ave de ~3 g. El patrón medido restringe el parámetro aunque el parámetro no esté medido." },
+        { "parametro_IA": "reparto_nocturno_objetivo", "valor": { "torpor_profundo_pct": 49, "torpor_superficial_pct": 5, "normotermia_pct": 34, "transicion_pct": 12 }, "origen_biologico": "fisiologia.TORPOR.uso_por_especie_medido", "fuente": "J Exp Biol 225(2), 2022 (PMID 34989393), Archilochus alexandri, 2.9 g, n=7", "confianza": "MEDIDO (en otra especie de masa muy próxima)", "tipo_de_traduccion": "DIRECTA", "USO": "NO es un parámetro de entrada: es el PATRÓN DE VALIDACIÓN contra el que se calibra el umbral. Es el mejor test cuantitativo del modelo." },
+        { "parametro_IA": "escalado_del_torpor_con_la_masa", "valor": "Monótono decreciente", "origen_biologico": "MEDIDO: 49% a 2.9 g, 17% a 7.6 g, 4% a 8.4 g", "fuente": "PMID 34989393", "confianza": "MEDIDO", "tipo_de_traduccion": "PARAMETRIZADA", "beneficio": "Con tres puntos la relación queda bien restringida. Si se añade otra especie de colibrí, su torpor sale correcto sin recalibrar." },
+        { "parametro_IA": "temperatura_corporal_torpor_profundo_C", "valor": [5.9, 24.1], "origen_biologico": "fisiologia.TORPOR.espectro_heterotermico", "fuente": "PMID 34989393", "confianza": "MEDIDO (en otras especies)", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "latencia_de_salida_torpor_profundo_min", "valor": [20, 30], "origen_biologico": "fisiologia.TORPOR.espectro_heterotermico", "fuente": "PMID 34989393", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "IMPORTANCIA_MAXIMA": "De este único dato sale toda la VENTANA DE VULNERABILIDAD, que es el compromiso central de la especie: ahorrar energía cuesta capacidad de huida. Es el equivalente estructural al compromiso audacia/digestión del pecarí, y como aquel, sale de un dato real." },
+        { "parametro_IA": "latencia_de_salida_torpor_superficial_min", "valor": 5, "origen_biologico": "MEDIDO: 'el torpor superficial permite recalentarse en menos de 5 minutos'", "fuente": "PMID 34989393", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "tasa_de_transicion_C_por_min", "valor": 0.45, "desviacion": 0.06, "origen_biologico": "fisiologia.TORPOR.espectro_heterotermico", "fuente": "PMID 34989393", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "coste_de_recalentamiento", "valor": { "profundo": 0.15, "superficial": 0.03 }, "origen_biologico": "AUSENTE — se sabe que recalentar cuesta energía, pero no cuánta en esta familia", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "por_que_importa_aunque_sea_estimado": "Sin coste de recalentamiento el torpor sería gratis y el ave lo usaría siempre. El coste es lo que hace la decisión no trivial." },
+        { "parametro_IA": "bloqueo_de_HUIR_en_torpor", "valor": "Activo durante torpor profundo y su transición", "origen_biologico": "DERIVADO de la latencia de 20-30 min medida", "confianza": "DERIVADO", "tipo_de_traduccion": "DERIVADA", "IMPORTANCIA": "Cierra el bucle causal energía→vulnerabilidad. Es emergencia auténtica, no diseño." }
+      ]
+    },
+    {
+      "bloque": "ALIMENTACIÓN Y MEMORIA",
+      "parametros": [
+        { "parametro_IA": "preferencia_por_fructosa", "valor": "Bonus de atractivo a flores ricas en fructosa", "origen_biologico": "alimentacion.nectar.preferencias_de_azucar_MEDIDAS_EN_ESTA_ESPECIE", "fuente": "Medina-Tapia et al. (2012), PMID 22155281, n=8, concentraciones 146/730/1022 mmol/L", "confianza": "MEDIDO — EN ESTA ESPECIE EXACTA", "tipo_de_traduccion": "DIRECTA", "IMPORTANCIA": "Es uno de los POCOS parámetros medidos directamente en C. latirostris. Vale más que diez datos inferidos." },
+        { "parametro_IA": "concentracion_azucar_nectar_pct", "valor": 43.7, "origen_biologico": "alimentacion.nectar", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "recarga_de_flor", "valor": "14.5 µl/día máximo, flor viable 7-8 días, pico en días 4-6", "origen_biologico": "alimentacion.plantas_visitadas.ESPECIE_CLAVE_INVERNAL (Echeveria gibbiflora)", "fuente": "Vargas y Parra-Tabla, The Southwestern Naturalist, Pedregal de San Ángel, CDMX", "confianza": "MEDIDO — EN MÉXICO Y CON ESTA ESPECIE", "tipo_de_traduccion": "PARAMETRIZADA", "IMPORTANCIA": "Es la base cuantitativa de TODO el sistema de traplining. Sin este dato, los intervalos de revisita serían invención pura." },
+        { "parametro_IA": "capacidad_de_memoria_de_flores", "valor": 12, "origen_biologico": "MEDIDO que manejan al menos 5 flores en arreglos experimentales y evitan revisitas durante más de una hora", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "nota": "El límite inferior (≥5) está MEDIDO; el 12 es generosidad de diseño, y es barato computacionalmente." },
+        { "parametro_IA": "memoria_temporal_de_recarga", "valor": "Periodo aprendido por experiencia", "origen_biologico": "actividad_y_espacio.MEMORIA_ESPACIAL_Y_TRAPLINING: aprendieron el momento óptimo de revisita con recargas de 10 a 40 min", "fuente": "Literatura de Selasphorus rufus", "confianza": "MEDIDO (la capacidad); ESTIMADO (el algoritmo)", "tipo_de_traduccion": "PARAMETRIZADA", "NOTA_DE_FRAMEWORK": "Esta capacidad NO existía en el framework, que solo guardaba posiciones. Es una extensión obligatoria y está respaldada por medición." },
+        { "parametro_IA": "memoria_secuencial (trapline)", "valor": "Índice de orden en ruta", "origen_biologico": "MEDIDO: repiten el ORDEN de visita de arreglos de 2 a 5 flores", "confianza": "MEDIDO (en S. rufus); INFERIDO (para esta especie)", "tipo_de_traduccion": "PARAMETRIZADA", "nota_de_emergencia": "El trapline NO se programa como ruta: emerge de maximizar utilidad con un término de coste de vuelo. El índice de orden es un registro del resultado, no una instrucción." },
+        { "parametro_IA": "olvido_de_flores", "valor": "Degradación por no revisita", "origen_biologico": "Heredado del framework (memoria del pecarí)", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" }
+      ]
+    },
+    {
+      "bloque": "TERRITORIALIDAD Y CONFLICTO",
+      "parametros": [
+        { "parametro_IA": "defendibilidad_economica", "valor": "Curva GAUSSIANA sobre la abundancia local de recursos", "origen_biologico": "estructura_social.territorialidad.LA_TEORIA_QUE_GOBIERNA_TODO", "fuente": "Principio de defendibilidad económica; corroborado en esta especie por el estudio de Echeveria gibbiflora en el Pedregal", "confianza": "MEDIDO (el patrón de U invertida); DERIVADO (la forma gaussiana concreta)", "tipo_de_traduccion": "PARAMETRIZADA", "IMPORTANCIA": "Es el mecanismo emergente central de la especie. Equivale al compromiso audacia/digestión del pecarí: produce comportamiento variado y no trivial a partir de un principio medido." },
+        { "parametro_IA": "modelo_de_territorio", "valor": "Conjunto de flores defendidas, NO superficie", "origen_biologico": "AUSENTE el tamaño en superficie; el modelo por recursos es DERIVADO", "confianza": "DERIVADO", "tipo_de_traduccion": "INVENTADA", "justificacion_de_la_eleccion": "La laguna se convierte en ventaja: lo que el ave defiende realmente son flores, no metros cuadrados, y el modelo por recursos encaja mejor con un mundo de vóxeles." },
+        { "parametro_IA": "RHP incluye energia_disponible", "valor": "Término activo", "origen_biologico": "DERIVADO del coste energético medido de la agresión", "confianza": "DERIVADO", "tipo_de_traduccion": "DERIVADA", "consecuencia_notable": "La dominancia FLUCTÚA durante el día con el estado energético, en vez de ser un rango estable como en el pecarí. Es una diferencia cualitativa entre las dos especies que sale de la fisiología." },
+        { "parametro_IA": "ventaja_del_residente", "valor": 1.3, "origen_biologico": "Principio general de teoría de juegos de contiendas (Maynard Smith y Parker 1976), ya citado en el framework", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "dominancia_por_masa_interespecifica", "valor": "El mayor desplaza al menor", "origen_biologico": "estructura_social.territorialidad.dominancia_interespecifica", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "agresividad (rasgo individual)", "valor": "Normal(0.5, 0.18)", "origen_biologico": "AUSENTE", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "ADVERTENCIA_DE_HONESTIDAD_EXPLICITA": "En el pecarí, el rasgo de personalidad (audacia) estaba MEDIDO en la especie, con consecuencias fisiológicas demostradas (digestibilidad 0.41-0.79). Aquí NO hay nada equivalente. Este rasgo es invención de diseño para dar variedad y NO debe presentarse como respaldado. Es la diferencia más importante entre los dos modelos de personalidad." }
+      ]
+    },
+    {
+      "bloque": "REPRODUCCIÓN Y DIVERGENCIA POR SEXO",
+      "parametros": [
+        { "parametro_IA": "puesta", "valor": 2, "origen_biologico": "reproduccion.huevos", "fuente": "AnAge y compilaciones ornitológicas concordantes", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "incubacion_dias", "valor": 17, "origen_biologico": "reproduccion.incubacion", "fuente": "AnAge", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "nota": "Se elige 17 sobre el rango 14-23 de compilaciones menos precisas, por proceder de una base de datos curada con calidad declarada." },
+        { "parametro_IA": "periodo_de_pollo_dias", "valor": [21, 26], "origen_biologico": "reproduccion.periodo_de_pollo", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "ERRATA_DESCARTADA": "Se RECHAZA el valor de '6-8 meses' que aparece en algunas compilaciones. Es físicamente imposible para un ave de 3 g en un nido de 2.5 cm. Detectado por el check de COHERENCIA DIMENSIONAL del protocolo, no por otra fuente." },
+        { "parametro_IA": "presupuesto_de_la_hembra_anidante", "valor": "60% del tiempo en el nido", "origen_biologico": "estructura_social.sistema_de_apareamiento.cuidado_parental", "fuente": "Datos de Guadalupe Canyon", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "IMPORTANCIA_MAXIMA": "De este ÚNICO dato sale toda la divergencia conductual entre sexos: rutas más cortas, sin defensa territorial, forrajeo más eficiente. Es el mejor ejemplo del archivo de un dato pequeño con consecuencias sistémicas grandes." },
+        { "parametro_IA": "cuidado_parental_solo_hembra", "valor": "El macho no aporta nada", "origen_biologico": "estructura_social.sistema_de_apareamiento", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "exhibicion_pendular", "valor": "Arcos repetidos ≥4 veces con vocalización 'zing'", "origen_biologico": "estructura_social.sistema_de_apareamiento.exhibicion_de_cortejo", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "nota_de_diseno": "Animación concreta y citable. Por la lección de F.E.A.R. registrada en el framework, la señalización visible es el mejor retorno de realismo percibido por hora invertida." },
+        { "parametro_IA": "altura_del_nido_m", "valor": 1.1, "origen_biologico": "reproduccion.nido", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "temporada_reproductiva_mexico", "valor": "Enero a agosto, pico a mediados de marzo", "origen_biologico": "reproduccion.temporada", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "nidadas_por_temporada", "valor": 2, "origen_biologico": "reproduccion.temporada", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "razon_de_sexos_al_nacer", "valor": "50:50", "origen_biologico": "AUSENTE para esta especie", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "nota": "Valor neutro por defecto, igual que se hizo en el pecarí ante evidencia contradictoria — pero aquí no hay ni evidencia contradictoria: simplemente no hay dato." },
+        { "parametro_IA": "acoplamiento_reproduccion_proteina", "valor": "El estradiol se modula por el depósito de proteína", "origen_biologico": "MEDIDO cualitativamente: los insectos son obligatorios para la producción de huevos", "confianza": "INFERIDO", "tipo_de_traduccion": "DERIVADA", "EMERGENCIA_RESULTANTE": "La reproducción queda acoplada a la disponibilidad de INSECTOS, no solo de néctar. Un año con muchas flores pero pocos insectos produce pocos pollos." },
+        { "parametro_IA": "mortalidad (todas las clases)", "valor": "Por calibración", "origen_biologico": "AUSENTE — no existe éxito reproductivo ni mortalidad publicados para esta especie", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "ALERTA_METODOLOGICA": "Con 2 nidadas de 2 huevos y madurez al año, la fecundidad potencial es MUY ALTA. Si la mortalidad juvenil no se calibra alta, la población EXPLOTA. Es exactamente el escenario que el protocolo marca como el error más común y destructivo. Validación obligatoria por matriz de Leslie." }
+      ]
+    },
+    {
+      "bloque": "HORMONAS",
+      "nota_del_bloque": "NO EXISTE literatura endocrina para C. latirostris. Todo el bloque es INFERIDO del patrón aviar general.",
+      "parametros": [
+        { "parametro_IA": "CORTICOSTERONA en lugar de cortisol", "valor": "Cambio de nombre y de hormona", "origen_biologico": "Fisiología comparada: en aves la hormona de estrés del eje HPA es la corticosterona", "confianza": "MEDIDO — fisiología comparada establecida", "tipo_de_traduccion": "DIRECTA", "IMPORTANCIA_DE_FRAMEWORK": "El framework escribió 'cortisol' asumiendo mamíferos, porque su primera instancia fue un pecarí. Mantenerlo para un ave sería un error factual visible. La DINÁMICA del modelo no cambia; el nombre sí debe cambiar." },
+        { "parametro_IA": "testosterona.curva_estacional", "valor": "Gaussiana centrada en el pico reproductivo", "origen_biologico": "La ESTACIONALIDAD REPRODUCTIVA está MEDIDA (enero-agosto, pico a mediados de marzo); la curva hormonal no", "confianza": "INFERIDO", "tipo_de_traduccion": "PARAMETRIZADA", "contraste_con_el_pecari": "En el pecarí la testosterona estaba MEDIDA con valores reales (500-700 pg/ml en verano vs 1150-1400 en otoño-invierno, variación de 2x). Aquí solo se conoce la fase, no la amplitud." },
+        { "parametro_IA": "corticosterona.dinamica", "valor": "Dos escalas: rápida y lenta", "origen_biologico": "AUSENTE en esta especie; forma tomada del modelo general del eje HPA", "confianza": "INFERIDO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "estradiol.curva", "valor": "Ligada a la formación de huevos", "origen_biologico": "AUSENTE", "confianza": "INFERIDO", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "supresion_reproductiva_por_estres", "valor": "Activa (HPA suprime HPG)", "origen_biologico": "INFERIDO del principio general en vertebrados", "confianza": "INFERIDO", "tipo_de_traduccion": "INVENTADA", "matiz_propio_de_la_especie": "Aquí existe un SEGUNDO camino al mismo resultado, más fuerte y mejor fundado: el gasto energético del estrés compite directamente con las reservas necesarias para reproducirse. En un animal con margen de horas, el estrés se convierte en déficit calórico casi de inmediato. Ese camino es DERIVADO de la energética medida, no inferido." }
+      ]
+    },
+    {
+      "bloque": "ESCALA TEMPORAL Y POBLACIÓN",
+      "parametros": [
+        { "parametro_IA": "factor_del_mundo", "valor": 60, "origen_biologico": "MINUTOS_POR_DIA = 24 en src/main.cpp", "confianza": "MEDIDO en el código del motor", "tipo_de_traduccion": "DIRECTA" },
+        { "parametro_IA": "factor_de_compresion_del_eje_ENERGETICO", "valor": 1, "origen_biologico": "Decisión de diseño: NO comprimir", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "justificacion": "El ciclo diario de energía y torpor encaja de forma natural en el día de juego de 24 minutos reales. Comprimirlo lo volvería invisible." },
+        { "parametro_IA": "factor_de_compresion_del_eje_DEMOGRAFICO", "valor": 8, "origen_biologico": "Heredado deliberadamente del pecarí (11_PECARI_IA.json)", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "IMPORTANCIA_DE_COHERENCIA": "DEBE ser el mismo que el del pecarí. Si algún día se cambia allí, hay que cambiarlo aquí. Un año de colibrí y un año de pecarí tienen que durar lo mismo en el juego." },
+        { "parametro_IA": "desviacion_de_la_regla_de_factor_unico", "valor": "Dos ejes en vez de uno", "origen_biologico": "El protocolo (fase 4) exige factor ÚNICO y global", "confianza": "ESTIMADO", "tipo_de_traduccion": "INVENTADA", "DECLARACION_DE_DESVIACION": "Se desvía conscientemente de la regla del protocolo. Razón: la regla existe para evitar animales incoherentes dentro de un individuo (gestación rápida con crecimiento lento). Aquí la separación es entre metabolismo diario y ciclo vital, que en la realidad TAMBIÉN están separados por tres órdenes de magnitud. Se conserva el espíritu (proporciones intactas dentro de cada eje) aunque no la letra. Es la única desviación declarada del protocolo en este modelo." },
+        { "parametro_IA": "densidad_derivada_del_recurso", "valor": "individuos = flores / flores_por_individuo", "origen_biologico": "AUSENTE la densidad publicada; el mecanismo es DERIVADO de la territorialidad por recursos", "confianza": "DERIVADO (el mecanismo); ESTIMADO (los valores)", "tipo_de_traduccion": "INVENTADA", "justificacion_de_la_eleccion": "Segunda laguna convertida en ventaja: la densidad de un nectarívoro territorial SÍ está determinada por el recurso, así que derivarla es más correcto que fijarla. Además produce dinámica estacional automática." },
+        { "parametro_IA": "densidades_relativas_por_bioma", "valor": { "FOREST": 1.0, "PLAINS": 0.7, "DESERT": 0.6, "MOUNTAINS": 0.4, "BEACH": 0.1, "OCEAN": 0.0, "MOUNTAIN_PEAKS": 0.0 }, "origen_biologico": "habitat.tipos_de_vegetacion y rango altitudinal (1,494-3,048 m, reproducción bajo 2,000 m)", "confianza": "MEDIDO (los hábitats); ESTIMADO (los valores relativos)", "tipo_de_traduccion": "INVENTADA" },
+        { "parametro_IA": "regla_de_aparicion_individual", "valor": "Individuos sueltos, nunca grupos", "origen_biologico": "estructura_social: especie solitaria y territorial", "confianza": "MEDIDO", "tipo_de_traduccion": "DIRECTA", "contraste": "Es lo contrario de la regla del pecarí, que exigía aparecer como manada completa de 6-10 con estructura de edades." }
+      ]
+    }
+  ],
+
+  "los_17_parametros_ESTIMADOS": {
+    "proposito": "Lista consolidada de todo lo que NO tiene respaldo. Es la lista de la compra de la próxima sesión de investigación, ordenada por impacto.",
+    "de_impacto_ALTO": [
+      { "parametro": "umbral_profundo del adipostato", "como_cerrarlo": "Conseguir Proc R Soc B 292(2038):20242489 (2025)", "mitigacion_actual": "Calibrable contra el patrón nocturno medido 49/5/34/12" },
+      { "parametro": "mortalidad de todas las clases de edad", "como_cerrarlo": "Buscar estudios de éxito reproductivo en Trochilidae mexicanos", "mitigacion_actual": "Calibración forzada por lambda ≈ 1.0" },
+      { "parametro": "longevidad_media", "como_cerrarlo": "Datos de anillamiento y recaptura", "mitigacion_actual": "Estimación de 3-4 años coherente con aves pequeñas" },
+      { "parametro": "capacidades de los depósitos 1 y 2", "como_cerrarlo": "Estudios de balance energético diario", "mitigacion_actual": "Restringidos por el tiempo de residencia medido de 1-2 días" }
+    ],
+    "de_impacto_MEDIO": [
+      { "parametro": "coste_relativo_VUELO_DIRECCIONAL (7.0)" },
+      { "parametro": "coste_relativo_PERSECUCION (12.0)" },
+      { "parametro": "multiplicador_TORPOR_SUPERFICIAL (0.4)" },
+      { "parametro": "coste_de_recalentamiento (0.15 / 0.03)" },
+      { "parametro": "umbral del depósito de proteína" },
+      { "parametro": "factor de compresión demográfica (8)", "nota": "Es decisión de ritmo, no de biología. No necesita respaldo, pero sí coherencia con el pecarí." },
+      { "parametro": "densidades relativas por bioma" }
+    ],
+    "de_impacto_BAJO": [
+      { "parametro": "agresividad como rasgo individual", "nota": "Da variedad; no altera la estructura del modelo" },
+      { "parametro": "eficiencia_metabolica individual" },
+      { "parametro": "eficiencia de conversión azúcar→grasa (0.85)" },
+      { "parametro": "capacidad de memoria de flores (12)", "nota": "El límite inferior de 5 sí está medido" },
+      { "parametro": "ventaja del residente (1.3)" },
+      { "parametro": "olvido de flores" },
+      { "parametro": "dimorfismo de masa (+3%)" },
+      { "parametro": "razón de sexos al nacer (50:50)" }
+    ]
+  },
+
+  "comparacion_estructural_con_el_modelo_del_PECARI": {
+    "proposito": "Verificar que el framework es realmente genérico y documentar dónde tuvo que estirarse.",
+    "lo_que_el_framework_absorbio_sin_cambios": [
+      "Dual-utility con rank y weight",
+      "Curvas de respuesta (logística, cuadrática, gaussiana)",
+      "Compensation factor",
+      "Momentum conductual obligatorio",
+      "RHP con Elo para conflictos",
+      "LOD de simulación por distancia",
+      "Spatial hash reutilizando chunks",
+      "Validación por Pattern-Oriented Modeling",
+      "Matriz de Leslie como test de integración",
+      "Resiliencia obligatoria (lección de Ultima Online)",
+      "Necesidad social con signo invertido en especies solitarias (el framework ya lo preveía)"
+    ],
+    "lo_que_exigio_EXTENDER_el_framework": [
+      { "extension": "Locomoción de vuelo con coste por modo", "previsto_por_el_framework": "SÍ — 'lo_que_SI_requiere_codigo' ya listaba volar", "impacto_en_IFaunaWorldQuery": "NINGUNO. Los métodos existentes bastan." },
+      { "extension": "Régimen metabólico de TORPOR", "previsto_por_el_framework": "NO", "por_que_no_era_un_comportamiento": "Es un estado fisiológico que multiplica TODAS las tasas y bloquea la capacidad de responder. Un comportamiento del catálogo no puede hacer eso.", "reutilizable": "SÍ — servirá para cualquier especie que hiberne o estive" },
+      { "extension": "Memoria TEMPORAL y SECUENCIAL", "previsto_por_el_framework": "NO — solo guardaba posiciones con olvido", "es_hallazgo_nuevo": "SÍ. Es la aportación más importante de esta especie al framework.", "respaldo": "MEDIDO en Selasphorus rufus" },
+      { "extension": "Desdoblamiento del hambre en tres depósitos", "previsto_por_el_framework": "NO — el framework tenía una necesidad 'hambre' única", "respaldo": "MEDIDO (cociente respiratorio, conmutación de sustratos, obligatoriedad de la proteína)" },
+      { "extension": "Corticosterona en lugar de cortisol", "previsto_por_el_framework": "NO — el framework asumía mamíferos", "impacto": "Solo nomenclatura y valores; la dinámica es idéntica" }
+    ],
+    "veredicto_sobre_el_framework": "SOBREVIVE al contraste con una especie casi opuesta en todos los ejes, pero con cinco extensiones, de las cuales el propio framework había predicho una. Las cuatro no previstas son todas reutilizables para futuras especies, no parches de un solo uso. Eso es señal de que la arquitectura es sana: se extiende, no se remienda.",
+    "recomendacion_para_01_ARQUITECTURA": "Conviene incorporar al framework genérico: (1) el régimen metabólico como concepto de primera clase, (2) la memoria con marca temporal, y (3) la necesidad de alimento como vector de nutrientes en vez de escalar. Las tres son generalizaciones limpias, no concesiones a esta especie."
+  }
+}

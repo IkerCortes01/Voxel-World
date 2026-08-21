@@ -122,3 +122,53 @@ investigación. Prometer lo contrario sería vender humo.
 
 Lo que sí es automático: una vez rellenado el JSON de una especie, la IA
 sale de ahí sin escribir código nuevo.
+
+--------------------------------------------------------------------------------
+LAS DECISIONES MÁS IMPORTANTES DEL MODELO DEL PECARÍ
+--------------------------------------------------------------------------------
+
+Tres, y todas salen de la evidencia, no de la intuición:
+
+  1. NO HAY MACHO ALFA.
+     No existe ningún estudio publicado que documente jerarquía lineal,
+     macho alfa ni hembra dominante en Dicotyles tajacu. Y el monomorfismo
+     sexual medido lo corrobora por otra vía: en ungulados, la ausencia de
+     dimorfismo predice la ausencia de competencia intrasexual intensa.
+     Implementar un alfa sería inventar biología.
+
+  2. ES DIURNO, NO NOCTURNO.
+     Pico de actividad hacia las 09:24, con 54.473 días-trampa de respaldo
+     en Campeche y 8.463 en Chiapas, replicado en Costa Rica y Ecuador.
+     El pecarí NOCTURNO es otra especie (Tayassu pecari). Confundirlos
+     sería el error más visible del modelo.
+
+  3. EL NOPAL LE QUITA LA SED, NO SOLO EL HAMBRE.
+     El nopal es el 25-80% de su dieta en zona semiárida y contiene ~87% de
+     agua. Es lo que le permite vivir sin agua libre. Y el motor YA tiene
+     nopal y tunas implementados.
+
+--------------------------------------------------------------------------------
+EL HALLAZGO MÁS APROVECHABLE
+--------------------------------------------------------------------------------
+
+Esta especie tiene un rasgo de personalidad MEDIDO —la audacia (boldness)—
+con consecuencias FISIOLÓGICAS demostradas: los individuos más calmados
+digieren la fibra significativamente mejor (0.41 a 0.79 de digestibilidad
+entre individuos), y tienen la microbiota del proestómago más homogénea.
+
+Eso permite implementar un compromiso evolutivo REAL, con dos estrategias
+viables en vez de una óptima:
+
+  EL AUDAZ      digiere peor, así que necesita más comida — pero se
+                arriesga más para conseguirla, y la consigue.
+                Muere más de depredación.
+
+  EL TÍMIDO     digiere mejor, así que le basta con menos — y se expone
+                menos, así que sobrevive más a los depredadores.
+                Muere más de hambre en la escasez.
+
+Ninguna de las dos gana siempre: depende de si el año trae escasez o trae
+depredadores. Eso es selección natural emergente saliendo de dos datos
+medidos, no de un diseño.
+
+No es un rasgo inventado para dar variedad: está medido en esta especie.

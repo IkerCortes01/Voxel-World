@@ -27,7 +27,36 @@
       { "categoria": "Revistas de reproducción y endocrinología", "ejemplos": ["Theriogenology", "General and Comparative Endocrinology", "Animal Reproduction Science"] },
       { "categoria": "Fuentes institucionales", "ejemplos": ["CONABIO (Comisión Nacional para el Conocimiento y Uso de la Biodiversidad)", "IUCN Red List", "Animal Diversity Web (Universidad de Michigan)", "Smithsonian National Zoo"] }
     ],
-    "entradas": []
+    "entradas": [
+      { "tema": "Bioenergética y adaptación al desierto", "cita": "Zervanos, S.M. y Hadley, N.F. (1973). 'Adaptational Biology and Energy Relationships of the Collared Peccary'. Ecology 54(4):759-774", "doi": "10.2307/1935671", "aporta": "LA FUENTE MÁS VALIOSA del conjunto: requerimientos energéticos (794 kcal/día verano, 917 invierno), requerimiento hídrico (66.5 y 38.6 ml/kg/día), reducción del 68% de pérdida evaporativa y 93% de urinaria en deshidratación, temperatura corporal, conductancia térmica del pelaje, y la limitación clave de no poder producir heces secas", "confianza": "MEDIDO" },
+      { "tema": "Patrón de actividad en México", "cita": "Hernández-Pérez et al. (2020). Revista Mexicana de Biodiversidad 91", "url": "http://www.scielo.org.mx/scielo.php?script=sci_arttext&pid=S1870-34532020000100333", "aporta": "El dato mexicano mejor respaldado: pico de actividad a las 10:03 h (n=867), desplazamiento a 08:45 en presencia de cerdos asilvestrados, amplitud de nicho de hábitat. Esfuerzo de 54,473 días-trampa.", "confianza": "MEDIDO" },
+      { "tema": "Actividad y hábitat, Selva Lacandona", "cita": "Falconi-Briones et al. (2022). Therya 13(2):171-182", "doi": "10.12933/therya-22-1167", "aporta": "Confirma el patrón DIURNO en Chiapas y el contraste con T. pecari (nocturno). 8,463 días-trampa.", "confianza": "MEDIDO" },
+      { "tema": "Ciclo estral", "cita": "PMID 31108432, Theriogenology 2019", "aporta": "Ciclo de 27.9 ± 4.5 días, fase lútea de 22.2 días, fase interlútea de 4.3. n=15 hembras, 28 ciclos.", "confianza": "MEDIDO" },
+      { "tema": "Demografía reproductiva", "cita": "PMID 17101243, Animal Reproduction Science 2007", "aporta": "n=74 partos en colonia cautiva amazónica: camada media 1.85, intervalo entre partos 196 días, 1.86 crías/hembra/año, mortalidad neonatal 26.9%, edad a primer parto 639 días", "advertencia": "CAUTIVERIO — representa el techo reproductivo", "confianza": "MEDIDO" },
+      { "tema": "Hormonas en gestación y lactancia", "cita": "PMID 4043721, General and Comparative Endocrinology 1985", "aporta": "Progesterona 36.48 ng/ml en gestación, estradiol 10.11 a 49.07 pg/ml, y el ÚNICO valor de glucocorticoides disponible (6.57 µg/dl)", "confianza": "MEDIDO" },
+      { "tema": "Diagnóstico hormonal de gestación", "cita": "PMID 22546524, Research in Veterinary Science 2012", "aporta": "Meseta de progesterona 20-60 ng/ml, estradiol máximo al parto 131.4 pg/ml, inicio del ascenso al día 4", "confianza": "MEDIDO" },
+      { "tema": "Testosterona estacional", "cita": "PMID 2704003, Journal of Reproduction and Fertility 1989", "aporta": "Variación estacional de ~2x: 500-700 pg/ml en verano, 1150-1400 en otoño-invierno. Es la mejor evidencia de estacionalidad reproductiva modulada.", "confianza": "MEDIDO" },
+      { "tema": "Supresión reproductiva por lactancia", "cita": "PMID 28336266, Animal Reproduction Science 2017", "aporta": "Las lactantes tienen los valores MÁS BAJOS de progesterona (442 ng/g) y estradiol (34 ng/g). n=15 hembras, 9 meses.", "importancia": "Permite que el intervalo entre partos EMERJA del modelo en vez de imponerse", "confianza": "MEDIDO" },
+      { "tema": "Estro postparto", "cita": "PMID 16837033, Theriogenology 2006", "aporta": "80% de las hembras con estro postparto, reanudación a 23.5 días, 67% de tasa de preñez", "confianza": "MEDIDO" },
+      { "tema": "Personalidad y conducta defensiva", "cita": "PMID 34740780, Behavioural Processes 2021", "aporta": "Variabilidad pronunciada ENTRE INDIVIDUOS en audacia (boldness) con plasticidad según riesgo. n=26.", "importancia": "Justifica la variación individual persistente como rasgo real y medido en esta especie", "confianza": "MEDIDO" },
+      { "tema": "Personalidad y digestibilidad", "cita": "Animal (2020), DOI 10.1017/s1751731120001354", "aporta": "Los individuos MÁS CALMADOS digieren fibra significativamente mejor. Rango de FDA 0.41-0.79 entre individuos. n=24.", "importancia": "Establece el EJE personalidad ↔ fisiología ↔ microbiota, que crea un compromiso evolutivo real en el modelo", "confianza": "MEDIDO" },
+      { "tema": "Microbiota y temperamento", "cita": "Journal of Applied Microbiology (2021), DOI 10.1111/jam.15133", "aporta": "Los individuos calmados tienen microbiota del proestómago más homogénea. Confirma el eje anterior por vía independiente.", "confianza": "MEDIDO" },
+      { "tema": "Fermentación de intestino anterior", "cita": "Journal of Experimental Zoology (2009), DOI 10.1002/jez.552", "aporta": "Clasificación como foregut fermenter; tiempos de retención de 26-32 h; tasas de paso diferenciales", "aclaracion_importante": "NO es rumiante, pero SÍ fermentador de intestino anterior", "confianza": "MEDIDO" },
+      { "tema": "Digestibilidad de fibra", "cita": "Revista Brasileira de Zootecnia (2018), DOI 10.1590/rbz4720170288", "aporta": "Digestibilidad de FDN 0.80, FDA 0.61. n=4 machos adultos.", "confianza": "MEDIDO" },
+      { "tema": "Cohesión de manada", "cita": "Journal of Mammalogy (1995), DOI 10.2307/1382593", "aporta": "Comparación directa pecarí vs cerdo asilvestrado: las manadas de pecarí son 'unidades ALTAMENTE COHESIVAS'. Descarta el modelo de fisión-fusión.", "confianza": "MEDIDO" },
+      { "tema": "Dispersión sesgada a machos", "cita": "Cooper, Vitalis, Waser, Gopurenko, Hellgren, Gabor y DeWoody (2009). Heredity 104(1):79-87", "doi": "10.1038/hdy.2009.102", "aporta": "Dispersión sesgada a MACHOS mediante ADN mitocondrial y microsatélites. Implica filopatría femenina y manadas de linaje materno.", "limitacion": "No se pudieron recuperar magnitud ni edad de dispersión (artículo de pago)", "confianza": "MEDIDO (dirección); AUSENTE (magnitud)" },
+      { "tema": "Ámbito hogareño", "cita": "Journal of Wildlife Management (1999), DOI 10.2307/3802641", "aporta": "157-243 ha en Guayana Francesa, con solapamiento de 46-81 ha. Y el hallazgo de que el tamaño CORRELACIONA con la producción de fruta (P=0.036).", "confianza": "MEDIDO" },
+      { "tema": "Conducta olfativa y glándula dorsal", "cita": "Ethology (1985), DOI 10.1111/j.1439-0310.1985.tb00511.x", "aporta": "El 20% de todos los actos sociales involucran conductas olfativas; marcaje elevado en los LÍMITES del ámbito vs el interior", "importancia": "Es LA cifra dura sobre comunicación en esta especie", "confianza": "MEDIDO" },
+      { "tema": "Jerarquía en especie hermana", "cita": "PLoS ONE (2023), DOI 10.1371/journal.pone.0280728", "aporta": "Jerarquía de dominancia documentada en Tayassu pecari (NO en D. tajacu); señales multimodales que mitigan el conflicto. n=21.", "uso_en_el_modelo": "Se cita para justificar por qué NO se implementa macho alfa en D. tajacu: la evidencia existe para la especie hermana, no para esta.", "confianza": "MEDIDO en T. pecari" },
+      { "tema": "Monomorfismo sexual", "cita": "Journal of Mammalogy (2007), DOI 10.1644/06-mamm-012r1.1", "aporta": "Descrito explícitamente como 'sexually monomorphic ungulate'. También el dato debatido de razón de sexos fetal sesgada a machos (54.8%, P=0.04, n=264).", "importancia": "El monomorfismo corrobora independientemente la ausencia de competencia intrasexual intensa", "confianza": "MEDIDO" },
+      { "tema": "Aridez y reproducción", "cita": "Low (2011), DOI 10.14288/1.0102164", "aporta": "425 crías/100 hembras en periodo normal vs 240 en sequía. Mortalidad adulta 21.5% (sur de Texas) vs 27.5% (oeste, más árido). Reproducción principal a mediados de invierno.", "importancia": "El mejor dato para acoplar demografía y clima", "confianza": "MEDIDO (Texas)" },
+      { "tema": "Depredación por felinos", "cita": "Journal of Applied Animal Research (2013), DOI 10.1080/09712119.2013.787362", "aporta": "En San Luis Potosí, D. tajacu fue la presa PRINCIPAL: 39.64% (jaguar) y 45.76% (puma) de la biomasa consumida", "confianza": "MEDIDO" },
+      { "tema": "Densidad en México", "cita": "Acta Zoológica Mexicana (2008), DOI 10.21829/azm.2008.241618", "aporta": "0.2 ± 0.1 manadas/km² en El Edén, Quintana Roo. Convertido da 1.2-2.0 ind/km², convergente con Texas.", "confianza": "MEDIDO" },
+      { "tema": "Uso de cuerpos de agua en México", "cita": "Acta Zoológica Mexicana (2024), DOI 10.21829/azm.2024.4012681", "aporta": "Preferencia medida: bebederos artificiales (29.92) > aguadas naturales (22.08) > sartenejas (6.54)", "confianza": "MEDIDO" },
+      { "tema": "Revolcaderos como ingeniería de ecosistema", "cita": "PMID 40008068, Ecology and Evolution 2025", "aporta": "Los revolcaderos albergan 13 especies de anfibios, 2 de reptiles, 11 de aves y 16 de mamíferos; persistencia ≥6 años", "confianza": "MEDIDO" },
+      { "tema": "Filogenia y clados", "cita": "PMID 16837218, Molecular Phylogenetics and Evolution 2006", "aporta": "Dos clados mayores (Norte-Centroamericano y Sudamericano) con divergencia de nivel casi-específico", "importancia_critica": "Las poblaciones mexicanas son del clado norte, mientras que los datos reproductivos provienen de colonias brasileñas del clado sur. Añade incertidumbre real a la extrapolación.", "confianza": "MEDIDO" },
+      { "tema": "Ficha general de especie", "cita": "Animal Diversity Web, Universidad de Michigan", "url": "https://animaldiversity.org/accounts/Pecari_tajacu/", "aporta": "Morfología, medidas, destete, madurez, longevidad, tamaño de manada, dieta de Texas", "confianza": "MEDIDO (compilación curada)" }
+    ]
   },
 
   "nota_sobre_verificacion": {
@@ -107,7 +136,36 @@
   },
 
   "lagunas_declaradas": {
-    "nota": "Se completan tras la investigación. La política es declarar los huecos en vez de rellenarlos.",
-    "entradas": []
+    "nota": "Datos que se buscaron ACTIVAMENTE y NO se encontraron. La política es declararlos en vez de rellenarlos.",
+    "biologia_del_pecari": [
+      { "laguna": "Curva de crecimiento peso-edad", "gravedad": "MEDIA", "sustituto": "Gompertz interpolada entre 3 anclajes, declarada como interpolación propia" },
+      { "laguna": "Cifra de dimorfismo sexual", "gravedad": "BAJA", "nota": "El monomorfismo SÍ está establecido; falta el porcentaje" },
+      { "laguna": "Estacionalidad de nacimientos en México", "gravedad": "MEDIA", "sustituto": "Datos de Texas, declarados como extrapolación" },
+      { "laguna": "Cortisol basal vs estrés agudo", "gravedad": "ALTA para el sistema hormonal", "sustituto": "Modelo normalizado 0-1 con forma inferida de mamíferos" },
+      { "laguna": "Alocuidado / amamantamiento cruzado", "gravedad": "MEDIA", "decision": "NO implementarlo; la evidencia indirecta sugiere cuidado facultativo" },
+      { "laguna": "Composición etaria y sexual de manadas", "gravedad": "MEDIA" },
+      { "laguna": "Jerarquía lineal / macho alfa en D. tajacu", "gravedad": "ALTA — pero la ausencia ES el dato", "decision": "NO implementar macho alfa. La ausencia de evidencia, más el monomorfismo, apuntan a sociedad igualitaria." },
+      { "laguna": "Magnitud y edad de dispersión juvenil", "gravedad": "MEDIA", "nota": "La dirección (sesgo a machos) sí está medida" },
+      { "laguna": "Catálogo de vocalizaciones", "gravedad": "BAJA para realismo biológico, ALTA para realismo percibido", "nota": "CERO estudios. El castañeteo de dientes circula en divulgación pero no está caracterizado." },
+      { "laguna": "Química de la secreción de la glándula dorsal", "gravedad": "BAJA" },
+      { "laguna": "Prueba experimental de reconocimiento individual por olor", "gravedad": "BAJA" },
+      { "laguna": "Presupuesto de actividad (% tiempo por comportamiento)", "gravedad": "MEDIA" },
+      { "laguna": "Distancia diaria recorrida", "gravedad": "BAJA", "sustituto": "Derivación geométrica del ámbito hogareño" },
+      { "laguna": "Frecuencia cardíaca y respiratoria", "gravedad": "NULA para este modelo" },
+      { "laguna": "Tasas de depredación (proporción de población consumida/año)", "gravedad": "ALTA si se implementan depredadores", "advertencia": "Los datos de composición dietaria de felinos NO son tasas de depredación" },
+      { "laguna": "Densidad por tipo de hábitat en México", "gravedad": "MEDIA" },
+      { "laguna": "Rango altitudinal específico en México", "gravedad": "BAJA" },
+      { "laguna": "Dieta con especies vegetales mexicanas concretas", "gravedad": "MEDIA", "sustituto": "Datos de Texas, aplicables por dominancia compartida de Opuntia" },
+      { "laguna": "Zona termoneutral / umbrales térmicos", "gravedad": "MEDIA" },
+      { "laguna": "Uso de madrigueras y cuevas", "gravedad": "BAJA" },
+      { "laguna": "Mobbing / huida coordinada cuantificada", "gravedad": "MEDIA", "nota": "Documentado anecdóticamente en T. pecari, no en D. tajacu" },
+      { "laguna": "Estatus IUCN y NOM-059 verificados", "gravedad": "NULA para el modelo", "causa": "IUCN devolvió HTTP 403 y CONABIO 404 durante la investigación" }
+    ],
+    "arquitectura_de_IA": [
+      { "laguna": "Sistemas endocrinos artificiales", "detalle": "Es el área peor cubierta. Las referencias de Cañamero, Neal y Timmis, y Shen et al. no pudieron verificarse.", "gravedad": "MEDIA" },
+      { "laguna": "LOD de IA", "detalle": "Es folclore de industria, poco publicado formalmente. La literatura de LOD es casi exclusivamente de renderizado.", "gravedad": "BAJA — el patrón es conocido aunque poco citado" },
+      { "laguna": "Documentación técnica de Red Dead Redemption 2", "detalle": "Rockstar no publica. Lo que se cita como referencia de fauna es esencialmente inverificable.", "gravedad": "NULA" }
+    ],
+    "nota_sobre_el_presupuesto_de_busqueda": "Ambas investigaciones agotaron el presupuesto de búsquedas web de la sesión. La biológica se completó vía APIs bibliográficas directas (PubMed E-utilities, OpenAlex, Crossref) y fetch de SciELO México y Animal Diversity Web. La de arquitectura trabajó sobre URLs canónicas conocidas."
   }
 }

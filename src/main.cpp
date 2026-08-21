@@ -5202,6 +5202,19 @@ struct Chunk {
         // como un bloque macizo. Las mas finas si lo dejan pasar.
         if (esRaiz(b)) return grosorRaiz(b) < 16;
 
+        // ⭐ LOS NIVELES PARCIALES DEJAN PASAR EL SOL
+        //
+        // Aqui estaba el bug de que un nivel SOMBREABA al de al lado. Un
+        // nivel ocupa de 3 a 13 px, asi que por encima le sobra hueco: la
+        // luz del cielo entra igual. Al no estar en esta lista se le trataba
+        // como un bloque macizo, su celda se quedaba a oscuras, y como la
+        // luz de las caras se toma del vecino, ese bloque negro se la
+        // pasaba al de al lado.
+        //
+        // El nivel 8 no entra: ese SI llena el voxel y corta el sol, como
+        // cualquier bloque entero.
+        if (esNivelParcial(b)) return true;
+
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
                // El tallo de ixtle NO: es macizo y corta el sol como
@@ -17533,6 +17546,62 @@ void placeBlock(GameState* state) {
 
     if (result.hit) {
         Vec3i placePos = result.previousPos;
+
+        // ================================================================
+        // COLOCAR SOBRE UN NIVEL PARCIAL
+        // ================================================================
+        // Un nivel ocupa solo la parte de abajo de su voxel, asi que ENCIMA
+        // de el, en la MISMA celda, queda sitio libre. El DDA no lo sabe:
+        // avanza por voxeles enteros y devuelve como "anterior" el de al
+        // lado o el de arriba, segun por donde entrase el rayo.
+        //
+        // Resultado: al apuntar a la cara de arriba de una capa de tierra el
+        // bloque se colocaba un voxel MAS ARRIBA, con un hueco de aire en
+        // medio, o directamente al lado.
+        //
+        // Aqui se corrige: si se ha tocado un nivel parcial y hay hueco
+        // encima de el dentro de su propia celda, el bloque nuevo va AHI.
+        {
+            const BlockType tocado = state->world.getBlock(
+                result.blockPos.x, result.blockPos.y, result.blockPos.z);
+
+            if (esNivelParcial(tocado)) {
+                // Se mira si el rayo entro por ARRIBA de la capa. La normal
+                // apunta hacia el jugador desde el bloque tocado; si tiene
+                // componente Y positiva, se estaba mirando su tapa.
+                const bool desdeArriba = (result.normal.y > 0);
+
+                if (desdeArriba) {
+                    // Se apila EN LA MISMA CELDA: el bloque nuevo se apoya
+                    // en la cara de arriba de la capa, sin hueco.
+                    //
+                    // Si lo que se coloca es del mismo material, se SUBE de
+                    // nivel en vez de poner un bloque encima: es lo que hace
+                    // que las capas se acumulen.
+                    const BlockType enMano =
+                        state->inventory.getSelectedBlock();
+                    const BlockType base = bloqueBaseDe(tocado);
+
+                    if (enMano == base || bloqueBaseDe(enMano) == base) {
+                        const int nuevo = nivelDe(tocado) + 1;
+                        state->world.setBlock(result.blockPos.x,
+                                              result.blockPos.y,
+                                              result.blockPos.z,
+                                              conNivel(base, nuevo));
+                        state->inventory.consumeSelected();
+                        state->placeCooldown = 0.25f;
+                        return;
+                    }
+
+                    // Material distinto: va en el voxel de encima, que es lo
+                    // que ya hacia, pero asegurandonos de que sea ese y no
+                    // el de al lado.
+                    placePos = Vec3i(result.blockPos.x,
+                                     result.blockPos.y + 1,
+                                     result.blockPos.z);
+                }
+            }
+        }
 
         // NOTA: las pencas que coloca el jugador NO se combinan entre si.
         // Se pueden poner pegadas, pero cada una ocupa su propio bloque y

@@ -16162,8 +16162,25 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                                    ? huecoY * 0.5f : TOL_MAX;
                     const float tz = (huecoZ * 0.5f < TOL_MAX)
                                    ? huecoZ * 0.5f : TOL_MAX;
+
+                    // ⭐ LO QUE HAY ENCIMA MANDA
+                    //
+                    // La tolerancia agrandaba el bloque tambien hacia
+                    // ARRIBA, y ahi esta el problema descrito: una capa de
+                    // tierra de nivel 5 con piedritas encima se llevaba la
+                    // seleccion, porque su caja invadia el espacio de los
+                    // guijarros. Habia que apuntar dos veces.
+                    //
+                    // Si en el voxel de encima hay ALGO, no se agranda por
+                    // arriba: esa franja pertenece a lo de arriba, que
+                    // suele ser mas pequeno y mas dificil de apuntar.
+                    const BlockType encima = world.getBlock(x, y + 1, z);
+                    const bool hayAlgoEncima =
+                        (encima != BLOCK_AIR && encima != BLOCK_WATER);
+
                     bx0 -= tx; bx1 += tx;
-                    by0 -= ty; by1 += ty;
+                    by0 -= ty;
+                    if (!hayAlgoEncima) by1 += ty;   // solo si esta libre
                     bz0 -= tz; bz1 += tz;
                 }
 
@@ -16191,6 +16208,70 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
 
                 // No toca la penca: seguir buscando detras.
                 if (!atraviesa) continue;
+            }
+
+            // ⭐ GANA EL DE ENCIMA SI ES MAS PEQUENO
+            //
+            // Sobre una capa de tierra puede haber guijarros, una planta o
+            // un brote. Como el bloque de abajo es mas grande, el rayo lo
+            // toca antes y se llevaba la seleccion: habia que apuntar dos
+            // veces para coger lo de arriba.
+            //
+            // Si en el voxel de encima hay algo que NO llena su cubo -- o
+            // sea, algo pequeno -- y el rayo tambien lo atraviesa, se
+            // selecciona eso. Lo pequeno es mas dificil de apuntar, asi que
+            // tiene preferencia.
+            {
+                const BlockType arriba = world.getBlock(x, y + 1, z);
+                if (arriba != BLOCK_AIR && arriba != BLOCK_WATER) {
+                    float ax0, ay0, az0, ax1, ay1, az1;
+                    if (nopalHitboxCon(arriba,
+                            [&](int dx, int dy, int dz) {
+                                return world.getBlock(x + dx, y + 1 + dy,
+                                                      z + dz);
+                            },
+                            x, y + 1, z, ax0, ay0, az0, ax1, ay1, az1)) {
+
+                        // Solo si de verdad es mas pequeno que un cubo.
+                        const float vol = (ax1-ax0) * (ay1-ay0) * (az1-az0);
+                        if (vol < 0.95f) {
+                            const float P0[3] = { ax0 + (float)x,
+                                                  ay0 + (float)(y + 1),
+                                                  az0 + (float)z };
+                            const float P1[3] = { ax1 + (float)x,
+                                                  ay1 + (float)(y + 1),
+                                                  az1 + (float)z };
+                            // Un poco de gracia, que para eso es lo pequeno.
+                            const float G = 0.10f;
+                            float tEnt = 0.0f, tSal = maxDistance;
+                            bool ok = true;
+                            const float O[3] = { origin.x, origin.y, origin.z };
+                            const float D[3] = { direction.x, direction.y,
+                                                 direction.z };
+                            for (int e = 0; e < 3 && ok; ++e) {
+                                const float lo = P0[e] - G, hi = P1[e] + G;
+                                if (fabsf(D[e]) < 1e-6f) {
+                                    if (O[e] < lo || O[e] > hi) ok = false;
+                                } else {
+                                    float t1 = (lo - O[e]) / D[e];
+                                    float t2 = (hi - O[e]) / D[e];
+                                    if (t1 > t2) { const float tp=t1; t1=t2; t2=tp; }
+                                    if (t1 > tEnt) tEnt = t1;
+                                    if (t2 < tSal) tSal = t2;
+                                    if (tEnt > tSal) ok = false;
+                                }
+                            }
+                            if (ok) {
+                                result.hit = true;
+                                result.blockPos = Vec3i(x, y + 1, z);
+                                result.previousPos = Vec3i(x, y + 2, z);
+                                result.normal = Vec3i(0, 1, 0);
+                                result.distance = t;
+                                return result;
+                            }
+                        }
+                    }
+                }
             }
 
             result.hit = true;
@@ -24223,37 +24304,60 @@ int main() {
                     // Líneas más delgadas y sutiles
                     glLineWidth(1.5f);
 
-                    // ⭐ SE DIBUJAN LAS ARISTAS DE CADA PIEZA
+                    // ⭐ SOLO LA CARA QUE SE ESTA MIRANDO
                     //
-                    // Un bloque de varias piezas -- una escalera, una valla,
-                    // una rama con brazos -- se contornea pieza a pieza, asi
-                    // que el selector sigue su silueta real en vez de
-                    // envolverlo todo en el cubo que lo contiene.
-                    glBegin(GL_LINES);
-                    for (int pz = 0; pz < formaCache.n; ++pz) {
-                        const CajaForma& c = formaCache.piezas[pz];
-                        const float X0 = c.x0 - SELECTION_OFFSET;
-                        const float Y0 = c.y0 - SELECTION_OFFSET;
-                        const float Z0 = c.z0 - SELECTION_OFFSET;
-                        const float X1 = c.x1 + SELECTION_OFFSET;
-                        const float Y1 = c.y1 + SELECTION_OFFSET;
-                        const float Z1 = c.z1 + SELECTION_OFFSET;
+                    // Antes se dibujaban las doce aristas de cada pieza, y
+                    // sobre un bloque bajo eso se veia como un cubo enorme
+                    // flotando -- justo lo que se queria quitar.
+                    //
+                    // Ahora se marca UNA sola cara: la que el rayo tiene
+                    // delante, que sale del normal del impacto. El recuadro
+                    // queda pegado a la superficie que se va a picar, se
+                    // entiende de un vistazo cual es, y no tapa lo que hay
+                    // alrededor.
+                    //
+                    // Sigue siendo generico: la cara se recorta contra la
+                    // pieza que el rayo toca, asi que se adapta a cualquier
+                    // forma sin saber que bloque es.
+                    glBegin(GL_LINE_LOOP);
+                    {
+                        // Se elige la pieza mas alta que el normal apunta:
+                        // con varias piezas, la que el jugador ve.
+                        int mejor = 0;
+                        for (int pz = 1; pz < formaCache.n; ++pz) {
+                            const CajaForma& c = formaCache.piezas[pz];
+                            const CajaForma& m = formaCache.piezas[mejor];
+                            if (result.normal.y > 0 && c.y1 > m.y1) mejor = pz;
+                            else if (result.normal.x > 0 && c.x1 > m.x1) mejor = pz;
+                            else if (result.normal.x < 0 && c.x0 < m.x0) mejor = pz;
+                            else if (result.normal.z > 0 && c.z1 > m.z1) mejor = pz;
+                            else if (result.normal.z < 0 && c.z0 < m.z0) mejor = pz;
+                            else if (result.normal.y < 0 && c.y0 < m.y0) mejor = pz;
+                        }
+                        const CajaForma& c = formaCache.piezas[mejor];
+                        const float O = SELECTION_OFFSET;
+                        const float X0 = c.x0 - O, Y0 = c.y0 - O, Z0 = c.z0 - O;
+                        const float X1 = c.x1 + O, Y1 = c.y1 + O, Z1 = c.z1 + O;
 
-                        // Las cuatro aristas de abajo
-                        glVertex3f(X0,Y0,Z0); glVertex3f(X1,Y0,Z0);
-                        glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
-                        glVertex3f(X1,Y0,Z1); glVertex3f(X0,Y0,Z1);
-                        glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y0,Z0);
-                        // Las cuatro de arriba
-                        glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
-                        glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y1,Z1);
-                        glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
-                        glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y1,Z0);
-                        // Los cuatro pilares
-                        glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
-                        glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y1,Z0);
-                        glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y1,Z1);
-                        glVertex3f(X0,Y0,Z1); glVertex3f(X0,Y1,Z1);
+                        if (result.normal.y > 0) {          // cara de arriba
+                            glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
+                            glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+                        } else if (result.normal.y < 0) {   // cara de abajo
+                            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y0,Z1);
+                            glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y0,Z0);
+                        } else if (result.normal.x > 0) {   // este
+                            glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
+                            glVertex3f(X1,Y1,Z1); glVertex3f(X1,Y1,Z0);
+                        } else if (result.normal.x < 0) {   // oeste
+                            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+                            glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y0,Z1);
+                        } else if (result.normal.z > 0) {   // sur
+                            glVertex3f(X0,Y0,Z1); glVertex3f(X1,Y0,Z1);
+                            glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+                        } else {                            // norte
+                            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+                            glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y0,Z0);
+                        }
                     }
 
                     glEnd();

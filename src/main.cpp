@@ -13968,16 +13968,74 @@ public:
             if (!chunk) continue;
             ++descargados;
 
-            // ⭐ PASO 1: GUARDAR CHUNK GENERADO (batch queue) - ¡CRÍTICO!
-            if (chunk->isGenerated) {  // ⭐ Cambio: guardar si está generado (no solo modificado)
-                queueChunkForSave(pos);  // Agregar a cola de guardado batch
+            // ⭐ SOLO SE GUARDA LO QUE EL JUGADOR TOCÓ
+            //
+            // Antes se guardaba TODO chunk generado al descargarlo, aunque el
+            // jugador no hubiera puesto ni roto un solo bloque. Eso significa
+            // reescribir el disco entero cada vez que uno se aleja, y que un
+            // chunk intacto vuelva "desde disco" en vez de regenerarse igual
+            // que siempre.
+            //
+            // El mundo es DETERMINISTA: un chunk que nadie ha tocado sale
+            // exactamente igual al regenerarlo, porque depende solo de la
+            // semilla y de su posición. Guardarlo no aporta nada y cuesta
+            // comprimir y escribir decenas de KB por chunk.
+            //
+            // Así que solo se guarda si isModified: el jugador rompió, colocó
+            // o cambió algo ahí. Ese flag lo pone World::setBlock, y la
+            // generación NO pasa por esa línea (sale antes, por el camino de
+            // GenContext), de modo que poblar el terreno no lo ensucia.
+            //
+            // ⭐ Y SE GUARDA AQUÍ MISMO, ANTES DE SOLTAR EL CHUNK.
+            //
+            // La cola de guardado solo apuntaba la POSICIÓN, y el flush hacía
+            // getChunk(pos) más tarde. Pero para entonces el chunk ya se había
+            // borrado del mapa y devuelto al pool -- en este mismo bucle, tres
+            // líneas más abajo. getChunk devolvía null y el guardado se perdía
+            // EN SILENCIO: el jugador construía algo, se alejaba, y al volver
+            // ya no estaba.
+            //
+            // Guardando antes de soltarlo, los datos se copian mientras el
+            // chunk aún es válido.
+            if (chunk->isGenerated && chunk->isModified) {
+                guardarChunkAhora(chunk);
                 chunksSaved++;
             }
 
             // ⭐ PASO 2: BORRAR DE CHUNKS ACTIVOS
             chunks.erase(pos);
 
-            // ⭐ PASO 3: DEVOLVER AL POOL O ELIMINAR
+            // ⭐ PASO 3: SACARLO TAMBIÉN DEL CACHÉ
+            //
+            // ESTO FALTABA, Y ERA LA RAÍZ DE LOS CHUNKS REPETIDOS E INVISIBLES.
+            //
+            // El caché NO es dueño de los chunks: solo guarda punteros a
+            // chunks que viven en `chunks` (por eso evictLRUChunk saca la
+            // entrada sin borrar el chunk). Al descargar uno había que
+            // retirar su puntero, y no se hacía.
+            //
+            // Lo que pasaba entonces, en orden:
+            //
+            //   1. El jugador se aleja y el chunk (5,3) se descarga: sale de
+            //      `chunks` y vuelve al pool. Pero su entrada del caché sigue
+            //      ahí, apuntándolo.
+            //   2. Otro chunk lo saca del pool y ahora ese MISMO objeto es
+            //      el (9,7), con el terreno del (9,7).
+            //   3. El jugador vuelve. getOrCreateChunk(5,3) mira el caché,
+            //      ACIERTA, y mete ese objeto en `chunks` como (5,3).
+            //
+            // Resultado: dos posiciones del mapa apuntando al mismo chunk. El
+            // terreno del (9,7) aparecía también en el (5,3), y al descargarlo
+            // se liberaba DOS VECES el mismo puntero: doble entrada en el
+            // pool, y con el pool lleno, doble delete.
+            //
+            // Además esas entradas huérfanas no se limpiaban nunca solas: se
+            // añaden con pinned=true, y updateCachePinning solo despinea las
+            // que están cerca del jugador, así que evictLRUChunk las saltaba
+            // siempre. Se acumulaban durante toda la partida.
+            chunkCache.erase(pos);
+
+            // ⭐ PASO 4: DEVOLVER AL POOL O ELIMINAR
             deallocateChunk(chunk);
             chunksUnloaded++;
         }
@@ -14682,6 +14740,42 @@ public:
         }
     }
 
+    // ⭐ GUARDAR UN CHUNK QUE ESTÁ A PUNTO DE DESCARGARSE
+    //
+    // Se llama con el chunk TODAVÍA VIVO, justo antes de sacarlo del mapa y
+    // devolverlo al pool. Copia sus bloques a un buffer propio y se los pasa
+    // al guardado; a partir de ahí el chunk puede morir tranquilo.
+    //
+    // Esto es lo que arregla la pérdida silenciosa: la cola de guardado
+    // apuntaba solo la posición y buscaba el chunk más tarde, cuando ya no
+    // existía.
+    void guardarChunkAhora(Chunk* chunk) {
+        if (!chunk || !chunk->isGenerated) return;
+
+        std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+        chunk->exportBlocks(raw.data());
+
+        if (useAAASystem && saveManager) {
+            ChunkMetadata metadata;
+            metadata.isDirty = true;
+            metadata.isGenerated = true;
+            metadata.lastModified = std::time(nullptr);
+            metadata.hasEntities = false;
+            metadata.hasLighting = false;
+            metadata.modificationCount = 1;
+            metadata.blockChanges = 0;
+            metadata.uuid = 0;
+
+            saveManager->saveChunkAsync(chunk->position.x, chunk->position.z,
+                                        raw.data(), Chunk::BLOCKS_BYTES,
+                                        metadata);
+        } else if (!currentWorldPath.empty()) {
+            saveChunk(chunk, currentWorldPath);
+        }
+
+        chunk->isModified = false;   // ya está a salvo
+    }
+
     // Guardar todos los chunks modificados
     // ⭐⭐⭐ BATCH SAVING SYSTEM - Guardar múltiples chunks eficientemente ⭐⭐⭐
     void queueChunkForSave(const Vec3i& chunkPos) {
@@ -14769,10 +14863,24 @@ public:
         // los generados (asegura persistencia del área alrededor del
         // jugador); en el autosave, solo los que cambiaron desde el último
         // guardado — serializar los demás es trabajo idéntico al ya escrito.
+        // ⭐ NI SIQUIERA EL GUARDADO COMPLETO ESCRIBE LO INTACTO
+        //
+        // Antes el guardado completo (al cerrar o salir al menú) metía TODOS
+        // los chunks generados, tocados o no. Por eso el disco seguía
+        // creciendo aunque el jugador no pusiera un solo bloque: medido, 5,8
+        // MB en una sola partida sin construir nada.
+        //
+        // El mundo es determinista (la generación sale de la posición y la
+        // semilla, sin estado global: ver `seed = worldX*127 + worldZ*251`),
+        // así que un chunk intacto se regenera EXACTAMENTE igual. Guardarlo
+        // no conserva nada que no se pueda reproducir.
+        //
+        // La regla es la misma en los dos modos: se guarda lo que el jugador
+        // rompió, colocó o modificó. Nada más.
         std::vector<Chunk*> chunksToSave;
         for (auto& pair : chunks) {
             if (pair.second && pair.second->isGenerated) {
-                if (asyncOnlyModified && !pair.second->isModified) continue;
+                if (!pair.second->isModified) continue;
                 chunksToSave.push_back(pair.second);
             }
         }
@@ -14782,20 +14890,17 @@ public:
             return;
         }
 
-        // ⭐ Un guardado COMPLETO reescribe los chunks con los IDs nuevos, asi
-        // que a partir de aqui el mundo ya esta en el formato actual: se sella
-        // la version y se deja de traducir en las cargas siguientes.
-        // En el autosave (solo modificados) NO se sella: quedarian chunks sin
-        // reescribir y dejarian de migrarse.
-        if (!asyncOnlyModified && legacyBlockIds) {
-            std::ofstream out((std::filesystem::path(worldPath) /
-                               "save_version.txt").string(), std::ios::trunc);
-            if (out) {
-                out << VoxelWorld::SaveSystem::SAVE_VERSION << std::endl;
-                legacyBlockIds = false;
-                std::cout << "Mundo migrado al formato de IDs actual." << std::endl;
-            }
-        }
+        // ⭐ YA NO SE SELLA LA VERSIÓN AQUÍ.
+        //
+        // El sellado se apoyaba en que el guardado completo reescribía TODOS
+        // los chunks con los IDs nuevos. Ahora solo se escriben los que el
+        // jugador tocó, así que sellar dejaría a los demás con los IDs viejos
+        // y sin traducir: se verían bloques equivocados para siempre.
+        //
+        // No pasa nada por no sellar: la migración se hace al CARGAR cada
+        // chunk (ver BlockCompat::fromLegacy en getOrCreateChunk), que es
+        // donde de verdad hace falta y funciona chunk a chunk.
+        (void)asyncOnlyModified;
 
         // Contar cuántos están realmente modificados
         int modifiedCount = 0;

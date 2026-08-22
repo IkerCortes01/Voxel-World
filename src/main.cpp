@@ -17734,43 +17734,119 @@ void renderPlayerHand(BlockType heldBlock, float swingProgress, float deltaTime)
     glPopMatrix();
 }
 
-// Renderizar outline del bloque apuntado (estilo Minecraft)
-void renderBlockOutline(Vec3i blockPos, Vec3 cameraPos) {
+// ============================================================================
+// SELECTOR DE BLOQUE
+// ============================================================================
+// Marca el bloque al que apunta el jugador. Tres cosas lo definen:
+//
+//   1. SIGUE LA FORMA REAL. La caja sale de formaDeBloque(), la misma que
+//      usan el raycast y la colision, asi que una capa de 3 px, una penca o
+//      un maguey se marcan con su tamano y no con un cubo de 1x1x1.
+//
+//   2. UNA SOLA CARA. Se dibuja la cara que el jugador tiene delante, sacada
+//      del normal del impacto. Antes se pintaban las doce aristas y sobre un
+//      bloque bajo eso se veia como una jaula flotando.
+//
+//   3. SE LEE SOBRE CUALQUIER FONDO. Se traza dos veces: una linea gruesa
+//      oscura que hace de sombra y otra fina y clara encima. Asi el contorno
+//      tiene borde propio y se recorta contra el verde del pasto, la arena o
+//      la roca sin depender del color que haya detras. Un gris al 40% -- lo
+//      que habia -- se perdia en cuanto el terreno estaba en sombra.
+//
+// Es generico: no pregunta que bloque es, dibuja la forma que le den. Un
+// bloque nuevo se marca solo con declarar su caja en el proveedor.
+void renderBlockOutline(Vec3i blockPos, Vec3 cameraPos, Vec3i normal) {
+    if (!g_gameState) return;
+    (void)cameraPos;
+
+    const BlockType bsel = g_gameState->world.getBlock(
+        blockPos.x, blockPos.y, blockPos.z);
+
+    // CACHE: la forma solo se recalcula al cambiar de bloque o de posicion.
+    // Mientras se apunte a lo mismo, se reutiliza la de antes.
+    static FormaBloque formaCache;
+    static BlockType tipoCache = BLOCK_AIR;
+    static Vec3i posCache(-99999, -99999, -99999);
+
+    if (bsel != tipoCache || blockPos.x != posCache.x ||
+        blockPos.y != posCache.y || blockPos.z != posCache.z) {
+        formaCache = formaDeBloque(bsel,
+            [&](int dx, int dy, int dz) {
+                return g_gameState->world.getBlock(blockPos.x + dx,
+                                                   blockPos.y + dy,
+                                                   blockPos.z + dz);
+            },
+            blockPos.x, blockPos.y, blockPos.z);
+        tipoCache = bsel;
+        posCache = blockPos;
+    }
+    if (formaCache.n <= 0) return;
+
+    // Separacion contra el z-fighting: lo justo para que la linea no pelee
+    // con la cara del bloque, sin que parezca flotando.
+    constexpr float SELECTION_OFFSET = 0.003f;
+
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Línea negra gruesa
-    glColor4f(0.0f, 0.0f, 0.0f, 0.4f);
-    glLineWidth(3);
+    const float bx = (float)blockPos.x;
+    const float by = (float)blockPos.y;
+    const float bz = (float)blockPos.z;
 
-    float x = blockPos.x;
-    float y = blockPos.y;
-    float z = blockPos.z;
-    float size = 1.001f; // Ligeramente más grande para evitar z-fighting
+    // Con varias piezas, la que da a la cara que se mira.
+    int mejor = 0;
+    for (int pz = 1; pz < formaCache.n; ++pz) {
+        const CajaForma& c = formaCache.piezas[pz];
+        const CajaForma& m = formaCache.piezas[mejor];
+        if      (normal.y > 0 && c.y1 > m.y1) mejor = pz;
+        else if (normal.y < 0 && c.y0 < m.y0) mejor = pz;
+        else if (normal.x > 0 && c.x1 > m.x1) mejor = pz;
+        else if (normal.x < 0 && c.x0 < m.x0) mejor = pz;
+        else if (normal.z > 0 && c.z1 > m.z1) mejor = pz;
+        else if (normal.z < 0 && c.z0 < m.z0) mejor = pz;
+    }
+    const CajaForma& c = formaCache.piezas[mejor];
+    const float O = SELECTION_OFFSET;
+    const float X0 = bx + c.x0 - O, Y0 = by + c.y0 - O, Z0 = bz + c.z0 - O;
+    const float X1 = bx + c.x1 + O, Y1 = by + c.y1 + O, Z1 = bz + c.z1 + O;
 
-    glBegin(GL_LINES);
+    auto trazarCara = [&]() {
+        glBegin(GL_LINE_LOOP);
+        if (normal.y > 0) {          // arriba
+            glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
+            glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+        } else if (normal.y < 0) {   // abajo
+            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y0,Z1);
+            glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y0,Z0);
+        } else if (normal.x > 0) {   // este
+            glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
+            glVertex3f(X1,Y1,Z1); glVertex3f(X1,Y1,Z0);
+        } else if (normal.x < 0) {   // oeste
+            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+            glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y0,Z1);
+        } else if (normal.z > 0) {   // sur
+            glVertex3f(X0,Y0,Z1); glVertex3f(X1,Y0,Z1);
+            glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+        } else {                     // norte
+            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+            glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y0,Z0);
+        }
+        glEnd();
+    };
 
-    // Aristas inferiores
-    glVertex3f(x, y, z);         glVertex3f(x + size, y, z);
-    glVertex3f(x + size, y, z);  glVertex3f(x + size, y, z + size);
-    glVertex3f(x + size, y, z + size); glVertex3f(x, y, z + size);
-    glVertex3f(x, y, z + size);  glVertex3f(x, y, z);
+    // Pasada 1: la sombra, que da el borde.
+    glColor4f(0.04f, 0.04f, 0.07f, 0.9f);
+    glLineWidth(4.0f);
+    trazarCara();
 
-    // Aristas superiores
-    glVertex3f(x, y + size, z);         glVertex3f(x + size, y + size, z);
-    glVertex3f(x + size, y + size, z);  glVertex3f(x + size, y + size, z + size);
-    glVertex3f(x + size, y + size, z + size); glVertex3f(x, y + size, z + size);
-    glVertex3f(x, y + size, z + size);  glVertex3f(x, y + size, z);
+    // Pasada 2: la linea clara. Un blanco algo calido, que destaca sobre el
+    // verde y el gris del terreno sin parecer un foco.
+    glColor4f(0.98f, 0.98f, 0.92f, 0.95f);
+    glLineWidth(1.6f);
+    trazarCara();
 
-    // Aristas verticales
-    glVertex3f(x, y, z);         glVertex3f(x, y + size, z);
-    glVertex3f(x + size, y, z);  glVertex3f(x + size, y + size, z);
-    glVertex3f(x + size, y, z + size); glVertex3f(x + size, y + size, z + size);
-    glVertex3f(x, y, z + size);  glVertex3f(x, y + size, z + size);
-
-    glEnd();
-
+    glLineWidth(1.0f);
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
 }
@@ -24224,7 +24300,19 @@ int main() {
 
         // Renderizar selección de bloque (wireframe)
         // ⭐⭐⭐ DESHABILITADO COMPLETAMENTE: Las líneas son molestas
-        if (false) {  // NUNCA renderizar wireframe
+        // ⭐ EL SELECTOR ESTABA APAGADO
+        //
+        // Este bloque -- el que dibuja el contorno adaptado a la forma, con
+        // una sola cara y doble pasada -- vivia dentro de `if (false)`, asi
+        // que NUNCA se ejecutaba. El cubo que se veia en el juego lo pintaba
+        // otro sitio con el estilo viejo.
+        //
+        // Al activarlo, el selector pasa a ser el de aqui: la cara mirada,
+        // recortada a la caja real del bloque.
+        // Desactivado: el selector vive ahora en renderBlockOutline(), que es
+        // el que de verdad dibuja el juego. Tener dos pintaba el contorno por
+        // duplicado.
+        if (false) {
             Vec3 origin = g_gameState->player.getEyePosition();
             Vec3 direction = g_gameState->player.getForward();
             RaycastResult result = raycastBlock(g_gameState->world, origin, direction, 5.0f);
@@ -24296,33 +24384,49 @@ int main() {
                     // bloque en el depth buffer, sin que parezca flotando.
                     constexpr float SELECTION_OFFSET = 0.002f;
 
-                    // Color gris oscuro más sutil y transparente
+                    // ⭐ ESTILO DEL SELECTOR: QUE SE ENTIENDA SIEMPRE
+                    //
+                    // Era gris oscuro al 40% con linea de 1.5 px. Sobre
+                    // tierra, piedra o cualquier cosa en sombra se perdia: el
+                    // jugador no sabia que estaba apuntando.
+                    //
+                    // El arreglo no es "subir el brillo" -- un blanco puro se
+                    // pierde igual sobre arena o nieve. Se dibuja DOS VECES:
+                    //
+                    //   1. una linea GRUESA y oscura, que hace de sombra
+                    //   2. una linea FINA y clara encima
+                    //
+                    // Asi el contorno tiene borde propio y se recorta contra
+                    // cualquier fondo, claro u oscuro, sin depender del color
+                    // que haya detras. Es el mismo truco que usa el texto de
+                    // la interfaz para leerse sobre cualquier imagen.
                     glEnable(GL_BLEND);
                     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    glColor4f(0.2f, 0.2f, 0.2f, 0.4f);  // Gris oscuro semi-transparente
 
-                    // Líneas más delgadas y sutiles
-                    glLineWidth(1.5f);
+                    // El contorno se ve a traves de lo que tenga delante: si
+                    // se apunta a un bloque medio tapado por una planta, la
+                    // seleccion sigue siendo legible.
+                    glDisable(GL_DEPTH_TEST);
+
+                    // --- PASADA 1: la sombra ---
+                    glColor4f(0.05f, 0.05f, 0.08f, 0.85f);
+                    glLineWidth(4.0f);
 
                     // ⭐ SOLO LA CARA QUE SE ESTA MIRANDO
                     //
-                    // Antes se dibujaban las doce aristas de cada pieza, y
-                    // sobre un bloque bajo eso se veia como un cubo enorme
-                    // flotando -- justo lo que se queria quitar.
-                    //
-                    // Ahora se marca UNA sola cara: la que el rayo tiene
-                    // delante, que sale del normal del impacto. El recuadro
-                    // queda pegado a la superficie que se va a picar, se
-                    // entiende de un vistazo cual es, y no tapa lo que hay
+                    // Se marca UNA cara: la que el rayo tiene delante, que
+                    // sale del normal del impacto. El recuadro queda pegado a
+                    // la superficie que se va a picar y no tapa lo de
                     // alrededor.
                     //
-                    // Sigue siendo generico: la cara se recorta contra la
-                    // pieza que el rayo toca, asi que se adapta a cualquier
-                    // forma sin saber que bloque es.
-                    glBegin(GL_LINE_LOOP);
-                    {
-                        // Se elige la pieza mas alta que el normal apunta:
-                        // con varias piezas, la que el jugador ve.
+                    // Es generico: la cara se recorta contra la pieza que el
+                    // rayo toca, asi que se adapta a cualquier forma sin
+                    // saber que bloque es.
+                    //
+                    // Se dibuja en una lambda porque hacen falta DOS pasadas
+                    // (sombra gruesa + linea fina) y el contorno es el mismo.
+                    auto trazarCara = [&]() {
+                        // Con varias piezas, la que da a la cara mirada.
                         int mejor = 0;
                         for (int pz = 1; pz < formaCache.n; ++pz) {
                             const CajaForma& c = formaCache.piezas[pz];
@@ -24339,6 +24443,7 @@ int main() {
                         const float X0 = c.x0 - O, Y0 = c.y0 - O, Z0 = c.z0 - O;
                         const float X1 = c.x1 + O, Y1 = c.y1 + O, Z1 = c.z1 + O;
 
+                        glBegin(GL_LINE_LOOP);
                         if (result.normal.y > 0) {          // cara de arriba
                             glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
                             glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
@@ -24358,10 +24463,20 @@ int main() {
                             glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
                             glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y0,Z0);
                         }
-                    }
+                        glEnd();
+                    };
 
-                    glEnd();
+                    // Pasada 1: la sombra (color y grosor ya puestos arriba)
+                    trazarCara();
 
+                    // --- PASADA 2: la linea clara, encima ---
+                    // Un blanco ligeramente calido: destaca sobre el verde y
+                    // el gris del terreno sin parecer un foco.
+                    glColor4f(0.98f, 0.98f, 0.92f, 0.95f);
+                    glLineWidth(1.6f);
+                    trazarCara();
+
+                    glEnable(GL_DEPTH_TEST);
                     glDisable(GL_BLEND);
 
                     // Renderizar grietas de minado (progreso)
@@ -24606,7 +24721,8 @@ int main() {
         // (rayResult) ya calculaba exactamente lo mismo.
 
         if (rayResult.hit && !g_gameState->isPaused) {
-            renderBlockOutline(rayResult.blockPos, g_gameState->player.position);
+            renderBlockOutline(rayResult.blockPos, g_gameState->player.position,
+                               rayResult.normal);
 
             // Renderizar grietas si estamos minando este bloque
             if (g_gameState->isMining &&

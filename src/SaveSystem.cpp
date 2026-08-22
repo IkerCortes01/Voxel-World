@@ -8,10 +8,56 @@
 #include <iomanip>
 #include <array>
 
+#ifdef _WIN32
+  #define WIN32_LEAN_AND_MEAN
+  #include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace VoxelWorld {
 namespace SaveSystem {
+
+// ============================================================================
+// BAJAR LOS DATOS AL DISCO DE VERDAD
+// ============================================================================
+// `file.flush()` NO guarda nada en el disco: solo vacía el buffer de C++ y le
+// entrega los bytes a Windows, que se los queda en su propia caché y los
+// escribe cuando le viene bien -- puede tardar decenas de segundos.
+//
+// Con eso basta si el juego se cierra normal. No basta si se va la luz o el
+// PC se congela: entonces Windows pierde lo que tenía en caché y en el disco
+// queda un archivo del tamaño correcto lleno de CEROS. El CRC32 lo detecta al
+// cargar (eso ya estaba bien hecho), pero el chunk se pierde igual: el
+// jugador construye algo, se corta la luz, y su construcción no está.
+//
+// FlushFileBuffers es la orden que sí obliga al disco a escribir. Es la
+// diferencia entre "se lo dije a Windows" y "está grabado".
+//
+// Cuesta unos milisegundos, así que se llama solo donde importa: al persistir
+// las tablas de la región, que son las que dicen dónde vive cada chunk. Si
+// esas tablas se corrompen no se pierde un chunk, se pierden los 1024 de la
+// región entera.
+static void sincronizarConElDisco(const std::string& rutaArchivo) {
+#ifdef _WIN32
+    // Se abre el MISMO archivo por segunda vez solo para pedir el volcado.
+    // std::fstream no deja llegar al handle de Windows que hace falta, y
+    // reabrirlo es más simple que sustituir todo el stream por API nativa.
+    HANDLE h = CreateFileA(rutaArchivo.c_str(),
+                           GENERIC_WRITE,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr,
+                           OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        FlushFileBuffers(h);
+        CloseHandle(h);
+    }
+#else
+    (void)rutaArchivo;
+#endif
+}
 
 // ============================================================================
 // COMPRESSION SYSTEM IMPLEMENTATION
@@ -339,7 +385,9 @@ bool RegionFile::open() {
 void RegionFile::close() {
     std::lock_guard<std::mutex> lock(fileMutex);
     if (file.is_open()) {
-        flushLocked();
+        // Cerrar el mundo es el punto donde todo tiene que estar grabado de
+        // verdad: se espera al disco.
+        flushLocked(true);
         file.close();
     }
 }
@@ -396,7 +444,15 @@ bool RegionFile::saveChunk(int localX, int localZ, const std::vector<uint8_t>& d
 
     // ⭐ Persistir tablas inmediatamente: reduce la ventana en la que un crash
     // deja datos escritos pero no referenciados por la tabla.
-    flushLocked();
+    //
+    // SIN volcado al disco: aquí se guardan chunks de uno en uno y en tandas
+    // (al alejarse el jugador se descargan varios de golpe), así que forzar el
+    // disco en cada uno serían decenas de esperas de milisegundos seguidas.
+    // No hace falta: los datos del chunk se escribieron ANTES que la tabla, y
+    // si Windows solo alcanza a grabar parte de esto, la tabla vieja sigue
+    // apuntando al guardado anterior íntegro. El volcado duro se hace al
+    // cerrar la región (close) y en el guardado explícito (flush).
+    flushLocked(false);
     return true;
 }
 
@@ -448,10 +504,12 @@ bool RegionFile::hasChunk(int localX, int localZ) const {
 
 void RegionFile::flush() {
     std::lock_guard<std::mutex> lock(fileMutex);
-    flushLocked();
+    // Guardado explícito (autoguardado, salir al menú): aquí sí se espera al
+    // disco, es el momento en que el jugador da por hecho que está guardado.
+    flushLocked(true);
 }
 
-void RegionFile::flushLocked() {
+void RegionFile::flushLocked(bool bajarAlDisco) {
     if (!isDirty) return;
 
     // Write header
@@ -469,6 +527,20 @@ void RegionFile::flushLocked() {
     }
 
     file.flush();
+
+    // ⭐ Y AHORA SÍ, AL DISCO.
+    //
+    // Hasta esta línea los bytes solo han llegado a la caché de Windows. El
+    // orden importa y es el que hay: primero se escriben los DATOS del chunk
+    // (saveChunk, más arriba) y solo después las TABLAS que apuntan a ellos.
+    // Así, si el corte ocurre en medio, la tabla vieja sigue señalando datos
+    // completos del guardado anterior y no se pierde nada.
+    //
+    // Sin este volcado ese orden no valía de nada: Windows puede escribir la
+    // tabla nueva ANTES que los datos a los que apunta, y entonces la tabla
+    // dice "el chunk está en el byte 40960" donde solo hay ceros.
+    if (bajarAlDisco) sincronizarConElDisco(filePath);
+
     isDirty = false;
 }
 

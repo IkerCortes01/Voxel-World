@@ -170,7 +170,11 @@ private:
     mutable std::mutex fileMutex;
     bool isDirty;
 
-    void flushLocked();                     // flush interno (requiere fileMutex tomado)
+    // flush interno (requiere fileMutex tomado).
+    // bajarAlDisco: true espera a que el disco confirme la escritura
+    // (FlushFileBuffers). Cuesta milisegundos, así que solo se pide al cerrar
+    // la región y en los guardados explícitos, no al guardar cada chunk.
+    void flushLocked(bool bajarAlDisco);
 
     int getChunkIndex(int localX, int localZ) const {
         return (localX & 31) + (localZ & 31) * 32;

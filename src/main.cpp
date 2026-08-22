@@ -82,19 +82,9 @@ using namespace VoxelWorld::SaveSystem;
 #include "../external/stb_image.h"
 
 // ============================================================================
-// CHUNK SYSTEM - Professional threading architecture
-// ============================================================================
-#include "ChunkSystem.h"
-
-// ============================================================================
 // PROFILER SYSTEM - Performance monitoring
 // ============================================================================
 #include "Profiler.h"
-
-// ============================================================================
-// OBJECT POOL - Memory optimization
-// ============================================================================
-#include "ObjectPool.h"
 
 // ============================================================================
 // SISTEMA DE MOVIMIENTO DEL JUGADOR (Character Controller modular)
@@ -20379,30 +20369,6 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 }
 
 // ============================================================================
-// CHUNK SYSTEM TEXTURE CALLBACK
-// ============================================================================
-
-// Wrapper function to map ChunkSystem directions to TextureManager faces
-// ChunkSystem: 0=North(+Z), 1=South(-Z), 2=East(+X), 3=West(-X), 4=Up(+Y), 5=Down(-Y)
-// TextureManager: 0=top, 1=bottom, 2=north, 3=south, 4=east, 5=west
-GLuint chunkSystemTextureCallback(uint8_t blockType, int direction) {
-    if (!g_textureManager) return 0;
-
-    int textureFace;
-    switch (direction) {
-        case 0: textureFace = 2; break;  // North → north
-        case 1: textureFace = 3; break;  // South → south
-        case 2: textureFace = 4; break;  // East → east
-        case 3: textureFace = 5; break;  // West → west
-        case 4: textureFace = 0; break;  // Up → top
-        case 5: textureFace = 1; break;  // Down → bottom
-        default: textureFace = 0; break;
-    }
-
-    return g_textureManager->getBlockTexture(static_cast<BlockType>(blockType), textureFace);
-}
-
-// ============================================================================
 // SISTEMA DE MENÚS Y MUNDOS
 // ============================================================================
 
@@ -23952,9 +23918,6 @@ int main() {
     g_soundManager = new SoundManager();
     std::cout << "Sistema de audio listo! (Sonidos: pasos, romper, colocar)" << std::endl;
 
-    // Configurar callback de texturas para ChunkSystem
-    VoxelEngine::MeshBuilder::setTextureCallback(chunkSystemTextureCallback);
-    std::cout << "ChunkSystem texture callback configurado!" << std::endl << std::endl;
 
     // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Try-catch en inicialización de GameState
     try {

@@ -34,8 +34,9 @@ set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/glfw)
 
 # Include directories
+# Ya no hay carpeta include/: sus cabeceras eran codigo muerto y las que
+# quedaban vivas viven en src/ junto a lo que las usa.
 include_directories(
-    ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/external
     ${PROJECT_SOURCE_DIR}/external/stb
 )
@@ -43,7 +44,6 @@ include_directories(
 # Source files
 set(SOURCES
     src/main.cpp
-    src/ChunkSystem.cpp
     src/SaveSystem.cpp
     src/Profiler.cpp
 )

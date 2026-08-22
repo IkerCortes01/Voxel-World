@@ -41,12 +41,10 @@ src/
   player/             Character controller (modular)
   audio/              Mezclador de sonido y síntesis de pasos
   ui/                 Texturas de item, renderizado 2D e iconos
-  ChunkSystem.cpp     Sistema de chunks
   SaveSystem.cpp      Persistencia de mundos
   PalettedStorage.h   Almacenamiento comprimido por paletas
   BlockType.h         Enum de bloques (compartido con tests y paletas)
   WorldName.h         Validación de nombres de mundo
-include/              Cabeceras compartidas
 tests/                Tests unitarios (doctest)
 external/             GLFW, stb, doctest (vendorizados)
 resourcepacks/        Texturas
@@ -173,9 +171,20 @@ en disco no cambió).
 El inventario completo de deuda técnica y evolución pendiente está en
 [`docs/PENDIENTES.md`](docs/PENDIENTES.md).
 
-**Formato de guardado.** Versión 2. Los mundos creados con la versión 1 se
-siguen leyendo (hay un decodificador legacy y un test que lo cubre); los
-guardados nuevos ya usan el RLE con escape y CRC32 real.
+**Formato de guardado.** Versión 3. Los mundos creados con versiones
+anteriores se siguen leyendo (hay un decodificador legacy y un test que lo
+cubre, y los IDs de bloque viejos se traducen al cargar cada chunk); los
+guardados nuevos usan el RLE con escape y CRC32 real.
+
+Al escribir, primero van los datos del chunk y solo después la tabla que
+apunta a ellos, de modo que un corte a mitad deja la tabla anterior
+señalando el guardado íntegro. Al cerrar la región y en los guardados
+explícitos se espera a que el disco confirme la escritura
+(`FlushFileBuffers`): sin eso, un corte de luz dejaba archivos del tamaño
+correcto llenos de ceros.
+
+Solo se guarda lo que el jugador tocó. El mundo es determinista, así que un
+chunk intacto se regenera idéntico y escribirlo no conserva nada.
 
 ---
 

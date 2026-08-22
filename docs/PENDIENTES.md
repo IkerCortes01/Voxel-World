@@ -6,6 +6,12 @@
 > críticos y el plan de acción original están **cerrados**; esto es lo que
 > queda, verificado contra el código actual (no contra recuerdos de la
 > auditoría).
+>
+> Última revisión: **2026-08-22**. Se recorrió el código entero otra vez. Se
+> cerraron la durabilidad del guardado (3.5), el barrido de archivos muertos
+> (2.1) y el bug del caché de chunks (registro nº 5), y se corrigió la cifra
+> de líneas de `main.cpp`, que llevaba tiempo desfasada. Lo nuevo que salió
+> está en la sección **3-bis**.
 
 Cada punto lleva: dónde está, por qué importa y esfuerzo estimado.
 
@@ -14,7 +20,9 @@ Cada punto lleva: dónde está, por qué importa y esfuerzo estimado.
 ## 1. Arquitectura (el frente grande)
 
 ### 1.1 Desmonte del monolito — EN CURSO, largo plazo
-`src/main.cpp` tiene **14.853 líneas**. Extraídos hasta ahora: `BlockType.h`,
+`src/main.cpp` tiene **26.653 líneas** (medido 2026-08-22; el documento decía
+14.853, cifra que se quedó vieja hace tiempo). Dentro, `class World` son ~9.200
+líneas y `buildChunkMesh` sola ~3.100. Extraídos hasta ahora: `BlockType.h`,
 `WorldName.h`, `Inventory.h` (con tests). Orden sugerido para seguir, de menor
 a mayor acoplamiento:
 
@@ -42,29 +50,40 @@ Esfuerzo: medio. Valor: alto si se van a añadir bloques.
 
 ---
 
-## 2. Código muerto nuevo (dejado por la evolución reciente)
+## 2. Código muerto
 
-La reactivación de la iluminación por skylight per-chunk dejó **obsoleto el
-sistema de iluminación global** que nunca llegó a usarse:
+### 2.1 Barrido de archivos — ✅ HECHO (2026-08-22)
+
+Borrados tras verificar uno por uno que no tenían un solo uso real:
+`ObjectPool.h` (incluido, cero instanciaciones), `AdaptiveQuality.h`,
+`include/ImprovedSaveSystem.h`, `include/PerformanceGuarantee.h`,
+`include/RenderOptimizations.h` (los cuatro sin ni un `#include`), y
+`include/ChunkSystem.h` + `src/ChunkSystem.cpp` — un sistema de chunks
+completo que se compilaba en cada build para que main.cpp usara una línea
+suya (registrar un callback que solo leía su propio MeshBuilder, al que no
+llamaba nadie). La carpeta `include/` desaparece: solo tenía cabeceras
+muertas. Total: ~3.240 líneas fuera.
+
+### 2.2 Iluminación global obsoleta — PENDIENTE
+
+La reactivación del skylight per-chunk dejó **obsoleto el sistema de
+iluminación global** que nunca llegó a usarse:
 
 - `calculateWorldLightingThreaded()`, `calculateSkylight()`,
   `propagateSunlight()`, `propagateTorchlight()`, el BFS de `LightNode` y
-  `processLightingQueue` (~400+ líneas en main.cpp).
-- `lightingThread` / `lightingQueue` / `lightingMutex` (12 referencias): el
-  hilo se declara y se joinea pero ya nada lo lanza.
+  `processLightingQueue` (~570 líneas en main.cpp).
+- `lightingThread` / `lightingQueue` / `lightingMutex`: el hilo se declara y
+  se joinea pero ya nada lo lanza.
 
-Además, muerto de antes y aún presente:
+**Ojo, esto no es solo ruido.** `calculateWorldLightingThreaded()` recorre
+`chunks` y escribe `lightData` desde un hilo propio, sin tomar ningún mutex
+(`lightingMutex` está declarado y no se usa nunca), mientras el hilo
+principal hace `chunks.erase` y devuelve chunks al pool. Hoy no corre porque
+su llamada está comentada, pero `updateWorldLighting()` lo dispara en cuanto
+cualquier chunk tenga `needsLightUpdate`: descomentar una línea reintroduce
+corrupción de memoria. Borrarlo cierra esa puerta.
 
-- `ObjectPool.h` — incluido en main.cpp:97 pero `ObjectPool<` tiene **cero**
-  instanciaciones.
-- `AdaptiveQuality.h` — archivo huérfano, sin include.
-- `include/ChunkSystem.h` + `src/ChunkSystem.cpp` — se compila y enlaza; el
-  uso real es mínimo (la auditoría midió ~980 líneas enlazadas sin usar).
-- `include/ImprovedSaveSystem.h`, `include/PerformanceGuarantee.h` — revisar
-  si algo los referencia aún.
-
-Esfuerzo: bajo (borrar con verificación de referencias). Valor: menos ruido
-para el desmonte del monolito.
+Esfuerzo: bajo (borrar con verificación de referencias).
 
 ---
 
@@ -96,6 +115,61 @@ sin límite con el uso. No corrompe nada; desperdicia disco. Arreglo real:
 mapa de sectores libres o compactación periódica. Esfuerzo: medio-alto.
 Mitigación barata: compactar al cerrar el mundo si el desperdicio supera un
 umbral.
+
+Mitigado en parte (2026-08-22): ahora solo se guardan los chunks que el
+jugador modificó, así que explorar ya no hace crecer el archivo. Lo que sigue
+creciendo es re-guardar el mismo chunk muchas veces.
+
+### 3.5 Durabilidad del guardado — ✅ HECHO (2026-08-22)
+No había ni un `fflush`/`_commit`/`FlushFileBuffers` en todo `SaveSystem.cpp`:
+`file.flush()` solo entrega los bytes a Windows, que los escribe cuando le
+viene bien. Un corte de luz dejaba archivos del tamaño correcto llenos de
+ceros. Ahora se espera al disco al cerrar la región y en los guardados
+explícitos; en el guardado de cada chunk no, a propósito, porque los datos se
+escriben antes que la tabla que apunta a ellos.
+
+---
+
+## 3-bis. Riesgos detectados y aún abiertos (revisión 2026-08-22)
+
+Todos verificados contra el código actual, con línea. No son teóricos.
+
+### El candado del mesher no es RAII — main.cpp, `buildChunkMesh`
+`isUpdatingMesh` se toma con `compare_exchange` al entrar y se suelta en tres
+puntos distintos. Cualquier excepción entre medias (un `bad_alloc` en los
+vectores de vértices, por ejemplo) lo deja puesto para siempre: ese chunk no
+se vuelve a mallar ni a dibujar. La red que lo salva hoy es un vigilante en
+`render` que espera 60 frames y lo fuerza — un temporizador, no una garantía.
+Un guard RAII elimina las tres rutas y el vigilante. Esfuerzo: bajo.
+
+### Rebuild infinito si falta una textura — `buildChunkMesh`, final
+Si `getBlockTexture` devuelve 0 de forma permanente (archivo ausente), el
+chunk marca `needsRebuild` y vuelve a entrar **sin límite de reintentos**:
+mesher completo + escaneo NaN de todos los vértices + VBOs nuevos, 60 veces
+por segundo, para siempre. El reintento sin tope es deliberado (una textura
+que falta suele ser transitoria), pero no distingue transitorio de definitivo.
+
+### `waterLevels` / `lavaLevels` no se purgan al descargar chunks
+Son `std::map` indexados por coordenada de mundo y nadie borra las entradas de
+los chunks que se descargan: crecen durante toda la sesión. Peor, si el
+jugador vuelve a una zona, `getWaterLevel` devuelve el nivel rancio de antes.
+
+### Dos tablas de drops que no coinciden
+`getBlockDrops()` y `GameState::getDroppedItem()` deciden lo mismo por
+separado, y minar pasa por las dos (una traduce el resultado de la otra).
+Funciona por casualidad en los casos actuales. Un bloque nuevo hay que darlo
+de alta en dos sitios o su drop sale mal en silencio.
+
+### El clic del inventario ignora el scroll
+El render dibuja desde `scroll*9`, pero el hit-test del clic prueba desde el
+slot 0 sin restar la fila. Con el inventario desplazado, se ve una fila y se
+clica sobre otra.
+
+### `actualizarVida` corta en creativo y arrastra cuatro subsistemas
+El `return` temprano por modo de juego está **antes** de procesar el pasto
+tapado, las tiras en remojo, las pencas cayendo y la maduración de tunas. En
+creativo esas listas nunca se vacían; y como el mesher consulta las pencas con
+una búsqueda lineal, el mallado se degrada durante toda la partida.
 
 ---
 
@@ -162,3 +236,16 @@ desarrollo. Esfuerzo: bajo (una línea de CMake), coste solo en Debug.
 4. **El formato de guardado de chunks no cambió** al eliminar el array
    espejo: `exportBlocks/importBlocks` reproducen el layout `[x][y][z]` byte
    a byte.
+5. **El caché de chunks no es dueño de los chunks**: solo guarda punteros a
+   chunks que viven en `chunks`, y por eso `evictLRUChunk` retira la entrada
+   sin borrar el chunk. La contrapartida obligatoria es que **toda ruta que
+   destruya un chunk tiene que hacer `chunkCache.erase`**. Faltaba justo en la
+   descarga por distancia, y era la raíz de los chunks repetidos: el puntero
+   volvía al pool, se reciclaba como otro chunk, y el caché lo devolvía como
+   si siguiera siendo el de antes — dos claves apuntando al mismo objeto y
+   doble liberación al descargarlo. Corregido 2026-08-22.
+6. **Solo se guarda lo que el jugador modificó.** El mundo es determinista, así
+   que un chunk intacto se regenera idéntico y escribirlo no conserva nada.
+   Por eso mismo ya no se sella la versión del formato al guardar: el sellado
+   asumía que un guardado completo reescribía todos los chunks, y ahora no lo
+   hace. La migración de IDs viejos ocurre al cargar cada chunk.

@@ -765,48 +765,66 @@ inline BlockType apilarPenca(BlockType actual, bool enX) {
 }
 
 // ============================================================================
-// DESGASTE DEL HACHA DE PIEDRA
+// EL HACHA DE PIEDRA: 250 BLOQUES ORGÁNICOS
 // ============================================================================
-// El hacha aguanta 125 BLOQUES DE MADERA. Como cada bloque de tronco gasta
-// 1 punto, eso son 125 puntos de vida.
+// El hacha es una herramienta PARA LO ORGÁNICO: madera, ramas, raíces, nopal,
+// maguey. Con eso aguanta 250 bloques exactos, y cada bloque le gasta 1 de
+// vida. Ni más ni menos: 250 cortes y se rompe.
 //
-// Todo se cuenta en MEDIOS PUNTOS (enteros) porque hay costes de 0.5, y con
-// enteros no se acumula error de redondeo tras cientos de golpes.
+// Lo que NO es orgánico (tierra, pasto, arena, grava, piedra, minerales) no
+// gasta vida, porque el hacha ni siquiera puede con ello de forma razonable:
+// tarda 13 minutos por bloque (ver esOrganicoParaHacha más abajo y el uso en
+// getBlockBreakTimeForMode). La herramienta no se destroza usándola mal; lo
+// que pasa es que no sirve, que es un castigo más honesto y más claro para el
+// jugador que ver desaparecer el hacha.
 //
-//   raíz de árbol ......... 0.5   la madera fina apenas la mella
-//   rama .................. 0.5
-//   tronco ................ 1     la medida de referencia
-//   nopal e ixtle ......... 1     carne de planta: cuesta como un tronco
-//   todo lo demás ......... 3     piedra, arena, tierra... castiga usarla
-//                                 para lo que no es un hacha
-constexpr int HACHA_VIDA_MEDIOS = 250;   // 125 puntos x 2
+// La cuenta se sigue llevando en MEDIOS PUNTOS por compatibilidad con las
+// partidas ya guardadas: `vidaMedios` es el campo que está en disco. Como
+// ahora todo cuesta lo mismo, un bloque orgánico son 2 medios = 1 punto.
+constexpr int HACHA_VIDA_BLOQUES = 250;                     // lo que se anuncia
+constexpr int HACHA_VIDA_MEDIOS  = HACHA_VIDA_BLOQUES * 2;  // 500 medios
 
-// Cuántos medios puntos gasta romper este bloque con el hacha.
-inline int desgasteHacha(BlockType t) {
-    // --- Madera del árbol: es para lo que sirve el hacha ---
+// ¿Es un bloque ORGÁNICO, de los que el hacha corta en 1 segundo?
+//
+// Son las cosas vivas del mundo: el árbol entero (tronco, rama, raíz), y las
+// plantas carnosas (nopal con todas sus partes, y el maguey/ixtle).
+//
+// Esta es la lista que manda en las DOS cosas del hacha: cuánta vida gasta el
+// bloque y cuánto tarda en romperse. Tenerlas juntas evita que se separen —
+// si mañana se añade una planta nueva, se añade aquí y las dos reglas la
+// reconocen a la vez.
+inline bool esOrganicoParaHacha(BlockType t) {
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+
+    // --- El árbol: tronco, rama y raíz ---
     if (t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO || t == BLOCK_WOOD_OYAMEL)
-        return 2;                                  // 1 punto
-
+        return true;
     if (t == BLOCK_RAMA_PINO || t == BLOCK_RAMA_ENCINO ||
         t == BLOCK_RAMA_OYAMEL)
-        return 1;                                  // 0.5
+        return true;
+    if (esRaiz(t)) return true;
 
-    if (esRaiz(t)) return 1;                       // 0.5
-
-    // --- Plantas carnosas: nopal e ixtle, todas sus partes ---
+    // --- Nopal: cladodio, penca, tallo, tunas y sus bases ---
     if (esCladodio(t) || t == BLOCK_NOPAL_FRUTO || esTuna(t) ||
         t == BLOCK_NOPAL_TALLO || t == BLOCK_NOPAL_MOJADO ||
         t == BLOCK_NOPAL_TIRAS || t == BLOCK_NOPAL_SIN_BABA ||
         t == BLOCK_NOPAL_BABA ||
         t == BLOCK_NOPAL_BASE_PASTO || t == BLOCK_NOPAL_BASE_TIERRA ||
         t == BLOCK_NOPAL_BASE_ARENA || t == BLOCK_NOPAL_BASE_T_ARCILLA ||
-        t == BLOCK_NOPAL_BASE_A_ARCILLA ||
-        esIxtle(t))
-        return 2;                                  // 1 punto
+        t == BLOCK_NOPAL_BASE_A_ARCILLA)
+        return true;
 
-    // --- Todo lo demás: piedra, arena, tierra, minerales... ---
-    // El hacha no es un pico: usarla para esto la destroza.
-    return 6;                                      // 3 puntos
+    // --- Maguey / ixtle: hoja y punta ---
+    if (esIxtle(t)) return true;
+
+    return false;
+}
+
+// Cuántos medios puntos gasta romper este bloque con el hacha.
+// Orgánico: 1 punto (2 medios). Todo lo demás: nada, porque el hacha no
+// sirve para eso y el castigo ya es el tiempo que tarda.
+inline int desgasteHacha(BlockType t) {
+    return esOrganicoParaHacha(t) ? 2 : 0;
 }
 
 // Último valor válido del enum: se usa para validar los datos leídos de

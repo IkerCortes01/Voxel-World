@@ -11,6 +11,7 @@ add_executable(voxel_tests
     test_world_name.cpp
     test_rng_compat.cpp
     test_inventory.cpp
+    test_hacha.cpp
 )
 
 target_include_directories(voxel_tests PRIVATE

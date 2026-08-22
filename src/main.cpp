@@ -1978,9 +1978,30 @@ inline bool esBloqueDuroASurvival(BlockType type) {
     }
 }
 
-float getBlockBreakTimeForMode(BlockType type, int gameMode) {
+// ⭐ EL HACHA DE PIEDRA EN LA MANO CAMBIA EL TIEMPO
+//
+// Con hacha, lo ORGÁNICO cae en 1 segundo: para eso es la herramienta, y esa
+// es la recompensa de haberla fabricado. Un tronco que a mano son 8 minutos
+// pasa a ser un segundo.
+//
+// Pero el hacha NO es un pico. Con ella en la mano, la tierra, el pasto, la
+// arena, la grava, la piedra y los minerales cuestan 13 MINUTOS por bloque:
+// se puede intentar, pero no es un camino viable, y el jugador entiende sin
+// que nadie se lo explique que necesita otra herramienta.
+constexpr float HACHA_ORGANICO_BREAK_TIME = 1.0f;     // 1 segundo
+constexpr float HACHA_NO_ORGANICO_BREAK_TIME = 780.0f; // 13 minutos
+
+float getBlockBreakTimeForMode(BlockType type, int gameMode, bool conHacha) {
     // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
     const bool isSurvival = (gameMode != 1);
+
+    // --- CON EL HACHA DE PIEDRA EN LA MANO ---
+    // Manda sobre todo lo demás, porque la herramienta es justo lo que cambia
+    // las reglas. En creativo no aplica: ahí se construye y todo es rápido.
+    if (isSurvival && conHacha) {
+        return esOrganicoParaHacha(type) ? HACHA_ORGANICO_BREAK_TIME
+                                         : HACHA_NO_ORGANICO_BREAK_TIME;
+    }
 
     // Los TRES troncos (pino, encino, oyamel) comparten el coste: talar a
     // mano debe ser inviable con cualquier especie.
@@ -16846,7 +16867,13 @@ void updateMining(GameState* state, float deltaTime) {
     // Incrementar progreso según el tiempo de rotura del bloque.
     // ⭐ Depende del MODO DE JUEGO: en supervivencia el tronco tarda 8 min
     // (romper madera a mano debe ser inviable); en creativo, lo normal.
-    float breakTime = getBlockBreakTimeForMode(blockType, state->currentGameMode);
+    // ⭐ Y de la HERRAMIENTA: con el hacha de piedra en la mano, lo orgánico
+    // cae en 1 segundo y lo demás cuesta 13 minutos.
+    const bool conHacha =
+        (state->inventory.getSelectedBlock() == BLOCK_HACHA_PIEDRA);
+    float breakTime = getBlockBreakTimeForMode(blockType,
+                                               state->currentGameMode,
+                                               conHacha);
 
     // Si el bloque es instantáneo (TALLGRASS) o muy rápido
     if (breakTime < 0.1f) {

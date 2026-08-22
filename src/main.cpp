@@ -720,6 +720,16 @@ struct PastoTapado {
 };
 std::vector<PastoTapado> g_pastoTapado;
 
+// --- Recarga manual de chunks (tecla R) ---
+// El mallado va repartido en varios frames, así que el resultado no se puede
+// mirar en el mismo frame en que se pulsa R: se apunta aquí y se revisa unos
+// frames después. Es lo que permite decir si la recarga ARREGLÓ los chunks
+// invisibles (fallo de mallado) o no (fallo en los datos).
+bool g_recargaPendiente = false;
+int  g_recargaSinMallaAntes = 0;
+int  g_recargaAtrapadosAntes = 0;
+int  g_recargaFrames = 0;
+
 // Un minuto de juego.
 constexpr double PASTO_MUERE_SEG = 60.0;
 
@@ -6426,6 +6436,89 @@ public:
             it->second->needsRebuild = true;
     }
 
+    // ========================================================================
+    // RECARGA MANUAL (tecla R): REHACER LAS MALLAS, NO EL MUNDO
+    // ========================================================================
+    // Fuerza a que TODOS los chunks cargados vuelvan a mallarse. Sirve para
+    // dos cosas:
+    //
+    //   1. ARREGLAR EN EL ACTO lo que se vea mal. Si aparece un chunk
+    //      invisible o un agujero, con pulsar R vuelve.
+    //   2. CAZAR POR QUÉ PASA. Antes de remallar se hace un censo del estado
+    //      de cada chunk (ver censoChunks), así que en el log queda escrito
+    //      CUÁNTOS estaban rotos y EN QUÉ estado exacto. Si R los arregla,
+    //      el fallo estaba en el mallado; si no, en los datos.
+    //
+    // NO TOCA EL MUNDO. Ni un setBlock, ni regeneración de terreno, ni
+    // guardado: solo se limpia el estado de mallado y se piden mallas nuevas
+    // de los MISMOS bloques. Lo que se ve después es exactamente el mismo
+    // mundo, bien dibujado.
+    //
+    // Se limpian también los flags que atrapan a un chunk (ver el arreglo de
+    // los chunks invisibles): así R saca a cualquiera de un estado sin salida
+    // aunque quede alguno que no hayamos visto.
+    int recargarMallas() {
+        int n = 0;
+        for (auto& par : chunks) {
+            Chunk* c = par.second;
+            if (!c || !c->isGenerated) continue;
+
+            c->waitingForNeighbors = false;
+            c->buildRetries = 0;
+            c->framesConCandado = 0;
+            c->isUpdatingMesh.store(false, std::memory_order_release);
+            c->needsRebuild = true;
+            ++n;
+        }
+        return n;
+    }
+
+    // Censo del estado de los chunks cargados. Es la parte de "cazar el
+    // fallo": deja por escrito cuántos hay en cada estado, y sobre todo
+    // cuántos están INVISIBLES (generados y sin malla) y con qué banderas.
+    struct CensoChunks {
+        int total = 0;
+        int sinMalla = 0;          // generados pero sin batches: INVISIBLES
+        int pendientes = 0;        // needsRebuild
+        int esperandoVecinos = 0;
+        int conCandado = 0;        // isUpdatingMesh puesto
+        int atrapados = 0;         // sin malla Y sin forma de reintentar
+        int reintentosAltos = 0;   // buildRetries >= 3
+    };
+
+    CensoChunks censoChunks() const {
+        CensoChunks c;
+        for (const auto& par : chunks) {
+            const Chunk* ch = par.second;
+            if (!ch || !ch->isGenerated) continue;
+            ++c.total;
+
+            const bool sinMalla = ch->batches.empty();
+            const bool candado  = ch->isUpdatingMesh.load(std::memory_order_acquire);
+
+            if (sinMalla) ++c.sinMalla;
+            if (ch->needsRebuild) ++c.pendientes;
+            if (ch->waitingForNeighbors) ++c.esperandoVecinos;
+            if (candado) ++c.conCandado;
+            if (ch->buildRetries >= 3) ++c.reintentosAltos;
+
+            // ATRAPADO: no se ve y nada lo va a reconstruir.
+            if (sinMalla && !ch->needsRebuild && !candado) ++c.atrapados;
+        }
+        return c;
+    }
+
+    // Las posiciones de los chunks que no se ven, para poder ir a mirarlas.
+    std::vector<Vec3i> chunksInvisibles() const {
+        std::vector<Vec3i> out;
+        for (const auto& par : chunks) {
+            const Chunk* ch = par.second;
+            if (ch && ch->isGenerated && ch->batches.empty())
+                out.push_back(ch->position);
+        }
+        return out;
+    }
+
     void marcarChunksConTunas() {
         for (auto& par : chunks) {
             Chunk* c = par.second;
@@ -10530,6 +10623,28 @@ public:
         // así el mesh está incompleto y hay que rehacerlo (ver más abajo).
         bool texturasFaltantes = false;
 
+        // ⭐ CHUNKS QUE SALEN SIN TEXTURA
+        //
+        // Las texturas se suben a OpenGL desde el hilo principal. Mientras
+        // siguen cargando, getBlockTexture() devuelve 0 -- y el mesher, que
+        // corre a la vez que se generan y cargan chunks, se comía ese 0 y
+        // horneaba la malla igual. Resultado: un chunk SIN TEXTURA, y como la
+        // malla quedaba "hecha", nadie la volvía a construir: se quedaba así
+        // para siempre.
+        //
+        // Solo la ruta del greedy meshing comprobaba el 0. Las otras -- los
+        // sprites, los niveles, las celdas mixtas, las plantas -- no, y por
+        // ahí se colaba el fallo.
+        //
+        // Esta función es el único sitio por el que el mesher pide texturas:
+        // si sale 0, se apunta y el chunk se reintenta en el siguiente frame,
+        // cuando la textura ya esté cargada.
+        auto texSegura = [&](BlockType b, int cara) -> GLuint {
+            const GLuint t = g_textureManager->getBlockTexture(b, cara);
+            if (t == 0) texturasFaltantes = true;
+            return t;
+        };
+
         // ⭐ OPTIMIZACIÓN: Early exit si el chunk está vacío.
         //
         // La paleta ya sabe la respuesta: basta mirar los 16 subchunks en vez
@@ -10855,7 +10970,7 @@ public:
                     // que la clasificacion no puede desincronizarse.
                     if (isTransparent) {
                         texturasTransparentes.insert(
-                            g_textureManager->getBlockTexture(block, 0));
+                            texSegura(block, 0));
                     }
 
                     if (isWater) {
@@ -10894,7 +11009,7 @@ public:
                     // propia rama mas abajo con la caja de altura reducida.
                     if (isCrossSprite(block) || esNivelParcial(block) ||
                         esMixto(block)) {
-                        GLuint texture = g_textureManager->getBlockTexture(block, 0);
+                        GLuint texture = texSegura(block, 0);
 
                         // NOTA: la marca de union con el cladodio ya NO se
                         // aplica al bloque entero. Antes bastaba con tener un
@@ -11150,9 +11265,9 @@ public:
                             }
                             const float alto = yFin;
                             const GLuint texN =
-                                g_textureManager->getBlockTexture(mat, 0);
+                                texSegura(mat, 0);
                             const GLuint texL =
-                                g_textureManager->getBlockTexture(mat, 2);
+                                texSegura(mat, 2);
 
                             auto& vN = verticesByTexture[texL];
                             auto& cN = colorsByTexture[texL];
@@ -11564,7 +11679,7 @@ public:
                         if (esCompartido(block)) {
                             const BlockType acomp = piezaSegunda(block);
                             const GLuint texA =
-                                g_textureManager->getBlockTexture(acomp, 0);
+                                texSegura(acomp, 0);
                             if (texA != 0) {
                                 float ax0, ay0, az0, ax1, ay1, az1;
                                 cajaDePieza(block, true,
@@ -12633,7 +12748,7 @@ public:
                     // Top face (+Y) - face index 0
                     BlockType topNeighbor = getNeighborBlockCached(x, y, z, 0, 1, 0);
                     if (shouldRenderFace(block, topNeighbor)) {
-                        GLuint texture = g_textureManager->getBlockTexture(block, 0);
+                        GLuint texture = texSegura(block, 0);
                         float faceBrightness = 1.0f; // Top = más brillante
                         const float lightFactor = faceLightFactor(x, y, z, 0, 1, 0);
                         float alpha = isTransparent ? 0.6f : 1.0f; // Agua/Lava semi-transparente
@@ -12669,7 +12784,7 @@ public:
                     // Bottom face (-Y) - face index 1
                     BlockType bottomNeighbor = getNeighborBlockCached(x, y, z, 0, -1, 0);
                     if (shouldRenderFace(block, bottomNeighbor)) {
-                        GLuint texture = g_textureManager->getBlockTexture(block, 1);
+                        GLuint texture = texSegura(block, 1);
                         faceBrightness = 0.5f; // Bottom = más oscuro
                         const float lightFactor = faceLightFactor(x, y, z, 0, -1, 0);
                         float alpha = isWater ? 0.6f : 1.0f;
@@ -12704,7 +12819,7 @@ public:
                     // North face (+Z) - face index 2
                     BlockType northNeighbor = getNeighborBlockCached(x, y, z, 0, 0, 1);
                     if (shouldRenderFace(block, northNeighbor)) {
-                        GLuint texture = g_textureManager->getBlockTexture(block, 2);
+                        GLuint texture = texSegura(block, 2);
                         faceBrightness = 0.8f; // N/S faces
                         const float lightFactor = faceLightFactor(x, y, z, 0, 0, 1);
                         float alpha = isWater ? 0.6f : 1.0f;
@@ -12739,7 +12854,7 @@ public:
                     // South face (-Z) - face index 3
                     BlockType southNeighbor = getNeighborBlockCached(x, y, z, 0, 0, -1);
                     if (shouldRenderFace(block, southNeighbor)) {
-                        GLuint texture = g_textureManager->getBlockTexture(block, 3);
+                        GLuint texture = texSegura(block, 3);
                         faceBrightness = 0.8f; // N/S faces
                         const float lightFactor = faceLightFactor(x, y, z, 0, 0, -1);
                         float alpha = isWater ? 0.6f : 1.0f;
@@ -12774,7 +12889,7 @@ public:
                     // East face (+X) - face index 4
                     BlockType eastNeighbor = getNeighborBlockCached(x, y, z, 1, 0, 0);
                     if (shouldRenderFace(block, eastNeighbor)) {
-                        GLuint texture = g_textureManager->getBlockTexture(block, 4);
+                        GLuint texture = texSegura(block, 4);
                         faceBrightness = 0.6f; // E/W faces = más oscuro
                         const float lightFactor = faceLightFactor(x, y, z, 1, 0, 0);
                         float alpha = isWater ? 0.6f : 1.0f;
@@ -12809,7 +12924,7 @@ public:
                     // West face (-X) - face index 5
                     BlockType westNeighbor = getNeighborBlockCached(x, y, z, -1, 0, 0);
                     if (shouldRenderFace(block, westNeighbor)) {
-                        GLuint texture = g_textureManager->getBlockTexture(block, 5);
+                        GLuint texture = texSegura(block, 5);
                         faceBrightness = 0.6f; // E/W faces = más oscuro
                         const float lightFactor = faceLightFactor(x, y, z, -1, 0, 0);
                         float alpha = isWater ? 0.6f : 1.0f;
@@ -13118,7 +13233,7 @@ public:
                             const BlockType nb = getNeighborBlockCached(bx, by, bz, dx, dy, dz);
                             if (!shouldRenderFace(b, nb)) continue;
 
-                            cell.tex = g_textureManager->getBlockTexture(b, dir);
+                            cell.tex = texSegura(b, dir);
 
                             // ================================================
                             // HOJAS GENERATIVAS
@@ -13202,7 +13317,7 @@ public:
                                     ? BLOCK_IXTLE_TALLO_ARENA
                                     : BLOCK_IXTLE_TALLO;
                                 const GLuint suelo =
-                                    g_textureManager->getBlockTexture(cual, 0);
+                                    texSegura(cual, 0);
                                 if (suelo != 0) cell.tex = suelo;
                             }
 
@@ -13525,19 +13640,30 @@ public:
             // geometría está, y sin embargo parte del terreno salía sin
             // textura (o directamente descartada) de forma permanente.
             // Reintentar es barato y en cuanto la textura carga, se arregla.
+            // ⭐ SIN LIMITE DE REINTENTOS AQUI: NUNCA SE DA POR VENCIDO
+            //
+            // Antes se rendia a los 8 intentos y horneaba la malla sin
+            // textura PARA SIEMPRE. Pero que falte una textura es un estado
+            // PASAJERO: se estan subiendo a OpenGL desde el hilo principal
+            // mientras el mesher trabaja, y basta esperar a que terminen.
+            //
+            // Ocho intentos son ocho frames -- una cuarta parte de segundo --
+            // y cargar todas las texturas puede llevar mas que eso justo al
+            // entrar al mundo, que es cuando el jugador ve el chunk gris.
+            //
+            // Reintentar es barato (una malla mas) y el chunk se arregla solo
+            // en cuanto la textura esta. Se avisa de vez en cuando para que
+            // quede rastro, sin llenar el log.
             if (texturasFaltantes) {
                 chunk->buildRetries++;
-                if (chunk->buildRetries < 8) {
+                if (chunk->buildRetries == 1 || chunk->buildRetries % 60 == 0) {
                     std::cerr << "AVISO: chunk (" << chunk->position.x << ","
-                              << chunk->position.z << ") con caras sin textura. "
-                                 "Reintentando (" << chunk->buildRetries
-                              << "/8)." << std::endl;
-                    chunk->needsRebuild = true;   // rehacer el próximo frame
-                    return;
+                              << chunk->position.z << ") esperando texturas "
+                                 "(intento " << chunk->buildRetries << ")."
+                              << std::endl;
                 }
-                std::cerr << "ERROR: chunk (" << chunk->position.x << ","
-                          << chunk->position.z << ") sigue sin texturas tras 8 "
-                             "intentos." << std::endl;
+                chunk->needsRebuild = true;   // rehacer el próximo frame
+                return;
             }
 
             bool hasSolidBlocks = false;
@@ -13934,6 +14060,64 @@ public:
 
             buildChunkMesh(chunk);
             meshesBuiltThisFrame++;
+        }
+
+        // ⭐ RESULTADO DE LA RECARGA MANUAL (tecla R)
+        //
+        // El mallado va repartido en varios frames, así que se espera un poco
+        // y luego se compara con el censo de antes. Ese "antes vs después" es
+        // justo lo que dice DÓNDE está el fallo de los chunks invisibles.
+        if (g_recargaPendiente) {
+            ++g_recargaFrames;
+
+            // Se espera a que NO quede trabajo pendiente, en vez de contar un
+            // numero fijo de frames: el mallado va a 1-6 chunks por frame
+            // segun la carga, asi que cuanto tarda no se sabe de antemano.
+            // El tope de frames es solo una red de seguridad por si algo se
+            // queda colgado (que es justo lo que se esta cazando).
+            bool quedaTrabajo = false;
+            for (const auto& par : chunks) {
+                const Chunk* ch = par.second;
+                if (ch && ch->isGenerated && ch->needsRebuild) {
+                    quedaTrabajo = true;
+                    break;
+                }
+            }
+
+            if (!quedaTrabajo || g_recargaFrames >= 600) {
+                const auto d = censoChunks();
+                if (quedaTrabajo)
+                    std::cout << "[R] AVISO: al llegar al limite de frames "
+                                 "todavia quedaban chunks por mallar.\n";
+                std::cout << "[R] DESPUES (" << g_recargaFrames << " frames): "
+                          << d.total << " chunks | sin malla: " << d.sinMalla
+                          << " (antes " << g_recargaSinMallaAntes << ") | "
+                             "atrapados: " << d.atrapados
+                          << " (antes " << g_recargaAtrapadosAntes << ")\n";
+
+                if (g_recargaAtrapadosAntes > 0 && d.sinMalla == 0) {
+                    std::cout << "[R] VEREDICTO: habia " << g_recargaAtrapadosAntes
+                              << " chunk(s) ATRAPADOS y la recarga los ARREGLO "
+                                 "-> el fallo estaba en el MALLADO.\n";
+                } else if (g_recargaSinMallaAntes > 0 && d.sinMalla == 0) {
+                    std::cout << "[R] VEREDICTO: los " << g_recargaSinMallaAntes
+                              << " sin malla solo estaban en cola; ninguno "
+                                 "estaba roto. Todo correcto.\n";
+                } else if (d.sinMalla > 0) {
+                    std::cout << "[R] VEREDICTO: SIGUEN sin malla tras remallar "
+                                 "-> el chunk se genero vacio o corrupto; el "
+                                 "fallo esta en los DATOS.\n";
+                    for (const Vec3i& p : chunksInvisibles())
+                        std::cout << "[R]   sigue invisible: chunk ("
+                                  << p.x << "," << p.z << ")\n";
+                } else {
+                    std::cout << "[R] VEREDICTO: no habia ninguno roto; todo "
+                                 "correcto antes y despues.\n";
+                }
+                std::cout << "[R] ----------------------------------------------\n";
+                std::cout.flush();
+                g_recargaPendiente = false;
+            }
         }
     }
 
@@ -15777,7 +15961,11 @@ struct GameState {
                   miningParticleTimer(0.0f), mouseLeftPressed(false),
                   lastPressedSlot(-1), lastSlotPressTime(0.0),
                   isSaving(false), savingTimer(0.0f), returnToMenuAfterSave(false),
-                  autoSaveTimer(0.0f), autoSaveInterval(120.0f), showSavingIndicator(false), savingIndicatorTimer(0.0f),
+                  // Guardado cada 30 s en vez de cada 2 minutos: se pidio
+                  // "graba siempre mis partidas". Solo escribe los chunks
+                  // MODIFICADOS y sin bloquear el frame, asi que salir mas a
+                  // menudo cuesta poco y se pierde mucho menos si algo falla.
+                  autoSaveTimer(0.0f), autoSaveInterval(30.0f), showSavingIndicator(false), savingIndicatorTimer(0.0f),
                   sessionStartTime(0.0f), currentSessionTime(0.0f),  // ⭐ NUEVO: Session tracking
                   backspacePressed(false), backspaceFirstPressTime(0.0), backspaceLastRepeatTime(0.0),
                   backspaceRepeatDelay(0.5f), backspaceRepeatRate(0.05f),  // ⭐ NUEVO: Backspace repeat
@@ -19300,6 +19488,90 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             // Volver a modo ventana
             glfwSetWindowMonitor(window, nullptr, g_windowedPosX, g_windowedPosY, g_windowedWidth, g_windowedHeight, 0);
         }
+    }
+
+    // ========================================================================
+    // TECLA R: RECARGAR LOS CHUNKS (sin tocar el mundo)
+    // ========================================================================
+    // Rehace las mallas de todo lo cargado. El mundo NO se modifica: no se
+    // coloca ni se rompe nada, no se regenera terreno y no se guarda. Se
+    // vuelven a dibujar los MISMOS bloques.
+    //
+    // Además deja en el log un censo del ANTES y el DESPUÉS, que es lo que
+    // permite cazar de dónde salen los chunks invisibles:
+    //
+    //   - Si antes había chunks sin malla y después no, el fallo estaba en el
+    //     mallado (algo dejó al chunk sin reconstruir) -> mirar "atrapados".
+    //   - Si siguen sin malla después de R, el fallo está en los DATOS: el
+    //     chunk se generó vacío o corrupto, y remallarlo no puede arreglarlo.
+    //
+    // Se imprimen también las posiciones, para poder ir a verlas.
+    if (key == GLFW_KEY_R && action == GLFW_PRESS && !g_gameState->isPaused &&
+        !g_gameState->inventoryOpen && g_gameState->screenState == SCREEN_IN_GAME &&
+        // Si ya hay una recarga en curso se ignora la pulsacion: si no, cada
+        // R nuevo reiniciaba la espera y el veredicto de la anterior no
+        // llegaba a imprimirse nunca (pasaba al pulsar R varias veces
+        // seguidas).
+        !g_recargaPendiente) {
+
+        const auto antes = g_gameState->world.censoChunks();
+        const auto rotos = g_gameState->world.chunksInvisibles();
+
+        std::cout << "\n[R] RECARGA DE CHUNKS ---------------------------------\n";
+        // OJO CON LEER ESTO: "sin malla" NO es lo mismo que "roto".
+        //
+        // El mallado va a 1-6 chunks por frame, asi que justo despues de
+        // cargar terreno hay chunks sin malla que solo estan ESPERANDO SU
+        // TURNO. Eso es normal y se arregla solo en un segundo.
+        //
+        // Lo que de verdad indica un fallo son los ATRAPADOS: sin malla y sin
+        // nada que los vaya a reconstruir. Esos no se arreglan solos.
+        const int enCola = antes.pendientes < antes.sinMalla
+                         ? antes.pendientes : antes.sinMalla;
+        std::cout << "[R] ANTES: " << antes.total << " chunks cargados | "
+                  << "sin malla: " << antes.sinMalla
+                  << " (de ellos " << enCola << " solo esperando turno) | "
+                  << "ATRAPADOS (fallo de verdad): " << antes.atrapados << "\n";
+        std::cout << "[R]        pendientes: " << antes.pendientes
+                  << " | esperando vecinos: " << antes.esperandoVecinos
+                  << " | con candado: " << antes.conCandado
+                  << " | reintentos>=3: " << antes.reintentosAltos << "\n";
+
+        if (!rotos.empty()) {
+            std::cout << "[R] INVISIBLES en chunk(x,z):";
+            for (size_t i = 0; i < rotos.size() && i < 20; ++i)
+                std::cout << " (" << rotos[i].x << "," << rotos[i].z << ")";
+            if (rotos.size() > 20)
+                std::cout << " ... y " << (rotos.size() - 20) << " mas";
+            std::cout << "\n";
+            std::cout << "[R] DIAGNOSTICO: si tras la recarga desaparecen, el "
+                         "fallo estaba en el MALLADO.\n"
+                         "[R]              si siguen, el chunk se genero mal "
+                         "(fallo en los DATOS).\n";
+        } else {
+            std::cout << "[R] Ningun chunk invisible ahora mismo.\n";
+        }
+
+        const int n = g_gameState->world.recargarMallas();
+        std::cout << "[R] Remallando " << n << " chunks. El mundo NO se toca.\n";
+        // Volcar ya: si el juego se cierra antes de tiempo, el diagnostico
+        // tiene que estar en el log igualmente.
+        std::cout.flush();
+
+        // Se apunta para revisar el resultado cuando hayan terminado de
+        // reconstruirse (el mallado va repartido en varios frames).
+        g_recargaPendiente = true;
+        g_recargaSinMallaAntes = antes.sinMalla;
+        g_recargaAtrapadosAntes = antes.atrapados;
+        g_recargaFrames = 0;
+    }
+
+    // Aviso si se pulsa R mientras la recarga anterior sigue en marcha.
+    if (key == GLFW_KEY_R && action == GLFW_PRESS && g_recargaPendiente &&
+        !g_gameState->isPaused && !g_gameState->inventoryOpen &&
+        g_gameState->screenState == SCREEN_IN_GAME) {
+        std::cout << "[R] Ya hay una recarga en curso; espera al veredicto.\n";
+        std::cout.flush();
     }
 
     // Tecla E para inventario
@@ -24220,6 +24492,34 @@ int main() {
                 // Auto-guardar cada 2 minutos (120 segundos)
                 if (g_gameState->autoSaveTimer >= g_gameState->autoSaveInterval) {
                     std::cout << "\n⏰ Auto-guardado activado..." << std::endl;
+
+                    // ⭐ VIGILANCIA PERMANENTE DE CHUNKS ROTOS
+                    //
+                    // En cada guardado se apunta el estado de los chunks. Asi
+                    // queda rastro en el log aunque no se pulse R: si algun
+                    // dia sale un chunk invisible o sin textura, el log dice
+                    // CUANDO empezo y en que estado estaba.
+                    {
+                        const auto c = g_gameState->world.censoChunks();
+                        std::cout << "[VIGILANCIA] chunks=" << c.total
+                                  << " sin_malla=" << c.sinMalla
+                                  << " ATRAPADOS=" << c.atrapados
+                                  << " esperando_vecinos=" << c.esperandoVecinos
+                                  << " con_candado=" << c.conCandado
+                                  << " reintentos_altos=" << c.reintentosAltos
+                                  << std::endl;
+                        if (c.atrapados > 0 || c.reintentosAltos > 0) {
+                            std::cout << "[VIGILANCIA] AVISO: hay chunks que no "
+                                         "se arreglan solos. Posiciones:";
+                            for (const Vec3i& p : g_gameState->world.chunksInvisibles())
+                                std::cout << " (" << p.x << "," << p.z << ")";
+                            std::cout << "\n[VIGILANCIA] Pulsa R para recargarlos "
+                                         "y ver si es fallo de mallado o de datos."
+                                      << std::endl;
+                        }
+                        std::cout.flush();
+                    }
+
                     // true = modo autosave: solo chunks modificados, encolados
                     // a los hilos de guardado sin bloquear el frame.
                     saveWorld(g_gameState, true);

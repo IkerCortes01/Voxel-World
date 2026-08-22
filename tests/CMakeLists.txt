@@ -12,6 +12,7 @@ add_executable(voxel_tests
     test_rng_compat.cpp
     test_inventory.cpp
     test_hacha.cpp
+    test_creativo.cpp
 )
 
 target_include_directories(voxel_tests PRIVATE

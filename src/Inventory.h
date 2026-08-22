@@ -230,13 +230,15 @@ struct Inventory {
     // Si en la mano no hay un hacha, no hace nada y devuelve false: romper
     // bloques a mano nunca gasta nada.
     bool gastarHerramienta(int medios) {
-        if (selectedSlot < 0 || selectedSlot >= SLOTS) return false;
+        if (selectedSlot < 0 || selectedSlot >= (int)slots.size()) return false;
         InventorySlot& s = slots[selectedSlot];
-        if (s.blockType != BLOCK_HACHA_PIEDRA || s.isEmpty()) return false;
+        if (!esHerramientaGastable(s.blockType) || s.isEmpty()) return false;
+        if (medios <= 0) return false;   // ese bloque no la gasta
 
-        // Un hacha recien hecha entra con la vida a 0 (sin estrenar): la
-        // primera vez que se usa se le pone la vida completa.
-        if (s.vidaMedios <= 0) s.vidaMedios = HACHA_VIDA_MEDIOS;
+        // Una herramienta recien hecha entra con la vida a 0 (sin estrenar):
+        // la primera vez que se usa se le pone la vida completa, que depende
+        // de CUAL sea (el pico aguanta mas que el hacha).
+        if (s.vidaMedios <= 0) s.vidaMedios = vidaMaximaHerramienta(s.blockType);
 
         s.vidaMedios -= medios;
         if (s.vidaMedios <= 0) {
@@ -252,20 +254,21 @@ struct Inventory {
         return false;
     }
 
-    // Vida que le queda al hacha de la mano, en PUNTOS (no medios).
-    // Devuelve -1 si en la mano no hay un hacha.
+    // Vida que le queda a la herramienta de la mano, en PUNTOS (no medios).
+    // Devuelve -1 si en la mano no hay una herramienta que se gaste.
     float vidaHerramienta() const {
-        if (selectedSlot < 0 || selectedSlot >= SLOTS) return -1.0f;
+        if (selectedSlot < 0 || selectedSlot >= (int)slots.size()) return -1.0f;
         const InventorySlot& s = slots[selectedSlot];
-        if (s.blockType != BLOCK_HACHA_PIEDRA || s.isEmpty()) return -1.0f;
-        const int m = (s.vidaMedios <= 0) ? HACHA_VIDA_MEDIOS : s.vidaMedios;
+        if (!esHerramientaGastable(s.blockType) || s.isEmpty()) return -1.0f;
+        const int m = (s.vidaMedios <= 0) ? vidaMaximaHerramienta(s.blockType)
+                                          : s.vidaMedios;
         return (float)m * 0.5f;
     }
 
     // ¿Este objeto es una herramienta que se gasta?
     // Es lo que decide si se le dibuja la barrita de vida debajo.
     static bool esHerramienta(BlockType t) {
-        return t == BLOCK_HACHA_PIEDRA;
+        return esHerramientaGastable(t);
     }
 
     // Vida que le queda a la herramienta de UN slot concreto, de 0 a 1.
@@ -277,13 +280,20 @@ struct Inventory {
     // aqui cuenta como llena: es lo mismo que hace gastarHerramienta al darle
     // la vida completa en el primer uso. Asi la barra sale entera desde que
     // se fabrica, en vez de aparecer vacia hasta el primer golpe.
+    //
+    // La fraccion se calcula contra la vida maxima de ESA herramienta, asi
+    // que la barra del pico (340) y la del martillo (150) se llenan y vacian
+    // con su propia escala.
     float vidaFraccionSlot(int i) const {
         if (i < 0 || i >= (int)slots.size()) return -1.0f;
         const InventorySlot& s = slots[i];
-        if (s.isEmpty() || !esHerramienta(s.blockType)) return -1.0f;
+        if (s.isEmpty() || !esHerramientaGastable(s.blockType)) return -1.0f;
 
-        const int m = (s.vidaMedios <= 0) ? HACHA_VIDA_MEDIOS : s.vidaMedios;
-        float f = (float)m / (float)HACHA_VIDA_MEDIOS;
+        const int maxima = vidaMaximaHerramienta(s.blockType);
+        if (maxima <= 0) return -1.0f;
+
+        const int m = (s.vidaMedios <= 0) ? maxima : s.vidaMedios;
+        float f = (float)m / (float)maxima;
         if (f < 0.0f) f = 0.0f;
         if (f > 1.0f) f = 1.0f;
         return f;

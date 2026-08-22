@@ -96,6 +96,107 @@ TEST_CASE("Hacha: romper tierra no le quita vida") {
 }
 
 // ============================================================================
+// EL PICO Y EL MARTILLO
+// ============================================================================
+
+TEST_CASE("Herramientas: cada una aguanta lo suyo") {
+    CHECK(HACHA_VIDA_BLOQUES == 250);
+    CHECK(PICO_VIDA_BLOQUES == 340);
+    CHECK(MARTILLO_VIDA_USOS == 150);
+
+    CHECK(vidaMaximaHerramienta(BLOCK_HACHA_PIEDRA) == 500);
+    CHECK(vidaMaximaHerramienta(BLOCK_PICO_PIEDRA) == 680);
+    CHECK(vidaMaximaHerramienta(BLOCK_MARTILLO_PIEDRA) == 300);
+
+    // Lo que no es herramienta no tiene vida.
+    CHECK(vidaMaximaHerramienta(BLOCK_STONE) == 0);
+    CHECK(vidaMaximaHerramienta(BLOCK_STICK) == 0);
+}
+
+TEST_CASE("Pico: la roca le gasta vida, lo organico no") {
+    CHECK(desgastePico(BLOCK_STONE) == 2);
+    CHECK(desgastePico(BLOCK_COBBLESTONE) == 2);
+    CHECK(desgastePico(BLOCK_LIMESTONE) == 2);
+    CHECK(desgastePico(BLOCK_GRAVEL) == 2);
+    CHECK(desgastePico(BLOCK_COAL_ORE) == 2);
+    CHECK(desgastePico(BLOCK_DIRT) == 2);
+
+    // Lo organico es del hacha: el pico no lo reconoce como suyo.
+    CHECK(desgastePico(BLOCK_WOOD) == 0);
+    CHECK(desgastePico(BLOCK_NOPAL_CLADODIO) == 0);
+    CHECK(desgastePico(BLOCK_IXTLE_HOJA) == 0);
+}
+
+TEST_CASE("Herramientas: cada una solo gasta con lo suyo") {
+    // El hacha con madera si, con piedra no.
+    CHECK(desgasteHerramienta(BLOCK_HACHA_PIEDRA, BLOCK_WOOD) == 2);
+    CHECK(desgasteHerramienta(BLOCK_HACHA_PIEDRA, BLOCK_STONE) == 0);
+
+    // El pico al reves.
+    CHECK(desgasteHerramienta(BLOCK_PICO_PIEDRA, BLOCK_STONE) == 2);
+    CHECK(desgasteHerramienta(BLOCK_PICO_PIEDRA, BLOCK_WOOD) == 0);
+
+    // El martillo no pica NADA: se gasta al craftear.
+    CHECK(desgasteHerramienta(BLOCK_MARTILLO_PIEDRA, BLOCK_STONE) == 0);
+    CHECK(desgasteHerramienta(BLOCK_MARTILLO_PIEDRA, BLOCK_WOOD) == 0);
+}
+
+TEST_CASE("Pico: aguanta exactamente 340 bloques de roca") {
+    Inventory inv;
+    inv.selectedSlot = 0;
+    inv.at(0).add(BLOCK_PICO_PIEDRA, 1);
+
+    for (int i = 0; i < 339; ++i) {
+        CHECK_FALSE(inv.gastarHerramienta(desgastePico(BLOCK_STONE)));
+    }
+    CHECK(inv.gastarHerramienta(desgastePico(BLOCK_STONE)));
+    CHECK(inv.at(0).isEmpty());
+}
+
+TEST_CASE("Pico: picar madera no le quita vida") {
+    Inventory inv;
+    inv.selectedSlot = 0;
+    inv.at(0).add(BLOCK_PICO_PIEDRA, 1);
+
+    inv.gastarHerramienta(desgastePico(BLOCK_STONE));   // estrenarlo
+    const float tras1 = inv.vidaHerramienta();
+
+    for (int i = 0; i < 500; ++i)
+        CHECK_FALSE(inv.gastarHerramienta(desgastePico(BLOCK_WOOD)));
+
+    CHECK(inv.vidaHerramienta() == doctest::Approx(tras1));
+    CHECK(inv.at(0).blockType == BLOCK_PICO_PIEDRA);
+}
+
+TEST_CASE("Herramientas: las tres llevan barra, con su propia escala") {
+    Inventory inv;
+    inv.at(0).add(BLOCK_HACHA_PIEDRA, 1);
+    inv.at(1).add(BLOCK_PICO_PIEDRA, 1);
+    inv.at(2).add(BLOCK_MARTILLO_PIEDRA, 1);
+    inv.at(3).add(BLOCK_PEDERNAL_AFILADO, 5);
+
+    // Recien fabricadas: barra llena.
+    CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(1.0f));
+    CHECK(inv.vidaFraccionSlot(1) == doctest::Approx(1.0f));
+    CHECK(inv.vidaFraccionSlot(2) == doctest::Approx(1.0f));
+
+    // El pedernal afilado NO es herramienta: no lleva barra.
+    CHECK(inv.vidaFraccionSlot(3) == -1.0f);
+
+    // La escala es la de CADA una: media vida del martillo son 75 usos,
+    // media del pico son 170 bloques.
+    inv.selectedSlot = 2;
+    for (int i = 0; i < 75; ++i)
+        inv.gastarHerramienta(2);
+    CHECK(inv.vidaFraccionSlot(2) == doctest::Approx(0.5f));
+
+    inv.selectedSlot = 1;
+    for (int i = 0; i < 170; ++i)
+        inv.gastarHerramienta(desgastePico(BLOCK_STONE));
+    CHECK(inv.vidaFraccionSlot(1) == doctest::Approx(0.5f));
+}
+
+// ============================================================================
 // LA BARRITA DE VIDA
 // ============================================================================
 

@@ -1987,29 +1987,38 @@ inline bool esBloqueDuroASurvival(BlockType type) {
     }
 }
 
-// ⭐ EL HACHA DE PIEDRA EN LA MANO CAMBIA EL TIEMPO
+// ⭐ LA HERRAMIENTA DE LA MANO CAMBIA EL TIEMPO
 //
-// Con hacha, lo ORGÁNICO cae en 1 segundo: para eso es la herramienta, y esa
-// es la recompensa de haberla fabricado. Un tronco que a mano son 8 minutos
-// pasa a ser un segundo.
+// Cada herramienta es rápida en LO SUYO y lentísima en lo demás:
 //
-// Pero el hacha NO es un pico. Con ella en la mano, la tierra, el pasto, la
-// arena, la grava, la piedra y los minerales cuestan 13 MINUTOS por bloque:
-// se puede intentar, pero no es un camino viable, y el jugador entiende sin
-// que nadie se lo explique que necesita otra herramienta.
-constexpr float HACHA_ORGANICO_BREAK_TIME = 1.0f;     // 1 segundo
-constexpr float HACHA_NO_ORGANICO_BREAK_TIME = 780.0f; // 13 minutos
+//   HACHA  1 s   en lo orgánico (madera, ramas, raíces, nopal, maguey)
+//   PICO   1,5 s en la roca (piedra, caliza, minerales, grava, tierra...)
+//   ambas  13 min fuera de su terreno
+//
+// Ese contraste es la recompensa de haber fabricado la herramienta correcta:
+// un tronco que a mano son 8 minutos cae en un segundo con el hacha. Y los
+// 13 minutos del caso contrario no son un castigo arbitrario, son la forma
+// de que el jugador entienda solo que necesita la otra herramienta.
+constexpr float HACHA_ORGANICO_BREAK_TIME = 1.0f;      // 1 segundo
+constexpr float PICO_ROCA_BREAK_TIME      = 1.5f;      // 1,5 segundos
+constexpr float HERRAMIENTA_MAL_USADA_BREAK_TIME = 780.0f;  // 13 minutos
 
-float getBlockBreakTimeForMode(BlockType type, int gameMode, bool conHacha) {
+float getBlockBreakTimeForMode(BlockType type, int gameMode,
+                               BlockType herramienta) {
     // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
     const bool isSurvival = (gameMode != 1);
 
-    // --- CON EL HACHA DE PIEDRA EN LA MANO ---
+    // --- CON UNA HERRAMIENTA EN LA MANO ---
     // Manda sobre todo lo demás, porque la herramienta es justo lo que cambia
     // las reglas. En creativo no aplica: ahí se construye y todo es rápido.
-    if (isSurvival && conHacha) {
+    if (isSurvival && herramienta == BLOCK_HACHA_PIEDRA) {
         return esOrganicoParaHacha(type) ? HACHA_ORGANICO_BREAK_TIME
-                                         : HACHA_NO_ORGANICO_BREAK_TIME;
+                                         : HERRAMIENTA_MAL_USADA_BREAK_TIME;
+    }
+
+    if (isSurvival && herramienta == BLOCK_PICO_PIEDRA) {
+        return esRocaParaPico(type) ? PICO_ROCA_BREAK_TIME
+                                    : HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
 
     // Los TRES troncos (pino, encino, oyamel) comparten el coste: talar a
@@ -6419,6 +6428,55 @@ public:
             recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;   // arriba izquierda
             recipe.pattern[1] = BLOCK_HILO_IXTLE;      // arriba centro
             recipe.pattern[4] = BLOCK_STICK;           // centro: el mango
+            recipes.push_back(recipe);
+        }
+
+        // ⭐ MARTILLO DE PIEDRA: la cabeza atada al mango, en vertical.
+        //
+        //     .  P  .      P = pedazo de piedra (la cabeza)
+        //     .  H  .      H = hilo de ixtle (la atadura)
+        //     .  M  .      M = palo (el mango)
+        //
+        // No sirve para picar: es la herramienta de TALLER. Con ella en la
+        // rejilla, un pedernal se convierte en pedernal afilado.
+        {
+            CraftingRecipe recipe(BLOCK_MARTILLO_PIEDRA, 1, false);
+            recipe.pattern[1] = BLOCK_PEDAZO_PIEDRA;   // arriba centro
+            recipe.pattern[4] = BLOCK_HILO_IXTLE;      // centro
+            recipe.pattern[7] = BLOCK_STICK;           // abajo centro
+            recipes.push_back(recipe);
+        }
+
+        // ⭐ PICO DE PIEDRA: dos puntas de piedra y un mango largo.
+        //
+        //     P  H  P      P = pedazo de piedra (las dos puntas)
+        //     .  M  .      H = hilo de ixtle (la atadura del centro)
+        //     .  M  .      M = palo (mango de dos piezas)
+        //
+        // Aguanta 340 bloques de roca, mas que el hacha: es la herramienta
+        // que abre la mineria.
+        {
+            CraftingRecipe recipe(BLOCK_PICO_PIEDRA, 1, false);
+            recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;   // arriba izquierda
+            recipe.pattern[1] = BLOCK_HILO_IXTLE;      // arriba centro
+            recipe.pattern[2] = BLOCK_PEDAZO_PIEDRA;   // arriba derecha
+            recipe.pattern[4] = BLOCK_STICK;           // centro: mango
+            recipe.pattern[7] = BLOCK_STICK;           // abajo centro: mango
+            recipes.push_back(recipe);
+        }
+
+        // ⭐ PEDERNAL AFILADO: se golpea el pedernal con el martillo.
+        //
+        // Sin forma (shapeless): basta con poner el martillo y el pedernal en
+        // la rejilla, da igual dónde. Es un gesto, no un montaje.
+        //
+        // OJO: esta receta consume el pedernal pero NO el martillo -- al
+        // martillo se le quita UN USO. Eso lo resuelve executeCrafting, que
+        // reconoce las herramientas y las gasta en vez de tragárselas.
+        {
+            CraftingRecipe recipe(BLOCK_PEDERNAL_AFILADO, 1, true);
+            recipe.pattern[0] = BLOCK_MARTILLO_PIEDRA;
+            recipe.pattern[1] = BLOCK_PEDAZO_PEDERNAL;
             recipes.push_back(recipe);
         }
 
@@ -16624,11 +16682,41 @@ struct GameState {
             return false;  // No hay nada que craftear
         }
 
-        // Consumir items del crafting grid
+        // Consumir items del crafting grid.
+        //
+        // ⭐ LAS HERRAMIENTAS NO SE CONSUMEN: SE GASTAN.
+        //
+        // El martillo afila el pedernal golpeándolo, así que sigue ahí
+        // después: lo que pierde es UN USO de sus 150. Tragárselo como un
+        // ingrediente más sería absurdo (fabricar un martillo por cada
+        // pedernal) y además rompería la barrita de vida, que existe
+        // justamente para llevar esa cuenta.
+        //
+        // Cuando se le acaba la vida, ahí sí desaparece del slot.
         for (int i = 0; i < CraftingGrid::SIZE; i++) {
-            if (!craftingGrid.slots[i].isEmpty()) {
-                craftingGrid.slots[i].remove(1);
+            InventorySlot& s = craftingGrid.slots[i];
+            if (s.isEmpty()) continue;
+
+            if (esHerramientaGastable(s.blockType)) {
+                const int maxima = vidaMaximaHerramienta(s.blockType);
+                if (s.vidaMedios <= 0) s.vidaMedios = maxima;
+
+                s.vidaMedios -= 2;              // un uso = 1 punto = 2 medios
+                if (s.vidaMedios <= 0) {
+                    // Se rompió: se gasta una del stack.
+                    s.vidaMedios = 0;
+                    s.remove(1);
+                    if (s.count <= 0) {
+                        s.blockType = BLOCK_AIR;
+                        s.count = 0;
+                    }
+                    std::cout << "La herramienta se ha roto al usarla"
+                              << std::endl;
+                }
+                continue;                        // NO se consume la pieza
             }
+
+            s.remove(1);
         }
 
         // El resultado ya se colocó en heldSlot en el mouseButtonCallback
@@ -17259,13 +17347,13 @@ void updateMining(GameState* state, float deltaTime) {
     // Incrementar progreso según el tiempo de rotura del bloque.
     // ⭐ Depende del MODO DE JUEGO: en supervivencia el tronco tarda 8 min
     // (romper madera a mano debe ser inviable); en creativo, lo normal.
-    // ⭐ Y de la HERRAMIENTA: con el hacha de piedra en la mano, lo orgánico
-    // cae en 1 segundo y lo demás cuesta 13 minutos.
-    const bool conHacha =
-        (state->inventory.getSelectedBlock() == BLOCK_HACHA_PIEDRA);
+    // ⭐ Y de la HERRAMIENTA que se lleve: el hacha tumba lo orgánico en 1 s,
+    // el pico rompe la roca en 1,5 s, y cada una tarda 13 min fuera de lo
+    // suyo.
+    const BlockType herramienta = state->inventory.getSelectedBlock();
     float breakTime = getBlockBreakTimeForMode(blockType,
                                                state->currentGameMode,
-                                               conHacha);
+                                               herramienta);
 
     // Si el bloque es instantáneo (TALLGRASS) o muy rápido
     if (breakTime < 0.1f) {
@@ -17286,13 +17374,15 @@ void updateMining(GameState* state, float deltaTime) {
 
     // Si completamos el minado, romper el bloque
     if (state->miningProgress >= 1.0f) {
-        // ⭐ EL HACHA SE GASTA CON CADA BLOQUE
+        // ⭐ LA HERRAMIENTA SE GASTA CON CADA BLOQUE DE LO SUYO
         //
-        // Cuanto gasta depende de QUE se rompe (ver desgasteHacha): la
-        // madera poco, la piedra mucho. Si no se lleva un hacha en la mano
-        // esto no hace nada.
-        if (state->inventory.gastarHerramienta(desgasteHacha(blockType))) {
-            std::cout << "El hacha de piedra se ha roto" << std::endl;
+        // Solo gasta si el bloque es de su terreno: el hacha con lo orgánico,
+        // el pico con la roca (ver desgasteHerramienta). Romper lo que no le
+        // toca no le quita vida -- ya se paga con los 13 minutos.
+        // Sin herramienta en la mano, esto no hace nada.
+        if (state->inventory.gastarHerramienta(
+                desgasteHerramienta(herramienta, blockType))) {
+            std::cout << "La herramienta se ha roto" << std::endl;
         }
 
         int bx = result.blockPos.x;
@@ -17600,6 +17690,9 @@ void prewarmItemTextures() {
         { BLOCK_PEDAZO_COBRE,  "cobre crudo.png"                         },
         { BLOCK_HILO_IXTLE,    "Hilo de Ixtle.png"                       },
         { BLOCK_HACHA_PIEDRA,  "Hacha de piedra.png"                     },
+        { BLOCK_MARTILLO_PIEDRA, "Martillo de Piedra.png"                },
+        { BLOCK_PICO_PIEDRA,     "pico de Piedra.png"                    },
+        { BLOCK_PEDERNAL_AFILADO, "pedernal afilado.png"                 },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -18939,6 +19032,9 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_RAW_COPPER:   // Cobre crudo - item puro
         case BLOCK_HILO_IXTLE:   // Hilo de ixtle - item puro (fibra)
         case BLOCK_HACHA_PIEDRA: // Hacha de piedra - herramienta
+        case BLOCK_MARTILLO_PIEDRA: // Martillo - herramienta de taller
+        case BLOCK_PICO_PIEDRA:     // Pico - herramienta
+        case BLOCK_PEDERNAL_AFILADO: // Pedernal afilado - item puro
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable
@@ -18985,7 +19081,28 @@ void placeBlock(GameState* state) {
             const BlockType tocado = state->world.getBlock(
                 result.blockPos.x, result.blockPos.y, result.blockPos.z);
 
-            if (esNivelParcial(tocado)) {
+            // ⭐ SE MIRA TAMBIEN LA CELDA MIXTA Y LA LLENA
+            //
+            // AQUI ESTABA EL BUG DE "AL TERCERO SE VA AL LADO".
+            //
+            // Esta rama solo entraba con un nivel PARCIAL. Pero apilar pasa
+            // por tres estados, y solo el primero es parcial:
+            //
+            //   1. tierra L3            -> parcial     -> entraba aqui, bien
+            //   2. + arena  = MIXTA     -> NO parcial  -> se caia de la rama
+            //   3. + lo que sea         -> se iba por el camino normal, que
+            //                              usa previousPos: EL VOXEL DE AL
+            //                              LADO. De ahi el bloque que
+            //                              aparecia al costado, pisando lo
+            //                              que hubiera ahi.
+            //
+            // Ahora entra cualquier celda que admita apilado -- parcial,
+            // mixta o llena -- y cada caso sabe a donde va lo siguiente.
+            const bool celdaApilable = esNivelParcial(tocado) ||
+                                       esMixto(tocado) ||
+                                       admiteNiveles(tocado);
+
+            if (celdaApilable) {
                 // Se mira si el rayo entro por ARRIBA de la capa. La normal
                 // apunta hacia el jugador desde el bloque tocado; si tiene
                 // componente Y positiva, se estaba mirando su tapa.
@@ -19001,6 +19118,46 @@ void placeBlock(GameState* state) {
                     const BlockType enMano =
                         state->inventory.getSelectedBlock();
                     const BlockType base = bloqueBaseDe(tocado);
+
+                    // ⭐ CELDA YA LLENA: LO SIGUIENTE VA ARRIBA, NUNCA AL LADO
+                    //
+                    // Una celda MIXTA (dos materiales) o un bloque ENTERO ya
+                    // no tienen sitio dentro. Antes esto se escapaba de la
+                    // rama y acababa en previousPos -- el voxel de al lado --
+                    // machacando lo que hubiera ahi.
+                    //
+                    // La columna sigue hacia ARRIBA, que es lo unico que
+                    // tiene sentido cuando apuntas a la tapa de algo lleno.
+                    // Y arranca por su nivel 1 si el material lo admite, para
+                    // que se pueda seguir apilando desde ahi igual que antes.
+                    if (esMixto(tocado) || !esNivelParcial(tocado)) {
+                        const Vec3i arriba(result.blockPos.x,
+                                           result.blockPos.y + 1,
+                                           result.blockPos.z);
+
+                        if (arriba.y >= CHUNK_HEIGHT) return;
+
+                        const BlockType encima = state->world.getBlock(
+                            arriba.x, arriba.y, arriba.z);
+
+                        // Si arriba ya hay algo, esta rama no coloca: se
+                        // apunta el destino y sigue el camino normal, que ya
+                        // sabe tratar ese caso (y comprueba la colision con
+                        // el jugador antes de poner nada).
+                        if (encima == BLOCK_AIR) {
+                            BlockType aPoner = enMano;
+                            if (admiteNiveles(enMano) && !esNivelParcial(enMano))
+                                aPoner = conNivel(bloqueBaseDe(enMano), 1);
+
+                            state->world.setBlock(arriba.x, arriba.y,
+                                                  arriba.z, aPoner);
+                            state->inventory.consumeSelected();
+                            state->placeCooldown = 0.25f;
+                            return;
+                        }
+
+                        placePos = arriba;
+                    } else
 
                     if (enMano == base || bloqueBaseDe(enMano) == base) {
                         const int nuevo = nivelDe(tocado) + 1;
@@ -20625,16 +20782,30 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 
         bool clickHandled = false;
 
-        // Verificar clicks en slots del inventario
-        for (int slot = 0; slot < Inventory::SLOTS; slot++) {
-            int row = slot / COLS;
+        // ⭐ EL CLIC TIENE QUE MIRAR LA MISMA VENTANA QUE EL DIBUJADO
+        //
+        // El inventario se dibuja desde la fila del scroll, pero esta prueba
+        // empezaba SIEMPRE en el slot 0. Con el inventario bajado, el jugador
+        // veia la fila 5 y clicaba sobre la casilla de la fila 0: los items
+        // se movian a un sitio distinto del que se estaba tocando.
+        //
+        // Ahora recorre exactamente la misma ventana de cinco filas que pinta
+        // el render, y usa at() para no salirse si el inventario es corto.
+        const int filaPrimera = g_gameState->inventory.scroll;
+        const int slotPrimero = filaPrimera * COLS;
+        const int slotUltimo  = slotPrimero + ROWS * COLS;
+
+        for (int slot = slotPrimero; slot < slotUltimo; slot++) {
+            if (slot >= g_gameState->inventory.total()) break;
+
+            int row = slot / COLS - filaPrimera;
             int col = slot % COLS;
 
             float x = START_X + col * (SLOT_SIZE + SPACING);
             float y = START_Y + row * (SLOT_SIZE + SPACING);
 
             if (xpos >= x && xpos <= x + SLOT_SIZE && ypos >= y && ypos <= y + SLOT_SIZE) {
-                handleSlotClick(g_gameState->inventory.slots[slot], button == GLFW_MOUSE_BUTTON_LEFT);
+                handleSlotClick(g_gameState->inventory.at(slot), button == GLFW_MOUSE_BUTTON_LEFT);
                 clickHandled = true;
                 break;
             }
@@ -23706,7 +23877,11 @@ void saveWorld(GameState* state, bool isAutoSave) {
         // Las partidas de la version 1 se siguen leyendo (ver la carga): lo
         // unico que pasa es que sus hachas entran sin estrenar, que es
         // exactamente como estaban antes de este cambio.
-        const uint32_t version = 2;
+        // ⭐ VERSION 3: el inventario guarda CUANTAS casillas tiene.
+        //
+        // Hasta la v2 se escribian 45 fijas, y todo lo que hubiera por encima
+        // se perdia en silencio. En creativo el inventario pasa de 110.
+        const uint32_t version = 3;
         playerFile.write(reinterpret_cast<const char*>(&version), sizeof(uint32_t));
 
         // Posición
@@ -23726,8 +23901,19 @@ void saveWorld(GameState* state, bool isAutoSave) {
         // Estados booleanos
         playerFile.write(reinterpret_cast<const char*>(&state->player.onGround), sizeof(bool));
 
-        // Inventario (TODOS los 45 slots)
-        for (int i = 0; i < Inventory::SLOTS; i++) {
+        // ⭐ INVENTARIO COMPLETO, SEA DEL TAMAÑO QUE SEA (v3)
+        //
+        // Antes se escribian siempre 45 casillas fijas. El inventario CRECE
+        // (en creativo pasa de 110, y en supervivencia crece al recoger), asi
+        // que todo lo que hubiera por encima de 45 SE PERDIA al guardar sin
+        // decir nada.
+        //
+        // Ahora se escribe primero cuantas hay y luego esas. El numero se
+        // acota al leer, no aqui: lo que se guarda es la verdad.
+        const int numSlots = state->inventory.total();
+        playerFile.write(reinterpret_cast<const char*>(&numSlots), sizeof(int));
+
+        for (int i = 0; i < numSlots; i++) {
             int blockType = static_cast<int>(state->inventory.slots[i].blockType);
             playerFile.write(reinterpret_cast<const char*>(&blockType), sizeof(int));
             playerFile.write(reinterpret_cast<const char*>(&state->inventory.slots[i].count), sizeof(int));
@@ -23955,11 +24141,13 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
             }
 
             // Validar VERSION
-            // v1: sin vida de herramienta. v2: cada slot la trae.
-            // Las dos se leen; la v1 deja las hachas sin estrenar.
+            // v1: 45 casillas fijas, sin vida de herramienta.
+            // v2: 45 casillas fijas, con vida de herramienta.
+            // v3: numero de casillas variable (el inventario crece).
+            // Las tres se leen; la v1 deja las hachas sin estrenar.
             uint32_t version;
             playerFile.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
-            if (version != 1 && version != 2) {
+            if (version != 1 && version != 2 && version != 3) {
                 std::cerr << "   ❌ ERROR: Versión de archivo no soportada: " << version << std::endl;
                 playerFile.close();
                 return false;
@@ -23982,8 +24170,33 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
             // Estados booleanos
             playerFile.read(reinterpret_cast<char*>(&state->player.onGround), sizeof(bool));
 
-            // Inventario (TODOS los 45 slots)
-            for (int i = 0; i < Inventory::SLOTS; i++) {
+            // ⭐ INVENTARIO: TANTAS CASILLAS COMO DIGA EL ARCHIVO (v3)
+            //
+            // Antes de la v3 eran siempre 45. Desde la v3 el numero va
+            // escrito delante, porque el inventario crece.
+            int numSlots = Inventory::SLOTS;
+            if (version >= 3) {
+                playerFile.read(reinterpret_cast<char*>(&numSlots), sizeof(int));
+
+                // Acotar: el numero viene del archivo, asi que un valor
+                // absurdo (corrupto o tocado a mano) reservaria memoria sin
+                // control. El tope son 4096 casillas, muy por encima de lo
+                // que produce el creativo (~115) y aun asi solo ~48 KB.
+                constexpr int MAX_SLOTS_ARCHIVO = 4096;
+                if (numSlots < Inventory::SLOTS) numSlots = Inventory::SLOTS;
+                if (numSlots > MAX_SLOTS_ARCHIVO) {
+                    std::cerr << "   ⚠️ Inventario con " << numSlots
+                              << " casillas: recortado a " << MAX_SLOTS_ARCHIVO
+                              << std::endl;
+                    numSlots = MAX_SLOTS_ARCHIVO;
+                }
+            }
+
+            // Dejar el inventario del tamaño que toca antes de llenarlo.
+            if (state->inventory.total() < numSlots)
+                state->inventory.slots.resize((size_t)numSlots);
+
+            for (int i = 0; i < numSlots; i++) {
                 int blockType;
                 playerFile.read(reinterpret_cast<char*>(&blockType), sizeof(int));
                 playerFile.read(reinterpret_cast<char*>(&state->inventory.slots[i].count), sizeof(int));
@@ -24998,43 +25211,65 @@ int main() {
                     // Los slots se marcan con INFINITE_COUNT, un valor
                     // centinela que el consumo reconoce para no decrementar
                     // nunca (ver Inventory::consumeSelected).
+                    // ⭐ CABEN TODOS, CADA UNO EN SU CASILLA
+                    //
+                    // Antes el recorrido cortaba en Inventory::SLOTS (45) y
+                    // los 113 bloques colocables no cabian: 68 se quedaban
+                    // fuera y nunca aparecian en creativo.
+                    //
+                    // Ahora el inventario CRECE hasta donde haga falta. No es
+                    // gratis pero es barato: cada casilla son 12 bytes, asi
+                    // que las ~114 del creativo suman poco mas de 1 KB. Lo
+                    // que si esta prohibido es reservar de golpe un rango
+                    // enorme, y por eso se usa at(), que crece de una en una
+                    // y tiene tope de salto (ver Inventory::at).
+                    //
+                    // Cada bloque va en SU casilla y con su propio contador
+                    // infinito: no se agrupan ni se comparten, que es
+                    // justo lo que se pide de un menu creativo.
                     int creativeCount = 0;
+
+                    auto ponerEnCreativo = [&](BlockType bt) {
+                        InventorySlot& s = g_gameState->inventory.at(creativeCount);
+                        s.blockType = bt;
+                        s.count = INFINITE_COUNT;
+                        s.vidaMedios = 0;   // sin estrenar (solo importa en herramientas)
+                        ++creativeCount;
+                    };
+
                     // Solo BLOQUES COLOCABLES: el recorrido llega hasta
-                    // BLOCK_LAST_PLACEABLE, asi que los items (palo, hoz,
-                    // carbon...) y los bloques retirados/sin implementar que
-                    // viven despues en el enum ya no entran.
+                    // BLOCK_LAST_PLACEABLE, asi que los bloques retirados o
+                    // sin implementar que viven despues en el enum no entran.
                     for (int id = 1; id <= BLOCK_LAST_PLACEABLE; ++id) {
                         const BlockType bt = (BlockType)id;
 
-                        if (creativeCount >= Inventory::SLOTS) break;
-
-                        // Los NIVELES PARCIALES no salen en el menu: son 154
+                        // Los NIVELES PARCIALES no salen en el menu: son 112
                         // variantes que llenarian el inventario de ruido. El
                         // nivel no se elige aqui, se consigue colocando --
                         // cada bloque entra como capa de 3 px y sube al
                         // seguir poniendo del mismo material.
                         if (esNivelParcial(bt)) continue;
 
-                        g_gameState->inventory.slots[creativeCount].blockType = bt;
-                        g_gameState->inventory.slots[creativeCount].count = INFINITE_COUNT;
-                        ++creativeCount;
+                        ponerEnCreativo(bt);
                     }
 
-                    // ⭐ El HORNO va aparte: vive al final del enum, fuera del
-                    // rango contiguo de bloques del terreno (se añadió ahí
-                    // para no correr los IDs ya guardados). Se añade a mano
-                    // porque el bucle de arriba no llega hasta él.
+                    // ⭐ Lo que vive FUERA del rango contiguo: el horno y las
+                    // herramientas. Se anaden a mano porque el bucle de
+                    // arriba no llega hasta ellos (estan al final del enum
+                    // para no correr los IDs ya guardados).
                     //
-                    // Solo el apagado: el encendido no es un objeto que el
-                    // jugador lleve, es un estado del horno.
-                    if (creativeCount < Inventory::SLOTS) {
-                        g_gameState->inventory.slots[creativeCount].blockType = BLOCK_HORNO;
-                        g_gameState->inventory.slots[creativeCount].count = INFINITE_COUNT;
-                        ++creativeCount;
-                    }
+                    // Del horno solo el apagado: el encendido no es un objeto
+                    // que el jugador lleve, es un estado del horno.
+                    ponerEnCreativo(BLOCK_HORNO);
+                    ponerEnCreativo(BLOCK_HACHA_PIEDRA);
+                    ponerEnCreativo(BLOCK_PICO_PIEDRA);
+                    ponerEnCreativo(BLOCK_MARTILLO_PIEDRA);
+                    ponerEnCreativo(BLOCK_PEDERNAL_AFILADO);
 
                     std::cout << "Inventario creativo: " << creativeCount
-                              << " bloques ordenados por ID, stacks infinitos" << std::endl;
+                              << " objetos en " << g_gameState->inventory.total()
+                              << " casillas, cada uno en la suya con stack infinito"
+                              << std::endl;
 
                     // ⭐ NO abrir inventario automáticamente
                     g_gameState->inventoryOpen = false;

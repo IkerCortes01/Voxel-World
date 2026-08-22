@@ -406,7 +406,16 @@ enum BlockType {
     // insertarlos en medio correría los números de todo lo que viene después
     // y los mundos ya guardados leerían bloques equivocados.
     BLOCK_HORNO,            // 141 Horno apagado
-    BLOCK_HORNO_ENCENDIDO   // 142 Horno encendido (fuego animado, 4 frames)
+    BLOCK_HORNO_ENCENDIDO,  // 142 Horno encendido (fuego animado, 4 frames)
+
+    // ========================================================================
+    // HERRAMIENTAS Y SUS PRODUCTOS
+    // ========================================================================
+    // Igual que el horno: al final del enum, porque los IDs son el formato de
+    // guardado y meterlos en medio corrompería los mundos ya jugados.
+    BLOCK_MARTILLO_PIEDRA,  // 143 Martillo de piedra (150 usos, para craftear)
+    BLOCK_PICO_PIEDRA,      // 144 Pico de piedra (340 usos, para la roca)
+    BLOCK_PEDERNAL_AFILADO  // 145 Pedernal afilado (pedernal + martillo)
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -800,24 +809,50 @@ inline BlockType apilarPenca(BlockType actual, bool enX) {
 }
 
 // ============================================================================
-// EL HACHA DE PIEDRA: 250 BLOQUES ORGÁNICOS
+// LAS HERRAMIENTAS Y LO QUE AGUANTAN
 // ============================================================================
-// El hacha es una herramienta PARA LO ORGÁNICO: madera, ramas, raíces, nopal,
-// maguey. Con eso aguanta 250 bloques exactos, y cada bloque le gasta 1 de
-// vida. Ni más ni menos: 250 cortes y se rompe.
+// Cada herramienta sirve para UNA cosa, y fuera de ahí no sirve. Ese es el
+// criterio de todo lo que hay debajo:
 //
-// Lo que NO es orgánico (tierra, pasto, arena, grava, piedra, minerales) no
-// gasta vida, porque el hacha ni siquiera puede con ello de forma razonable:
-// tarda 13 minutos por bloque (ver esOrganicoParaHacha más abajo y el uso en
-// getBlockBreakTimeForMode). La herramienta no se destroza usándola mal; lo
-// que pasa es que no sirve, que es un castigo más honesto y más claro para el
-// jugador que ver desaparecer el hacha.
+//   HACHA   250 bloques  lo ORGÁNICO: madera, ramas, raíces, nopal, maguey.
+//                        1 segundo cada uno; 13 minutos todo lo demás.
+//   PICO    340 bloques  la ROCA: piedra, caliza, minerales, grava, arena...
+//                        1,5 segundos cada uno; 13 minutos lo orgánico.
+//   MARTILLO 150 usos    no pica: es una herramienta de CRAFTEO. Junto a un
+//                        pedernal en la rejilla da un pedernal afilado, y
+//                        gasta un uso por cada uno.
 //
-// La cuenta se sigue llevando en MEDIOS PUNTOS por compatibilidad con las
-// partidas ya guardadas: `vidaMedios` es el campo que está en disco. Como
-// ahora todo cuesta lo mismo, un bloque orgánico son 2 medios = 1 punto.
-constexpr int HACHA_VIDA_BLOQUES = 250;                     // lo que se anuncia
-constexpr int HACHA_VIDA_MEDIOS  = HACHA_VIDA_BLOQUES * 2;  // 500 medios
+// Usar una herramienta para lo que no es NO le gasta vida: el castigo es que
+// tarda 13 minutos, que es un "esto no es lo tuyo" mucho más claro que ver
+// desaparecer la herramienta.
+//
+// La cuenta se lleva en MEDIOS PUNTOS porque `vidaMedios` es el campo que ya
+// está en las partidas guardadas. Un bloque = 2 medios = 1 punto.
+constexpr int HACHA_VIDA_BLOQUES    = 250;
+constexpr int PICO_VIDA_BLOQUES     = 340;
+constexpr int MARTILLO_VIDA_USOS    = 150;
+
+constexpr int HACHA_VIDA_MEDIOS     = HACHA_VIDA_BLOQUES  * 2;   // 500
+constexpr int PICO_VIDA_MEDIOS      = PICO_VIDA_BLOQUES   * 2;   // 680
+constexpr int MARTILLO_VIDA_MEDIOS  = MARTILLO_VIDA_USOS  * 2;   // 300
+
+// ¿Este objeto es una herramienta que se gasta?
+inline bool esHerramientaGastable(BlockType t) {
+    return t == BLOCK_HACHA_PIEDRA ||
+           t == BLOCK_PICO_PIEDRA  ||
+           t == BLOCK_MARTILLO_PIEDRA;
+}
+
+// Vida COMPLETA de cada herramienta, en medios puntos.
+// Devuelve 0 si no es una herramienta que se gaste.
+inline int vidaMaximaHerramienta(BlockType t) {
+    switch (t) {
+        case BLOCK_HACHA_PIEDRA:    return HACHA_VIDA_MEDIOS;
+        case BLOCK_PICO_PIEDRA:     return PICO_VIDA_MEDIOS;
+        case BLOCK_MARTILLO_PIEDRA: return MARTILLO_VIDA_MEDIOS;
+        default:                    return 0;
+    }
+}
 
 // ¿Es un bloque ORGÁNICO, de los que el hacha corta en 1 segundo?
 //
@@ -862,7 +897,48 @@ inline int desgasteHacha(BlockType t) {
     return esOrganicoParaHacha(t) ? 2 : 0;
 }
 
+// ¿Es un bloque de ROCA, de los que el pico rompe en 1,5 segundos?
+//
+// Es el complemento del hacha: todo lo mineral del mundo. Se define por
+// EXCLUSIÓN de lo orgánico y de las plantas, para que un bloque mineral nuevo
+// entre solo sin tener que acordarse de apuntarlo aquí.
+inline bool esRocaParaPico(BlockType t) {
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    if (esMixto(t))        t = mixtoRelleno(t);
+
+    if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
+
+    // Lo orgánico es del hacha, no del pico.
+    if (esOrganicoParaHacha(t)) return false;
+
+    // Las plantas y la hojarasca tampoco: no son roca.
+    if (t == BLOCK_TALLGRASS || t == BLOCK_LEAVES ||
+        t == BLOCK_LEAVES_ENCINO || t == BLOCK_LEAVES_OYAMEL)
+        return false;
+
+    // Las herramientas y los items sueltos no son bloques del mundo.
+    if (esHerramientaGastable(t)) return false;
+
+    return true;
+}
+
+// Cuántos medios puntos gasta romper este bloque con el pico.
+inline int desgastePico(BlockType t) {
+    return esRocaParaPico(t) ? 2 : 0;
+}
+
+// Lo que gasta la herramienta que se lleve en la mano al romper ESE bloque.
+// Punto único: así el desgaste y el tiempo de rotura no pueden discrepar.
+inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
+    switch (herramienta) {
+        case BLOCK_HACHA_PIEDRA: return desgasteHacha(bloque);
+        case BLOCK_PICO_PIEDRA:  return desgastePico(bloque);
+        // El martillo no pica: se gasta al craftear, no al romper.
+        default:                 return 0;
+    }
+}
+
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_HORNO_ENCENDIDO;
+constexpr int BLOCK_TYPE_MAX = BLOCK_PEDERNAL_AFILADO;

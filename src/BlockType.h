@@ -508,12 +508,26 @@ inline const FamiliaNivel* tablaNiveles(int& n) {
         { BLOCK_COBBLESTONE,    BLOCK_COBBLE_L1  },
         { BLOCK_CLAY,           BLOCK_CLAY_L1    },
         { BLOCK_LIMESTONE,      BLOCK_LIME_L1    },
-        { BLOCK_PLANKS,         BLOCK_PLANKS_L1  },
-        { BLOCK_PLANKS_ENCINO,  BLOCK_PLANKE_L1  },
-        { BLOCK_PLANKS_OYAMEL,  BLOCK_PLANKO_L1  },
-        { BLOCK_WOOD,           BLOCK_WOOD_L1    },
-        { BLOCK_WOOD_ENCINO,    BLOCK_WOODE_L1   },
-        { BLOCK_WOOD_OYAMEL,    BLOCK_WOODO_L1   },
+        // ⭐ LA MADERA NO TIENE NIVELES
+        //
+        // Los tres troncos y los tres tablones salieron de esta tabla a
+        // propósito: son piezas de construcción con forma y veta propias, y
+        // partirlas en lonchas de 3 px las hacía irreconocibles. Un tronco es
+        // un tronco entero, y punto.
+        //
+        // Sus IDs de nivel (BLOCK_WOOD_L1..L7, BLOCK_PLANKS_L1..L7, etc.)
+        // siguen existiendo en el enum y NO se han tocado: quitarlos correría
+        // los números de todo lo que va detrás y los mundos guardados leerían
+        // bloques equivocados. Simplemente ya no se pueden crear, y si un
+        // mundo antiguo trae uno, se dibuja y se rompe como el bloque entero
+        // (bloqueBaseDe lo resuelve por el rango del ID, no por esta tabla).
+        //
+        // ⚠️ FAMILIAS_CON_NIVEL SIGUE SIENDO 22, no 16. Esa constante entra en
+        // el cálculo del ID de las celdas mixtas
+        // (base*7*FAMILIAS + relleno), así que bajarla cambiaría el
+        // significado de todos los bloques mixtos ya guardados: una capa de
+        // tierra con arena encima pasaría a leerse como otra cosa. El hueco
+        // que dejan estas seis familias se queda reservado.
         { BLOCK_COAL_ORE,       BLOCK_COAL_L1    },
         { BLOCK_SILVER_ORE,     BLOCK_SILVER_L1  },
         { BLOCK_GOLD_ORE,       BLOCK_GOLD_L1    },
@@ -595,11 +609,19 @@ inline int indiceFamilia(BlockType entero) {
     return -1;
 }
 
-// Comprobación de que la constante no se queda desfasada si se añade una
-// familia: si esto salta, actualiza FAMILIAS_CON_NIVEL.
-inline bool familiasCuadran() {
+// ¿Cabe la tabla en el espacio de IDs reservado para las celdas mixtas?
+//
+// FAMILIAS_CON_NIVEL es el ANCHO del hueco reservado (22), no el número de
+// familias que hay ahora (16, desde que la madera salió de la tabla). Lo que
+// hay que vigilar es que la tabla no CREZCA por encima del hueco: si eso
+// pasara, los índices se solaparían y dos parejas distintas de materiales
+// darían el mismo ID mixto.
+//
+// Añadir una familia nueva mientras quepa es seguro y no toca nada guardado:
+// ocupa uno de los huecos reservados.
+inline bool familiasCaben() {
     int n = 0; tablaNiveles(n);
-    return n == FAMILIAS_CON_NIVEL;
+    return n <= FAMILIAS_CON_NIVEL;
 }
 
 // El ID de "capa de `base` a nivel `nivel`, y de ahí a 16 px, `relleno`".

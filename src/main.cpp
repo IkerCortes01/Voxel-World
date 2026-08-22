@@ -17885,6 +17885,52 @@ void renderHotbar(Inventory* inventory, int width, int height) {
             // Sin borde alrededor del icono: en un cubo isométrico el
             // rectángulo lo encajona y rompe la ilusión de volumen.
 
+            // ================================================================
+            // ⭐ BARRITA DE VIDA DE LA HERRAMIENTA
+            // ================================================================
+            // Va DEBAJO del icono, dentro del slot, y solo aparece en objetos
+            // que se gastan (hoy, el hacha). Siempre visible mientras el
+            // objeto esté ahí: no se desvanece ni sale solo al usarla, porque
+            // el jugador tiene que poder mirar la hotbar y saber cuánta le
+            // queda sin tener que golpear algo.
+            //
+            // El ancho es la vida que queda; el resto se ve como el canal
+            // oscuro del fondo, así que se lee de un vistazo.
+            const float vidaFrac = inventory->vidaFraccionSlot(i);
+            if (vidaFrac >= 0.0f) {
+                const float margen  = 6.0f;
+                const float anchoTot = slotSize - margen * 2.0f;
+                const float altura   = 4.0f;
+                const float bx = x + margen;
+                // Pegada al borde de abajo del slot, sin llegar a tocarlo.
+                const float by = y + slotSize - altura - 5.0f;
+
+                glDisable(GL_TEXTURE_2D);
+
+                // Canal de fondo: el hueco de lo ya gastado.
+                glColor4f(0.10f, 0.10f, 0.10f, 0.85f);
+                glBegin(GL_QUADS);
+                glVertex2f(bx, by);
+                glVertex2f(bx + anchoTot, by);
+                glVertex2f(bx + anchoTot, by + altura);
+                glVertex2f(bx, by + altura);
+                glEnd();
+
+                // La vida, en rojo. Se mantiene roja siempre: es una barra de
+                // "lo que le queda al hacha", no un semáforo de peligro, y
+                // cambiarle el color la haría competir con los corazones.
+                const float anchoVida = anchoTot * vidaFrac;
+                if (anchoVida > 0.0f) {
+                    glColor4f(0.85f, 0.13f, 0.13f, 1.0f);
+                    glBegin(GL_QUADS);
+                    glVertex2f(bx, by);
+                    glVertex2f(bx + anchoVida, by);
+                    glVertex2f(bx + anchoVida, by + altura);
+                    glVertex2f(bx, by + altura);
+                    glEnd();
+                }
+            }
+
             // Contador de items (si hay más de 1)
             // El contador se dibuja DESPUÉS del icono, así que queda siempre
             // por encima de la textura (requisito 13).
@@ -18566,6 +18612,39 @@ void placeBlock(GameState* state) {
 
                     if (enMano == base || bloqueBaseDe(enMano) == base) {
                         const int nuevo = nivelDe(tocado) + 1;
+
+                        // ⭐ APILAR NO TIENE TOPE
+                        //
+                        // Una celda solo aguanta 8 niveles. Antes, al llegar
+                        // al octavo la capa se convertia en bloque entero y
+                        // ahi se acababa: el siguiente clic se comia el
+                        // bloque de la mano SIN COLOCAR NADA, porque esta
+                        // rama solo sabia subir de nivel dentro de la celda.
+                        //
+                        // Ahora, cuando la celda se llena, la siguiente capa
+                        // ARRANCA EN EL VOXEL DE ARRIBA con nivel 1. Asi se
+                        // puede seguir apilando indefinidamente, celda tras
+                        // celda, que es lo que uno espera al mantener el
+                        // clic: la columna crece y no se pierde nada.
+                        if (nuevo > 8) {
+                            const Vec3i arriba(result.blockPos.x,
+                                               result.blockPos.y + 1,
+                                               result.blockPos.z);
+                            const BlockType encima = state->world.getBlock(
+                                arriba.x, arriba.y, arriba.z);
+
+                            // Solo si hay sitio libre. Si no, no se coloca
+                            // nada y tampoco se gasta el bloque.
+                            if (encima == BLOCK_AIR && arriba.y < CHUNK_HEIGHT) {
+                                state->world.setBlock(arriba.x, arriba.y,
+                                                      arriba.z,
+                                                      conNivel(base, 1));
+                                state->inventory.consumeSelected();
+                                state->placeCooldown = 0.25f;
+                            }
+                            return;
+                        }
+
                         state->world.setBlock(result.blockPos.x,
                                               result.blockPos.y,
                                               result.blockPos.z,
@@ -23224,7 +23303,16 @@ void saveWorld(GameState* state, bool isAutoSave) {
         // HEADER para validación
         const char header[4] = {'P', 'L', 'Y', 'R'};
         playerFile.write(header, 4);
-        const uint32_t version = 1;
+        // ⭐ VERSION 2: cada slot guarda ademas la VIDA de la herramienta.
+        //
+        // Sin esto, el desgaste del hacha se perdia al salir del mundo: se
+        // volvia a entrar con el hacha como nueva. La vida es parte del
+        // objeto, asi que tiene que viajar con el.
+        //
+        // Las partidas de la version 1 se siguen leyendo (ver la carga): lo
+        // unico que pasa es que sus hachas entran sin estrenar, que es
+        // exactamente como estaban antes de este cambio.
+        const uint32_t version = 2;
         playerFile.write(reinterpret_cast<const char*>(&version), sizeof(uint32_t));
 
         // Posición
@@ -23249,6 +23337,9 @@ void saveWorld(GameState* state, bool isAutoSave) {
             int blockType = static_cast<int>(state->inventory.slots[i].blockType);
             playerFile.write(reinterpret_cast<const char*>(&blockType), sizeof(int));
             playerFile.write(reinterpret_cast<const char*>(&state->inventory.slots[i].count), sizeof(int));
+            // Vida de la herramienta (v2). En un slot que no sea herramienta
+            // vale 0 y no significa nada.
+            playerFile.write(reinterpret_cast<const char*>(&state->inventory.slots[i].vidaMedios), sizeof(int));
         }
         playerFile.write(reinterpret_cast<const char*>(&state->inventory.selectedSlot), sizeof(int));
 
@@ -23470,9 +23561,11 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
             }
 
             // Validar VERSION
+            // v1: sin vida de herramienta. v2: cada slot la trae.
+            // Las dos se leen; la v1 deja las hachas sin estrenar.
             uint32_t version;
             playerFile.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
-            if (version != 1) {
+            if (version != 1 && version != 2) {
                 std::cerr << "   ❌ ERROR: Versión de archivo no soportada: " << version << std::endl;
                 playerFile.close();
                 return false;
@@ -23501,6 +23594,21 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
                 playerFile.read(reinterpret_cast<char*>(&blockType), sizeof(int));
                 playerFile.read(reinterpret_cast<char*>(&state->inventory.slots[i].count), sizeof(int));
                 state->inventory.slots[i].blockType = static_cast<BlockType>(blockType);
+
+                if (version >= 2) {
+                    int vida = 0;
+                    playerFile.read(reinterpret_cast<char*>(&vida), sizeof(int));
+                    // Acotar contra un archivo manipulado o corrupto: una vida
+                    // negativa rompería el hacha al primer golpe, y una mayor
+                    // que el máximo la haría casi eterna.
+                    if (vida < 0) vida = 0;
+                    if (vida > HACHA_VIDA_MEDIOS) vida = HACHA_VIDA_MEDIOS;
+                    state->inventory.slots[i].vidaMedios = vida;
+                } else {
+                    // v1 no la guardaba: el hacha entra sin estrenar (0 = se
+                    // le pone la vida completa en el primer uso).
+                    state->inventory.slots[i].vidaMedios = 0;
+                }
             }
             playerFile.read(reinterpret_cast<char*>(&state->inventory.selectedSlot), sizeof(int));
 

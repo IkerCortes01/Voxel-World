@@ -262,6 +262,33 @@ struct Inventory {
         return (float)m * 0.5f;
     }
 
+    // ¿Este objeto es una herramienta que se gasta?
+    // Es lo que decide si se le dibuja la barrita de vida debajo.
+    static bool esHerramienta(BlockType t) {
+        return t == BLOCK_HACHA_PIEDRA;
+    }
+
+    // Vida que le queda a la herramienta de UN slot concreto, de 0 a 1.
+    //
+    // Devuelve -1 si ese slot no lleva una herramienta, que es la senal de
+    // "no dibujes barra aqui".
+    //
+    // Una herramienta recien fabricada tiene vidaMedios = 0 (sin estrenar) y
+    // aqui cuenta como llena: es lo mismo que hace gastarHerramienta al darle
+    // la vida completa en el primer uso. Asi la barra sale entera desde que
+    // se fabrica, en vez de aparecer vacia hasta el primer golpe.
+    float vidaFraccionSlot(int i) const {
+        if (i < 0 || i >= (int)slots.size()) return -1.0f;
+        const InventorySlot& s = slots[i];
+        if (s.isEmpty() || !esHerramienta(s.blockType)) return -1.0f;
+
+        const int m = (s.vidaMedios <= 0) ? HACHA_VIDA_MEDIOS : s.vidaMedios;
+        float f = (float)m / (float)HACHA_VIDA_MEDIOS;
+        if (f < 0.0f) f = 0.0f;
+        if (f > 1.0f) f = 1.0f;
+        return f;
+    }
+
     bool hasSelectedBlock() const {
         if (selectedSlot >= 0 && selectedSlot < SLOTS) {
             return !slots[selectedSlot].isEmpty();

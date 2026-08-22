@@ -95,6 +95,87 @@ TEST_CASE("Hacha: romper tierra no le quita vida") {
     CHECK(inv.at(0).blockType == BLOCK_HACHA_PIEDRA);
 }
 
+// ============================================================================
+// LA BARRITA DE VIDA
+// ============================================================================
+
+TEST_CASE("Barra: un hacha recien fabricada sale con la barra llena") {
+    Inventory inv;
+    inv.at(0).add(BLOCK_HACHA_PIEDRA, 1);
+    // vidaMedios = 0 significa "sin estrenar", y debe leerse como llena.
+    CHECK(inv.at(0).vidaMedios == 0);
+    CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(1.0f));
+}
+
+TEST_CASE("Barra: baja a la mitad tras gastar la mitad de la vida") {
+    Inventory inv;
+    inv.selectedSlot = 0;
+    inv.at(0).add(BLOCK_HACHA_PIEDRA, 1);
+
+    for (int i = 0; i < 125; ++i)      // 125 de 250 bloques
+        inv.gastarHerramienta(desgasteHacha(BLOCK_WOOD));
+
+    CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(0.5f));
+}
+
+TEST_CASE("Barra: los slots que no son herramienta no llevan barra") {
+    Inventory inv;
+    inv.at(0).add(BLOCK_STONE, 10);
+    CHECK(inv.vidaFraccionSlot(0) == -1.0f);   // -1 = no dibujar
+
+    // Un slot vacio tampoco.
+    CHECK(inv.vidaFraccionSlot(1) == -1.0f);
+}
+
+TEST_CASE("Barra: indice fuera de rango no revienta") {
+    Inventory inv;
+    CHECK(inv.vidaFraccionSlot(-1) == -1.0f);
+    CHECK(inv.vidaFraccionSlot(99999) == -1.0f);
+}
+
+// ============================================================================
+// LA MADERA YA NO TIENE NIVELES
+// ============================================================================
+
+TEST_CASE("Niveles: los troncos y tablones no admiten capas parciales") {
+    // Los tres troncos
+    CHECK_FALSE(admiteNiveles(BLOCK_WOOD));
+    CHECK_FALSE(admiteNiveles(BLOCK_WOOD_ENCINO));
+    CHECK_FALSE(admiteNiveles(BLOCK_WOOD_OYAMEL));
+    // Los tres tablones
+    CHECK_FALSE(admiteNiveles(BLOCK_PLANKS));
+    CHECK_FALSE(admiteNiveles(BLOCK_PLANKS_ENCINO));
+    CHECK_FALSE(admiteNiveles(BLOCK_PLANKS_OYAMEL));
+
+    // conNivel sobre madera devuelve el bloque entero, no una capa.
+    CHECK(conNivel(BLOCK_WOOD, 3) == BLOCK_WOOD);
+    CHECK(conNivel(BLOCK_PLANKS, 1) == BLOCK_PLANKS);
+
+    // Y no se pueden mezclar en una celda: mixto() lo rechaza.
+    CHECK(mixto(BLOCK_WOOD, 4, BLOCK_DIRT) == BLOCK_AIR);
+    CHECK(mixto(BLOCK_DIRT, 4, BLOCK_PLANKS) == BLOCK_AIR);
+}
+
+TEST_CASE("Niveles: el terreno y los macizos SI siguen teniendolos") {
+    CHECK(admiteNiveles(BLOCK_DIRT));
+    CHECK(admiteNiveles(BLOCK_GRASS));
+    CHECK(admiteNiveles(BLOCK_SAND));
+    CHECK(admiteNiveles(BLOCK_GRAVEL));
+    CHECK(admiteNiveles(BLOCK_STONE));
+    CHECK(admiteNiveles(BLOCK_COBBLESTONE));
+
+    // Y se siguen pudiendo entrelazar entre si.
+    CHECK(mixto(BLOCK_DIRT, 3, BLOCK_SAND) != BLOCK_AIR);
+    CHECK(mixto(BLOCK_GRAVEL, 5, BLOCK_GRASS) != BLOCK_AIR);
+}
+
+TEST_CASE("Niveles: la tabla sigue cabiendo en el hueco reservado") {
+    // FAMILIAS_CON_NIVEL es el ANCHO reservado para el calculo de los IDs
+    // mixtos, no el numero de familias vivas. Si la tabla lo superara, dos
+    // parejas distintas darian el mismo ID y se corromperian los mundos.
+    CHECK(familiasCaben());
+}
+
 TEST_CASE("Hacha: sin hacha en la mano, gastarHerramienta no hace nada") {
     Inventory inv;
     inv.selectedSlot = 0;

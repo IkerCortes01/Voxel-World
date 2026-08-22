@@ -273,8 +273,13 @@ struct Vec3i {
 // VERSION DEL JUEGO
 // ============================================================================
 // Se muestra en la esquina inferior del menu principal.
+//
+// El valor bueno viene de Version.h, que genera CMake en cada build (se
+// incluye mas arriba, asi que este #define casi nunca se usa). Esto es solo
+// la red por si alguien compila sin CMake: mantenerlo al dia evita que un
+// binario asi mienta sobre su version.
 #ifndef GAME_VERSION_STRING
-#define GAME_VERSION_STRING "260720a"
+#define GAME_VERSION_STRING "260822a"
 #endif
 #ifndef GAME_BUILD_DATE
 #define GAME_BUILD_DATE __DATE__

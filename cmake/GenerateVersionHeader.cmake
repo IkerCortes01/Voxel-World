@@ -13,6 +13,18 @@
 #
 # Variables esperadas: SRC_DIR (raiz del repo), OUT_DIR (donde dejar Version.h)
 
+# ============================================================================
+# VERSION QUE SE VE EN PANTALLA
+# ============================================================================
+# Formato AAMMDD + letra: 260822a es el primer lanzamiento del 22/08/2026.
+# La letra sube (a, b, c...) si hay mas de una version el mismo dia.
+#
+# Se pone A MANO porque es una version de LANZAMIENTO: la decide quien
+# publica, no el numero de commits. El contador de git y el hash siguen
+# yendo detras, asi que un binario cualquiera se sigue pudiendo rastrear
+# hasta su commit exacto.
+set(GAME_VERSION_RELEASE "260822a")
+
 set(GAME_VERSION_BASE "1.0.0")
 
 set(GIT_REV "")
@@ -46,10 +58,12 @@ if(GIT_FOUND)
 endif()
 
 if(GIT_REV STREQUAL "")
-    # Sin git (p. ej. compilando desde un zip): version base sin metadatos.
-    set(GAME_VERSION_FULL "v${GAME_VERSION_BASE}-dev")
+    # Sin git (p. ej. compilando desde un zip): solo la version de lanzamiento.
+    set(GAME_VERSION_FULL "${GAME_VERSION_RELEASE}")
 else()
-    set(GAME_VERSION_FULL "v${GAME_VERSION_BASE}-r${GIT_COUNT}.${GIT_REV}${GIT_DIRTY}")
+    # Lo que ve el jugador es la version de lanzamiento; el hash va detras
+    # para poder rastrear cualquier binario hasta su commit.
+    set(GAME_VERSION_FULL "${GAME_VERSION_RELEASE} (${GIT_REV}${GIT_DIRTY})")
 endif()
 
 string(TIMESTAMP BUILD_DATE "%Y-%m-%d %H:%M" UTC)

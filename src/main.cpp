@@ -17801,9 +17801,11 @@ void renderPlayerHand(BlockType heldBlock, float swingProgress, float deltaTime)
 //      usan el raycast y la colision, asi que una capa de 3 px, una penca o
 //      un maguey se marcan con su tamano y no con un cubo de 1x1x1.
 //
-//   2. UNA SOLA CARA. Se dibuja la cara que el jugador tiene delante, sacada
-//      del normal del impacto. Antes se pintaban las doce aristas y sobre un
-//      bloque bajo eso se veia como una jaula flotando.
+//   2. SOLO LAS CARAS QUE SE VEN. Se marca cada cara que mira a la camara, y
+//      ninguna de las que quedan de espaldas. Pintar las doce aristas hacia
+//      que sobre un bloque bajo pareciera una jaula flotando; marcar una sola
+//      cara se leia mal desde una esquina, donde el bloque se ve de tres
+//      cuartos y hay dos o tres caras a la vista.
 //
 //   3. SE LEE SOBRE CUALQUIER FONDO. Se traza dos veces: una linea gruesa
 //      oscura que hace de sombra y otra fina y clara encima. Asi el contorno
@@ -17815,7 +17817,7 @@ void renderPlayerHand(BlockType heldBlock, float swingProgress, float deltaTime)
 // bloque nuevo se marca solo con declarar su caja en el proveedor.
 void renderBlockOutline(Vec3i blockPos, Vec3 cameraPos, Vec3i normal) {
     if (!g_gameState) return;
-    (void)cameraPos;
+    (void)normal;   // ya no hace falta: se marcan TODAS las caras visibles
 
     const BlockType bsel = g_gameState->world.getBlock(
         blockPos.x, blockPos.y, blockPos.z);
@@ -17852,45 +17854,80 @@ void renderBlockOutline(Vec3i blockPos, Vec3 cameraPos, Vec3i normal) {
     const float by = (float)blockPos.y;
     const float bz = (float)blockPos.z;
 
-    // Con varias piezas, la que da a la cara que se mira.
-    int mejor = 0;
-    for (int pz = 1; pz < formaCache.n; ++pz) {
-        const CajaForma& c = formaCache.piezas[pz];
-        const CajaForma& m = formaCache.piezas[mejor];
-        if      (normal.y > 0 && c.y1 > m.y1) mejor = pz;
-        else if (normal.y < 0 && c.y0 < m.y0) mejor = pz;
-        else if (normal.x > 0 && c.x1 > m.x1) mejor = pz;
-        else if (normal.x < 0 && c.x0 < m.x0) mejor = pz;
-        else if (normal.z > 0 && c.z1 > m.z1) mejor = pz;
-        else if (normal.z < 0 && c.z0 < m.z0) mejor = pz;
-    }
-    const CajaForma& c = formaCache.piezas[mejor];
+    // ⭐ SE MARCAN LAS CARAS QUE EL JUGADOR VE, NO UNA SOLA
+    //
+    // Antes se dibujaba unicamente la cara del impacto. Desde una esquina eso
+    // se lee mal: el bloque se ve de tres cuartos, con dos o tres caras a la
+    // vista, y solo una de ellas quedaba marcada. Parecia que el contorno se
+    // hubiera despegado del bloque.
+    //
+    // Ahora se marca cada cara que MIRA A LA CAMARA, y ninguna de las que
+    // quedan de espaldas -- que es justo lo pedido. La prueba es la de
+    // siempre para saber si una cara se ve: el producto punto entre su
+    // normal y el vector que va de la cara al ojo. Positivo = de cara.
+    const CajaForma* piezas[8];
+    int nPiezas = 0;
+    for (int pz = 0; pz < formaCache.n && nPiezas < 8; ++pz)
+        piezas[nPiezas++] = &formaCache.piezas[pz];
+
     const float O = SELECTION_OFFSET;
-    const float X0 = bx + c.x0 - O, Y0 = by + c.y0 - O, Z0 = bz + c.z0 - O;
-    const float X1 = bx + c.x1 + O, Y1 = by + c.y1 + O, Z1 = bz + c.z1 + O;
+
+    // Las seis caras, cada una con su normal.
+    static const int NORMALES[6][3] = {
+        { 0, 1, 0}, { 0,-1, 0}, { 1, 0, 0},
+        {-1, 0, 0}, { 0, 0, 1}, { 0, 0,-1}
+    };
 
     auto trazarCara = [&]() {
-        glBegin(GL_LINE_LOOP);
-        if (normal.y > 0) {          // arriba
-            glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
-            glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
-        } else if (normal.y < 0) {   // abajo
-            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y0,Z1);
-            glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y0,Z0);
-        } else if (normal.x > 0) {   // este
-            glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
-            glVertex3f(X1,Y1,Z1); glVertex3f(X1,Y1,Z0);
-        } else if (normal.x < 0) {   // oeste
-            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
-            glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y0,Z1);
-        } else if (normal.z > 0) {   // sur
-            glVertex3f(X0,Y0,Z1); glVertex3f(X1,Y0,Z1);
-            glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
-        } else {                     // norte
-            glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
-            glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y0,Z0);
+        for (int p = 0; p < nPiezas; ++p) {
+            const CajaForma& c = *piezas[p];
+            const float X0 = bx + c.x0 - O, Y0 = by + c.y0 - O, Z0 = bz + c.z0 - O;
+            const float X1 = bx + c.x1 + O, Y1 = by + c.y1 + O, Z1 = bz + c.z1 + O;
+
+            // Centro de la pieza, para saber hacia donde cae cada cara.
+            const float cxm = (X0 + X1) * 0.5f;
+            const float cym = (Y0 + Y1) * 0.5f;
+            const float czm = (Z0 + Z1) * 0.5f;
+
+            for (int f = 0; f < 6; ++f) {
+                const float nx = (float)NORMALES[f][0];
+                const float ny = (float)NORMALES[f][1];
+                const float nz = (float)NORMALES[f][2];
+
+                // Punto medio de ESTA cara
+                const float fx = cxm + nx * (X1 - X0) * 0.5f;
+                const float fy = cym + ny * (Y1 - Y0) * 0.5f;
+                const float fz = czm + nz * (Z1 - Z0) * 0.5f;
+
+                // ¿Mira hacia la camara?
+                const float dx = cameraPos.x - fx;
+                const float dy = cameraPos.y - fy;
+                const float dz = cameraPos.z - fz;
+                if (nx * dx + ny * dy + nz * dz <= 0.0f) continue;  // de espaldas
+
+                glBegin(GL_LINE_LOOP);
+                if (f == 0) {              // arriba
+                    glVertex3f(X0,Y1,Z0); glVertex3f(X1,Y1,Z0);
+                    glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+                } else if (f == 1) {       // abajo
+                    glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y0,Z1);
+                    glVertex3f(X1,Y0,Z1); glVertex3f(X1,Y0,Z0);
+                } else if (f == 2) {       // este
+                    glVertex3f(X1,Y0,Z0); glVertex3f(X1,Y0,Z1);
+                    glVertex3f(X1,Y1,Z1); glVertex3f(X1,Y1,Z0);
+                } else if (f == 3) {       // oeste
+                    glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+                    glVertex3f(X0,Y1,Z1); glVertex3f(X0,Y0,Z1);
+                } else if (f == 4) {       // sur
+                    glVertex3f(X0,Y0,Z1); glVertex3f(X1,Y0,Z1);
+                    glVertex3f(X1,Y1,Z1); glVertex3f(X0,Y1,Z1);
+                } else {                   // norte
+                    glVertex3f(X0,Y0,Z0); glVertex3f(X0,Y1,Z0);
+                    glVertex3f(X1,Y1,Z0); glVertex3f(X1,Y0,Z0);
+                }
+                glEnd();
+            }
         }
-        glEnd();
     };
 
     // Pasada 1: la sombra, que da el borde.
@@ -17909,7 +17946,21 @@ void renderBlockOutline(Vec3i blockPos, Vec3 cameraPos, Vec3i normal) {
     glEnable(GL_DEPTH_TEST);
 }
 
-// Renderizar animación de grietas usando texturas (como Minecraft)
+// ============================================================================
+// ANIMACION DE ROTURA
+// ============================================================================
+// Las grietas se pintan sobre el bloque que se esta picando. Sigue las mismas
+// dos reglas que el selector, y por los mismos motivos:
+//
+//   1. SE PEGA A LA FORMA REAL. La caja sale de formaDeBloque(), igual que el
+//      contorno del selector. Antes estaba clavada a un cubo de 1x1x1, asi
+//      que al picar una capa de 3 px las grietas salian FLOTANDO en el aire
+//      por encima de ella, y en una penca o un maguey quedaban por fuera de
+//      la planta. Ahora la animacion y el selector marcan exactamente lo
+//      mismo.
+//
+//   2. SOLO LAS CARAS QUE SE VEN. Igual que el selector: las que dan la
+//      espalda a la camara no se dibujan.
 void renderBlockCrack(Vec3i blockPos, float progress) {
     if (progress <= 0.0f || !g_textureManager || !g_gameState) return;
 
@@ -17920,21 +17971,28 @@ void renderBlockCrack(Vec3i blockPos, float progress) {
     // Obtener posición de la cámara (jugador)
     Vec3 cameraPos = g_gameState->player.getEyePosition();
 
-    // Calcular centros de cada cara del bloque
-    Vec3 faceTop(blockPos.x + 0.5f, blockPos.y + 1.0f, blockPos.z + 0.5f);
-    Vec3 faceBottom(blockPos.x + 0.5f, blockPos.y, blockPos.z + 0.5f);
-    Vec3 faceNorth(blockPos.x + 0.5f, blockPos.y + 0.5f, blockPos.z + 1.0f);
-    Vec3 faceSouth(blockPos.x + 0.5f, blockPos.y + 0.5f, blockPos.z);
-    Vec3 faceEast(blockPos.x + 1.0f, blockPos.y + 0.5f, blockPos.z + 0.5f);
-    Vec3 faceWest(blockPos.x, blockPos.y + 0.5f, blockPos.z + 0.5f);
+    // La forma REAL del bloque, la misma que usan el raycast, la colision y
+    // el selector. Se cachea igual: solo se recalcula al cambiar de bloque.
+    const BlockType bpic = g_gameState->world.getBlock(
+        blockPos.x, blockPos.y, blockPos.z);
 
-    // Normales de cada cara (hacia afuera del bloque)
-    Vec3 normalTop(0, 1, 0);
-    Vec3 normalBottom(0, -1, 0);
-    Vec3 normalNorth(0, 0, 1);
-    Vec3 normalSouth(0, 0, -1);
-    Vec3 normalEast(1, 0, 0);
-    Vec3 normalWest(-1, 0, 0);
+    static FormaBloque formaGrieta;
+    static BlockType tipoGrieta = BLOCK_AIR;
+    static Vec3i posGrieta(-99999, -99999, -99999);
+
+    if (bpic != tipoGrieta || blockPos.x != posGrieta.x ||
+        blockPos.y != posGrieta.y || blockPos.z != posGrieta.z) {
+        formaGrieta = formaDeBloque(bpic,
+            [&](int dx, int dy, int dz) {
+                return g_gameState->world.getBlock(blockPos.x + dx,
+                                                   blockPos.y + dy,
+                                                   blockPos.z + dz);
+            },
+            blockPos.x, blockPos.y, blockPos.z);
+        tipoGrieta = bpic;
+        posGrieta = blockPos;
+    }
+    if (formaGrieta.n <= 0) return;
 
     glPushAttrib(GL_ALL_ATTRIB_BITS);
 
@@ -17953,72 +18011,73 @@ void renderBlockCrack(Vec3i blockPos, float progress) {
 
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
-    float x = blockPos.x;
-    float y = blockPos.y;
-    float z = blockPos.z;
-    float e = 0.003f;
+    const float bx = (float)blockPos.x;
+    const float by = (float)blockPos.y;
+    const float bz = (float)blockPos.z;
+    const float e = 0.003f;
 
-    // Renderizar caras visibles usando producto punto
+    static const int NORM_G[6][3] = {
+        { 0, 1, 0}, { 0,-1, 0}, { 1, 0, 0},
+        {-1, 0, 0}, { 0, 0, 1}, { 0, 0,-1}
+    };
+
     glBegin(GL_QUADS);
 
-    // Cara superior (+Y)
-    Vec3 toCameraTop = cameraPos - faceTop;
-    toCameraTop = toCameraTop.normalize();
-    if (normalTop.dot(toCameraTop) > -0.1f) {  // Flexible: ve la cara si está mirándola
-        glTexCoord2f(0, 0); glVertex3f(x,     y+1+e, z);
-        glTexCoord2f(1, 0); glVertex3f(x+1,   y+1+e, z);
-        glTexCoord2f(1, 1); glVertex3f(x+1,   y+1+e, z+1);
-        glTexCoord2f(0, 1); glVertex3f(x,     y+1+e, z+1);
-    }
+    for (int p = 0; p < formaGrieta.n; ++p) {
+        const CajaForma& c = formaGrieta.piezas[p];
+        const float X0 = bx + c.x0 - e, Y0 = by + c.y0 - e, Z0 = bz + c.z0 - e;
+        const float X1 = bx + c.x1 + e, Y1 = by + c.y1 + e, Z1 = bz + c.z1 + e;
 
-    // Cara inferior (-Y)
-    Vec3 toCameraBottom = cameraPos - faceBottom;
-    toCameraBottom = toCameraBottom.normalize();
-    if (normalBottom.dot(toCameraBottom) > -0.1f) {
-        glTexCoord2f(0, 0); glVertex3f(x,     y-e, z+1);
-        glTexCoord2f(1, 0); glVertex3f(x+1,   y-e, z+1);
-        glTexCoord2f(1, 1); glVertex3f(x+1,   y-e, z);
-        glTexCoord2f(0, 1); glVertex3f(x,     y-e, z);
-    }
+        const float cxm = (X0 + X1) * 0.5f;
+        const float cym = (Y0 + Y1) * 0.5f;
+        const float czm = (Z0 + Z1) * 0.5f;
 
-    // Cara norte (+Z)
-    Vec3 toCameraNorth = cameraPos - faceNorth;
-    toCameraNorth = toCameraNorth.normalize();
-    if (normalNorth.dot(toCameraNorth) > -0.1f) {
-        glTexCoord2f(0, 0); glVertex3f(x,     y,   z+1+e);
-        glTexCoord2f(1, 0); glVertex3f(x+1,   y,   z+1+e);
-        glTexCoord2f(1, 1); glVertex3f(x+1,   y+1, z+1+e);
-        glTexCoord2f(0, 1); glVertex3f(x,     y+1, z+1+e);
-    }
+        for (int f = 0; f < 6; ++f) {
+            const float nx = (float)NORM_G[f][0];
+            const float ny = (float)NORM_G[f][1];
+            const float nz = (float)NORM_G[f][2];
 
-    // Cara sur (-Z)
-    Vec3 toCameraSouth = cameraPos - faceSouth;
-    toCameraSouth = toCameraSouth.normalize();
-    if (normalSouth.dot(toCameraSouth) > -0.1f) {
-        glTexCoord2f(0, 0); glVertex3f(x+1,   y,   z-e);
-        glTexCoord2f(1, 0); glVertex3f(x,     y,   z-e);
-        glTexCoord2f(1, 1); glVertex3f(x,     y+1, z-e);
-        glTexCoord2f(0, 1); glVertex3f(x+1,   y+1, z-e);
-    }
+            // Punto medio de la cara y prueba de visibilidad
+            const float fx = cxm + nx * (X1 - X0) * 0.5f;
+            const float fy = cym + ny * (Y1 - Y0) * 0.5f;
+            const float fz = czm + nz * (Z1 - Z0) * 0.5f;
+            const float dx = cameraPos.x - fx;
+            const float dy = cameraPos.y - fy;
+            const float dz = cameraPos.z - fz;
+            if (nx * dx + ny * dy + nz * dz <= 0.0f) continue;  // de espaldas
 
-    // Cara este (+X)
-    Vec3 toCameraEast = cameraPos - faceEast;
-    toCameraEast = toCameraEast.normalize();
-    if (normalEast.dot(toCameraEast) > -0.1f) {
-        glTexCoord2f(0, 0); glVertex3f(x+1+e, y,   z);
-        glTexCoord2f(1, 0); glVertex3f(x+1+e, y,   z+1);
-        glTexCoord2f(1, 1); glVertex3f(x+1+e, y+1, z+1);
-        glTexCoord2f(0, 1); glVertex3f(x+1+e, y+1, z);
-    }
-
-    // Cara oeste (-X)
-    Vec3 toCameraWest = cameraPos - faceWest;
-    toCameraWest = toCameraWest.normalize();
-    if (normalWest.dot(toCameraWest) > -0.1f) {
-        glTexCoord2f(0, 0); glVertex3f(x-e,   y,   z+1);
-        glTexCoord2f(1, 0); glVertex3f(x-e,   y,   z);
-        glTexCoord2f(1, 1); glVertex3f(x-e,   y+1, z);
-        glTexCoord2f(0, 1); glVertex3f(x-e,   y+1, z+1);
+            if (f == 0) {              // arriba
+                glTexCoord2f(0,0); glVertex3f(X0, Y1, Z0);
+                glTexCoord2f(1,0); glVertex3f(X1, Y1, Z0);
+                glTexCoord2f(1,1); glVertex3f(X1, Y1, Z1);
+                glTexCoord2f(0,1); glVertex3f(X0, Y1, Z1);
+            } else if (f == 1) {       // abajo
+                glTexCoord2f(0,0); glVertex3f(X0, Y0, Z1);
+                glTexCoord2f(1,0); glVertex3f(X1, Y0, Z1);
+                glTexCoord2f(1,1); glVertex3f(X1, Y0, Z0);
+                glTexCoord2f(0,1); glVertex3f(X0, Y0, Z0);
+            } else if (f == 2) {       // este
+                glTexCoord2f(0,0); glVertex3f(X1, Y0, Z0);
+                glTexCoord2f(1,0); glVertex3f(X1, Y0, Z1);
+                glTexCoord2f(1,1); glVertex3f(X1, Y1, Z1);
+                glTexCoord2f(0,1); glVertex3f(X1, Y1, Z0);
+            } else if (f == 3) {       // oeste
+                glTexCoord2f(0,0); glVertex3f(X0, Y0, Z1);
+                glTexCoord2f(1,0); glVertex3f(X0, Y0, Z0);
+                glTexCoord2f(1,1); glVertex3f(X0, Y1, Z0);
+                glTexCoord2f(0,1); glVertex3f(X0, Y1, Z1);
+            } else if (f == 4) {       // sur (+Z)
+                glTexCoord2f(0,0); glVertex3f(X0, Y0, Z1);
+                glTexCoord2f(1,0); glVertex3f(X1, Y0, Z1);
+                glTexCoord2f(1,1); glVertex3f(X1, Y1, Z1);
+                glTexCoord2f(0,1); glVertex3f(X0, Y1, Z1);
+            } else {                   // norte (-Z)
+                glTexCoord2f(0,0); glVertex3f(X1, Y0, Z0);
+                glTexCoord2f(1,0); glVertex3f(X0, Y0, Z0);
+                glTexCoord2f(1,1); glVertex3f(X0, Y1, Z0);
+                glTexCoord2f(0,1); glVertex3f(X1, Y1, Z0);
+            }
+        }
     }
 
     glEnd();
@@ -18112,12 +18171,20 @@ void placeBlock(GameState* state) {
                         return;
                     }
 
-                    // Material distinto: va en el voxel de encima, que es lo
-                    // que ya hacia, pero asegurandonos de que sea ese y no
-                    // el de al lado.
+                    // Material distinto: va en el voxel de encima. Si ESE
+                    // material admite niveles, empieza por el nivel 1 en vez
+                    // de plantar un bloque entero: asi se apoya justo sobre
+                    // la capa de abajo y no queda un escalon de golpe.
                     placePos = Vec3i(result.blockPos.x,
                                      result.blockPos.y + 1,
                                      result.blockPos.z);
+                    if (admiteNiveles(enMano)) {
+                        state->world.setBlock(placePos.x, placePos.y, placePos.z,
+                                              conNivel(bloqueBaseDe(enMano), 1));
+                        state->inventory.consumeSelected();
+                        state->placeCooldown = 0.25f;
+                        return;
+                    }
                 }
             }
         }
@@ -18289,6 +18356,23 @@ void placeBlock(GameState* state) {
                                                   placePos.z,
                                                   g_tiempoJugadoSegundos });
                 }
+            }
+
+            // ⭐ CUALQUIER BLOQUE EMPIEZA POR SU NIVEL 1
+            //
+            // Antes solo las ocho familias de terreno tenian niveles, y un
+            // bloque se plantaba siempre ENTERO: no habia forma de poner una
+            // capa fina de piedra labrada, de tablones ni de un mineral.
+            //
+            // Ahora todo macizo que admita niveles se coloca como capa de 3
+            // px y se va subiendo al seguir poniendo del mismo material (eso
+            // lo hace el bloque de "colocar sobre un nivel parcial" de mas
+            // arriba). Asi se apila sin dejar hueco, sea cual sea el bloque.
+            //
+            // Lo que no admite niveles -- plantas, agua, lava, guijarros --
+            // se coloca igual que siempre.
+            if (admiteNiveles(blockToPlace) && !esNivelParcial(blockToPlace)) {
+                blockToPlace = conNivel(bloqueBaseDe(blockToPlace), 1);
             }
 
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
@@ -23936,6 +24020,13 @@ int main() {
                         const BlockType bt = (BlockType)id;
 
                         if (creativeCount >= Inventory::SLOTS) break;
+
+                        // Los NIVELES PARCIALES no salen en el menu: son 154
+                        // variantes que llenarian el inventario de ruido. El
+                        // nivel no se elige aqui, se consigue colocando --
+                        // cada bloque entra como capa de 3 px y sube al
+                        // seguir poniendo del mismo material.
+                        if (esNivelParcial(bt)) continue;
 
                         g_gameState->inventory.slots[creativeCount].blockType = bt;
                         g_gameState->inventory.slots[creativeCount].count = INFINITE_COUNT;

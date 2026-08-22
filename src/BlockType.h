@@ -309,6 +309,62 @@ enum BlockType {
     BLOCK_CLAYS_L1, BLOCK_CLAYS_L2, BLOCK_CLAYS_L3, BLOCK_CLAYS_L4,
     BLOCK_CLAYS_L5, BLOCK_CLAYS_L6, BLOCK_CLAYS_L7,          // 121-127
 
+    // ------------------------------------------------------------------
+    // NIVELES PARA EL RESTO DE BLOQUES MACIZOS
+    // ------------------------------------------------------------------
+    // Al principio solo ocho familias de terreno tenian niveles. Cualquier
+    // otro bloque -- piedra labrada, tablones, arcilla, un mineral -- se
+    // colocaba SIEMPRE entero: pedir "nivel 3" devolvia el bloque completo
+    // y la capa fina no existia.
+    //
+    // Aqui se completan TODOS los macizos que quedaban, con el mismo
+    // esquema de siete IDs seguidos, para que cualquier bloque se pueda
+    // apilar por capas igual que la tierra.
+    //
+    // Van al final para no desplazar ningun ID anterior: las partidas
+    // guardadas se siguen leyendo igual.
+    BLOCK_COBBLE_L1, BLOCK_COBBLE_L2, BLOCK_COBBLE_L3, BLOCK_COBBLE_L4,
+    BLOCK_COBBLE_L5, BLOCK_COBBLE_L6, BLOCK_COBBLE_L7,
+
+    BLOCK_CLAY_L1, BLOCK_CLAY_L2, BLOCK_CLAY_L3, BLOCK_CLAY_L4,
+    BLOCK_CLAY_L5, BLOCK_CLAY_L6, BLOCK_CLAY_L7,
+
+    BLOCK_LIME_L1, BLOCK_LIME_L2, BLOCK_LIME_L3, BLOCK_LIME_L4,
+    BLOCK_LIME_L5, BLOCK_LIME_L6, BLOCK_LIME_L7,
+
+    BLOCK_PLANKS_L1, BLOCK_PLANKS_L2, BLOCK_PLANKS_L3, BLOCK_PLANKS_L4,
+    BLOCK_PLANKS_L5, BLOCK_PLANKS_L6, BLOCK_PLANKS_L7,
+
+    BLOCK_PLANKE_L1, BLOCK_PLANKE_L2, BLOCK_PLANKE_L3, BLOCK_PLANKE_L4,
+    BLOCK_PLANKE_L5, BLOCK_PLANKE_L6, BLOCK_PLANKE_L7,
+
+    BLOCK_PLANKO_L1, BLOCK_PLANKO_L2, BLOCK_PLANKO_L3, BLOCK_PLANKO_L4,
+    BLOCK_PLANKO_L5, BLOCK_PLANKO_L6, BLOCK_PLANKO_L7,
+
+    BLOCK_WOOD_L1, BLOCK_WOOD_L2, BLOCK_WOOD_L3, BLOCK_WOOD_L4,
+    BLOCK_WOOD_L5, BLOCK_WOOD_L6, BLOCK_WOOD_L7,
+
+    BLOCK_WOODE_L1, BLOCK_WOODE_L2, BLOCK_WOODE_L3, BLOCK_WOODE_L4,
+    BLOCK_WOODE_L5, BLOCK_WOODE_L6, BLOCK_WOODE_L7,
+
+    BLOCK_WOODO_L1, BLOCK_WOODO_L2, BLOCK_WOODO_L3, BLOCK_WOODO_L4,
+    BLOCK_WOODO_L5, BLOCK_WOODO_L6, BLOCK_WOODO_L7,
+
+    BLOCK_COAL_L1, BLOCK_COAL_L2, BLOCK_COAL_L3, BLOCK_COAL_L4,
+    BLOCK_COAL_L5, BLOCK_COAL_L6, BLOCK_COAL_L7,
+
+    BLOCK_SILVER_L1, BLOCK_SILVER_L2, BLOCK_SILVER_L3, BLOCK_SILVER_L4,
+    BLOCK_SILVER_L5, BLOCK_SILVER_L6, BLOCK_SILVER_L7,
+
+    BLOCK_GOLD_L1, BLOCK_GOLD_L2, BLOCK_GOLD_L3, BLOCK_GOLD_L4,
+    BLOCK_GOLD_L5, BLOCK_GOLD_L6, BLOCK_GOLD_L7,
+
+    BLOCK_DIAMOND_L1, BLOCK_DIAMOND_L2, BLOCK_DIAMOND_L3, BLOCK_DIAMOND_L4,
+    BLOCK_DIAMOND_L5, BLOCK_DIAMOND_L6, BLOCK_DIAMOND_L7,
+
+    BLOCK_SCRAP_L1, BLOCK_SCRAP_L2, BLOCK_SCRAP_L3, BLOCK_SCRAP_L4,
+    BLOCK_SCRAP_L5, BLOCK_SCRAP_L6, BLOCK_SCRAP_L7,
+
     // ========================================================================
     // ITEMS
     // ========================================================================
@@ -340,9 +396,9 @@ enum BlockType {
     BLOCK_BEDROCK           // 140 (ya no se genera)
 };
 
-// Último bloque COLOCABLE (el último nivel de arena arcillosa).
+// Último bloque COLOCABLE (el último nivel añadido).
 // Lo que va después son items y bloques retirados.
-constexpr int BLOCK_LAST_PLACEABLE = BLOCK_CLAYS_L7;
+constexpr int BLOCK_LAST_PLACEABLE = BLOCK_SCRAP_L7;
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {
@@ -378,56 +434,106 @@ inline int alturaNivelPx(int nivel) {
     }
 }
 
+// ============================================================================
+// FAMILIAS CON NIVELES
+// ============================================================================
+// UNA sola tabla: bloque entero -> primer ID de sus siete niveles. Todo lo
+// demas (que nivel es, a que bloque pertenece, que ID toca) se deduce de
+// aqui, asi que dar niveles a un bloque nuevo es anadir una linea.
+//
+// Antes esto era un switch y tres funciones con aritmetica sobre un unico
+// rango contiguo, y por eso solo podian tener niveles ocho familias: al
+// anadir mas, los IDs ya no eran contiguos y las cuentas se rompian. La
+// tabla no depende del orden ni de que los rangos sean seguidos.
+struct FamiliaNivel { BlockType entero; BlockType primero; };
+
+inline const FamiliaNivel* tablaNiveles(int& n) {
+    static const FamiliaNivel TABLA[] = {
+        // --- Terreno (los originales) ---
+        { BLOCK_GRASS,          BLOCK_GRASS_L1   },
+        { BLOCK_DIRT,           BLOCK_DIRT_L1    },
+        { BLOCK_STONE,          BLOCK_STONE_L1   },
+        { BLOCK_SAND,           BLOCK_SAND_L1    },
+        { BLOCK_GRAVEL,         BLOCK_GRAVEL_L1  },
+        { BLOCK_SNOW,           BLOCK_SNOW_L1    },
+        { BLOCK_CLAY_DIRT,      BLOCK_CLAYD_L1   },
+        { BLOCK_CLAY_SAND,      BLOCK_CLAYS_L1   },
+        // --- El resto de macizos ---
+        { BLOCK_COBBLESTONE,    BLOCK_COBBLE_L1  },
+        { BLOCK_CLAY,           BLOCK_CLAY_L1    },
+        { BLOCK_LIMESTONE,      BLOCK_LIME_L1    },
+        { BLOCK_PLANKS,         BLOCK_PLANKS_L1  },
+        { BLOCK_PLANKS_ENCINO,  BLOCK_PLANKE_L1  },
+        { BLOCK_PLANKS_OYAMEL,  BLOCK_PLANKO_L1  },
+        { BLOCK_WOOD,           BLOCK_WOOD_L1    },
+        { BLOCK_WOOD_ENCINO,    BLOCK_WOODE_L1   },
+        { BLOCK_WOOD_OYAMEL,    BLOCK_WOODO_L1   },
+        { BLOCK_COAL_ORE,       BLOCK_COAL_L1    },
+        { BLOCK_SILVER_ORE,     BLOCK_SILVER_L1  },
+        { BLOCK_GOLD_ORE,       BLOCK_GOLD_L1    },
+        { BLOCK_DIAMOND_ORE,    BLOCK_DIAMOND_L1 },
+        { BLOCK_SCRAP_METAL,    BLOCK_SCRAP_L1   },
+    };
+    n = (int)(sizeof(TABLA) / sizeof(TABLA[0]));
+    return TABLA;
+}
+
 // Primer ID de cada familia con niveles. Devuelve BLOCK_AIR si el bloque no
-// admite niveles (troncos, minerales, plantas, construidos...).
+// admite niveles (plantas, agua, lava, guijarros...).
 inline BlockType primerNivelDe(BlockType completo) {
-    switch (completo) {
-        case BLOCK_GRASS:      return BLOCK_GRASS_L1;
-        case BLOCK_DIRT:       return BLOCK_DIRT_L1;
-        case BLOCK_STONE:      return BLOCK_STONE_L1;
-        case BLOCK_SAND:       return BLOCK_SAND_L1;
-        case BLOCK_GRAVEL:     return BLOCK_GRAVEL_L1;
-        case BLOCK_SNOW:       return BLOCK_SNOW_L1;
-        case BLOCK_CLAY_DIRT:  return BLOCK_CLAYD_L1;
-        case BLOCK_CLAY_SAND:  return BLOCK_CLAYS_L1;
-        default:               return BLOCK_AIR;
-    }
+    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    for (int i = 0; i < n; ++i)
+        if (T[i].entero == completo) return T[i].primero;
+    return BLOCK_AIR;
 }
 
 // ¿Este bloque es un nivel parcial (1..7)?
 inline bool esNivelParcial(BlockType t) {
-    return (int)t >= (int)BLOCK_GRASS_L1 && (int)t <= (int)BLOCK_CLAYS_L7;
+    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    for (int i = 0; i < n; ++i) {
+        const int p = (int)T[i].primero;
+        if ((int)t >= p && (int)t < p + 7) return true;
+    }
+    return false;
 }
 
 // Que nivel es (1..8). Un bloque entero es 8; lo que no tiene niveles, 8.
 inline int nivelDe(BlockType t) {
-    if (!esNivelParcial(t)) return 8;
-    return (((int)t - (int)BLOCK_GRASS_L1) % 7) + 1;
+    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    for (int i = 0; i < n; ++i) {
+        const int p = (int)T[i].primero;
+        if ((int)t >= p && (int)t < p + 7) return ((int)t - p) + 1;
+    }
+    return 8;
 }
 
 // El bloque COMPLETO al que pertenece este nivel.
 inline BlockType bloqueBaseDe(BlockType t) {
-    if (!esNivelParcial(t)) return t;
-    const int fam = ((int)t - (int)BLOCK_GRASS_L1) / 7;
-    switch (fam) {
-        case 0: return BLOCK_GRASS;
-        case 1: return BLOCK_DIRT;
-        case 2: return BLOCK_STONE;
-        case 3: return BLOCK_SAND;
-        case 4: return BLOCK_GRAVEL;
-        case 5: return BLOCK_SNOW;
-        case 6: return BLOCK_CLAY_DIRT;
-        default: return BLOCK_CLAY_SAND;
+    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    for (int i = 0; i < n; ++i) {
+        const int p = (int)T[i].primero;
+        if ((int)t >= p && (int)t < p + 7) return T[i].entero;
     }
+    return t;
 }
 
 // El ID que corresponde a un bloque y un nivel. Nivel 8 -> el bloque entero.
+//
+// Acepta que le pasen un nivel parcial como "completo": se normaliza a su
+// bloque entero primero. Asi conNivel(tierra_L3, 5) da tierra_L5 en vez de
+// devolver una barbaridad.
 inline BlockType conNivel(BlockType completo, int nivel) {
+    completo = bloqueBaseDe(completo);
     if (nivel >= 8) return completo;
     if (nivel < 1) nivel = 1;
     const BlockType primero = primerNivelDe(completo);
     if (primero == BLOCK_AIR) return completo;   // no admite niveles
     return (BlockType)((int)primero + (nivel - 1));
+}
+
+// ¿Este bloque admite niveles?
+inline bool admiteNiveles(BlockType t) {
+    return primerNivelDe(bloqueBaseDe(t)) != BLOCK_AIR;
 }
 
 // Altura en bloques (0..1) que ocupa este bloque. Es su colision EXACTA.

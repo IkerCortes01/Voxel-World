@@ -291,6 +291,7 @@ struct Vec3i {
 #endif
 
 #include "BlockType.h"
+#include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "WorldName.h"
 
@@ -5259,11 +5260,12 @@ struct Chunk {
     bool isModified;  // ⭐ Flag para saber si el chunk fue modificado por el jugador
     std::atomic<bool> isBeingGenerated;  // ⭐ Flag para prevenir liberación durante generación async
     int buildRetries;  // ⭐⭐⭐ Contador de reintentos de construcción
+    int framesConCandado;  // Frames seguidos con isUpdatingMesh puesto y sin mesh
 
     Chunk(Vec3i pos) : position(pos),
                        needsRebuild(true), isGenerated(false), needsLightUpdate(false),
                        isUpdatingMesh(false), waitingForNeighbors(false), isModified(false),
-                       isBeingGenerated(false), buildRetries(0) {
+                       isBeingGenerated(false), buildRetries(0), framesConCandado(0) {
         // ⭐ INICIALIZAR SUBCHUNKS CON PALETAS (todos empiezan con BLOCK_AIR)
         subchunks.reserve(SUBCHUNKS_PER_CHUNK);
         for (int i = 0; i < SUBCHUNKS_PER_CHUNK; i++) {
@@ -6632,6 +6634,26 @@ private:
             chunk->needsRebuild = true;
             chunk->isGenerated = false;
             chunk->isModified = false;
+
+            // ⭐ CRÍTICO: limpiar TAMBIÉN el estado de mallado.
+            //
+            // Estos tres se quedaban con el valor del mundo anterior, y cada
+            // uno deja el chunk invisible para siempre:
+            //
+            //   waitingForNeighbors -> buildChunkMesh() sale en la guarda de
+            //       needsRebuild, así que "esperando vecinos" heredado con
+            //       needsRebuild ya en false no se malla nunca. Y el rescate
+            //       del render loop se saltaba justo ese caso.
+            //   buildRetries -> heredar un 7 agota el límite de 8 al primer
+            //       tropiezo y el chunk se abandona.
+            //   isUpdatingMesh -> un candado heredado bloquea a la vez el
+            //       mallado (compare_exchange falla) y el dibujado.
+            //
+            // Un chunk del pool debe salir como uno recién construido.
+            chunk->waitingForNeighbors = false;
+            chunk->buildRetries = 0;
+            chunk->framesConCandado = 0;
+            chunk->isUpdatingMesh.store(false, std::memory_order_release);
 
             // ⭐ CRÍTICO: limpiar los SUBCHUNKS PALETIZADOS.
             //
@@ -10467,7 +10489,13 @@ public:
         PROFILE_SCOPE("World::buildChunkMesh");
         // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Validar chunk antes de procesar
         if (!chunk) return;
-        if (!chunk->needsRebuild) return;
+        // ⭐ Esperar por vecinos TAMBIÉN es motivo para entrar.
+        //
+        // Antes solo se miraba needsRebuild, y el planificador (que sí encola
+        // los chunks con waitingForNeighbors) se topaba con este return: el
+        // chunk se encolaba cada frame y salía por la puerta sin hacer nada.
+        // Estado atrapado: waitingForNeighbors=true + needsRebuild=false.
+        if (!chunk->needsRebuild && !chunk->waitingForNeighbors) return;
         if (!chunk->isGenerated) return;
 
         // ⭐ PROTECCIÓN: Evitar race conditions en threading
@@ -10534,6 +10562,10 @@ public:
             // Esto evita chunks cortados esperando demasiado tiempo por vecinos
             if (chunk->buildRetries < 3) {
                 chunk->waitingForNeighbors = true;
+                // INVARIANTE: esperar vecinos implica seguir pendiente. Si se
+                // pierde este flag el chunk deja de reconstruirse para
+                // siempre; mantenerlos juntos cierra ese agujero.
+                chunk->needsRebuild = true;
                 chunk->isUpdatingMesh.store(false);
                 return;  // Se reintentará en el próximo frame
             }
@@ -14098,14 +14130,40 @@ public:
             if (!chunk->isGenerated) continue;
 
             // Si está actualizando mesh, skip (normal)
-            if (chunk->isUpdatingMesh.load(std::memory_order_acquire)) continue;
-
-            // ⭐ CRÍTICO: Si no tiene batches pero está generado, marcarlo para rebuild
-            if (chunk->batches.empty()) {
-                // Solo marcar si no está ya marcado (evitar spam)
-                if (!chunk->needsRebuild && !chunk->waitingForNeighbors) {
-                    chunk->needsRebuild = true;
+            //
+            // ⭐ VIGILANTE DEL CANDADO. El mallado es síncrono: ocupa UN frame
+            // y libera. Un chunk generado, sin mesh y con el candado puesto
+            // muchos frames seguidos no está trabajando — el candado se
+            // filtró (excepción, return sin liberar, estado heredado). Y
+            // mientras siga puesto bloquea las DOS salidas: no se malla
+            // (compare_exchange falla) y no se dibuja (este mismo skip).
+            //
+            // Se libera y se reencola. Si de verdad estuviera mallando, el
+            // umbral de 60 frames no se alcanza jamás.
+            if (chunk->isUpdatingMesh.load(std::memory_order_acquire)) {
+                if (chunk->batches.empty()) {
+                    if (++chunk->framesConCandado > 60) {
+                        std::cerr << "AVISO: chunk (" << chunk->position.x << ","
+                                  << chunk->position.z << ") con el candado de "
+                                     "mallado atascado. Liberando." << std::endl;
+                        chunk->isUpdatingMesh.store(false, std::memory_order_release);
+                        chunk->needsRebuild = true;
+                        chunk->framesConCandado = 0;
+                    }
                 }
+                continue;
+            }
+            chunk->framesConCandado = 0;
+
+            // ⭐ CRÍTICO: generado y sin batches = invisible. SIEMPRE se reencola.
+            //
+            // Antes se excluía a los chunks con waitingForNeighbors, y ese era
+            // justo el estado del que no se podía salir: el rescate los
+            // ignoraba por estar "esperando" y nadie más los reactivaba.
+            // Poner needsRebuild ya estando puesto no cuesta nada, así que la
+            // excepción no ahorraba trabajo: solo perdía chunks.
+            if (chunk->batches.empty()) {
+                chunk->needsRebuild = true;
                 continue;
             }
 
@@ -24555,6 +24613,75 @@ int main() {
                                  item.blockType == BLOCK_PEDAZO_CALIZA ||
                                  item.blockType == BLOCK_RAW_ZINC ||
                                  item.blockType == BLOCK_COAL_ITEM);
+
+            // ⭐ ITEMS FINOS: el canto sale del CONTORNO, no del borde del cuadro.
+            //
+            // El camino item3D de abajo levanta el canto con cuatro tiras
+            // pegadas al borde de la textura. Eso vale para un item que llena
+            // su cuadro, pero el palo ocupa el 19.5% y es diagonal: de los 64
+            // pixeles del borde solo 5 son opacos. Con aquello el palo saldria
+            // como dos laminas planas con el hueco a la vista por el costado,
+            // mas cinco astillas sueltas flotando en el aire.
+            //
+            // Aqui el canto se levanta pixel a pixel donde la figura toca el
+            // vacio: 86 tiras que siguen el palo de verdad. Queda un solido
+            // cerrado, con su forma y sin nada invisible.
+            const char* siluetaPNG = nullptr;
+            switch (item.blockType) {
+                case BLOCK_STICK: siluetaPNG = "palo.png"; break;
+                default: break;
+            }
+
+            if (siluetaPNG) {
+                const std::string ruta =
+                    gamePath("resourcepacks/Textures/Items/") + siluetaPNG;
+                const SiluetaItem::Modelo& mod =
+                    SiluetaItem::obtener(ruta, 0.09f);
+
+                if (mod.valido) {
+                    const GLuint tex =
+                        (GLuint)g_itemTextures.resolve((int)item.blockType);
+                    if (g_textureManager) g_textureManager->bindForUI(tex);
+
+                    // Recorta el fondo transparente del PNG en las dos caras
+                    // planas. El canto ya nace solo donde hay dibujo.
+                    glEnable(GL_ALPHA_TEST);
+                    glAlphaFunc(GL_GREATER, 0.5f);
+
+                    const float g = 0.09f * scale;
+                    glColor3f(1.0f, 1.0f, 1.0f);
+
+                    glBegin(GL_QUADS);
+                    // Cara de delante
+                    glTexCoord2f(0, 0); glVertex3f(-scale, -scale,  g);
+                    glTexCoord2f(1, 0); glVertex3f( scale, -scale,  g);
+                    glTexCoord2f(1, 1); glVertex3f( scale,  scale,  g);
+                    glTexCoord2f(0, 1); glVertex3f(-scale,  scale,  g);
+                    // Cara de detras (al reves, para que mire al otro lado)
+                    glTexCoord2f(0, 1); glVertex3f(-scale,  scale, -g);
+                    glTexCoord2f(1, 1); glVertex3f( scale,  scale, -g);
+                    glTexCoord2f(1, 0); glVertex3f( scale, -scale, -g);
+                    glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -g);
+                    glEnd();
+
+                    // El CANTO: el contorno real, ya calculado y cacheado.
+                    // Se oscurece un poco para que el volumen se lea.
+                    glColor3f(0.78f, 0.78f, 0.78f);
+                    glBegin(GL_QUADS);
+                    for (const SiluetaItem::Vertice& v : mod.canto) {
+                        // La V se invierte porque la silueta se leyo sin
+                        // voltear y la textura si esta volteada en GL.
+                        glTexCoord2f(v.u, 1.0f - v.v);
+                        glVertex3f(v.x * scale, v.y * scale, v.z * scale);
+                    }
+                    glEnd();
+
+                    glDisable(GL_ALPHA_TEST);
+                    glPopMatrix();
+                    continue;   // no dibujar el cubo
+                }
+                // Si el PNG no se pudo leer, cae al camino normal de abajo.
+            }
 
             if (item3D) {
                 const GLuint tex =

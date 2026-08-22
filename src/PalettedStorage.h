@@ -145,8 +145,23 @@ public:
         // No necesitamos índices si todo es el mismo bloque
     }
 
+    // ⭐ COORDENADAS VÁLIDAS: las locales van de 0 a 15 en los tres ejes.
+    //
+    // Sin esta comprobación, un x/y/z fuera de rango daba un blockIndex mayor
+    // que los 4096 bloques del subchunk y se escribía FUERA del vector de
+    // índices: corrupción de memoria silenciosa que reventaba mucho después y
+    // lejos de donde estaba la causa. Es una clase de almacenamiento; tiene
+    // que defender su propio buffer.
+    static bool coordsValidas(int x, int y, int z) {
+        return x >= 0 && x < SUBCHUNK_SIZE &&
+               y >= 0 && y < SUBCHUNK_SIZE &&
+               z >= 0 && z < SUBCHUNK_SIZE;
+    }
+
     // ⭐ OBTENER BLOQUE: Coordenadas locales [0-15] en X, Y, Z
     BlockType getBlock(int x, int y, int z) const {
+        if (!coordsValidas(x, y, z)) return palette[0];
+
         int blockIndex = y * 256 + z * 16 + x; // YZX order para mejor cache coherence
 
         if (palette.size() == 1) {
@@ -154,11 +169,14 @@ public:
         }
 
         uint16_t paletteIdx = getPackedIndex(blockIndex);
+        if (paletteIdx >= palette.size()) return palette[0];  // índice corrupto
         return palette[paletteIdx];
     }
 
     // ⭐ ESTABLECER BLOQUE: Coordenadas locales [0-15]
     void setBlock(int x, int y, int z, BlockType blockType) {
+        if (!coordsValidas(x, y, z)) return;  // fuera del subchunk: se ignora
+
         int blockIndex = y * 256 + z * 16 + x;
 
         // Buscar el bloque en la paleta

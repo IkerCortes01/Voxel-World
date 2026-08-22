@@ -83,15 +83,50 @@ TEST_CASE("PalettedSubChunk: los datos sobreviven al crecer la paleta (repack)")
     };
     const int typeCount = static_cast<int>(sizeof(types) / sizeof(types[0]));
 
+    // Las coordenadas locales van de 0 a 15. Antes esto era setBlock(i,i,i)
+    // con i hasta 19, que se salía del subchunk por tres ejes a la vez y
+    // corrompía memoria (el test reventaba con SIGSEGV). Se recorren
+    // posiciones distintas SIN salirse: la Y avanza al pasar de 15.
+    auto pos = [](int i, int& x, int& y, int& z) {
+        x = i % 16;
+        y = i / 16;
+        z = (i * 7) % 16;
+    };
+
     for (int i = 0; i < typeCount; i++) {
-        sub.setBlock(i, i, i, types[i]);
+        int x, y, z; pos(i, x, y, z);
+        sub.setBlock(x, y, z, types[i]);
     }
 
     // Todo lo escrito antes de cada repack debe seguir intacto
     for (int i = 0; i < typeCount; i++) {
-        CHECK(sub.getBlock(i, i, i) == types[i]);
+        int x, y, z; pos(i, x, y, z);
+        CHECK(sub.getBlock(x, y, z) == types[i]);
     }
     CHECK(sub.getPaletteSize() == static_cast<size_t>(typeCount) + 1);  // +1 por BLOCK_AIR
+}
+
+// Una coordenada fuera de [0,15] daba un índice mayor que los 4096 bloques del
+// subchunk y se escribía fuera del buffer: corrupción silenciosa que estallaba
+// mucho después. Ahora se ignora, y sobre todo NO toca memoria ajena.
+TEST_CASE("PalettedSubChunk: las coordenadas fuera de rango no corrompen nada") {
+    PalettedSubChunk sub(BLOCK_AIR);
+    sub.setBlock(1, 1, 1, BLOCK_STONE);
+
+    const int fuera[] = { -1, 16, 17, 100, -50 };
+    for (int f : fuera) {
+        sub.setBlock(f, 0, 0, BLOCK_DIRT);
+        sub.setBlock(0, f, 0, BLOCK_DIRT);
+        sub.setBlock(0, 0, f, BLOCK_DIRT);
+        // Leer fuera de rango tampoco debe reventar
+        (void)sub.getBlock(f, 0, 0);
+        (void)sub.getBlock(0, f, 0);
+        (void)sub.getBlock(0, 0, f);
+    }
+
+    // Lo que sí estaba dentro sigue intacto, y la paleta no creció por basura
+    CHECK(sub.getBlock(1, 1, 1) == BLOCK_STONE);
+    CHECK(sub.getPaletteSize() == 2);  // AIR + STONE, nada más
 }
 
 TEST_CASE("PalettedSubChunk: subchunk lleno con patron pseudoaleatorio") {

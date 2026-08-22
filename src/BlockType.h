@@ -400,6 +400,52 @@ enum BlockType {
 // Lo que va después son items y bloques retirados.
 constexpr int BLOCK_LAST_PLACEABLE = BLOCK_SCRAP_L7;
 
+// ============================================================================
+// CELDAS MIXTAS: UNA CAPA DE UN MATERIAL, RELLENO DE OTRO ENCIMA
+// ============================================================================
+// Poner arena sobre una capa de tierra dejaba la arena FLOTANDO: el bloque
+// nuevo se iba al voxel de arriba (un salto de 16 px) mientras la capa de
+// tierra medía 5, así que quedaban 11 px de aire a la vista.
+//
+// La celda tiene sitio de sobra -- lo que faltaba era poder decir "aquí abajo
+// hay tierra hasta el píxel 5, y de ahí a 16 hay arena".
+//
+//     ┌────────────┐ 16
+//     │▒▒▒ ARENA ▒▒│   relleno: lo que falta hasta arriba
+//     ├────────────┤  5
+//     │███ TIERRA █│   base: su nivel de siempre
+//     └────────────┘  0
+//
+// CÓMO SE GUARDA. El chunk guarda UN BlockType por celda y no tiene sitio
+// para metadatos, así que el par se mete en el propio ID. Pero una ID por
+// cada combinación serían 3388 valores y habría que escribirlos a mano en el
+// enum, en las texturas y en cada switch.
+//
+// En vez de eso se CALCULAN: a partir de BLOCK_MIXTO_BASE, el ID codifica
+// (base, relleno) con una multiplicación. No ocupan sitio en el enum, no hay
+// tabla que mantener, y añadir una familia con niveles las habilita todas.
+//
+// Los IDs siguen cabiendo de sobra: la paleta del chunk guarda 16 bits por
+// índice y serializa 4 bytes por entrada.
+
+// Cuántas familias con niveles hay (ver tablaNiveles()). Se comprueba con un
+// static_assert más abajo para que no se quede desfasado.
+constexpr int FAMILIAS_CON_NIVEL = 22;
+
+// Primer ID del rango calculado. Va MUY por encima del enum para que jamás
+// pise un bloque real, presente o futuro.
+constexpr int BLOCK_MIXTO_BASE = 1000;
+
+// Un ID mixto codifica: (indiceBase * 7 + (nivel-1)) * FAMILIAS + indiceRelleno
+constexpr int MIXTO_POR_BASE = 7 * FAMILIAS_CON_NIVEL;
+constexpr int BLOCK_MIXTO_FIN =
+    BLOCK_MIXTO_BASE + FAMILIAS_CON_NIVEL * MIXTO_POR_BASE;
+
+// ¿Es una celda mixta (capa + relleno de otro material)?
+inline bool esMixto(BlockType t) {
+    return (int)t >= BLOCK_MIXTO_BASE && (int)t < BLOCK_MIXTO_FIN;
+}
+
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
 inline bool esRaiz(BlockType t) {
     return t == BLOCK_RAIZ_PEQUENA || t == BLOCK_RAIZ_MEDIANA ||
@@ -536,9 +582,71 @@ inline bool admiteNiveles(BlockType t) {
     return primerNivelDe(bloqueBaseDe(t)) != BLOCK_AIR;
 }
 
+// ============================================================================
+// CELDAS MIXTAS: codificar y descodificar
+// ============================================================================
+// El ID no está en el enum: se calcula. Ver el comentario de BLOCK_MIXTO_BASE.
+
+// Posición de una familia dentro de tablaNiveles(), o -1 si no tiene niveles.
+inline int indiceFamilia(BlockType entero) {
+    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    entero = bloqueBaseDe(entero);
+    for (int i = 0; i < n; ++i) if (T[i].entero == entero) return i;
+    return -1;
+}
+
+// Comprobación de que la constante no se queda desfasada si se añade una
+// familia: si esto salta, actualiza FAMILIAS_CON_NIVEL.
+inline bool familiasCuadran() {
+    int n = 0; tablaNiveles(n);
+    return n == FAMILIAS_CON_NIVEL;
+}
+
+// El ID de "capa de `base` a nivel `nivel`, y de ahí a 16 px, `relleno`".
+// Devuelve BLOCK_AIR si la pareja no se puede representar.
+inline BlockType mixto(BlockType base, int nivel, BlockType relleno) {
+    const int ib = indiceFamilia(base);
+    const int ir = indiceFamilia(relleno);
+    if (ib < 0 || ir < 0) return BLOCK_AIR;      // alguno no admite niveles
+    if (nivel < 1 || nivel > 7) return BLOCK_AIR; // 8 es la celda llena
+    return (BlockType)(BLOCK_MIXTO_BASE +
+                       (ib * 7 + (nivel - 1)) * FAMILIAS_CON_NIVEL + ir);
+}
+
+// Las tres partes de una celda mixta.
+inline BlockType mixtoBase(BlockType t) {
+    if (!esMixto(t)) return t;
+    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    const int k = ((int)t - BLOCK_MIXTO_BASE) / FAMILIAS_CON_NIVEL;
+    const int ib = k / 7;
+    return (ib >= 0 && ib < n) ? T[ib].entero : BLOCK_AIR;
+}
+inline int mixtoNivel(BlockType t) {
+    if (!esMixto(t)) return 8;
+    const int k = ((int)t - BLOCK_MIXTO_BASE) / FAMILIAS_CON_NIVEL;
+    return (k % 7) + 1;
+}
+inline BlockType mixtoRelleno(BlockType t) {
+    if (!esMixto(t)) return BLOCK_AIR;
+    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    const int ir = ((int)t - BLOCK_MIXTO_BASE) % FAMILIAS_CON_NIVEL;
+    return (ir >= 0 && ir < n) ? T[ir].entero : BLOCK_AIR;
+}
+
 // Altura en bloques (0..1) que ocupa este bloque. Es su colision EXACTA.
+//
+// Una celda mixta está LLENA: la capa de abajo más el relleno llegan hasta
+// arriba, así que se anda por encima como por un bloque entero.
 inline float alturaDe(BlockType t) {
+    if (esMixto(t)) return 1.0f;
     return (float)alturaNivelPx(nivelDe(t)) / 16.0f;
+}
+
+// Altura (0..1) a la que acaba la capa de ABAJO de una celda mixta. Es donde
+// empieza el relleno, y lo que necesita el mesher para dibujar las dos.
+inline float alturaBaseMixto(BlockType t) {
+    if (!esMixto(t)) return 0.0f;
+    return (float)alturaNivelPx(mixtoNivel(t)) / 16.0f;
 }
 
 // ¿Es un guijarro suelto del suelo, de cualquier material?

@@ -393,10 +393,23 @@ enum BlockType {
     BLOCK_HACHA_PIEDRA,     // 139 Hacha de piedra (herramienta)
     // El bedrock ya no se genera en el terreno, pero el motor aún lo consulta
     // (p.ej. para no aplastar al jugador contra el fondo del mundo).
-    BLOCK_BEDROCK           // 140 (ya no se genera)
+    BLOCK_BEDROCK,          // 140 (ya no se genera)
+
+    // ========================================================================
+    // HORNO PREHISPÁNICO
+    // ========================================================================
+    // Dos bloques para un mismo horno: apagado y encendido. Es la forma
+    // clásica de resolverlo en un motor donde la celda solo guarda un ID y no
+    // hay metadatos: el estado ES el bloque.
+    //
+    // Van al FINAL del enum a propósito. Los IDs son el formato de guardado:
+    // insertarlos en medio correría los números de todo lo que viene después
+    // y los mundos ya guardados leerían bloques equivocados.
+    BLOCK_HORNO,            // 141 Horno apagado
+    BLOCK_HORNO_ENCENDIDO   // 142 Horno encendido (fuego animado, 4 frames)
 };
 
-// Último bloque COLOCABLE (el último nivel añadido).
+// Último bloque COLOCABLE de la lista contigua del terreno.
 // Lo que va después son items y bloques retirados.
 constexpr int BLOCK_LAST_PLACEABLE = BLOCK_SCRAP_L7;
 
@@ -852,4 +865,4 @@ inline int desgasteHacha(BlockType t) {
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_BEDROCK;
+constexpr int BLOCK_TYPE_MAX = BLOCK_HORNO_ENCENDIDO;

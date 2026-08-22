@@ -1914,6 +1914,10 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_CLAY_DIRT: return 0.65f;  // tierra arcillosa - como la arcilla
         case BLOCK_CLAY_SAND: return 0.55f;  // arena arcillosa - blanda
         case BLOCK_SCRAP_METAL: return 2.5f; // Metal desecho - medio-lento
+        // El horno esta hecho de barro y piedra: cuesta como la piedra
+        // labrada, encendido o apagado.
+        case BLOCK_HORNO:            return 2.0f;
+        case BLOCK_HORNO_ENCENDIDO:  return 2.0f;
         case BLOCK_LAVA:      return 0.0f;   // Lava - no se puede romper
         default:              return 1.0f;   // Por defecto
     }
@@ -3740,6 +3744,21 @@ private:
     // ANIMACIÓN: Texturas de grietas de bloques (destroy stages)
     std::vector<GLuint> destroyStageTextures;
 
+    // ⭐ ANIMACIÓN DEL FUEGO DEL HORNO
+    //
+    // Los frames NO son archivos sueltos: vienen de UNA tira horizontal
+    // ("Horno encendido-sprite.png", 64x16 = 4 cuadros de 16x16) que se corta
+    // al cargar. Es la forma habitual de entregar una animación de bloque, y
+    // evita tener cuatro PNG de 16x16 sueltos con nombres correlativos.
+    //
+    // Estos handles SÍ son propiedad de este vector (los crea recortarTira,
+    // no salen del mapa `textures`), así que hay que borrarlos al recargar.
+    std::vector<GLuint> hornoFrames;
+    int currentHornoFrame = 0;
+    double hornoAnimTimer = 0.0;
+    // El fuego va más vivo que el agua: 8 cuadros por segundo.
+    const double HORNO_ANIM_SPEED = 0.125;
+
 public:
     TextureManager(const std::string& resPath = "")
         : resourcePath(resPath.empty() ? gamePath("resourcepacks/Textures/Blocks/") : resPath), lastBoundTexture(0), currentWaterFrame(0), waterAnimTimer(0.0) {}
@@ -3959,6 +3978,270 @@ public:
         }
     }
 
+    // ========================================================================
+    // ANIMACIÓN POR TIRA DE SPRITES
+    // ========================================================================
+    // Corta una imagen ancha en N cuadros del mismo tamaño y sube cada uno
+    // como su propia textura. La tira del horno es 64x16: cuatro cuadros de
+    // 16x16, uno detrás de otro.
+    //
+    // No se usa el mapa `textures` a propósito: ahí la clave es el nombre del
+    // archivo, y aquí de un archivo salen varias texturas. Los handles que
+    // devuelve son propiedad de quien llama, que tiene que borrarlos.
+    //
+    // OJO con el volteo vertical: stbi_set_flip_vertically_on_load(true) está
+    // puesto para todo el motor (OpenGL cuenta las filas al revés que un PNG).
+    // Con la imagen ya volteada, cortar por columnas sigue siendo correcto
+    // porque el corte es HORIZONTAL: el orden de los cuadros no cambia.
+    std::vector<GLuint> recortarTira(const std::string& filename, int numFrames) {
+        std::vector<GLuint> frames;
+        if (numFrames <= 0) return frames;
+
+        const std::string fullPath = resourcePath + filename;
+
+        int width, height, channels;
+        stbi_set_flip_vertically_on_load(true);
+        unsigned char* data = stbi_load(fullPath.c_str(), &width, &height,
+                                        &channels, STBI_rgb_alpha);
+        if (!data) {
+            std::cerr << "ERROR: no se pudo cargar la tira: " << fullPath
+                      << " (" << stbi_failure_reason() << ")" << std::endl;
+            return frames;
+        }
+
+        const int frameW = width / numFrames;
+        if (frameW <= 0 || width % numFrames != 0) {
+            // Si la tira no se divide exacta, el recorte saldría torcido y
+            // cada cuadro arrastraría un trozo del siguiente.
+            std::cerr << "ERROR: la tira " << filename << " mide " << width
+                      << "px y no se divide en " << numFrames << " cuadros"
+                      << std::endl;
+            stbi_image_free(data);
+            return frames;
+        }
+
+        while (glGetError() != GL_NO_ERROR) { /* descartar errores ajenos */ }
+
+        std::vector<unsigned char> buffer((size_t)frameW * height * 4);
+
+        for (int f = 0; f < numFrames; ++f) {
+            // Copiar fila a fila la ventana de este cuadro.
+            for (int y = 0; y < height; ++y) {
+                const unsigned char* src =
+                    data + ((size_t)y * width + (size_t)f * frameW) * 4;
+                unsigned char* dst = buffer.data() + (size_t)y * frameW * 4;
+                std::copy(src, src + (size_t)frameW * 4, dst);
+            }
+
+            GLuint tex = 0;
+            glGenTextures(1, &tex);
+            if (tex == 0) continue;
+
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frameW, height, 0,
+                         GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
+
+            // Igual que el resto de bloques: pixel art nítido, sin difuminar.
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+            if (glGetError() != GL_NO_ERROR) {
+                glDeleteTextures(1, &tex);
+                continue;
+            }
+            frames.push_back(tex);
+        }
+
+        stbi_image_free(data);
+        std::cout << "Tira cargada: " << filename << " -> " << frames.size()
+                  << " cuadros de " << frameW << "x" << height << std::endl;
+        return frames;
+    }
+
+    // ========================================================================
+    // GIF ANIMADO: TODOS LOS CUADROS, NO SOLO EL PRIMERO
+    // ========================================================================
+    // stbi_load() se queda con el primer cuadro de un GIF, y por eso la
+    // pantalla de carga salía CONGELADA: el archivo tiene 86 cuadros y solo
+    // se veía uno.
+    //
+    // stbi_load_gif_from_memory sí los devuelve todos, uno detrás de otro en
+    // un único bloque de memoria, más un array con el retardo de cada uno en
+    // milisegundos (que es lo que dice a qué velocidad va la animación).
+    //
+    // Devuelve los handles y, por referencia, el retardo medio en segundos.
+    std::vector<GLuint> cargarGifAnimado(const std::string& filename,
+                                         double& retardoSegundos) {
+        std::vector<GLuint> frames;
+        retardoSegundos = 0.1;   // 10 cuadros/s si el GIF no lo dice
+
+        const std::string fullPath = resourcePath + filename;
+
+        // El GIF hay que leerlo a memoria: la variante que devuelve todos los
+        // cuadros solo existe en la versión "_from_memory".
+        std::ifstream f(fullPath, std::ios::binary | std::ios::ate);
+        if (!f) {
+            std::cerr << "ERROR: no se pudo abrir el GIF: " << fullPath << std::endl;
+            return frames;
+        }
+        const std::streamsize tam = f.tellg();
+        f.seekg(0, std::ios::beg);
+        std::vector<unsigned char> datos((size_t)tam);
+        if (!f.read(reinterpret_cast<char*>(datos.data()), tam)) {
+            std::cerr << "ERROR: no se pudo leer el GIF: " << fullPath << std::endl;
+            return frames;
+        }
+
+        int w = 0, h = 0, n = 0, canales = 0;
+        int* retardos = nullptr;
+        stbi_set_flip_vertically_on_load(false);   // ver la nota de abajo
+        unsigned char* todos = stbi_load_gif_from_memory(
+            datos.data(), (int)tam, &retardos, &w, &h, &n, &canales, 4);
+        stbi_set_flip_vertically_on_load(true);    // dejarlo como estaba
+
+        if (!todos || n <= 0) {
+            std::cerr << "ERROR: no se pudo decodificar el GIF: " << fullPath
+                      << " (" << stbi_failure_reason() << ")" << std::endl;
+            if (todos) stbi_image_free(todos);
+            if (retardos) STBI_FREE(retardos);
+            return frames;
+        }
+
+        // Retardo medio de la animación. Se usa la media y no el de cada
+        // cuadro porque la pantalla de carga no necesita respetar tiempos
+        // distintos por cuadro, y así el bucle es un simple contador.
+        if (retardos) {
+            double suma = 0.0;
+            int validos = 0;
+            for (int i = 0; i < n; ++i) {
+                if (retardos[i] > 0) { suma += retardos[i]; ++validos; }
+            }
+            if (validos > 0) retardoSegundos = (suma / validos) / 1000.0;
+            if (retardoSegundos < 0.02) retardoSegundos = 0.02;  // tope: 50/s
+        }
+
+        while (glGetError() != GL_NO_ERROR) { /* descartar errores ajenos */ }
+
+        // stbi_load_gif_from_memory NO respeta el volteo vertical, así que
+        // los cuadros vienen con el origen arriba (como el PNG) mientras
+        // OpenGL lo espera abajo. Se voltea a mano fila por fila; si no, la
+        // animación de carga sale del revés.
+        const size_t bytesPorCuadro = (size_t)w * h * 4;
+        std::vector<unsigned char> volteado(bytesPorCuadro);
+
+        for (int i = 0; i < n; ++i) {
+            const unsigned char* cuadro = todos + (size_t)i * bytesPorCuadro;
+
+            for (int y = 0; y < h; ++y) {
+                const unsigned char* src = cuadro + (size_t)(h - 1 - y) * w * 4;
+                unsigned char* dst = volteado.data() + (size_t)y * w * 4;
+                std::copy(src, src + (size_t)w * 4, dst);
+            }
+
+            GLuint tex = 0;
+            glGenTextures(1, &tex);
+            if (tex == 0) continue;
+
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
+                         GL_RGBA, GL_UNSIGNED_BYTE, volteado.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            // GL_CLAMP (no GL_REPEAT): la animación se dibuja como una
+            // estampa suelta en pantalla, y con REPEAT el filtrado del borde
+            // le pegaría el lado contrario. GL_CLAMP_TO_EDGE sería lo ideal,
+            // pero es de OpenGL 1.2 y el header de Windows solo trae 1.1;
+            // el resto del motor usa GL_CLAMP por lo mismo.
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+
+            if (glGetError() != GL_NO_ERROR) {
+                glDeleteTextures(1, &tex);
+                continue;
+            }
+            frames.push_back(tex);
+        }
+
+        stbi_image_free(todos);
+        if (retardos) STBI_FREE(retardos);
+
+        std::cout << "GIF animado: " << filename << " -> " << frames.size()
+                  << " cuadros de " << w << "x" << h << ", "
+                  << (int)(retardoSegundos * 1000) << " ms cada uno" << std::endl;
+        return frames;
+    }
+
+    // ---- Pantalla de carga ----
+    std::vector<GLuint> cargaFrames;
+    int currentCargaFrame = 0;
+    double cargaAnimTimer = 0.0;
+    double cargaFrameDelay = 0.1;
+
+    void loadCargaAnimation() {
+        if (!cargaFrames.empty()) {
+            glDeleteTextures((GLsizei)cargaFrames.size(), cargaFrames.data());
+            cargaFrames.clear();
+        }
+        currentCargaFrame = 0;
+        cargaAnimTimer = 0.0;
+        cargaFrames = cargarGifAnimado("Animaciones/Animacion de Carga.gif",
+                                       cargaFrameDelay);
+    }
+
+    void updateCargaAnimation(double deltaTime) {
+        if (cargaFrames.empty()) return;
+        cargaAnimTimer += deltaTime;
+        if (cargaAnimTimer >= cargaFrameDelay) {
+            cargaAnimTimer = 0.0;
+            currentCargaFrame =
+                (currentCargaFrame + 1) % (int)cargaFrames.size();
+        }
+    }
+
+    GLuint getCurrentCargaFrame() {
+        if (cargaFrames.empty())
+            return getTexture("Animaciones/Animacion de Carga.gif");
+        return cargaFrames[currentCargaFrame];
+    }
+
+    // ANIMACIÓN: cargar los cuadros del fuego del horno.
+    void loadHornoAnimation() {
+        // Idempotencia: esto puede llamarse más de una vez (loadAllBlockTextures
+        // se invoca desde varios sitios). Sin borrar antes, cada llamada
+        // dejaría los handles viejos colgando en la VRAM.
+        if (!hornoFrames.empty()) {
+            glDeleteTextures((GLsizei)hornoFrames.size(), hornoFrames.data());
+            hornoFrames.clear();
+        }
+        currentHornoFrame = 0;
+        hornoAnimTimer = 0.0;
+
+        hornoFrames = recortarTira("Horno encendido-sprite.png", 4);
+    }
+
+    void updateHornoAnimation(double deltaTime) {
+        if (hornoFrames.empty()) return;
+        hornoAnimTimer += deltaTime;
+        if (hornoAnimTimer >= HORNO_ANIM_SPEED) {
+            hornoAnimTimer = 0.0;
+            currentHornoFrame =
+                (currentHornoFrame + 1) % (int)hornoFrames.size();
+        }
+    }
+
+    // Cuadro que toca dibujar ahora. Si la tira no cargó, se cae al horno
+    // apagado: mejor un horno quieto que un bloque sin textura.
+    GLuint getCurrentHornoFrame() {
+        if (hornoFrames.empty()) return getTexture("Horno preispanico.png");
+        return hornoFrames[currentHornoFrame];
+    }
+
+    // Qué cuadro es. Lo usa el bucle para saber CUÁNDO ha cambiado y remallar
+    // solo entonces, en vez de hacerlo todos los frames.
+    int getHornoFrameIndex() const { return currentHornoFrame; }
+
     // ANIMACIÓN: Cargar texturas de destrucción de bloques (grietas)
     void loadDestroyStageTextures() {
         // ⭐⭐⭐ GUARDA DE IDEMPOTENCIA — CORRIGE LA FUGA PRINCIPAL DE VRAM
@@ -4141,11 +4424,20 @@ public:
         loadWaterAnimation();
         std::cout << "=== Animación de agua inicializada ===" << std::endl;
 
+        // El horno: la cara apagada y sus partes (lados y tapa)
+        loadTexture("Horno preispanico.png");
+        loadTexture("partes del horno.png");
+
+        // Cargar el fuego del horno (tira de 4 cuadros)
+        loadHornoAnimation();
+
         // Cargar texturas de destrucción de bloques
         loadDestroyStageTextures();
 
-        // Cargar animación de carga
-        loadTexture("Animaciones/Animacion de Carga.gif");
+        // Cargar animación de carga (los 86 cuadros del GIF, no solo el
+        // primero: antes se veía congelada)
+        loadTexture("Animaciones/Animacion de Carga.gif");   // respaldo
+        loadCargaAnimation();
         std::cout << "=== Animación de carga inicializada ===" << std::endl;
     }
 
@@ -4622,6 +4914,27 @@ public:
         if (esMixto(type)) type = mixtoBase(type);
 
         switch (type) {
+            // ⭐ EL HORNO PREHISPÁNICO
+            //
+            // Apagado y encendido son dos bloques distintos (el motor no
+            // guarda metadatos por celda: el estado ES el ID). Comparten la
+            // tapa y los lados; lo que cambia es la BOCA, que es la cara
+            // norte: apagada la de siempre, encendida el fuego animado.
+            //
+            // getCurrentHornoFrame() devuelve el cuadro que toca ahora, así
+            // que el mesher recoge la textura del momento en que malla. Como
+            // el bloque se remalla al cambiar de cuadro (ver el tick del
+            // horno), el fuego se ve moverse.
+            case BLOCK_HORNO:
+                if (face == 0 || face == 1) return getTexture("partes del horno.png");
+                if (face == 2) return getTexture("Horno preispanico.png");
+                return getTexture("partes del horno.png");
+
+            case BLOCK_HORNO_ENCENDIDO:
+                if (face == 0 || face == 1) return getTexture("partes del horno.png");
+                if (face == 2) return getCurrentHornoFrame();
+                return getTexture("partes del horno.png");
+
             case BLOCK_GRASS:
                 if (face == 0) return getTexture("Bloque de pasto up.png"); // Top
                 else if (face == 1) return getTexture("Tierra.png");         // Bottom
@@ -6542,6 +6855,68 @@ public:
                         if (esTuna(c->getBlock(x, y, z))) { tiene = true; break; }
 
             if (tiene) c->needsRebuild = true;
+        }
+    }
+
+    // ========================================================================
+    // ⭐ QUE EL FUEGO DEL HORNO SE VEA MOVER
+    // ========================================================================
+    // El mesher decide la textura de cada cara EN EL MOMENTO DE MALLAR, así
+    // que un horno encendido se queda con el cuadro que hubiera entonces: el
+    // fuego saldría congelado. Para animarlo hay que remallar su chunk cada
+    // vez que cambia el cuadro.
+    //
+    // El fuego cambia 8 veces por segundo. Escanear los 32.768 bloques de
+    // cada chunk a ese ritmo (que es lo que hace marcarChunksConTunas, donde
+    // el cambio es de minutos) costaría carísimo. Aquí se lleva una LISTA de
+    // qué chunks tienen horno, que se actualiza sola al poner o quitar uno
+    // (ver setBlock), así que el tick por cuadro solo recorre esa lista.
+    //
+    // Un mundo sin hornos no paga absolutamente nada: la lista está vacía.
+    std::set<Vec3i> chunksConHorno;
+
+    // Apunta o borra el chunk de la lista según lo que se acabe de colocar.
+    // Lo llama setBlock, que es por donde pasan todos los cambios de bloque.
+    void anotarHorno(const Vec3i& chunkPos, BlockType puesto, BlockType habia) {
+        if (puesto == BLOCK_HORNO_ENCENDIDO) {
+            chunksConHorno.insert(chunkPos);
+        } else if (habia == BLOCK_HORNO_ENCENDIDO) {
+            // Se quitó uno: puede que el chunk ya no tenga ninguno, pero
+            // comprobarlo exigiría recorrerlo entero. Se deja en la lista y
+            // ya se depura sola en el siguiente tick (ver marcarChunksConHorno),
+            // que es donde el recorrido sale gratis porque hay que mirar el
+            // chunk de todas formas.
+            (void)habia;
+        }
+    }
+
+    void marcarChunksConHorno() {
+        if (chunksConHorno.empty()) return;
+
+        for (auto it = chunksConHorno.begin(); it != chunksConHorno.end(); ) {
+            auto ic = chunks.find(*it);
+            if (ic == chunks.end() || !ic->second || !ic->second->isGenerated) {
+                // El chunk se descargó: fuera de la lista.
+                it = chunksConHorno.erase(it);
+                continue;
+            }
+
+            Chunk* c = ic->second;
+
+            // Comprobar que de verdad sigue habiendo un horno encendido. Es
+            // lo que depura la lista cuando el jugador apaga o pica uno.
+            bool tiene = false;
+            for (int x = 0; x < CHUNK_SIZE && !tiene; ++x)
+                for (int z = 0; z < CHUNK_SIZE && !tiene; ++z)
+                    for (int y = 0; y < CHUNK_HEIGHT; ++y)
+                        if (c->getBlock(x, y, z) == BLOCK_HORNO_ENCENDIDO) {
+                            tiene = true; break;
+                        }
+
+            if (!tiene) { it = chunksConHorno.erase(it); continue; }
+
+            if (!c->needsRebuild) c->needsRebuild = true;
+            ++it;
         }
     }
 
@@ -10146,7 +10521,14 @@ public:
             return;
         }
 
+        // Lo que había antes, para saber si se acaba de quitar un horno.
+        const BlockType habia = chunk->getBlock(localX, y, localZ);
+
         chunk->setBlock(localX, y, localZ, type);
+
+        // ⭐ Apuntar el chunk si tiene horno encendido: es lo que permite
+        // animar su fuego sin escanear el mundo entero cada cuadro.
+        anotarHorno(chunkPos, type, habia);
 
         // ⭐ Recalcular la luz del chunk: la pasada vertical de la columna
         // afectada más el re-derrame del gradiente alrededor (con propagación
@@ -16728,6 +17110,11 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
     // otro camino la borra entera, al menos suelta algo en vez de nada.
     if (esMixto(blockType)) blockType = mixtoRelleno(blockType);
 
+    // Un horno encendido se recoge APAGADO: el fuego no se lleva en el
+    // inventario. Si no, al picarlo saldria un item "horno encendido" que al
+    // colocarlo ya vendria ardiendo sin combustible.
+    if (blockType == BLOCK_HORNO_ENCENDIDO) blockType = BLOCK_HORNO;
+
     switch (blockType) {
         // ⭐ LOS GUIJARROS SUELTAN SU ITEM, NO EL BLOQUE
         //
@@ -22448,9 +22835,11 @@ void renderLoadingScreen(GameState* state, int screenWidth, int screenHeight, fl
     glVertex2f(0, screenHeight);
     glEnd();
 
-    // Renderizar GIF de animación de carga centrado
+    // Renderizar GIF de animación de carga centrado.
+    // ⭐ El cuadro que toca AHORA: el GIF tiene 86 y antes se dibujaba
+    // siempre el primero, así que la animación se veía parada.
     glEnable(GL_TEXTURE_2D);
-    GLuint loadingTexture = g_textureManager->getTexture("Animaciones/Animacion de Carga.gif");
+    GLuint loadingTexture = g_textureManager->getCurrentCargaFrame();
 
     if (loadingTexture != 0) {
         if (g_textureManager) g_textureManager->bindForUI(loadingTexture);
@@ -24497,6 +24886,10 @@ int main() {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             }
 
+            // ⭐ Avanzar la animación de carga antes de dibujarla: si no, se
+            // quedaría siempre en el mismo cuadro.
+            if (g_textureManager) g_textureManager->updateCargaAnimation(deltaTime);
+
             // Renderizar pantalla de carga con animación
             renderLoadingScreen(g_gameState, width, height, currentTime);
 
@@ -24618,6 +25011,19 @@ int main() {
                         if (esNivelParcial(bt)) continue;
 
                         g_gameState->inventory.slots[creativeCount].blockType = bt;
+                        g_gameState->inventory.slots[creativeCount].count = INFINITE_COUNT;
+                        ++creativeCount;
+                    }
+
+                    // ⭐ El HORNO va aparte: vive al final del enum, fuera del
+                    // rango contiguo de bloques del terreno (se añadió ahí
+                    // para no correr los IDs ya guardados). Se añade a mano
+                    // porque el bucle de arriba no llega hasta él.
+                    //
+                    // Solo el apagado: el encendido no es un objeto que el
+                    // jugador lleve, es un estado del horno.
+                    if (creativeCount < Inventory::SLOTS) {
+                        g_gameState->inventory.slots[creativeCount].blockType = BLOCK_HORNO;
                         g_gameState->inventory.slots[creativeCount].count = INFINITE_COUNT;
                         ++creativeCount;
                     }
@@ -24944,6 +25350,21 @@ int main() {
 
                 // ANIMACIÓN: Actualizar animación de agua
                 g_textureManager->updateWaterAnimation(deltaTime);
+
+                // ⭐ EL FUEGO DEL HORNO
+                //
+                // La textura de cada cara se decide al MALLAR, así que para
+                // que el fuego se mueva hay que rehacer la malla de los
+                // chunks con horno. Solo cuando el cuadro CAMBIA de verdad
+                // (8 veces por segundo), no en cada frame: a 60 FPS eso serían
+                // siete remallados tirados por cada uno útil.
+                {
+                    const int antes = g_textureManager->getHornoFrameIndex();
+                    g_textureManager->updateHornoAnimation(deltaTime);
+                    if (g_textureManager->getHornoFrameIndex() != antes) {
+                        g_gameState->world.marcarChunksConHorno();
+                    }
+                }
 
                 // Sistema de minado progresivo (como Minecraft)
                 if (!g_gameState->inventoryOpen) {

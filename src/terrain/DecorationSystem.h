@@ -281,7 +281,7 @@ public:
     // ========================================================================
     // Definicion declarativa de una veta mineral.
     struct OreDefinition {
-        uint8_t block;
+        Blocks::Id block;
         int     minY;
         int     maxY;
         float   frequency;  // escala del ruido: mayor = vetas mas pequenas
@@ -289,7 +289,13 @@ public:
     };
 
     // TABLA DE MINERALES: anadir una fila basta para tener un mineral nuevo.
-    static constexpr int ORE_COUNT = 5;
+    //
+    // ⚠️ EL ORDEN IMPORTA. El bucle de abajo recorre la tabla DE ATRAS HACIA
+    // ADELANTE y se queda con el primero que acierte, de modo que lo que esta
+    // al FINAL gana cuando dos vetas se solapan. Por eso los comunes van
+    // arriba y los raros abajo: sin eso, una veta de carbon (que ahora es
+    // enorme) se tragaria el diamante que hubiera dentro.
+    static constexpr int ORE_COUNT = 7;
 
     // Devuelve el bloque de mineral que corresponde a este voxel, o
     // Blocks::AIR (0) si es piedra normal.
@@ -297,18 +303,44 @@ public:
     // Se usa ruido 3D en vez de "vetas" procedurales explicitas porque el
     // ruido produce grupos conectados de forma natural y es O(1) por voxel,
     // sin necesidad de estado ni de generar la veta completa de golpe.
-    uint8_t GetOre(int worldX, int y, int worldZ) const {
+    Blocks::Id GetOre(int worldX, int y, int worldZ) const {
         static const OreDefinition ORES[ORE_COUNT] = {
             //  bloque                minY maxY  freq     thr
-            { Blocks::COAL_ORE,        20, 110, 0.070f, 0.62f },
+            //
+            // ⭐ LOS TRES DE ARRIBA SON SUPER COMUNES.
+            //
+            // El umbral (thr) es lo que manda: cuanto MAS BAJO, mas voxeles
+            // pasan el corte y mas grande es la veta. Bajar de 0.62 a 0.38
+            // no hace "un poco mas" de carbon, multiplica la superficie de
+            // roca que se convierte en mineral -- cavando en cualquier
+            // direccion se topa uno con ellos constantemente.
+            //
+            // Ademas cubren casi todo el rango vertical, asi que no hay que
+            // bajar a una profundidad concreta para encontrarlos.
+            { Blocks::COAL_ORE,         8, 118, 0.070f, 0.38f },
+            { Blocks::PYRITE_ORE,       6, 100, 0.076f, 0.40f },
+            { Blocks::SCRAP_METAL,     10, 115, 0.082f, 0.42f },
+
+            // Y estos siguen siendo un hallazgo: umbral alto y franja
+            // estrecha. Si fueran igual de comunes, encontrar diamante
+            // dejaria de significar nada.
             { Blocks::IRON_ORE,        10,  70, 0.085f, 0.70f },
             { Blocks::GOLD_ORE,         5,  35, 0.100f, 0.80f },
             { Blocks::SILVER_ORE,       5,  45, 0.098f, 0.79f },
             { Blocks::DIAMOND_ORE,      3,  18, 0.115f, 0.86f }
         };
 
-        // Se recorre de mas raro a mas comun para que el mineral valioso
-        // gane cuando dos vetas se solapan.
+        // ⭐ SE RECORRE DE ABAJO ARRIBA: GANA EL MAS RARO.
+        //
+        // La tabla va de comun a raro, y este bucle la lee al reves, asi que
+        // el PRIMERO en probarse es el diamante y el ultimo el carbon. El
+        // primero que acierta se lleva el voxel.
+        //
+        // Esto importa mucho mas ahora que los comunes son enormes: con el
+        // orden al reves, la veta de carbon -- que ocupa casi el 5% de toda
+        // la roca -- se tragaba la pirita, el desecho Y el diamante que
+        // hubiera dentro. Medido: pirita 0,00% y ni un diamante en 80x80
+        // columnas.
         for (int i = ORE_COUNT - 1; i >= 0; --i) {
             const OreDefinition& ore = ORES[i];
             if (y < ore.minY || y > ore.maxY) continue;

@@ -15,6 +15,7 @@ add_executable(voxel_tests
     test_creativo.cpp
     test_cuevas.cpp
     test_maguey.cpp
+    test_minerales.cpp
     test_celdas_mixtas.cpp
 )
 

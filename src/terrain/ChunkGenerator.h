@@ -60,7 +60,7 @@ struct ArrayChunkWriter {
 
     explicit ArrayChunkWriter(BlockT (*b)[SY][SZ]) : blocks(b) {}
 
-    inline void Set(int lx, int y, int lz, uint8_t block) {
+    inline void Set(int lx, int y, int lz, Blocks::Id block) {
         // Guardas defensivas: nunca escribir fuera de rango.
         if (lx < 0 || lx >= SX) return;
         if (y  < 0 || y  >= SY) return;
@@ -145,12 +145,12 @@ public:
                 continue;
             }
 
-            uint8_t block;
+            Blocks::Id block;
 
             if (y < subsurfaceStart) {
                 // Roca profunda: aqui viven los minerales.
                 block = Blocks::STONE;
-                const uint8_t ore = terrain.Decoration().GetOre(worldX, y, worldZ);
+                const Blocks::Id ore = terrain.Decoration().GetOre(worldX, y, worldZ);
                 if (ore != Blocks::AIR) block = ore;
             }
             else if (y < surfaceY) {

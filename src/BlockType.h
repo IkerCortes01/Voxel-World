@@ -456,7 +456,40 @@ enum BlockType {
     // que cambia es la textura, no la madera de la que estan hechos.
     BLOCK_TAZON_PINO_AGUA,   // 157 Tazon de pino con agua
     BLOCK_TAZON_ENCINO_AGUA, // 158 Tazon de encino con agua
-    BLOCK_TAZON_OYAMEL_AGUA  // 159 Tazon de oyamel con agua
+    BLOCK_TAZON_OYAMEL_AGUA, // 159 Tazon de oyamel con agua
+
+    // ========================================================================
+    // LOS MINERALES DE HIERRO, SUELTOS POR EL SUELO
+    // ========================================================================
+    // Goethita, hematite y limonita son las tres formas en que el hierro
+    // aflora de verdad: no en vetas profundas, sino como cantos sueltos en la
+    // superficie, oxidados por el agua y el aire. Por eso son GUIJARROS y no
+    // minerales de veta -- se recogen agachandose, no picando.
+    BLOCK_PEDAZO_GOETHITA,   // 160 Canto de goethita
+    BLOCK_PEDAZO_HEMATITE,   // 161 Canto de hematite
+    BLOCK_PEDAZO_LIMONITA,   // 162 Canto de limonita
+
+    // Nieve suelta: solo en las montanas nevadas.
+    BLOCK_PEDAZO_NIEVE,      // 163 Punado de nieve
+
+    // La PIRITA: el "oro de los tontos". Va en veta, como el carbon.
+    BLOCK_PYRITE_ORE,        // 164 Mineral de pirita
+
+    // ========================================================================
+    // EL BARRO
+    // ========================================================================
+    // Tierra amasada con agua. Sale de mezclar polvo de tierra en un tazon
+    // lleno, que es exactamente como se hace: el agua liga el polvo hasta
+    // dejarlo en una pasta que se puede modelar.
+    //
+    // Es un ITEM, no un bloque colocable: va despues de
+    // BLOCK_LAST_PLACEABLE y isPlaceableItem() lo excluye. De momento es el
+    // material en bruto; lo que se haga con el (secarlo, cocerlo) viene
+    // despues.
+    //
+    // Al final del enum, como todo lo nuevo: meterlo en medio correria los
+    // IDs de lo que va detras y los mundos ya guardados leerian otra cosa.
+    BLOCK_PEDAZO_BARRO       // 165 Pedazo de barro
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -797,7 +830,14 @@ inline float alturaBaseMixto(BlockType t) {
 inline bool esGuijarro(BlockType t) {
     return t == BLOCK_PEDAZO_PIEDRA || t == BLOCK_PEDAZO_GRAVA ||
            t == BLOCK_PEDAZO_PEDERNAL || t == BLOCK_PEDAZO_CALIZA ||
-           t == BLOCK_PEDAZO_TIERRA || t == BLOCK_PEDAZO_COBRE;
+           t == BLOCK_PEDAZO_TIERRA || t == BLOCK_PEDAZO_COBRE ||
+           // Los tres hierros y la nieve suelta: mismos cantos, otro
+           // material. Al entrar aqui heredan TODO el comportamiento de
+           // guijarro -- la forma de montoncito, la caja de colision baja,
+           // que no ahoguen al pasto, que se recojan sin picar -- sin tener
+           // que tocar ni una linea del mesher ni del raycast.
+           t == BLOCK_PEDAZO_GOETHITA || t == BLOCK_PEDAZO_HEMATITE ||
+           t == BLOCK_PEDAZO_LIMONITA || t == BLOCK_PEDAZO_NIEVE;
 }
 
 // ¿Es el cuerpo de una mata de ixtle, de cualquier tamaño?
@@ -1145,4 +1185,4 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_TAZON_OYAMEL_AGUA;
+constexpr int BLOCK_TYPE_MAX = BLOCK_PYRITE_ORE;

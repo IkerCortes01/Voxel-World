@@ -391,6 +391,12 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_PEDAZO_CALIZA: r = 0.72f; g = 0.70f; b = 0.62f; break;
         case BLOCK_PEDAZO_TIERRA: r = 0.45f; g = 0.32f; b = 0.20f; break;
         case BLOCK_PEDAZO_COBRE:  r = 0.60f; g = 0.30f; b = 0.18f; break;
+        // Los tres hierros: del ocre de la limonita al rojo del hematite.
+        case BLOCK_PEDAZO_GOETHITA: r = 0.45f; g = 0.28f; b = 0.14f; break;
+        case BLOCK_PEDAZO_HEMATITE: r = 0.52f; g = 0.20f; b = 0.16f; break;
+        case BLOCK_PEDAZO_LIMONITA: r = 0.72f; g = 0.52f; b = 0.20f; break;
+        case BLOCK_PEDAZO_NIEVE:  r = 0.94f; g = 0.96f; b = 0.99f; break;
+        case BLOCK_PYRITE_ORE:    r = 0.85f; g = 0.72f; b = 0.25f; break;
         case BLOCK_IXTLE_HOJA:
         case BLOCK_IXTLE_PUNTA:
         case BLOCK_IXTLE_CON_HIERBA:
@@ -1941,7 +1947,11 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_PEDAZO_PEDERNAL:
         case BLOCK_PEDAZO_CALIZA:
         case BLOCK_PEDAZO_TIERRA:
-        case BLOCK_PEDAZO_COBRE:  return 0.3f;
+        case BLOCK_PEDAZO_COBRE:
+        case BLOCK_PEDAZO_GOETHITA:
+        case BLOCK_PEDAZO_HEMATITE:
+        case BLOCK_PEDAZO_LIMONITA:
+        case BLOCK_PEDAZO_NIEVE:  return 0.3f;
         case BLOCK_IXTLE_PEQUENA: return 0.4f;
         case BLOCK_IXTLE_GRANDE:  return 1.0f;
         case BLOCK_IXTLE_ENORME:  return 1.3f;
@@ -4511,6 +4521,12 @@ public:
         // COMUNES
         loadTexture("Mineral de Carbon.png");   // BLOCK_COAL_ORE (común)
         loadTexture("Desecho de metales.png");  // BLOCK_SCRAP_METAL (común)
+        loadTexture("Pirita.png");              // BLOCK_PYRITE_ORE (muy común)
+        // Los tres hierros de superficie y la nieve suelta: se usan como
+        // guijarros, pero la textura es de bloque (llena el cuadro entero).
+        loadTexture("Goethita.png");
+        loadTexture("Hematite.png");
+        loadTexture("Limonita.png");
 
         // POCO COMUNES
         loadTexture("Piedra.png");              // BLOCK_IRON_ORE (temporal - usar piedra)
@@ -5227,6 +5243,26 @@ public:
                 // 53% opaco, 121 huecos. Igual que los demas.
                 return cargarTunaSinHuecos("cobre crudo",
                     gamePath("resourcepacks/Textures/Items/cobre crudo.png"));
+
+            // ⭐ LOS TRES HIERROS Y LA NIEVE
+            //
+            // Estas texturas SI llenan el cuadro entero (son de Blocks/, no
+            // de Items/), asi que no hace falta rellenarles los huecos: cada
+            // cara del canto muestra material y el guijarro se ve macizo tal
+            // cual. Es el mismo motivo por el que el pedazo de piedra usa
+            // "Piedra.png" y no el icono del item.
+            case BLOCK_PEDAZO_GOETHITA:
+                return getTexture("Goethita.png");
+            case BLOCK_PEDAZO_HEMATITE:
+                return getTexture("Hematite.png");
+            case BLOCK_PEDAZO_LIMONITA:
+                return getTexture("Limonita.png");
+            case BLOCK_PEDAZO_NIEVE:
+                return getTexture("nieve.png");
+
+            // La PIRITA en veta: bloque macizo normal, como el carbon.
+            case BLOCK_PYRITE_ORE:
+                return getTexture("Pirita.png");
 
             case BLOCK_PEDAZO_PIEDRA:
                 // La textura de PIEDRA, no la del item. El item es el
@@ -7954,7 +7990,10 @@ public:
         Chunk* chunk;
         explicit ChunkVoxelWriter(Chunk* c) : chunk(c) {}
 
-        inline void Set(int lx, int y, int lz, uint8_t block) {
+        // ⭐ 16 bits: el enum ya pasa de 255 IDs, y con uint8_t cualquier
+        // bloque nuevo se truncaba aqui en silencio. Tiene que coincidir con
+        // Blocks::Id (ver BiomeTypes.h).
+        inline void Set(int lx, int y, int lz, TerrainGen::Blocks::Id block) {
             if (lx < 0 || lx >= CHUNK_SIZE) return;
             if (y  < 0 || y  >= CHUNK_HEIGHT) return;
             if (lz < 0 || lz >= CHUNK_SIZE) return;
@@ -8387,9 +8426,17 @@ public:
                         // montar una tabla de porcentajes, y se lee de un
                         // vistazo.
                         //
-                        // Hacen falta 24 huecos porque en una montana el
-                        // cobre solo mete 5 entradas.
-                        BlockType posibles[24];
+                        // El peor caso es un risco junto a un rio sobre
+                        // piedra: piedra 2 + tierra 2 + grava 2 + caliza 2 +
+                        // los tres hierros (6 base + 12 montana + 9 rio) +
+                        // cobre 12 + pedernal 9 = 56 entradas.
+                        //
+                        // Se reservan 72 para tener holgura: `meter` DESCARTA
+                        // en silencio lo que no cabe, asi que quedarse corto
+                        // no rompe nada pero sesga el reparto sin avisar --
+                        // los ultimos en entrar (el pedernal) no saldrian
+                        // nunca en el sitio donde mas debian salir.
+                        BlockType posibles[72];
                         int n = 0;
                         auto meter = [&](BlockType b, int veces) {
                             for (int k = 0; k < veces &&
@@ -8412,6 +8459,42 @@ public:
                         if (ground == BLOCK_STONE || ground == BLOCK_GRAVEL ||
                             ground == BLOCK_LIMESTONE) {
                             meter(BLOCK_PEDAZO_CALIZA, 2);
+                        }
+
+                        // ================================================
+                        // ⭐ LOS TRES HIERROS: GOETHITA, HEMATITE, LIMONITA
+                        // ================================================
+                        // Asi es como aflora el hierro de verdad: no en veta
+                        // profunda, sino como cantos oxidados sueltos en la
+                        // superficie. Los tres son la misma familia -- la
+                        // limonita es goethita mal cristalizada, y el
+                        // hematite es su forma seca -- asi que salen juntos
+                        // y con el mismo peso.
+                        //
+                        // Comunes en cualquier terreno (2), y bastante mas
+                        // donde la roca esta partida o el agua los ha
+                        // arrastrado: el risco y el cauce.
+                        meter(BLOCK_PEDAZO_GOETHITA, 2);
+                        meter(BLOCK_PEDAZO_HEMATITE, 2);
+                        meter(BLOCK_PEDAZO_LIMONITA, 2);
+                        if (enMontana) {
+                            meter(BLOCK_PEDAZO_GOETHITA, 4);
+                            meter(BLOCK_PEDAZO_HEMATITE, 4);
+                            meter(BLOCK_PEDAZO_LIMONITA, 4);
+                        }
+                        if (enRio) {
+                            meter(BLOCK_PEDAZO_GOETHITA, 3);
+                            meter(BLOCK_PEDAZO_HEMATITE, 3);
+                            meter(BLOCK_PEDAZO_LIMONITA, 3);
+                        }
+
+                        // ⭐ NIEVE SUELTA: SOLO EN LA MONTANA NEVADA
+                        //
+                        // No basta con que haga frio: tiene que HABER nieve
+                        // ahi, y por eso se mira el suelo. Un punado de nieve
+                        // sobre la hierba no tendria sentido.
+                        if (ground == BLOCK_SNOW) {
+                            meter(BLOCK_PEDAZO_NIEVE, 8);
                         }
 
                         // ================================================
@@ -14388,17 +14471,54 @@ public:
             // ⭐ OPTIMIZACIÓN: Siempre usar GL_STATIC_DRAW (más rápido para este caso de uso)
             // Los chunks raramente se modifican, y cuando lo hacen, rebuild completo es OK
 
-            // Subir posiciones al GPU
-            glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-            glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+            // ================================================================
+            // UN SOLO BUFFER ENTRELAZADO (posicion + color + UV por vertice)
+            // ================================================================
+            // Antes eran TRES buffers separados, y dibujar un batch costaba
+            // seis llamadas a OpenGL: bind+puntero para posiciones, otro par
+            // para colores y otro para UVs.
+            //
+            // Con ~81 chunks y varias texturas cada uno salen cientos de
+            // batches por frame, o sea MILES de llamadas al driver. En un
+            // driver viejo (el de esta maquina es de 2015) cada llamada cuesta
+            // lo suyo, y ese coste es de CPU: se paga aunque la GPU este
+            // ociosa.
+            //
+            // Entrelazando los tres atributos en un buffer, dibujar pasa a ser
+            // UN bind + UNA llamada que coloca los tres punteros de golpe:
+            // de seis llamadas por batch a dos.
+            //
+            // El formato T2F_C4F_N3F_V3F es el unico de glInterleavedArrays que
+            // lleva UV + color de 4 componentes + posicion. Incluye normal, que
+            // el motor no usa (no hay iluminacion de OpenGL), asi que se
+            // rellena con un valor fijo: cuesta 3 floats por vertice y ahorra
+            // las llamadas, que es el cambio que importa.
+            {
+                const size_t nVerts = verts.size() / 3;
+                std::vector<float> entre;
+                entre.resize(nVerts * 12);   // 2 UV + 4 color + 3 normal + 3 pos
 
-            // Subir colores al GPU
-            glBindBuffer(GL_ARRAY_BUFFER, batch->colorVBO);
-            glBufferData(GL_ARRAY_BUFFER, cols.size() * sizeof(float), cols.data(), GL_STATIC_DRAW);
+                for (size_t i = 0; i < nVerts; ++i) {
+                    float* d = &entre[i * 12];
+                    d[0] = uvCoords[i * 2 + 0];
+                    d[1] = uvCoords[i * 2 + 1];
+                    d[2] = cols[i * 4 + 0];
+                    d[3] = cols[i * 4 + 1];
+                    d[4] = cols[i * 4 + 2];
+                    d[5] = cols[i * 4 + 3];
+                    d[6] = 0.0f;             // normal: sin uso, GL_LIGHTING off
+                    d[7] = 1.0f;
+                    d[8] = 0.0f;
+                    d[9]  = verts[i * 3 + 0];
+                    d[10] = verts[i * 3 + 1];
+                    d[11] = verts[i * 3 + 2];
+                }
 
-            // Subir UVs al GPU
-            glBindBuffer(GL_ARRAY_BUFFER, batch->uvVBO);
-            glBufferData(GL_ARRAY_BUFFER, uvCoords.size() * sizeof(float), uvCoords.data(), GL_STATIC_DRAW);
+                glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
+                glBufferData(GL_ARRAY_BUFFER,
+                             entre.size() * sizeof(float),
+                             entre.data(), GL_STATIC_DRAW);
+            }
 
             // Agregar batch a la lista temporal (NO a chunk->batches todavía)
             newBatches.push_back(batch);
@@ -15323,6 +15443,35 @@ public:
             float chunkWorldX = chunk->position.x * CHUNK_SIZE;
             float chunkWorldZ = chunk->position.z * CHUNK_SIZE;
 
+            // ⭐ LO QUE LA NIEBLA YA TAPA, NO SE DIBUJA
+            //
+            // La niebla se vuelve OPACA a fogEnd (renderDistance*16*0.98). Un
+            // chunk que empiece mas alla de ahi se dibuja entero -- geometria,
+            // texturas, todos sus pixeles -- para acabar cubierto por completo
+            // de color de niebla. Es trabajo cuyo resultado no se ve.
+            //
+            // El frustum culling no lo pilla: esos chunks SI estan dentro del
+            // campo de vision, solo que invisibles por la niebla. Son dos
+            // descartes distintos y hacen falta los dos.
+            //
+            // Se mide contra la esquina MAS CERCANA del chunk (por eso se resta
+            // su diagonal): asi solo se descarta cuando el chunk entero esta
+            // detras de la pared de niebla, nunca uno que asome.
+            {
+                const float dxc = chunkWorldX + CHUNK_SIZE * 0.5f - playerPos.x;
+                const float dzc = chunkWorldZ + CHUNK_SIZE * 0.5f - playerPos.z;
+                const float dist = sqrtf(dxc * dxc + dzc * dzc)
+                                 - CHUNK_SIZE * 0.7072f;   // media diagonal
+                // Se usa RENDER_DISTANCE, la constante que de verdad decide
+                // hasta donde se CARGAN chunks. (El renderDistance de
+                // GameState, que es el que configura la niebla, no se puede
+                // leer aqui: su tipo aun no esta definido en este punto del
+                // archivo. Da igual, porque nunca se dibuja mas alla de lo
+                // que se carga.)
+                const float fogEnd = RENDER_DISTANCE * (float)CHUNK_SIZE * 0.98f;
+                if (dist > fogEnd) { chunksCulled++; continue; }
+            }
+
             if (frustum.isChunkVisible(chunkWorldX, 0, chunkWorldZ, CHUNK_SIZE)) {
                 // Calcular distancia al jugador (squared para evitar sqrt)
                 float dx = chunkWorldX + CHUNK_SIZE/2.0f - playerPos.x;
@@ -15438,15 +15587,10 @@ public:
                 // ⭐ PROTECCIÓN: Verificar funciones VBO antes de usar
                 if (!glBindBuffer) continue;  // glVertexPointer es estática (GL 1.1), no necesita chequeo
 
-                // Bind VBOs para este batch
+                // ⭐ UN bind y UNA llamada de punteros, en vez de seis.
+                // (ver la nota del buffer entrelazado en buildChunkMesh)
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                glVertexPointer(3, GL_FLOAT, 0, 0);
-
-                glBindBuffer(GL_ARRAY_BUFFER, batch->colorVBO);
-                glColorPointer(4, GL_FLOAT, 0, 0);
-
-                glBindBuffer(GL_ARRAY_BUFFER, batch->uvVBO);
-                glTexCoordPointer(2, GL_FLOAT, 0, 0);
+                glInterleavedArrays(GL_T2F_C4F_N3F_V3F, 0, 0);
 
                 // Renderizar como GL_QUADS
                 glDrawArrays(GL_QUADS, 0, batch->vertexCount);
@@ -15510,15 +15654,9 @@ public:
                     continue;
                 }
 
-                // Bind VBOs para este batch
+                // ⭐ Igual que en el pase opaco: un bind y una llamada.
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                glVertexPointer(3, GL_FLOAT, 0, 0);
-
-                glBindBuffer(GL_ARRAY_BUFFER, batch->colorVBO);
-                glColorPointer(4, GL_FLOAT, 0, 0);
-
-                glBindBuffer(GL_ARRAY_BUFFER, batch->uvVBO);
-                glTexCoordPointer(2, GL_FLOAT, 0, 0);
+                glInterleavedArrays(GL_T2F_C4F_N3F_V3F, 0, 0);
 
                 // Renderizar como GL_QUADS
                 glDrawArrays(GL_QUADS, 0, batch->vertexCount);
@@ -15537,10 +15675,33 @@ public:
         glDisableClientState(GL_VERTEX_ARRAY);
         glDisableClientState(GL_COLOR_ARRAY);
         glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        // ⭐ glInterleavedArrays enciende TAMBIEN el array de normales (el
+        // formato lo incluye) y nadie mas lo apaga. Si se queda encendido, todo
+        // lo que se dibuje despues -- el HUD, la mano, los menus -- arrastraria
+        // un puntero de normales que ya no apunta a nada valido.
+        glDisableClientState(GL_NORMAL_ARRAY);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glDisable(GL_TEXTURE_2D);
         glDisable(GL_BLEND);
         glDisable(GL_FOG);  // Desactivar niebla para no afectar UI/HUD
+
+        // ⭐ CUANTO TRABAJO SE LE MANDA A LA GPU, AL LOG
+        //
+        // El tiempo de render por si solo no dice si el problema es el numero
+        // de LLAMADAS (batches) o el de PIXELES (caras): son cuellos distintos
+        // y se arreglan de forma distinta. Cada 5 segundos basta para verlo sin
+        // ensuciar el log.
+        {
+            static double ultimoAviso = 0.0;
+            const double ahora = glfwGetTime();
+            if (ahora - ultimoAviso >= 5.0) {
+                ultimoAviso = ahora;
+                std::cout << "[GPU] chunks=" << chunksRendered
+                          << " culled=" << chunksCulled
+                          << " batches=" << batchesRendered
+                          << " caras=" << facesRendered << std::endl;
+            }
+        }
     }
 
     // ========================================================================
@@ -26032,6 +26193,11 @@ int main() {
                     ponerEnCreativo(BLOCK_TAZON_PINO_AGUA);
                     ponerEnCreativo(BLOCK_TAZON_ENCINO_AGUA);
                     ponerEnCreativo(BLOCK_TAZON_OYAMEL_AGUA);
+                    ponerEnCreativo(BLOCK_PEDAZO_GOETHITA);
+                    ponerEnCreativo(BLOCK_PEDAZO_HEMATITE);
+                    ponerEnCreativo(BLOCK_PEDAZO_LIMONITA);
+                    ponerEnCreativo(BLOCK_PEDAZO_NIEVE);
+                    ponerEnCreativo(BLOCK_PYRITE_ORE);
                     ponerEnCreativo(BLOCK_MAGUEY_PUNTA);
 
                     std::cout << "Inventario creativo: " << creativeCount

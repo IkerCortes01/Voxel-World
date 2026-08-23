@@ -31,34 +31,50 @@ namespace TerrainGen {
 // Ahora cada constante se DERIVA del enum: si manana se reordena otra vez,
 // estos valores se actualizan solos y el fallo no puede repetirse.
 namespace Blocks {
-    constexpr uint8_t AIR          = (uint8_t)BLOCK_AIR;
-    constexpr uint8_t GRASS        = (uint8_t)BLOCK_GRASS;
-    constexpr uint8_t DIRT         = (uint8_t)BLOCK_DIRT;
-    constexpr uint8_t STONE        = (uint8_t)BLOCK_STONE;
-    constexpr uint8_t WOOD         = (uint8_t)BLOCK_WOOD;
-    constexpr uint8_t LEAVES       = (uint8_t)BLOCK_LEAVES;
-    constexpr uint8_t SAND         = (uint8_t)BLOCK_SAND;
-    constexpr uint8_t WATER        = (uint8_t)BLOCK_WATER;
-    constexpr uint8_t TALLGRASS    = (uint8_t)BLOCK_TALLGRASS;
-    constexpr uint8_t BEDROCK      = (uint8_t)BLOCK_BEDROCK;
-    constexpr uint8_t COBBLESTONE  = (uint8_t)BLOCK_COBBLESTONE;
-    constexpr uint8_t GRAVEL       = (uint8_t)BLOCK_GRAVEL;
-    constexpr uint8_t SNOW         = (uint8_t)BLOCK_SNOW;
-    constexpr uint8_t LAVA         = (uint8_t)BLOCK_LAVA;
-    constexpr uint8_t CLAY         = (uint8_t)BLOCK_CLAY;
+    // ⭐ 16 BITS, NO 8.
+    //
+    // Esto era un uint8_t, y el enum ya pasa de 255 IDs: la pirita (262) se
+    // truncaba a 6 al generar terreno, asi que su veta NUNCA aparecia en el
+    // mundo. En silencio, sin error ni aviso -- solo un mineral que no
+    // existia.
+    //
+    // Lo detecto un test que MIDE cuanto sale de cada mineral: la pirita daba
+    // 0,00% donde deberia dar ~4%. Sin esa medicion habria pasado por un
+    // umbral mal puesto.
+    //
+    // El alias existe para que este limite tenga UN SOLO sitio: el dia que se
+    // pasen los 65.535 bloques, se cambia aqui y ya.
+    using Id = uint16_t;
+
+    constexpr Id AIR          = (Id)BLOCK_AIR;
+    constexpr Id GRASS        = (Id)BLOCK_GRASS;
+    constexpr Id DIRT         = (Id)BLOCK_DIRT;
+    constexpr Id STONE        = (Id)BLOCK_STONE;
+    constexpr Id WOOD         = (Id)BLOCK_WOOD;
+    constexpr Id LEAVES       = (Id)BLOCK_LEAVES;
+    constexpr Id SAND         = (Id)BLOCK_SAND;
+    constexpr Id WATER        = (Id)BLOCK_WATER;
+    constexpr Id TALLGRASS    = (Id)BLOCK_TALLGRASS;
+    constexpr Id BEDROCK      = (Id)BLOCK_BEDROCK;
+    constexpr Id COBBLESTONE  = (Id)BLOCK_COBBLESTONE;
+    constexpr Id GRAVEL       = (Id)BLOCK_GRAVEL;
+    constexpr Id SNOW         = (Id)BLOCK_SNOW;
+    constexpr Id LAVA         = (Id)BLOCK_LAVA;
+    constexpr Id CLAY         = (Id)BLOCK_CLAY;
 
     // Minerales
-    constexpr uint8_t COAL_ORE     = (uint8_t)BLOCK_COAL_ORE;
-    constexpr uint8_t DIAMOND_ORE  = (uint8_t)BLOCK_DIAMOND_ORE;
-    constexpr uint8_t IRON_ORE     = (uint8_t)BLOCK_IRON_ORE;
-    constexpr uint8_t GOLD_ORE     = (uint8_t)BLOCK_GOLD_ORE;
-    constexpr uint8_t SILVER_ORE   = (uint8_t)BLOCK_SILVER_ORE;
-    constexpr uint8_t SCRAP_METAL  = (uint8_t)BLOCK_SCRAP_METAL;
+    constexpr Id COAL_ORE     = (Id)BLOCK_COAL_ORE;
+    constexpr Id DIAMOND_ORE  = (Id)BLOCK_DIAMOND_ORE;
+    constexpr Id IRON_ORE     = (Id)BLOCK_IRON_ORE;
+    constexpr Id GOLD_ORE     = (Id)BLOCK_GOLD_ORE;
+    constexpr Id SILVER_ORE   = (Id)BLOCK_SILVER_ORE;
+    constexpr Id SCRAP_METAL  = (Id)BLOCK_SCRAP_METAL;
+    constexpr Id PYRITE_ORE   = (Id)BLOCK_PYRITE_ORE;
 
     // Bloques nuevos
-    constexpr uint8_t LIMESTONE    = (uint8_t)BLOCK_LIMESTONE;
-    constexpr uint8_t CLAY_DIRT    = (uint8_t)BLOCK_CLAY_DIRT;
-    constexpr uint8_t CLAY_SAND    = (uint8_t)BLOCK_CLAY_SAND;
+    constexpr Id LIMESTONE    = (Id)BLOCK_LIMESTONE;
+    constexpr Id CLAY_DIRT    = (Id)BLOCK_CLAY_DIRT;
+    constexpr Id CLAY_SAND    = (Id)BLOCK_CLAY_SAND;
 }
 
 // ----------------------------------------------------------------------------
@@ -86,9 +102,9 @@ struct BiomeDefinition {
     const char* name;
 
     // --- Superficie ---
-    uint8_t surfaceBlock;    // Bloque de la capa superior
-    uint8_t subsurfaceBlock; // Bloque bajo la superficie
-    uint8_t underwaterBlock; // Bloque de superficie si esta bajo el agua
+    Blocks::Id surfaceBlock;    // Bloque de la capa superior
+    Blocks::Id subsurfaceBlock; // Bloque bajo la superficie
+    Blocks::Id underwaterBlock; // Bloque de superficie si esta bajo el agua
     int     subsurfaceDepth; // Grosor de la capa de subsuelo
 
     // --- Relieve (ETAPA 3) ---

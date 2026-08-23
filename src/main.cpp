@@ -6562,6 +6562,23 @@ public:
             recipes.push_back(recipe);
         }
 
+        // ⭐ MARTILLO DE PEDERNAL: la misma pieza, con la cabeza de pedernal.
+        //
+        //     .  F  .      F = pedernal afilado (la cabeza)
+        //     .  H  .      H = hilo de ixtle (la atadura)
+        //     .  M  .      M = palo (el mango)
+        //
+        // Aguanta 250 golpes de taller en vez de 150. Sirve para lo mismo
+        // que el de piedra, incluido afilar mas pedernal: la herramienta
+        // buena no puede hacer menos que la mala.
+        {
+            CraftingRecipe recipe(BLOCK_MARTILLO_PEDERNAL, 1, false);
+            recipe.pattern[1] = BLOCK_PEDERNAL_AFILADO;  // arriba centro
+            recipe.pattern[4] = BLOCK_HILO_IXTLE;        // centro
+            recipe.pattern[7] = BLOCK_STICK;             // abajo centro
+            recipes.push_back(recipe);
+        }
+
         // ⭐ PICO DE PIEDRA: dos puntas de piedra y un mango largo.
         //
         //     P  H  P      P = pedazo de piedra (las dos puntas)
@@ -6611,6 +6628,17 @@ public:
         {
             CraftingRecipe recipe(BLOCK_PEDERNAL_AFILADO, 1, true);
             recipe.pattern[0] = BLOCK_MARTILLO_PIEDRA;
+            recipe.pattern[1] = BLOCK_PEDAZO_PEDERNAL;
+            recipes.push_back(recipe);
+        }
+
+        // Y lo mismo con el martillo de PEDERNAL. Hace falta una receta
+        // aparte porque las recetas comparan el tipo exacto de bloque, y sin
+        // esto la herramienta MEJOR no serviria para el trabajo de la peor,
+        // que es justo al reves de lo que uno espera.
+        {
+            CraftingRecipe recipe(BLOCK_PEDERNAL_AFILADO, 1, true);
+            recipe.pattern[0] = BLOCK_MARTILLO_PEDERNAL;
             recipe.pattern[1] = BLOCK_PEDAZO_PEDERNAL;
             recipes.push_back(recipe);
         }
@@ -18139,6 +18167,7 @@ void prewarmItemTextures() {
         { BLOCK_PEDERNAL_AFILADO, "pedernal afilado.png"                 },
         { BLOCK_HACHA_PEDERNAL, "Hacha de Pedernal afilado.png"          },
         { BLOCK_PICO_PEDERNAL, "Pico de Pedernal.png"                    },
+        { BLOCK_MARTILLO_PEDERNAL, "Martillo de Pedernal.png"            },
         { BLOCK_NOPAL_SECO,    "Penca de Nopal de Castilla seco sin espinas.png" },
         { BLOCK_ESPINAS_NOPAL, "Espinas de Nopal de castilla.png"        },
         { BLOCK_TAZON_PINO,    "tazon de madera de pino.png"             },
@@ -19548,6 +19577,7 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_PEDERNAL_AFILADO: // Pedernal afilado - item puro
         case BLOCK_HACHA_PEDERNAL:  // Hacha de pedernal - herramienta
         case BLOCK_PICO_PEDERNAL:   // Pico de pedernal - herramienta
+        case BLOCK_MARTILLO_PEDERNAL: // Martillo de pedernal - herramienta
         case BLOCK_ESPINAS_NOPAL:   // Espinas - item puro
         case BLOCK_AGUAMIEL:        // Aguamiel - liquido, se recoge con tazon
         // Los tazones se USAN sobre el maguey, no se colocan en el mundo.
@@ -25921,6 +25951,7 @@ int main() {
                     ponerEnCreativo(BLOCK_PEDERNAL_AFILADO);
                     ponerEnCreativo(BLOCK_HACHA_PEDERNAL);
                     ponerEnCreativo(BLOCK_PICO_PEDERNAL);
+                    ponerEnCreativo(BLOCK_MARTILLO_PEDERNAL);
                     ponerEnCreativo(BLOCK_NOPAL_SECO);
                     ponerEnCreativo(BLOCK_ESPINAS_NOPAL);
                     ponerEnCreativo(BLOCK_TAZON_PINO);

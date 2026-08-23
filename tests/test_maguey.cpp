@@ -5,10 +5,10 @@
 // EL HACHA DE PEDERNAL Y EL MAGUEY MADURO
 // ============================================================================
 
-TEST_CASE("Hacha de pedernal: aguanta 400 bloques, mas que la de piedra") {
-    CHECK(HACHA_PEDERNAL_BLOQUES == 400);
-    CHECK(HACHA_PEDERNAL_MEDIOS == 800);
-    CHECK(vidaMaximaHerramienta(BLOCK_HACHA_PEDERNAL) == 800);
+TEST_CASE("Hacha de pedernal: aguanta 390 bloques, mas que la de piedra") {
+    CHECK(HACHA_PEDERNAL_BLOQUES == 390);
+    CHECK(HACHA_PEDERNAL_MEDIOS == 780);
+    CHECK(vidaMaximaHerramienta(BLOCK_HACHA_PEDERNAL) == 780);
 
     // Es mejor que la de piedra, que aguanta 250.
     CHECK(vidaMaximaHerramienta(BLOCK_HACHA_PEDERNAL) >
@@ -38,12 +38,12 @@ TEST_CASE("Maguey: solo el hacha de pedernal puede con la punta") {
     CHECK(desgasteHerramienta(BLOCK_MARTILLO_PIEDRA, BLOCK_MAGUEY_PUNTA) == 0);
 }
 
-TEST_CASE("Hacha de pedernal: se rompe a los 400 bloques exactos") {
+TEST_CASE("Hacha de pedernal: se rompe a los 390 bloques exactos") {
     Inventory inv;
     inv.selectedSlot = 0;
     inv.at(0).add(BLOCK_HACHA_PEDERNAL, 1);
 
-    for (int i = 0; i < 399; ++i) {
+    for (int i = 0; i < 389; ++i) {
         CHECK_FALSE(inv.gastarHerramienta(
             desgasteHerramienta(BLOCK_HACHA_PEDERNAL, BLOCK_WOOD)));
     }
@@ -59,8 +59,8 @@ TEST_CASE("Hacha de pedernal: lleva barrita con su propia escala") {
 
     CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(1.0f));
 
-    // Media vida son 200 bloques, no 125 como el hacha de piedra.
-    for (int i = 0; i < 200; ++i)
+    // Media vida son 195 bloques, no 125 como el hacha de piedra.
+    for (int i = 0; i < 195; ++i)
         inv.gastarHerramienta(desgasteHerramienta(BLOCK_HACHA_PEDERNAL, BLOCK_WOOD));
 
     CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(0.5f));
@@ -70,10 +70,10 @@ TEST_CASE("Hacha de pedernal: lleva barrita con su propia escala") {
 // EL PICO DE PEDERNAL
 // ============================================================================
 
-TEST_CASE("Pico de pedernal: aguanta 540, mas que el de piedra") {
-    CHECK(PICO_PEDERNAL_BLOQUES == 540);
-    CHECK(PICO_PEDERNAL_MEDIOS == 1080);
-    CHECK(vidaMaximaHerramienta(BLOCK_PICO_PEDERNAL) == 1080);
+TEST_CASE("Pico de pedernal: aguanta 550, mas que el de piedra") {
+    CHECK(PICO_PEDERNAL_BLOQUES == 550);
+    CHECK(PICO_PEDERNAL_MEDIOS == 1100);
+    CHECK(vidaMaximaHerramienta(BLOCK_PICO_PEDERNAL) == 1100);
 
     CHECK(vidaMaximaHerramienta(BLOCK_PICO_PEDERNAL) >
           vidaMaximaHerramienta(BLOCK_PICO_PIEDRA));
@@ -94,12 +94,12 @@ TEST_CASE("Pico de pedernal: es un pico y rompe la misma roca") {
     CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_MAGUEY_PUNTA) == 0);
 }
 
-TEST_CASE("Pico de pedernal: se rompe a los 540 bloques exactos") {
+TEST_CASE("Pico de pedernal: se rompe a los 550 bloques exactos") {
     Inventory inv;
     inv.selectedSlot = 0;
     inv.at(0).add(BLOCK_PICO_PEDERNAL, 1);
 
-    for (int i = 0; i < 539; ++i) {
+    for (int i = 0; i < 549; ++i) {
         CHECK_FALSE(inv.gastarHerramienta(
             desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_STONE)));
     }
@@ -115,11 +115,71 @@ TEST_CASE("Pico de pedernal: barrita con su propia escala") {
 
     CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(1.0f));
 
-    // Media vida son 270 bloques, no 170 como el de piedra.
-    for (int i = 0; i < 270; ++i)
+    // Media vida son 275 bloques, no 170 como el de piedra.
+    for (int i = 0; i < 275; ++i)
         inv.gastarHerramienta(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_STONE));
 
     CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(0.5f));
+}
+
+// ============================================================================
+// EL MARTILLO DE PEDERNAL
+// ============================================================================
+
+TEST_CASE("Martillo de pedernal: 250 usos, mas que los 150 del de piedra") {
+    CHECK(MARTILLO_PEDERNAL_USOS == 250);
+    CHECK(MARTILLO_PEDERNAL_MEDIOS == 500);
+    CHECK(vidaMaximaHerramienta(BLOCK_MARTILLO_PEDERNAL) == 500);
+
+    CHECK(vidaMaximaHerramienta(BLOCK_MARTILLO_PEDERNAL) >
+          vidaMaximaHerramienta(BLOCK_MARTILLO_PIEDRA));
+}
+
+TEST_CASE("Martillo de pedernal: es martillo, y los martillos no pican") {
+    CHECK(esMartillo(BLOCK_MARTILLO_PEDERNAL));
+    CHECK(esMartillo(BLOCK_MARTILLO_PIEDRA));
+    CHECK_FALSE(esMartillo(BLOCK_HACHA_PEDERNAL));
+    CHECK_FALSE(esMartillo(BLOCK_PICO_PEDERNAL));
+
+    // Ningun bloque le gasta vida al romperlo: se gasta al CRAFTEAR.
+    CHECK(desgasteHerramienta(BLOCK_MARTILLO_PEDERNAL, BLOCK_STONE) == 0);
+    CHECK(desgasteHerramienta(BLOCK_MARTILLO_PEDERNAL, BLOCK_WOOD) == 0);
+    CHECK(desgasteHerramienta(BLOCK_MARTILLO_PEDERNAL, BLOCK_MAGUEY_PUNTA) == 0);
+}
+
+TEST_CASE("Martillo de pedernal: aguanta 250 golpes de taller") {
+    Inventory inv;
+    inv.selectedSlot = 0;
+    inv.at(0).add(BLOCK_MARTILLO_PEDERNAL, 1);
+
+    // Un uso de taller = 2 medios, igual que el de piedra.
+    for (int i = 0; i < 249; ++i)
+        CHECK_FALSE(inv.gastarHerramienta(2));
+
+    CHECK(inv.gastarHerramienta(2));
+    CHECK(inv.at(0).isEmpty());
+}
+
+TEST_CASE("Martillo de pedernal: barrita con su propia escala") {
+    Inventory inv;
+    inv.selectedSlot = 0;
+    inv.at(0).add(BLOCK_MARTILLO_PEDERNAL, 1);
+
+    CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(1.0f));
+
+    // Media vida son 125 usos, no 75 como el de piedra.
+    for (int i = 0; i < 125; ++i) inv.gastarHerramienta(2);
+    CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(0.5f));
+}
+
+TEST_CASE("Pedernal: las tres herramientas de pedernal aguantan mas") {
+    // La rama de pedernal entera mejora a la de piedra, sin excepciones.
+    CHECK(vidaMaximaHerramienta(BLOCK_HACHA_PEDERNAL) >
+          vidaMaximaHerramienta(BLOCK_HACHA_PIEDRA));
+    CHECK(vidaMaximaHerramienta(BLOCK_PICO_PEDERNAL) >
+          vidaMaximaHerramienta(BLOCK_PICO_PIEDRA));
+    CHECK(vidaMaximaHerramienta(BLOCK_MARTILLO_PEDERNAL) >
+          vidaMaximaHerramienta(BLOCK_MARTILLO_PIEDRA));
 }
 
 TEST_CASE("Los tazones: uno por especie de madera") {
@@ -156,4 +216,5 @@ TEST_CASE("Bloques nuevos: caben en el rango valido del enum") {
     CHECK((int)BLOCK_HACHA_PEDERNAL <= BLOCK_TYPE_MAX);
     CHECK((int)BLOCK_TAZON_OYAMEL <= BLOCK_TYPE_MAX);
     CHECK((int)BLOCK_PICO_PEDERNAL <= BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_MARTILLO_PEDERNAL <= BLOCK_TYPE_MAX);
 }

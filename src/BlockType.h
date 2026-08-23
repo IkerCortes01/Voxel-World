@@ -449,7 +449,8 @@ enum BlockType {
 
     // El PICO de pedernal: lo mismo que el de piedra pero con las puntas de
     // pedernal afilado, que aguantan mucho mas antes de mellarse.
-    BLOCK_PICO_PEDERNAL     // 155 Pico de pedernal afilado
+    BLOCK_PICO_PEDERNAL,    // 155 Pico de pedernal afilado
+    BLOCK_MARTILLO_PEDERNAL // 156 Martillo de pedernal (250 usos de taller)
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -924,21 +925,25 @@ constexpr int HACHA_VIDA_BLOQUES    = 250;
 constexpr int PICO_VIDA_BLOQUES     = 340;
 constexpr int MARTILLO_VIDA_USOS    = 150;
 
-// El hacha de PEDERNAL es la evolución de la de piedra: el pedernal se afila
-// mucho mejor que la piedra común, así que corta lo mismo pero aguanta más.
-// Y es la única que puede con la punta del maguey maduro.
-constexpr int HACHA_PEDERNAL_BLOQUES = 400;
-
-// El PICO de pedernal sigue la misma proporcion que el hacha: el pedernal
-// aguanta ~1,6 veces mas que la piedra comun antes de mellarse, asi que
-// 340 -> 540 bloques de roca.
-constexpr int PICO_PEDERNAL_BLOQUES  = 540;
+// ----------------------------------------------------------------------------
+// LA RAMA DE PEDERNAL
+// ----------------------------------------------------------------------------
+// Las mismas tres herramientas, con el filo de pedernal afilado en vez de
+// piedra comun. Hacen exactamente lo mismo y al mismo ritmo: lo unico que
+// cambia es cuanto aguantan antes de mellarse.
+//
+// El hacha de pedernal, ademas, es la unica que puede con la punta del
+// maguey maduro.
+constexpr int HACHA_PEDERNAL_BLOQUES    = 390;
+constexpr int PICO_PEDERNAL_BLOQUES     = 550;
+constexpr int MARTILLO_PEDERNAL_USOS    = 250;
 
 constexpr int HACHA_VIDA_MEDIOS     = HACHA_VIDA_BLOQUES  * 2;   // 500
 constexpr int PICO_VIDA_MEDIOS      = PICO_VIDA_BLOQUES   * 2;   // 680
 constexpr int MARTILLO_VIDA_MEDIOS  = MARTILLO_VIDA_USOS  * 2;   // 300
-constexpr int HACHA_PEDERNAL_MEDIOS = HACHA_PEDERNAL_BLOQUES * 2; // 800
-constexpr int PICO_PEDERNAL_MEDIOS  = PICO_PEDERNAL_BLOQUES  * 2; // 1080
+constexpr int HACHA_PEDERNAL_MEDIOS = HACHA_PEDERNAL_BLOQUES * 2;    // 780
+constexpr int PICO_PEDERNAL_MEDIOS  = PICO_PEDERNAL_BLOQUES  * 2;    // 1100
+constexpr int MARTILLO_PEDERNAL_MEDIOS = MARTILLO_PEDERNAL_USOS * 2; // 500
 
 // ¿Este objeto es una herramienta que se gasta?
 inline bool esHerramientaGastable(BlockType t) {
@@ -946,7 +951,8 @@ inline bool esHerramientaGastable(BlockType t) {
            t == BLOCK_PICO_PIEDRA  ||
            t == BLOCK_MARTILLO_PIEDRA ||
            t == BLOCK_HACHA_PEDERNAL ||
-           t == BLOCK_PICO_PEDERNAL;
+           t == BLOCK_PICO_PEDERNAL ||
+           t == BLOCK_MARTILLO_PEDERNAL;
 }
 
 // ¿Es un hacha, de la clase que sea? Las dos cortan lo mismo; la de pedernal
@@ -961,6 +967,12 @@ inline bool esPico(BlockType t) {
     return t == BLOCK_PICO_PIEDRA || t == BLOCK_PICO_PEDERNAL;
 }
 
+// ¿Es un martillo? Ninguno de los dos pica: son herramientas de TALLER, y se
+// gastan al craftear (afilar un pedernal, p. ej.), no al romper bloques.
+inline bool esMartillo(BlockType t) {
+    return t == BLOCK_MARTILLO_PIEDRA || t == BLOCK_MARTILLO_PEDERNAL;
+}
+
 // Vida COMPLETA de cada herramienta, en medios puntos.
 // Devuelve 0 si no es una herramienta que se gaste.
 inline int vidaMaximaHerramienta(BlockType t) {
@@ -970,6 +982,7 @@ inline int vidaMaximaHerramienta(BlockType t) {
         case BLOCK_MARTILLO_PIEDRA: return MARTILLO_VIDA_MEDIOS;
         case BLOCK_HACHA_PEDERNAL:  return HACHA_PEDERNAL_MEDIOS;
         case BLOCK_PICO_PEDERNAL:   return PICO_PEDERNAL_MEDIOS;
+        case BLOCK_MARTILLO_PEDERNAL: return MARTILLO_PEDERNAL_MEDIOS;
         default:                    return 0;
     }
 }
@@ -1086,4 +1099,4 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_PICO_PEDERNAL;
+constexpr int BLOCK_TYPE_MAX = BLOCK_MARTILLO_PEDERNAL;

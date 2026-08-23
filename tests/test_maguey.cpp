@@ -66,6 +66,75 @@ TEST_CASE("Hacha de pedernal: lleva barrita con su propia escala") {
     CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(0.5f));
 }
 
+// ============================================================================
+// EL PICO DE PEDERNAL
+// ============================================================================
+
+TEST_CASE("Pico de pedernal: aguanta 540, mas que el de piedra") {
+    CHECK(PICO_PEDERNAL_BLOQUES == 540);
+    CHECK(PICO_PEDERNAL_MEDIOS == 1080);
+    CHECK(vidaMaximaHerramienta(BLOCK_PICO_PEDERNAL) == 1080);
+
+    CHECK(vidaMaximaHerramienta(BLOCK_PICO_PEDERNAL) >
+          vidaMaximaHerramienta(BLOCK_PICO_PIEDRA));
+}
+
+TEST_CASE("Pico de pedernal: es un pico y rompe la misma roca") {
+    CHECK(esPico(BLOCK_PICO_PEDERNAL));
+    CHECK(esPico(BLOCK_PICO_PIEDRA));
+    CHECK_FALSE(esPico(BLOCK_HACHA_PEDERNAL));
+    CHECK_FALSE(esPico(BLOCK_MARTILLO_PIEDRA));
+
+    // La roca le gasta vida igual que al de piedra.
+    CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_STONE) == 2);
+    CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_COAL_ORE) == 2);
+    // Y lo organico no: eso es del hacha.
+    CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_WOOD) == 0);
+    // Ni la punta del maguey, que es solo del hacha de pedernal.
+    CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_MAGUEY_PUNTA) == 0);
+}
+
+TEST_CASE("Pico de pedernal: se rompe a los 540 bloques exactos") {
+    Inventory inv;
+    inv.selectedSlot = 0;
+    inv.at(0).add(BLOCK_PICO_PEDERNAL, 1);
+
+    for (int i = 0; i < 539; ++i) {
+        CHECK_FALSE(inv.gastarHerramienta(
+            desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_STONE)));
+    }
+    CHECK(inv.gastarHerramienta(
+        desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_STONE)));
+    CHECK(inv.at(0).isEmpty());
+}
+
+TEST_CASE("Pico de pedernal: barrita con su propia escala") {
+    Inventory inv;
+    inv.selectedSlot = 0;
+    inv.at(0).add(BLOCK_PICO_PEDERNAL, 1);
+
+    CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(1.0f));
+
+    // Media vida son 270 bloques, no 170 como el de piedra.
+    for (int i = 0; i < 270; ++i)
+        inv.gastarHerramienta(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_STONE));
+
+    CHECK(inv.vidaFraccionSlot(0) == doctest::Approx(0.5f));
+}
+
+TEST_CASE("Los tazones: uno por especie de madera") {
+    // Son tres bloques distintos, no uno generico: el tazon sale de la
+    // madera que se use, igual que los tablones salen de su tronco.
+    CHECK(BLOCK_TAZON_PINO != BLOCK_TAZON_ENCINO);
+    CHECK(BLOCK_TAZON_ENCINO != BLOCK_TAZON_OYAMEL);
+    CHECK(BLOCK_TAZON_PINO != BLOCK_TAZON_OYAMEL);
+
+    // Y ninguno es herramienta: se acumulan como items normales.
+    CHECK_FALSE(esHerramientaGastable(BLOCK_TAZON_PINO));
+    CHECK_FALSE(esHerramientaGastable(BLOCK_TAZON_ENCINO));
+    CHECK_FALSE(esHerramientaGastable(BLOCK_TAZON_OYAMEL));
+}
+
 TEST_CASE("Items nuevos: no son herramientas que se gasten") {
     // Estos se acumulan como cualquier item: no llevan barra de vida.
     CHECK_FALSE(esHerramientaGastable(BLOCK_ESPINAS_NOPAL));
@@ -86,4 +155,5 @@ TEST_CASE("Bloques nuevos: caben en el rango valido del enum") {
     CHECK((int)BLOCK_MAGUEY_PUNTA <= BLOCK_TYPE_MAX);
     CHECK((int)BLOCK_HACHA_PEDERNAL <= BLOCK_TYPE_MAX);
     CHECK((int)BLOCK_TAZON_OYAMEL <= BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_PICO_PEDERNAL <= BLOCK_TYPE_MAX);
 }

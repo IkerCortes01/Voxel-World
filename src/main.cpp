@@ -2104,7 +2104,7 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
                                          : HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
 
-    if (isSurvival && herramienta == BLOCK_PICO_PIEDRA) {
+    if (isSurvival && esPico(herramienta)) {
         return esRocaParaPico(type) ? PICO_ROCA_BREAK_TIME
                                     : HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
@@ -6577,6 +6577,26 @@ public:
             recipe.pattern[2] = BLOCK_PEDAZO_PIEDRA;   // arriba derecha
             recipe.pattern[4] = BLOCK_STICK;           // centro: mango
             recipe.pattern[7] = BLOCK_STICK;           // abajo centro: mango
+            recipes.push_back(recipe);
+        }
+
+        // ⭐ PICO DE PEDERNAL: el mismo montaje, mejores puntas.
+        //
+        //     F  H  F      F = pedernal afilado (las dos puntas)
+        //     .  M  .      H = hilo de ixtle (la atadura del centro)
+        //     .  M  .      M = palo (mango de dos piezas)
+        //
+        // Misma forma que el de piedra a proposito: es la MISMA herramienta,
+        // solo que con el filo mejor. Rompe la roca al mismo ritmo (1,5 s)
+        // pero aguanta 540 bloques en vez de 340, porque el pedernal tarda
+        // mucho mas en mellarse que la piedra comun.
+        {
+            CraftingRecipe recipe(BLOCK_PICO_PEDERNAL, 1, false);
+            recipe.pattern[0] = BLOCK_PEDERNAL_AFILADO;  // arriba izquierda
+            recipe.pattern[1] = BLOCK_HILO_IXTLE;        // arriba centro
+            recipe.pattern[2] = BLOCK_PEDERNAL_AFILADO;  // arriba derecha
+            recipe.pattern[4] = BLOCK_STICK;             // centro: mango
+            recipe.pattern[7] = BLOCK_STICK;             // abajo centro: mango
             recipes.push_back(recipe);
         }
 
@@ -14501,10 +14521,13 @@ public:
         // ⭐⭐⭐ SISTEMA CIRCULAR LIMPIO: Cargar continuamente en radio circular
         // NO depende de la dirección del jugador, solo de la distancia
 
-        // ⭐⭐⭐ THROTTLING DINÁMICO OPTIMIZADO: Target 50-60 FPS constantes
+        // ⭐⭐⭐ THROTTLING DINÁMICO: Target 100 FPS (10 ms por frame)
         static int MAX_CHUNKS_PER_FRAME = 1;  // ⭐ Iniciar conservador
         static int MAX_MESHES_PER_FRAME_DYNAMIC = 2;
-        static float performanceSmoothed = 0.018f; // Target 55 FPS promedio
+        // Se arranca suponiendo que ya se va a 100 FPS. Si no es cierto, el
+        // regulador lo corrige en los primeros 12 frames; suponer lo contrario
+        // (18 ms = 55 FPS, como estaba) hacia que empezara frenando siempre.
+        static float performanceSmoothed = 0.010f;
         static int framesSinceAdjust = 0;
 
         performanceSmoothed = performanceSmoothed * 0.95f + deltaTime * 0.05f;  // ⭐ Suavizado más agresivo
@@ -14532,19 +14555,34 @@ public:
         if (framesSinceAdjust >= 12) {
             framesSinceAdjust = 0;
 
-            // Target: 50-60 FPS (16.67ms - 20ms)
-            // Si rendimiento > 60 FPS (< 16.67ms), aumentar carga gradualmente
-            // Objetivo: mantenerse por encima de 26 FPS (38.4 ms). Solo se
-            // sube la carga si sobra margen de verdad (mas de 33 FPS).
-            if (performanceSmoothed < 0.030f) {
+            // ================================================================
+            // OBJETIVO: 100 FPS (10 ms por frame)
+            // ================================================================
+            // Este regulador reparte el presupuesto del frame entre generar
+            // chunks y mallarlos. La clave es que SUBE la carga mientras le
+            // sobre margen, asi que el umbral de subida ES el objetivo de FPS:
+            // el motor acaba estabilizandose justo ahi.
+            //
+            // Estaba calibrado para 50-60 FPS: subia carga con cualquier frame
+            // por debajo de 30 ms (33 FPS) y solo frenaba pasados los 38 ms
+            // (26 FPS). Con esos numeros el motor JAMAS llega a 100 aunque la
+            // maquina de para ello -- se gasta todo el margen en cargar mundo
+            // mas deprisa, que es exactamente lo que se le pedia.
+            //
+            // Ahora las tres zonas se refieren a 100 FPS:
+            //   < 8,5 ms  (>117 FPS) -> sobra margen: subir carga
+            //   8,5-11 ms (90-117)   -> en el objetivo: no tocar nada
+            //   > 11 ms   (<90 FPS)  -> se pierde el objetivo: bajar carga
+            //
+            // La banda muerta entre 8,5 y 11 ms evita que oscile subiendo y
+            // bajando en frames alternos.
+            if (performanceSmoothed < 0.0085f) {
                 if (MAX_CHUNKS_PER_FRAME < 2) MAX_CHUNKS_PER_FRAME++;
                 if (MAX_MESHES_PER_FRAME_DYNAMIC < 6) MAX_MESHES_PER_FRAME_DYNAMIC++;
             }
-            // Si rendimiento entre 50-60 FPS (16.67-20ms), mantener
-            else if (performanceSmoothed < 0.0384f) {
-                // Zona óptima - mantener valores actuales
+            else if (performanceSmoothed < 0.011f) {
+                // Zona óptima (90-117 FPS) - mantener valores actuales
             }
-            // Si rendimiento < 50 FPS (> 20ms), reducir inmediatamente
             else {
                 if (MAX_CHUNKS_PER_FRAME > 1) MAX_CHUNKS_PER_FRAME--;
                 if (MAX_MESHES_PER_FRAME_DYNAMIC > 1) MAX_MESHES_PER_FRAME_DYNAMIC--;
@@ -18100,6 +18138,7 @@ void prewarmItemTextures() {
         { BLOCK_PICO_PIEDRA,     "pico de Piedra.png"                    },
         { BLOCK_PEDERNAL_AFILADO, "pedernal afilado.png"                 },
         { BLOCK_HACHA_PEDERNAL, "Hacha de Pedernal afilado.png"          },
+        { BLOCK_PICO_PEDERNAL, "Pico de Pedernal.png"                    },
         { BLOCK_NOPAL_SECO,    "Penca de Nopal de Castilla seco sin espinas.png" },
         { BLOCK_ESPINAS_NOPAL, "Espinas de Nopal de castilla.png"        },
         { BLOCK_TAZON_PINO,    "tazon de madera de pino.png"             },
@@ -19508,6 +19547,7 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_PICO_PIEDRA:     // Pico - herramienta
         case BLOCK_PEDERNAL_AFILADO: // Pedernal afilado - item puro
         case BLOCK_HACHA_PEDERNAL:  // Hacha de pedernal - herramienta
+        case BLOCK_PICO_PEDERNAL:   // Pico de pedernal - herramienta
         case BLOCK_ESPINAS_NOPAL:   // Espinas - item puro
         case BLOCK_AGUAMIEL:        // Aguamiel - liquido, se recoge con tazon
         // Los tazones se USAN sobre el maguey, no se colocan en el mundo.
@@ -25880,6 +25920,7 @@ int main() {
                     ponerEnCreativo(BLOCK_MARTILLO_PIEDRA);
                     ponerEnCreativo(BLOCK_PEDERNAL_AFILADO);
                     ponerEnCreativo(BLOCK_HACHA_PEDERNAL);
+                    ponerEnCreativo(BLOCK_PICO_PEDERNAL);
                     ponerEnCreativo(BLOCK_NOPAL_SECO);
                     ponerEnCreativo(BLOCK_ESPINAS_NOPAL);
                     ponerEnCreativo(BLOCK_TAZON_PINO);

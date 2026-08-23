@@ -445,7 +445,11 @@ enum BlockType {
     // cajete y la planta suelta el jugo ahi dentro.
     BLOCK_MAGUEY_PUNTA,     // 152 Punta gruesa del maguey maduro
     BLOCK_MAGUEY_HUECO,     // 153 La punta ya cortada, hueca
-    BLOCK_AGUAMIEL          // 154 Aguamiel juntandose en el hueco
+    BLOCK_AGUAMIEL,         // 154 Aguamiel juntandose en el hueco
+
+    // El PICO de pedernal: lo mismo que el de piedra pero con las puntas de
+    // pedernal afilado, que aguantan mucho mas antes de mellarse.
+    BLOCK_PICO_PEDERNAL     // 155 Pico de pedernal afilado
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -925,23 +929,36 @@ constexpr int MARTILLO_VIDA_USOS    = 150;
 // Y es la única que puede con la punta del maguey maduro.
 constexpr int HACHA_PEDERNAL_BLOQUES = 400;
 
+// El PICO de pedernal sigue la misma proporcion que el hacha: el pedernal
+// aguanta ~1,6 veces mas que la piedra comun antes de mellarse, asi que
+// 340 -> 540 bloques de roca.
+constexpr int PICO_PEDERNAL_BLOQUES  = 540;
+
 constexpr int HACHA_VIDA_MEDIOS     = HACHA_VIDA_BLOQUES  * 2;   // 500
 constexpr int PICO_VIDA_MEDIOS      = PICO_VIDA_BLOQUES   * 2;   // 680
 constexpr int MARTILLO_VIDA_MEDIOS  = MARTILLO_VIDA_USOS  * 2;   // 300
 constexpr int HACHA_PEDERNAL_MEDIOS = HACHA_PEDERNAL_BLOQUES * 2; // 800
+constexpr int PICO_PEDERNAL_MEDIOS  = PICO_PEDERNAL_BLOQUES  * 2; // 1080
 
 // ¿Este objeto es una herramienta que se gasta?
 inline bool esHerramientaGastable(BlockType t) {
     return t == BLOCK_HACHA_PIEDRA ||
            t == BLOCK_PICO_PIEDRA  ||
            t == BLOCK_MARTILLO_PIEDRA ||
-           t == BLOCK_HACHA_PEDERNAL;
+           t == BLOCK_HACHA_PEDERNAL ||
+           t == BLOCK_PICO_PEDERNAL;
 }
 
 // ¿Es un hacha, de la clase que sea? Las dos cortan lo mismo; la de pedernal
 // aguanta más y además puede con la punta del maguey.
 inline bool esHacha(BlockType t) {
     return t == BLOCK_HACHA_PIEDRA || t == BLOCK_HACHA_PEDERNAL;
+}
+
+// ¿Es un pico? Los dos rompen la misma roca al mismo ritmo; el de pedernal
+// solo aguanta más.
+inline bool esPico(BlockType t) {
+    return t == BLOCK_PICO_PIEDRA || t == BLOCK_PICO_PEDERNAL;
 }
 
 // Vida COMPLETA de cada herramienta, en medios puntos.
@@ -952,6 +969,7 @@ inline int vidaMaximaHerramienta(BlockType t) {
         case BLOCK_PICO_PIEDRA:     return PICO_VIDA_MEDIOS;
         case BLOCK_MARTILLO_PIEDRA: return MARTILLO_VIDA_MEDIOS;
         case BLOCK_HACHA_PEDERNAL:  return HACHA_PEDERNAL_MEDIOS;
+        case BLOCK_PICO_PEDERNAL:   return PICO_PEDERNAL_MEDIOS;
         default:                    return 0;
     }
 }
@@ -1057,7 +1075,9 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
         case BLOCK_HACHA_PEDERNAL:
             return (desgasteHacha(bloque) > 0 ||
                     bloque == BLOCK_MAGUEY_PUNTA) ? 2 : 0;
-        case BLOCK_PICO_PIEDRA:  return desgastePico(bloque);
+        // Los dos picos gastan igual: lo que cambia es cuanto aguantan.
+        case BLOCK_PICO_PIEDRA:
+        case BLOCK_PICO_PEDERNAL: return desgastePico(bloque);
         // El martillo no pica: se gasta al craftear, no al romper.
         default:                 return 0;
     }
@@ -1066,4 +1086,4 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_AGUAMIEL;
+constexpr int BLOCK_TYPE_MAX = BLOCK_PICO_PEDERNAL;

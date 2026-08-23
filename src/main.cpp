@@ -1870,6 +1870,36 @@ bool isBlockOpaque(BlockType type) {
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
 
+// ============================================================================
+// ¿ES UN CUBO MACIZO CON TEXTURA SIN HUECOS?
+// ============================================================================
+// Solo estos pueden dibujarse con el test de alfa APAGADO, que es lo que
+// permite a la GPU descartar por early-Z los pixeles que quedan tapados (ver
+// la nota del pase opaco en World::render). En una grafica integrada eso es
+// la diferencia entre pagar o no el texturizado de todo el overdraw.
+//
+// Se apoya en isBlockOpaque(), que ya sabe quien llena su voxel y quien no:
+// deja fuera hojas, hierba, flores, nopal, ramas y niveles parciales. A eso
+// se le suman dos exclusiones propias:
+//
+//   - Las RAICES y las celdas MIXTAS: isBlockOpaque las da por opacas (y para
+//     tapar caras vecinas lo son), pero no se dibujan como un cubo entero,
+//     asi que su geometria deja hueco y necesita recorte.
+//   - Las HERRAMIENTAS y los items: nunca son terreno.
+//
+// Ante la duda, devolver false: el bloque conserva el recorte y como mucho
+// renuncia al early-Z. Devolver true de mas es lo que pintaria un cuadro
+// negro alrededor de una planta.
+inline bool esBloqueMacizoOpaco(BlockType type) {
+    if (!isBlockOpaque(type)) return false;   // sprites, hojas, plantas...
+    if (esMixto(type)) return false;          // dos capas: deja hueco
+    if (esRaiz(type)) return false;           // forma propia, no un cubo
+    if (isRama(type)) return false;
+    if (esGuijarro(type)) return false;       // bulto pequeño en el suelo
+    if (esNivelParcial(type)) return false;
+    return true;
+}
+
 // Obtener tiempo de rotura de un bloque en segundos (como Minecraft)
 float getBlockBreakTime(BlockType type) {
     // Un nivel parcial cuesta lo mismo que su bloque entero.
@@ -5683,8 +5713,20 @@ struct Chunk {
         // el mesh y el render ya no tiene que adivinar nada.
         bool transparente;
 
+        // ⭐ ¿Su textura tiene zonas que hay que RECORTAR (GL_ALPHA_TEST)?
+        //
+        // Distinto de `transparente`: eso es agua/lava, que se MEZCLA y va en
+        // el pase 2. Esto es hierba, ramas o nopal: opacos donde pintan, pero
+        // con fondo vacio en el PNG.
+        //
+        // El pase opaco dibuja con el test de alfa apagado (deja trabajar al
+        // early-Z) y solo lo enciende para los batches con esta marca. Sin
+        // ella habria que dejarlo encendido siempre y se perderia el early-Z
+        // en todo el terreno.
+        bool recortado;
+
         TextureBatch() : vbo(0), colorVBO(0), uvVBO(0), vertexCount(0), texture(0),
-                         transparente(false) {}
+                         transparente(false), recortado(false) {}
 
         ~TextureBatch() {
             if (vbo) glDeleteBuffers(1, &vbo);
@@ -11324,9 +11366,36 @@ public:
         // Esta función es el único sitio por el que el mesher pide texturas:
         // si sale 0, se apunta y el chunk se reintenta en el siguiente frame,
         // cuando la textura ya esté cargada.
+        // ⭐ TEXTURAS QUE NECESITAN RECORTE POR ALFA (GL_ALPHA_TEST)
+        //
+        // No es lo mismo TRANSPARENTE que RECORTADO:
+        //   - transparente (agua, lava) -> se mezcla, va en el pase 2
+        //   - recortado (hierba, flores, ramas, nopal) -> es OPACO donde
+        //     pinta, pero su PNG tiene zonas vacias que hay que descartar
+        //
+        // Se anotan aparte porque el pase opaco APAGA el alpha test para que
+        // la GPU pueda usar early-Z (ver la nota en el pase 1), y solo lo
+        // enciende para los batches que de verdad lo necesitan. Sin esta
+        // distincion, apagarlo dejaria la hierba con un cuadro negro alrededor.
+        std::set<GLuint> texturasRecortadas;
+
         auto texSegura = [&](BlockType b, int cara) -> GLuint {
             const GLuint t = g_textureManager->getBlockTexture(b, cara);
             if (t == 0) texturasFaltantes = true;
+
+            // ⭐ El marcado va AQUI, y no en cada rama del mesher, porque este
+            // es el unico sitio por el que se piden texturas. Las ramas son
+            // muchas (sprites, niveles, mixtos, nopal, raices, plantas) y
+            // marcar en cada una es garantia de olvidarse de alguna: la que
+            // se olvidara saldria con un cuadro negro alrededor.
+            //
+            // Se decide por TIPO DE BLOQUE, que es el dato real. Si la misma
+            // imagen la comparte un bloque macizo, el batch conserva el
+            // recorte: como mucho ese batch renuncia al early-Z, que es el
+            // lado seguro del error.
+            if (t != 0 && !esBloqueMacizoOpaco(b))
+                texturasRecortadas.insert(t);
+
             return t;
         };
 
@@ -11413,18 +11482,9 @@ public:
         // deducirlo comparando IDs de textura (ver TextureBatch::transparente).
         std::set<GLuint> texturasTransparentes;
 
-        // ⭐ TEXTURAS QUE NECESITAN RECORTE POR ALFA (GL_ALPHA_TEST)
-        //
-        // No es lo mismo TRANSPARENTE que RECORTADO:
-        //   - transparente (agua, lava) -> se mezcla, va en el pase 2
-        //   - recortado (hierba, flores, hojas, niveles) -> es OPACO donde
-        //     pinta, pero su PNG tiene zonas vacias que hay que descartar
-        //
-        // Se anotan aparte porque el pase opaco APAGA el alpha test para que
-        // la GPU pueda usar early-Z (ver la nota en el pase 1), y solo lo
-        // enciende para los batches que de verdad lo necesitan. Sin esta
-        // distincion, apagarlo dejaria la hierba con un cuadro negro alrededor.
-        std::set<GLuint> texturasRecortadas;
+        // (texturasRecortadas ya se declaro arriba, junto a texSegura, que es
+        // quien lo rellena: el marcado va en el unico sitio por el que pasan
+        // todas las peticiones de textura.)
 
         int facesRendered = 0;  // Contador para debug
 
@@ -14259,6 +14319,8 @@ public:
             batch->vertexCount = expectedVertCount;
             batch->transparente =
                 (texturasTransparentes.find(texture) != texturasTransparentes.end());
+            batch->recortado =
+                (texturasRecortadas.find(texture) != texturasRecortadas.end());
 
             // Generar VBOs para este batch
             glGenBuffers(1, &batch->vbo);
@@ -15099,7 +15161,19 @@ public:
         // NOTA: La configuración avanzada de fog se hace ANTES de llamar a render()
         // desde el main loop. Aquí solo aseguramos que fog esté habilitado.
         glEnable(GL_FOG);
-        glHint(GL_FOG_HINT, GL_NICEST);
+
+        // ⭐ NIEBLA POR VERTICE, NO POR PIXEL
+        //
+        // Estaba en GL_NICEST, que obliga a calcular la niebla PIXEL A PIXEL.
+        // Como la niebla cubre la pantalla entera, eso es un calculo extra por
+        // cada pixel dibujado -- y en una integrada como la HD 4000 se nota.
+        //
+        // GL_FASTEST la calcula por VERTICE y la interpola por el triangulo.
+        // En un mundo de cubos la diferencia es practicamente invisible: las
+        // caras son planas y pequeñas, asi que interpolar entre sus esquinas
+        // da casi el mismo resultado que evaluarla en cada pixel. Donde se
+        // notaria es en poligonos grandes y muy inclinados, que aqui no hay.
+        glHint(GL_FOG_HINT, GL_FASTEST);
 
         // FRUSTUM CULLING - Solo renderizar chunks en vista
         float projection[16], modelview[16], viewProj[16];
@@ -15242,6 +15316,7 @@ public:
         // dibuja primero y llena el z-buffer, y la GPU descarta gratis casi
         // todo lo que hay detras.
         glDisable(GL_ALPHA_TEST);
+        bool alphaTestActivo = false;   // espejo del estado real de OpenGL
 
         // Renderizar chunks visibles ordenados - BLOQUES OPACOS
         for (const auto& info : visibleChunks) {
@@ -15274,6 +15349,23 @@ public:
                 // comparacion de IDs de textura (ver TextureBatch::transparente).
                 if (batch->transparente) continue;
 
+                // ⭐ EL RECORTE POR ALFA, SOLO DONDE HACE FALTA
+                //
+                // El pase entra con GL_ALPHA_TEST apagado para que la GPU
+                // pueda descartar por early-Z (ver la nota al abrir el pase).
+                // Los batches con fondo recortado -- hierba, ramas, nopal --
+                // lo necesitan encendido o se les veria el cuadro del PNG.
+                //
+                // Se lleva la cuenta del estado actual para no llamar a
+                // glEnable/glDisable en cada batch: un cambio de estado de
+                // OpenGL no es gratis, y la inmensa mayoria de los batches del
+                // terreno son macizos y van seguidos.
+                if (batch->recortado != alphaTestActivo) {
+                    if (batch->recortado) glEnable(GL_ALPHA_TEST);
+                    else                  glDisable(GL_ALPHA_TEST);
+                    alphaTestActivo = batch->recortado;
+                }
+
                 // Bind textura para este batch (optimizado con cache)
                 g_textureManager->bindOptimized(batch->texture);
 
@@ -15303,6 +15395,17 @@ public:
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_FALSE);  // NO escribir en depth buffer (leer sí, escribir no)
+
+        // ⭐ Se devuelve el test de alfa a como estaba al entrar en render().
+        //
+        // El pase opaco lo iba encendiendo y apagando por batch, asi que aqui
+        // puede estar en cualquiera de los dos estados. Todo lo que se dibuja
+        // despues -- el agua de este pase, y sobre todo el HUD, la mano y los
+        // menus, que estan fuera de esta funcion -- da por hecho que sigue
+        // encendido, como lo dejo el arranque. Sin esta linea, un frame que
+        // acabara el pase opaco con un batch macizo dejaria la UI sin recorte
+        // y los iconos saldrian con su fondo.
+        if (!alphaTestActivo) glEnable(GL_ALPHA_TEST);
 
         // ⭐ OPTIMIZACIÓN: Renderizar transparentes de atrás hacia adelante (back-to-front)
         // Para blending correcto, invertir el orden de los chunks

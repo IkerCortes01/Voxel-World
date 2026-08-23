@@ -827,6 +827,18 @@ std::vector<Fisica::PiezaCayendo> g_piezasCayendo;
 constexpr size_t MAX_BLOQUES_CAYENDO = 512;
 constexpr size_t MAX_PIEZAS_CAYENDO  = 32;
 
+// ⭐ HACIA DONDE CAE EL ARBOL
+//
+// Un arbol talado se vence hacia el lado CONTRARIO al hachazo: si le pegas
+// desde el sur, cae hacia el norte, como al talar de verdad.
+//
+// Lo apunta updateMining justo antes de romper el bloque, y lo lee el
+// desprendimiento. Es una global y no un parametro porque el camino que va de
+// romper a desprender pasa por revisarSoporte, que es generico y no deberia
+// saber nada de hachazos ni de arboles.
+int g_golpeDirX = 0;
+int g_golpeDirZ = 0;
+
 // Se define mucho mas abajo (necesita World completo), pero se llama desde
 // updateMining, que va antes.
 class World;
@@ -18707,6 +18719,13 @@ struct BlockDrop {
 std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
     std::vector<BlockDrop> drops;
 
+    // Un bloque COMPUESTO no suelta "un compuesto": lo que da lo decide la
+    // ruta de rotura, que sabe QUE COMPONENTE se ha golpeado (una punta
+    // suelta una espina; el cuerpo, las que le quedaran). Aqui se devuelve
+    // vacio para que el camino generico no spawnee un item del propio ID,
+    // que en el inventario no tendria ni textura ni sentido.
+    if (Compuesto::esCompuesto(blockType)) return drops;
+
     // Un nivel parcial suelta su bloque entero: el jugador recoge "tierra",
     // no "tierra de nivel 3".
     if (esNivelParcial(blockType)) blockType = bloqueBaseDe(blockType);
@@ -19137,6 +19156,22 @@ void updateMining(GameState* state, float deltaTime) {
         // saliente) se quedan sin apoyo. Se sueltan y caen con su fisica.
         // Si al posarse dejan a otro colgando, ese cae en el siguiente
         // aterrizaje: el derrumbe se propaga solo.
+        // ⭐ POR DONDE LE HAS PEGADO: el arbol caera al lado contrario.
+        //
+        // Se toma la direccion en que MIRA el jugador y se queda con el eje
+        // dominante, porque al recolocar los bloques solo hay cuatro rumbos
+        // posibles en una rejilla de voxeles.
+        {
+            const Vec3 mira = state->player.getForward();
+            if (fabsf(mira.x) >= fabsf(mira.z)) {
+                g_golpeDirX = (mira.x >= 0.0f) ? 1 : -1;
+                g_golpeDirZ = 0;
+            } else {
+                g_golpeDirX = 0;
+                g_golpeDirZ = (mira.z >= 0.0f) ? 1 : -1;
+            }
+        }
+
         revisarSoporte(state->world, bx, by, bz);
 
         // ⭐ VEGETACIÓN SIN SOPORTE
@@ -19861,8 +19896,35 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
 
             const BlockType vec = world.getBlock(nx, ny, nz);
 
-            // ⭐ ¿Esta pegada a terreno firme? Entonces esta sujeta y no cae.
-            if (esSueloFirme(vec)) { apoyada = true; continue; }
+            // ⭐ ¿ESTA PEGADA A TERRENO FIRME? PERO SOLO CUENTA POR DEBAJO,
+            // Y SOLO SI QUIEN LO TOCA AGUANTA PESO.
+            //
+            // Antes valia cualquier contacto: si UNA hoja rozaba una ladera o
+            // una rama tocaba la pared de al lado, el arbol entero se
+            // consideraba sujeto y no caia nunca. Un arbol en pendiente o
+            // pegado a una roca era intalable.
+            //
+            // Dos correcciones:
+            //
+            //   1. Solo cuenta el contacto POR DEBAJO (ny < p.y). Rozar una
+            //      pared de lado no sostiene nada -- un arbol apoyado en un
+            //      muro se cae igual.
+            //
+            //   2. Y solo si el bloque que toca es de los que AGUANTAN PESO.
+            //      Las hojas y las ramas no: son follaje, no cimiento. Asi un
+            //      arbol medio enterrado en hojarasca o con las ramas metidas
+            //      en el suelo se sigue viniendo abajo.
+            const bool porDebajo = (ny < p.y);
+            const BlockType propio = world.getBlock(p.x, p.y, p.z);
+            const bool aguantaPeso =
+                !(propio == BLOCK_LEAVES || propio == BLOCK_LEAVES_ENCINO ||
+                  propio == BLOCK_LEAVES_OYAMEL || isRama(propio) ||
+                  esRaiz(propio));
+
+            if (porDebajo && aguantaPeso && esSueloFirme(vec)) {
+                apoyada = true;
+                continue;
+            }
 
             // Si es parte de la estructura, se sigue por ahi.
             if (!puedeCaer(vec)) continue;
@@ -19910,6 +19972,62 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
 
     pieza.areaTotal = (float)columnas.size() * Fisica::AREA_M2;
 
+    // ========================================================================
+    // ⭐ ¿SE VIENE ABAJO DE LADO, O CAE RECTO?
+    // ========================================================================
+    // Un ARBOL se vence: es alto, estrecho y esta clavado por el pie, asi que
+    // se tumba hacia un lado. Un trozo de terreno o una losa de piedra no:
+    // esos bajan rectos, como un bloque suelto.
+    //
+    // La diferencia se decide por la FORMA, no por el tipo de bloque: si es
+    // bastante mas alto que ancho, se comporta como un arbol. Asi una torre
+    // que hayas construido tambien se vence, sin codigo especifico para ella.
+    {
+        int altura = 1, anchoX = 1, anchoZ = 1;
+        int minDX = 0, maxDX = 0, minDZ = 0, maxDZ = 0, maxDY = 0;
+        for (const auto& b : pieza.bloques) {
+            if (b.dx < minDX) minDX = b.dx;
+            if (b.dx > maxDX) maxDX = b.dx;
+            if (b.dz < minDZ) minDZ = b.dz;
+            if (b.dz > maxDZ) maxDZ = b.dz;
+            if (b.dy > maxDY) maxDY = b.dy;
+        }
+        altura = maxDY + 1;
+        anchoX = maxDX - minDX + 1;
+        anchoZ = maxDZ - minDZ + 1;
+        const int ancho = (anchoX > anchoZ) ? anchoX : anchoZ;
+
+        // Al menos el doble de alto que ancho, y de cierta altura: por debajo
+        // de eso volcar no se aprecia y queda mas natural que baje recto.
+        if (altura >= 4 && altura >= ancho * 2) {
+            pieza.vuelca = true;
+            pieza.angulo = 0.0f;
+
+            // Cae hacia el lado CONTRARIO al hachazo. Si no hay direccion
+            // apuntada (el arbol se cayo solo, no lo talo nadie), se elige
+            // una por la posicion, para que sea siempre la misma en el mismo
+            // sitio y no cambie al recargar el mundo.
+            if (g_golpeDirX != 0 || g_golpeDirZ != 0) {
+                pieza.volcarX = -g_golpeDirX;
+                pieza.volcarZ = -g_golpeDirZ;
+            } else {
+                unsigned h = (unsigned)(x * 73856093) ^ (unsigned)(z * 19349663);
+                h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+                static const int RUMBOS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+                pieza.volcarX = RUMBOS[h % 4][0];
+                pieza.volcarZ = RUMBOS[h % 4][1];
+            }
+
+            // La altura hace falta para la velocidad del vuelco: un arbol
+            // alto se tumba mas despacio (ver aceleracionVuelco).
+            pieza.alturaBloques = (float)altura;
+        }
+    }
+
+    // Se consume la direccion del golpe: el siguiente hachazo pondra la suya.
+    g_golpeDirX = 0;
+    g_golpeDirZ = 0;
+
     g_piezasCayendo.push_back(std::move(pieza));
     return true;
 }
@@ -19944,6 +20062,79 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
 
     for (size_t i = 0; i < g_piezasCayendo.size(); ) {
         Fisica::PiezaCayendo& pz = g_piezasCayendo[i];
+
+        // ====================================================================
+        // ⭐ EL ARBOL QUE SE VIENE ABAJO
+        // ====================================================================
+        // No baja recto: gira sobre su pie como una bisagra, igual que un
+        // arbol talado de verdad. El pie NO se mueve; lo que describe el arco
+        // es la copa.
+        //
+        // Cuando llega a la horizontal, se planta tumbado en el suelo.
+        if (pz.vuelca) {
+            // La velocidad angular la lleva guardada en `velocidad`, que en
+            // este caso son radianes/s en vez de bloques/s.
+            pz.velocidad += Fisica::aceleracionVuelco(pz.alturaBloques,
+                                                      pz.angulo) * deltaTime;
+            pz.angulo += pz.velocidad * deltaTime;
+
+            // 90 grados: ya esta tumbado del todo.
+            if (pz.angulo < 1.5708f) { ++i; continue; }
+
+            pz.angulo = 1.5708f;
+
+            // --- SE PLANTA TUMBADO ---
+            //
+            // Cada bloque pasa de su altura a una distancia horizontal: lo
+            // que estaba a 8 de alto acaba a 8 bloques de distancia en la
+            // direccion del vuelco. Es girar 90 grados sobre el pie.
+            const int baseX = (int)floorf(pz.x);
+            const int baseY = (int)floorf(pz.y);
+            const int baseZ = (int)floorf(pz.z);
+
+            int colocados = 0;
+            std::vector<Vec3i> hojasSueltas;
+
+            for (const auto& b : pz.bloques) {
+                // El giro: la altura (dy) se convierte en avance horizontal,
+                // y lo que sobresalia a los lados se queda donde estaba.
+                const int avance = b.dy;
+                int cx = baseX + b.dx + pz.volcarX * avance;
+                int cz = baseZ + b.dz + pz.volcarZ * avance;
+                int cy = baseY;
+
+                // Buscar el suelo bajo esa columna: el arbol se adapta al
+                // relieve en vez de quedarse flotando o enterrarse.
+                int suelo = cy;
+                while (suelo > 0 &&
+                       world.getBlock(cx, suelo - 1, cz) == BLOCK_AIR)
+                    --suelo;
+                while (suelo < CHUNK_HEIGHT - 1 &&
+                       world.getBlock(cx, suelo, cz) != BLOCK_AIR)
+                    ++suelo;
+                cy = suelo;
+
+                if (cy < 0 || cy >= CHUNK_HEIGHT) continue;
+                if (world.getBlock(cx, cy, cz) != BLOCK_AIR) continue;
+
+                world.setBlock(cx, cy, cz, b.tipo);
+                ++colocados;
+            }
+
+            if (colocados > 0) {
+                if (g_soundManager)
+                    g_soundManager->playBreakBlock(pz.bloques[0].tipo,
+                                                   glfwGetTime());
+                state->particles.spawnBlockBreakParticles(
+                    Vec3((float)baseX + 0.5f, (float)baseY + 0.5f,
+                         (float)baseZ + 0.5f),
+                    pz.bloques[0].tipo);
+            }
+
+            g_piezasCayendo[i] = std::move(g_piezasCayendo.back());
+            g_piezasCayendo.pop_back();
+            continue;
+        }
 
         pz.velocidad += Fisica::aceleracionPieza(pz.masaTotal, pz.areaTotal,
                                                  pz.velocidad) * deltaTime;
@@ -28803,11 +28994,29 @@ int main() {
 
             // Las ESTRUCTURAS enteras (arboles, columnas, puentes).
             for (const Fisica::PiezaCayendo& pz : g_piezasCayendo) {
+                // ⭐ EL ARBOL QUE SE VENCE SE DIBUJA GIRADO.
+                //
+                // Cada bloque describe un arco alrededor del pie del tronco.
+                // Con el angulo a 0 sale exactamente donde estaba (cos=1,
+                // sen=0), asi que el mismo codigo vale para los dos casos y
+                // no hace falta una rama aparte.
+                const float c = pz.vuelca ? cosf(pz.angulo) : 1.0f;
+                const float s = pz.vuelca ? sinf(pz.angulo) : 0.0f;
+
                 for (const auto& pieza : pz.bloques) {
+                    const float dy = (float)pieza.dy;
+
+                    // Al girar, la altura se reparte entre lo que sigue
+                    // siendo alto (cos) y lo que ya avanza en horizontal
+                    // (sen). A 90 grados toda la altura es avance: el arbol
+                    // esta tumbado.
+                    const float altura  = dy * c;
+                    const float avance  = dy * s;
+
                     acumularCubo(pieza.tipo,
-                                 pz.x + (float)pieza.dx,
-                                 pz.y + (float)pieza.dy,
-                                 pz.z + (float)pieza.dz);
+                        pz.x + (float)pieza.dx + avance * (float)pz.volcarX,
+                        pz.y + altura,
+                        pz.z + (float)pieza.dz + avance * (float)pz.volcarZ);
                 }
             }
 

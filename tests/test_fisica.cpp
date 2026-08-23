@@ -308,3 +308,64 @@ TEST_CASE("Guijarros: el canto y el bloque del mismo material no se confunden") 
     CHECK(esGuijarro(BLOCK_PEDAZO_GRAVA));
     CHECK_FALSE(esGuijarro(BLOCK_GRAVEL));
 }
+
+// ============================================================================
+// EL VUELCO DEL ARBOL
+// ============================================================================
+// Un arbol talado no baja recto: gira sobre su pie como una bisagra. Es un
+// pendulo invertido, y su aceleracion angular es
+//
+//     alpha = (3 * g * sin(angulo)) / (2 * L)
+//
+// donde L es la altura. La masa SE CANCELA en esa formula, lo que tiene una
+// consecuencia bonita: la caida no depende de lo que pese el arbol.
+
+TEST_CASE("Vuelco: un arbol arranca despacio y acelera al vencerse") {
+    // En vertical casi no se mueve; a media caida ya va lanzado. Es el seno
+    // del angulo el que lo hace, y es como cae un arbol de verdad.
+    const float aVertical = aceleracionVuelco(10.0f, 0.0f);
+    const float aMedia    = aceleracionVuelco(10.0f, 0.7854f);  // 45 grados
+    const float aTumbado  = aceleracionVuelco(10.0f, 1.5708f);  // 90 grados
+
+    CHECK(aVertical < aMedia);
+    CHECK(aMedia < aTumbado);
+
+    // Pero en vertical NO es cero: sin un empujon minimo, un arbol
+    // perfectamente recto se quedaria parado para siempre.
+    CHECK(aVertical > 0.0f);
+}
+
+TEST_CASE("Vuelco: un arbol alto se tumba mas despacio") {
+    // alpha es inversamente proporcional a la altura. No es una impresion:
+    // es la razon fisica de que los arboles grandes parezcan caer lentos.
+    const float bajo = aceleracionVuelco(5.0f,  0.7854f);
+    const float alto = aceleracionVuelco(20.0f, 0.7854f);
+
+    CHECK(bajo > alto);
+}
+
+TEST_CASE("Vuelco: la caida NO depende de lo que pese el arbol") {
+    // La masa se cancela en alpha = 3*g*sin/2L, asi que un pino y un encino
+    // de la misma altura se tumban igual de rapido. Es el mismo principio
+    // por el que dos cuerpos caen igual en el vacio.
+    //
+    // La funcion ni siquiera recibe la masa: eso ES la comprobacion.
+    const float a1 = aceleracionVuelco(12.0f, 0.5f);
+    const float a2 = aceleracionVuelco(12.0f, 0.5f);
+    CHECK(a1 == doctest::Approx(a2));
+}
+
+TEST_CASE("Vuelco: una altura absurda no revienta") {
+    // Division por cero si L fuera 0.
+    CHECK(aceleracionVuelco(0.0f, 0.5f) == doctest::Approx(0.0f));
+    CHECK(std::isfinite(aceleracionVuelco(0.001f, 0.5f)));
+    CHECK(std::isfinite(aceleracionVuelco(1000.0f, 1.5708f)));
+}
+
+TEST_CASE("Vuelco: una pieza nace de pie y sin volcar") {
+    PiezaCayendo pz;
+    CHECK(pz.angulo == doctest::Approx(0.0f));
+    CHECK_FALSE(pz.vuelca);
+    CHECK(pz.volcarX == 0);
+    CHECK(pz.volcarZ == 0);
+}

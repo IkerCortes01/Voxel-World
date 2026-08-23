@@ -369,9 +369,67 @@ struct PiezaCayendo {
     float masaTotal;      // kg
     float areaTotal;      // m^2
 
+    // ------------------------------------------------------------------------
+    // EL VUELCO
+    // ------------------------------------------------------------------------
+    // Un arbol talado no baja recto: se vence hacia un lado y acaba TUMBADO.
+    // Aqui va hacia donde y cuanto lleva girado.
+    //
+    // El giro es alrededor del pie del tronco, como una bisagra: eso es lo
+    // que hace que la copa describa un arco en vez de deslizarse de lado.
+    //
+    //   volcarX, volcarZ: hacia donde cae. Uno de los dos es +-1 y el otro 0,
+    //                     porque el mundo es de voxeles y solo hay cuatro
+    //                     rumbos posibles al recolocar los bloques.
+    //   angulo:           0 = de pie, PI/2 (1.5708) = tumbado del todo.
+    int   volcarX = 0, volcarZ = 0;
+    float angulo = 0.0f;
+    bool  vuelca = false;     // false = cae recto, como un bloque suelto
+
+    // Lo alto que es, en bloques. Es lo unico que decide la velocidad del
+    // vuelco: un arbol alto se tumba mas despacio (ver aceleracionVuelco).
+    float alturaBloques = 1.0f;
+
     PiezaCayendo() : x(0), y(0), z(0), velocidad(0),
                      masaTotal(0), areaTotal(0) {}
 };
+
+// ----------------------------------------------------------------------------
+// VELOCIDAD DE VUELCO DE UN ARBOL
+// ----------------------------------------------------------------------------
+// Un arbol que se vence es un pendulo invertido: gira alrededor de su pie por
+// su propio peso. La aceleracion angular de un cuerpo asi es
+//
+//     alpha = (m * g * r * sin(angulo)) / I
+//
+// donde r es la distancia del pie al centro de masa e I el momento de
+// inercia. Para una barra que gira por un extremo, I = m*L^2/3 y r = L/2, y
+// la masa se cancela:
+//
+//     alpha = (3 * g * sin(angulo)) / (2 * L)
+//
+// Ese resultado tiene una consecuencia bonita y correcta: la caida NO depende
+// de lo que pese el arbol, solo de lo ALTO que sea. Un pino y un encino de la
+// misma altura tardan lo mismo en tumbarse, igual que dos cuerpos caen igual
+// en el vacio.
+//
+// Y explica por que un arbol alto parece caer "despacio": cuanto mayor es L,
+// menor es alpha. No es una impresion, es fisica.
+//
+// El seno hace lo demas: parado en vertical (angulo 0) casi no arranca, y
+// acelera segun se va venciendo, que es exactamente como cae un arbol.
+inline float aceleracionVuelco(float alturaBloques, float angulo) {
+    // En metros, que es donde vale la formula.
+    const float L = alturaBloques * LADO_M;
+    if (L <= 0.01f) return 0.0f;
+
+    // Un empujon minimo al principio: en vertical exacto el seno es 0 y el
+    // arbol se quedaria parado para siempre. Es el equivalente al viento o a
+    // que ningun arbol esta perfectamente recto.
+    const float sen = std::sin(angulo) + 0.08f;
+
+    return (3.0f * G * sen) / (2.0f * L);
+}
 
 // ----------------------------------------------------------------------------
 // ACELERACION DE UNA PIEZA ENTERA

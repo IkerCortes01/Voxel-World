@@ -196,3 +196,68 @@ TEST_CASE("Fisica: ningun bloque tiene densidad absurda") {
         CHECK(std::isfinite(aceleracionCaida(t, 50.0f)));
     }
 }
+
+// ============================================================================
+// LA REGLA VALE PARA TODO: BLOQUES, NIVELES Y CELDAS MIXTAS
+// ============================================================================
+// El sistema de caida decide con dos preguntas: "¿esto puede caer?" y "¿esto
+// sujeta?". Las dos tienen que dar la MISMA respuesta para un bloque entero,
+// para una capa parcial de ese bloque y para una celda mixta que lo lleve.
+//
+// Si no, aparecen incoherencias raras: una loncha de tronco sosteniendo un
+// arbol entero, o una capa de tierra que no aguanta lo que hay encima.
+
+TEST_CASE("Caida: la densidad no cambia entre bloque entero y su capa") {
+    // Lo que decide como cae un bloque es su densidad, y una capa parcial de
+    // piedra sigue siendo piedra.
+    const BlockType capaPiedra = conNivel(BLOCK_STONE, 3);
+    CHECK(densidadDe(capaPiedra) == doctest::Approx(densidadDe(BLOCK_STONE)));
+
+    const BlockType capaTierra = conNivel(BLOCK_DIRT, 7);
+    CHECK(densidadDe(capaTierra) == doctest::Approx(densidadDe(BLOCK_DIRT)));
+
+    // Y por tanto caen igual: misma aceleracion a la misma velocidad.
+    CHECK(aceleracionCaida(capaPiedra, 15.0f) ==
+          doctest::Approx(aceleracionCaida(BLOCK_STONE, 15.0f)));
+}
+
+TEST_CASE("Caida: una celda mixta cae como su relleno") {
+    // En una celda mixta el relleno es la parte de ARRIBA: lo que se
+    // desprenderia y lo que sostiene lo que hubiera encima.
+    const BlockType mix = mixto(BLOCK_DIRT, 4, BLOCK_STONE);
+    if (mix != BLOCK_AIR) {
+        CHECK(densidadDe(mix) == doctest::Approx(densidadDe(BLOCK_STONE)));
+        CHECK(aceleracionCaida(mix, 15.0f) ==
+              doctest::Approx(aceleracionCaida(BLOCK_STONE, 15.0f)));
+    }
+}
+
+TEST_CASE("Caida: la masa de una pieza es la suma de la de sus bloques") {
+    // Una estructura cae con la masa del CONJUNTO. Dos bloques de piedra
+    // pesan el doble que uno.
+    const float uno = masaDe(BLOCK_STONE);
+    const float dos = uno * 2.0f;
+
+    // Y con el doble de masa pero la misma silueta (uno encima de otro), el
+    // aire la frena la MITAD: cae mas rapido que un bloque suelto.
+    const float aUno = aceleracionPieza(uno, AREA_M2, 30.0f);
+    const float aDos = aceleracionPieza(dos, AREA_M2, 30.0f);
+    CHECK(aDos > aUno);
+}
+
+TEST_CASE("Caida: una pieza ancha frena mas que una estrecha") {
+    // Misma masa, mas area frontal -> mas arrastre. Es la diferencia entre
+    // un tronco cayendo de punta y una copa de hojas extendida.
+    const float m = masaDe(BLOCK_STONE) * 4.0f;
+
+    const float estrecha = aceleracionPieza(m, AREA_M2, 30.0f);
+    const float ancha    = aceleracionPieza(m, AREA_M2 * 4.0f, 30.0f);
+
+    CHECK(estrecha > ancha);
+}
+
+TEST_CASE("Caida: una pieza sin masa no revienta") {
+    // Division por cero: tiene que devolver 0, no infinito ni NaN.
+    CHECK(aceleracionPieza(0.0f, AREA_M2, 10.0f) == doctest::Approx(0.0f));
+    CHECK(std::isfinite(aceleracionPieza(1.0f, 0.0f, 10.0f)));
+}

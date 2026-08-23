@@ -291,6 +291,7 @@ struct Vec3i {
 #include "FisicaCaida.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
+#include "BloqueCompuesto.h" // bloques con estado y varias partes en un voxel
 #include "WorldName.h"
 
 // ============================================================================
@@ -1530,11 +1531,59 @@ inline void cajaDePieza(BlockType compuesto, bool segunda,
 // ⭐ LA MISMA CAJA, PEDIDA POR INDICE
 //
 // Es la puerta por la que el motor recorre N piezas sin saber cuantas hay.
-// Hoy todas las celdas son de dos, asi que traduce el indice al bool de
-// siempre; el dia que exista una de tres, este es el unico sitio que cambia.
+// Sirve para las celdas compartidas de siempre (dos piezas) y para los
+// BLOQUES COMPUESTOS, que declaran sus componentes segun su estado.
 inline void cajaDePiezaN(BlockType compuesto, int i,
                          float& x0, float& y0, float& z0,
                          float& x1, float& y1, float& z1) {
+    // ---- BLOQUES COMPUESTOS: una caja por COMPONENTE ----
+    //
+    // Las medidas tienen que cuadrar con las que dibuja el mesher, o el
+    // jugador apuntaria a un sitio y seleccionaria otro. Son envolventes: la
+    // del cuerpo cubre la roseta, la de las puntas la corona de espinas y la
+    // del fluido el interior del cajete.
+    if (Compuesto::esCompuesto(compuesto)) {
+        if (Compuesto::familiaDe(compuesto) == Compuesto::FAM_MAGUEY) {
+            namespace M = Compuesto::Maguey;
+            const float esc = M::escalaDeEtapa(M::etapaDe(compuesto));
+            const Compuesto::Componente c =
+                Compuesto::componenteN(compuesto, i);
+
+            if (c == Compuesto::COMP_FLUIDO) {
+                // El jugo, dentro del cuenco. Es la caja mas alta y la mas
+                // cercana al ojo cuando te asomas por arriba, asi que mirar
+                // dentro selecciona el liquido -- que es lo que se quiere
+                // recoger.
+                const float cR = 0.20f, cP = 0.06f;
+                x0 = 0.5f - cR + cP;  x1 = 0.5f + cR - cP;
+                y0 = 0.55f + cP;      y1 = 0.78f;
+                z0 = 0.5f - cR + cP;  z1 = 0.5f + cR - cP;
+                return;
+            }
+
+            if (c == Compuesto::COMP_ADORNO) {
+                // La corona de puntas: el anillo exterior por donde asoman.
+                const float rad = 0.16f + 0.12f * esc + 0.05f;
+                float m = rad;  if (m > 0.5f) m = 0.5f;
+                x0 = 0.5f - m;  x1 = 0.5f + m;
+                y0 = 0.10f + 0.22f * esc;
+                y1 = 1.0f;
+                z0 = 0.5f - m;  z1 = 0.5f + m;
+                return;
+            }
+
+            // El CUERPO: el tronco y la base de las hojas. Se queda dentro
+            // del voxel para que el jugador pueda pasar al lado de la planta.
+            const float m = 0.16f + 0.10f * esc;
+            const float mm = (m > 0.5f) ? 0.5f : m;
+            x0 = 0.5f - mm;  x1 = 0.5f + mm;
+            y0 = 0.0f;
+            y1 = 0.30f + 0.55f * esc;  if (y1 > 1.0f) y1 = 1.0f;
+            z0 = 0.5f - mm;  z1 = 0.5f + mm;
+            return;
+        }
+    }
+
     cajaDePieza(compuesto, i >= 1, x0, y0, z0, x1, y1, z1);
 }
 
@@ -1749,6 +1798,25 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         minY = 0.0f;
         maxY = alto;
         return true;
+    }
+
+    // --- MAGUEY COMPUESTO: LA CAJA DEL CUERPO ---
+    //
+    // Lo que frena al jugador es el TRONCO, no la corona de puntas ni el
+    // jugo: se puede pasar rozando las hojas, como en una planta de verdad.
+    // Las medidas son las mismas que usa el mesher para el cuerpo.
+    if (Compuesto::esCompuesto(type)) {
+        if (Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY) {
+            const float esc = Compuesto::Maguey::escalaDeEtapa(
+                Compuesto::Maguey::etapaDe(type));
+            const float m = 0.16f + 0.10f * esc;
+            const float mm = (m > 0.5f) ? 0.5f : m;
+            minX = 0.5f - mm;  maxX = 0.5f + mm;
+            minY = 0.0f;
+            maxY = 0.30f + 0.55f * esc;  if (maxY > 1.0f) maxY = 1.0f;
+            minZ = 0.5f - mm;  maxZ = 0.5f + mm;
+            return true;
+        }
     }
 
     // --- LA PUNTA DEL MAGUEY: EL CONO ---
@@ -2040,6 +2108,12 @@ bool isBlockSolid(BlockType type) {
     // Una celda MIXTA llega hasta arriba: frena como un bloque entero.
     if (esNivelParcial(type) || esMixto(type)) return true;
 
+    // ⭐ EL MAGUEY COMPUESTO: SOLIDO, pero solo donde hay planta.
+    //
+    // La caja real la da nopalHitboxCon() a partir de su etapa, asi que el
+    // jugador choca con el tronco y no con el aire de alrededor.
+    if (Compuesto::esCompuesto(type)) return true;
+
     // ⭐ EL AGUAMIEL SE ATRAVIESA, COMO EL AGUA.
     //
     // Es un liquido: la mano lo cruza. Pero OJO -- el ID BLOCK_AGUAMIEL es
@@ -2077,6 +2151,10 @@ bool isBlockOpaque(BlockType type) {
     // que tampoco puede tapar a nadie.
     if (type == BLOCK_MAGUEY_HUECO || type == BLOCK_AGUAMIEL ||
         type == BLOCK_MAGUEY_PUNTA) return false;
+
+    // Un bloque COMPUESTO es una planta con huecos entre sus partes: por ahi
+    // se ve el fondo, asi que no puede tapar las caras de sus vecinos.
+    if (Compuesto::esCompuesto(type)) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
@@ -6090,6 +6168,12 @@ struct Chunk {
     // Las hojas NO están aquí: son un caso intermedio y se tratan aparte en
     // lightCost(), porque filtran la luz en vez de dejarla pasar o cortarla.
     static bool skyTransparent(BlockType b) {
+        // Un bloque COMPUESTO es una planta abierta: entre el tronco, las
+        // hojas y las puntas queda hueco de sobra, asi que el sol la
+        // atraviesa igual que a cualquier vegetacion. De contarla como maciza
+        // dejaria un parche de sombra cuadrado a sus pies.
+        if (Compuesto::esCompuesto(b)) return true;
+
         // Bloques que no llenan su voxel: la luz del cielo los atraviesa.
         // La raiz ENORME (16 px) llena el voxel entero, asi que corta el sol
         // como un bloque macizo. Las mas finas si lo dejan pasar.
@@ -12134,6 +12218,226 @@ public:
                     // Los NIVELES entran por aqui (no llenan el voxel, asi
                     // que no valen para el greedy meshing), pero tienen su
                     // propia rama mas abajo con la caja de altura reducida.
+                    // ================================================
+                    // MAGUEY COMPUESTO: CUERPO + PUNTAS + JUGO EN UN VOXEL
+                    // ================================================
+                    // Las tres partes de la planta se dibujan aqui, en la
+                    // misma pasada y en los MISMOS batches de textura que el
+                    // resto del chunk. No hay una entidad por espina ni un
+                    // draw call por componente: son triangulos que se suman a
+                    // la malla del chunk como cualquier cara de terreno.
+                    //
+                    // Cuantas puntas hay, cuanto jugo lleva y de que tamaño es
+                    // la planta salen del ESTADO empaquetado en el ID (ver
+                    // BloqueCompuesto.h), asi que un maguey a medio llenar y
+                    // otro rebosante son el mismo bloque con distinto valor --
+                    // no dos bloques distintos.
+                    if (Compuesto::esCompuesto(block) &&
+                        Compuesto::familiaDe(block) == Compuesto::FAM_MAGUEY) {
+                        namespace M = Compuesto::Maguey;
+
+                        const uint16_t etapa  = M::etapaDe(block);
+                        const uint16_t giro   = M::giroDe(block);
+                        const uint16_t nPunt  = M::puntasDe(block);
+                        const uint16_t jugo   = M::aguamielDe(block);
+                        const bool     capado = M::capadoDe(block);
+                        const float    esc    = M::escalaDeEtapa(etapa);
+
+                        auto tope1m = [](float v) { return v > 1.0f ? 1.0f : v; };
+                        const float lzm = faceLightFactor(x, y, z, 0, 1, 0);
+                        const float Rm = tope1m(lzm * lightColorR);
+                        const float Gm = tope1m(lzm * lightColorG);
+                        const float Bm = tope1m(lzm * lightColorB);
+
+                        // Caja cerrada de seis caras, en el batch de su
+                        // textura. Cerrarlas todas es lo que evita huecos sin
+                        // textura mirando desde abajo o de lado.
+                        auto cajaM = [&](GLuint tex,
+                                         float x0, float y0, float z0,
+                                         float x1, float y1, float z1,
+                                         float br) {
+                            if (tex == 0) return;
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
+                            const float r = Rm * br, g = Gm * br, b = Bm * br;
+                            const float P[6][4][3] = {
+                              {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}},
+                              {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}},
+                              {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}},
+                              {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}},
+                              {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}},
+                              {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}},
+                            };
+                            const float T[6][4][2] = {
+                              {{x0,z0},{x0,z1},{x1,z1},{x1,z0}},
+                              {{x0,z0},{x1,z0},{x1,z1},{x0,z1}},
+                              {{z0,1-y1},{z0,1-y0},{z1,1-y0},{z1,1-y1}},
+                              {{z0,1-y0},{z1,1-y0},{z1,1-y1},{z0,1-y1}},
+                              {{x0,1-y0},{x1,1-y0},{x1,1-y1},{x0,1-y1}},
+                              {{x0,1-y0},{x0,1-y1},{x1,1-y1},{x1,1-y0}},
+                            };
+                            for (int cara = 0; cara < 6; ++cara)
+                                for (int i = 0; i < 4; ++i) {
+                                    V.push_back(wx + P[cara][i][0]);
+                                    V.push_back(wy + P[cara][i][1]);
+                                    V.push_back(wz + P[cara][i][2]);
+                                    C.push_back(r); C.push_back(g);
+                                    C.push_back(b); C.push_back(1.0f);
+                                    U.push_back(T[cara][i][0]);
+                                    U.push_back(T[cara][i][1]);
+                                }
+                        };
+
+                        // ---- COMPONENTE 1: EL CUERPO ----
+                        // La roseta de hojas. Se dibuja como el ixtle de
+                        // siempre (misma geometria de prismas), pero con la
+                        // escala que le toca por ETAPA: un brote es pequeño y
+                        // un productor, el doble de grande.
+                        const GLuint texHoja = texSegura(BLOCK_IXTLE_HOJA, 0);
+
+                        // Semilla estable por posicion + giro del estado: dos
+                        // magueyes vecinos no se ven calcados, y el mismo
+                        // siempre se dibuja igual.
+                        unsigned hm = (unsigned)((int)wx * 73856093)
+                                    ^ (unsigned)((int)wy * 19349663)
+                                    ^ (unsigned)((int)wz * 83492791)
+                                    ^ (unsigned)(giro * 2654435761u);
+                        hm ^= hm >> 13; hm *= 1274126177u; hm ^= hm >> 16;
+
+                        // El cuerpo: un tronco central del que salen las
+                        // hojas. Alto y ancho segun la etapa.
+                        {
+                            const float alto  = 0.30f + 0.55f * esc;
+                            const float medio = 0.10f + 0.06f * esc;
+                            cajaM(texHoja,
+                                  0.5f - medio, 0.0f, 0.5f - medio,
+                                  0.5f + medio, (alto < 1.0f ? alto : 1.0f),
+                                  0.5f + medio, 1.0f);
+
+                            // Las hojas: cuatro tandas alrededor, cada una
+                            // inclinada. Con la escala crecen y se separan.
+                            const int nHojas = 4 + (int)(esc * 2.0f);
+                            for (int h = 0; h < nHojas; ++h) {
+                                const float ang = (float)h / (float)nHojas
+                                                * 6.2831853f
+                                                + (float)giro * 0.4f;
+                                const float rad = 0.14f + 0.13f * esc;
+                                const float hx = 0.5f + cosf(ang) * rad;
+                                const float hz = 0.5f + sinf(ang) * rad;
+                                const float hy = 0.10f + 0.30f * esc;
+                                const float gr = 0.045f + 0.02f * esc;
+
+                                float ax0 = hx - gr, ax1 = hx + gr;
+                                float az0 = hz - gr, az1 = hz + gr;
+                                // Se recorta al voxel: una hoja que se saliera
+                                // se cruzaria con el bloque de al lado.
+                                if (ax0 < 0.0f) ax0 = 0.0f;
+                                if (az0 < 0.0f) az0 = 0.0f;
+                                if (ax1 > 1.0f) ax1 = 1.0f;
+                                if (az1 > 1.0f) az1 = 1.0f;
+                                if (ax1 <= ax0 || az1 <= az0) continue;
+
+                                cajaM(texHoja, ax0, 0.02f, az0,
+                                      ax1, (hy < 0.98f ? hy : 0.98f), az1,
+                                      0.90f);
+                            }
+                        }
+
+                        // ---- COMPONENTE 2: LAS PUNTAS ----
+                        // NO son un bloque por combinacion ni una entidad por
+                        // espina: es un CONTADOR en el estado, y aqui se
+                        // reparten alrededor de la planta con el hash de la
+                        // posicion. Asi 0..7 puntas salen de un solo ID.
+                        if (nPunt > 0) {
+                            const GLuint texPta = texSegura(BLOCK_MAGUEY_PUNTA, 0);
+                            for (uint16_t p = 0; p < nPunt; ++p) {
+                                unsigned v = hm ^ (p * 2246822519u);
+                                v ^= v >> 15; v *= 3266489917u; v ^= v >> 13;
+
+                                // Repartidas en circulo, con una variacion
+                                // por punta para que no queden en rejilla.
+                                const float ang = (float)p / (float)nPunt
+                                                * 6.2831853f
+                                                + (float)(v % 100u) * 0.004f;
+                                const float rad = 0.16f + 0.12f * esc;
+                                const float px = 0.5f + cosf(ang) * rad;
+                                const float pz = 0.5f + sinf(ang) * rad;
+
+                                // Alto y grosor propios: unas asoman mas que
+                                // otras, como en una planta de verdad.
+                                const float alt = (0.22f + 0.30f * esc)
+                                                * (0.7f + (float)(v % 7u) * 0.06f);
+                                const float gr  = 0.035f + 0.015f * esc;
+
+                                // Base de la punta: donde arranca sobre el
+                                // cuerpo.
+                                const float y0 = 0.10f + 0.22f * esc;
+                                float y1 = y0 + alt;
+                                if (y1 > 1.0f) y1 = 1.0f;
+                                if (y1 <= y0) continue;
+
+                                float qx0 = px - gr, qx1 = px + gr;
+                                float qz0 = pz - gr, qz1 = pz + gr;
+                                if (qx0 < 0.0f) qx0 = 0.0f;
+                                if (qz0 < 0.0f) qz0 = 0.0f;
+                                if (qx1 > 1.0f) qx1 = 1.0f;
+                                if (qz1 > 1.0f) qz1 = 1.0f;
+                                if (qx1 <= qx0 || qz1 <= qz0) continue;
+
+                                // Dos escalones: gruesa abajo, fina arriba.
+                                const float ym = (y0 + y1) * 0.5f;
+                                cajaM(texPta, qx0, y0, qz0, qx1, ym, qz1, 1.0f);
+                                const float f = 0.5f;
+                                cajaM(texPta,
+                                      px - gr*f, ym, pz - gr*f,
+                                      px + gr*f, y1, pz + gr*f, 0.95f);
+                            }
+                        }
+
+                        // ---- COMPONENTE 3: EL JUGO ----
+                        // Solo si esta CAPADO y tiene algo dentro. La altura
+                        // del liquido sale de cuanto lleve acumulado, asi que
+                        // el jugador ve de un vistazo si ya merece la pena
+                        // acercarse con el tazon.
+                        if (capado) {
+                            const GLuint texCaj =
+                                texSegura(BLOCK_MAGUEY_HUECO, 0);
+
+                            // El cajete: el cuenco abierto en lo alto del
+                            // tallo, donde se junta el aguamiel.
+                            const float cy0 = 0.55f;
+                            const float cP  = 0.06f;   // grosor de la pared
+                            const float cR  = 0.20f;   // medio ancho del cuenco
+
+                            // Fondo y cuatro paredes.
+                            cajaM(texCaj, 0.5f-cR, cy0, 0.5f-cR,
+                                          0.5f+cR, cy0+cP, 0.5f+cR, 0.95f);
+                            cajaM(texCaj, 0.5f-cR, cy0, 0.5f-cR,
+                                          0.5f-cR+cP, cy0+0.22f, 0.5f+cR, 0.90f);
+                            cajaM(texCaj, 0.5f+cR-cP, cy0, 0.5f-cR,
+                                          0.5f+cR, cy0+0.22f, 0.5f+cR, 0.90f);
+                            cajaM(texCaj, 0.5f-cR+cP, cy0, 0.5f-cR,
+                                          0.5f+cR-cP, cy0+0.22f, 0.5f-cR+cP, 0.90f);
+                            cajaM(texCaj, 0.5f-cR+cP, cy0, 0.5f+cR-cP,
+                                          0.5f+cR-cP, cy0+0.22f, 0.5f+cR, 0.90f);
+
+                            if (jugo > 0) {
+                                const GLuint texJug =
+                                    texSegura(BLOCK_AGUAMIEL, 0);
+                                // La lamina sube con lo acumulado: de un dedo
+                                // de fondo a casi el borde.
+                                const float frac = (float)jugo / 15.0f;
+                                const float jy0 = cy0 + cP;
+                                const float jy1 = jy0 + 0.02f + 0.16f * frac;
+                                cajaM(texJug, 0.5f-cR+cP, jy0, 0.5f-cR+cP,
+                                              0.5f+cR-cP, jy1, 0.5f+cR-cP, 1.0f);
+                            }
+                        }
+
+                        continue;   // no emitir las caras del cubo
+                    }
+
                     // ============================================
                     // LA PUNTA DEL MAGUEY: UNA ESPINA 3D GRUESA
                     // ============================================
@@ -18014,12 +18318,17 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
             //
             // ⭐ El bucle va hasta piezasDe(block), no hasta 2: una celda de
             // tres piezas funcionaria aqui sin tocar nada.
-            if (esCompartido(block)) {
+            if (esCompartido(block) || Compuesto::esCompuesto(block)) {
                 float mejorT = 0.0f;
                 bool  hayImpacto = false;
                 int   cualIdx = 0;
 
-                const int nPiezas = piezasDe(block);
+                // Un bloque COMPUESTO declara sus componentes segun su estado
+                // (un maguey sin jugo no tiene fluido que tocar); una celda
+                // compartida, sus piezas. Los dos se recorren igual.
+                const int nPiezas = Compuesto::esCompuesto(block)
+                                  ? Compuesto::componentesDe(block)
+                                  : piezasDe(block);
                 for (int pieza = 0; pieza < nPiezas; ++pieza) {
                     float px0, py0, pz0, px1, py1, pz1;
                     cajaDePiezaN(block, pieza,
@@ -19274,13 +19583,28 @@ inline bool esSueloFirme(BlockType t) {
 
     // Nada de lo que es planta sujeta.
     if (isCrossSprite(t)) return false;
+
+    // ⭐ NORMALIZAR ANTES DE DECIDIR.
+    //
+    // Sin esto, la regla solo valia para el bloque ENTERO. Una capa parcial
+    // de tronco (media loncha de madera) o una celda mixta con madera arriba
+    // no se reconocian como planta, asi que SUJETABAN el arbol y este no
+    // caia nunca. La regla se aplica igual sea entero, capa o celda mixta.
+    //
+    // En una celda mixta manda el RELLENO: es la parte de arriba, sobre la
+    // que se apoyaria lo que hubiera encima.
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    if (esMixto(t))        t = mixtoRelleno(t);
+
     if (t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO || t == BLOCK_WOOD_OYAMEL)
         return false;
     if (t == BLOCK_LEAVES || t == BLOCK_LEAVES_ENCINO ||
         t == BLOCK_LEAVES_OYAMEL)
         return false;
 
-    // El resto -- terreno, roca, construccion -- si sujeta.
+    // El resto -- terreno, roca, construccion -- si sujeta. Incluidas sus
+    // capas parciales: una loncha de tierra es tierra y aguanta lo que haya
+    // encima, igual que el bloque entero.
     return true;
 }
 
@@ -19295,12 +19619,41 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
     if (!puedeCaer(inicial)) return false;
 
     // --- Flood fill por las seis caras ---
-    std::vector<Vec3i> encontrados;
-    std::set<std::tuple<int,int,int>> vistos;
-    std::vector<Vec3i> pila;
+    //
+    // ⭐ LAS TRES ESTRUCTURAS SON `static`, Y ESO ES LO QUE EVITA EL TIRON.
+    //
+    // Antes eran locales, asi que cada bloque roto reservaba y liberaba
+    // memoria para hasta 512 posiciones, y esto se llama CINCO veces por
+    // rotura (el de arriba y los cuatro de al lado). Eran miles de
+    // asignaciones en el mismo frame: justo el pico que se notaba al talar.
+    //
+    // Siendo static, la memoria se reserva UNA vez en la primera rotura de la
+    // partida y se reutiliza siempre. Solo hay que vaciarlas al entrar, que
+    // no libera nada.
+    //
+    // Y `vistos` pasa de std::set a unordered_set: el set ordenaba las
+    // posiciones (que no le importan a nadie) y pedia un nodo suelto por
+    // cada una. La tabla hash solo comprueba pertenencia, que es lo unico
+    // que se necesita.
+    static std::vector<Vec3i> encontrados;
+    static std::unordered_set<long long> vistos;
+    static std::vector<Vec3i> pila;
+
+    encontrados.clear();
+    vistos.clear();
+    pila.clear();
+
+    // Empaqueta la posicion en un solo entero: mas rapido de comparar y de
+    // hashear que una tupla de tres. Con 21 bits por eje cubre de sobra el
+    // mundo (+-1.000.000 bloques).
+    auto clave = [](int cx, int cy, int cz) -> long long {
+        return ((long long)(cx + 1048576) << 42) |
+               ((long long)(cy + 1048576) << 21) |
+               ((long long)(cz + 1048576));
+    };
 
     pila.push_back(Vec3i(x, y, z));
-    vistos.insert(std::make_tuple(x, y, z));
+    vistos.insert(clave(x, y, z));
 
     bool apoyada = false;
 
@@ -19333,9 +19686,9 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
             // Si es parte de la estructura, se sigue por ahi.
             if (!puedeCaer(vec)) continue;
 
-            const auto clave = std::make_tuple(nx, ny, nz);
-            if (vistos.count(clave)) continue;
-            vistos.insert(clave);
+            const long long k = clave(nx, ny, nz);
+            if (vistos.count(k)) continue;
+            vistos.insert(k);
             pila.push_back(Vec3i(nx, ny, nz));
         }
 
@@ -19359,13 +19712,18 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
     // Para el area frontal: cuenta COLUMNAS distintas, no bloques. Los que
     // estan uno encima de otro se tapan entre si, y el aire solo empuja
     // contra la silueta vista desde abajo.
-    std::set<std::pair<int,int>> columnas;
+    //
+    // static por lo mismo que las de arriba: se reutiliza la memoria en vez
+    // de pedirla en cada desprendimiento.
+    static std::unordered_set<long long> columnas;
+    columnas.clear();
 
     for (const Vec3i& p : encontrados) {
         const BlockType t = world.getBlock(p.x, p.y, p.z);
         pieza.bloques.push_back({ p.x - x, p.y - anclaY, p.z - z, t });
         pieza.masaTotal += Fisica::masaDe(t);
-        columnas.insert(std::make_pair(p.x, p.z));
+        columnas.insert(((long long)(p.x + 1048576) << 21) |
+                        (long long)(p.z + 1048576));
         world.setBlock(p.x, p.y, p.z, BLOCK_AIR);
     }
 
@@ -28111,97 +28469,101 @@ int main() {
             glEnable(GL_CULL_FACE);
             glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // Las ESTRUCTURAS enteras: cada bloque en su sitio relativo.
+            // ================================================================
+            // CADA CARA CON SU TEXTURA, Y AGRUPADAS POR TEXTURA
+            // ================================================================
+            // Dos cosas que antes se hacian mal:
+            //
+            // 1. TEXTURA EQUIVOCADA. Se pedia la cara 0 (la de arriba) para
+            //    las SEIS caras, asi que un tronco cayendo mostraba sus
+            //    anillos por los costados en vez de la corteza, y el pasto
+            //    salia verde por los cuatro lados. El bloque cambiaba de
+            //    aspecto justo al desprenderse.
+            //
+            //    Ahora cada cara pide SU textura, con el mismo criterio que
+            //    usa el mallado del mundo: 0=arriba 1=abajo 2=norte 3=sur
+            //    4=este 5=oeste. Un bloque que cae se ve identico a como se
+            //    veia puesto.
+            //
+            // 2. UN glBegin POR BLOQUE. Con un arbol de 200 bloques eran 200
+            //    bind de textura y 200 glBegin/glEnd por frame, y ahi es
+            //    donde se iban los FPS.
+            //
+            //    Ahora se juntan todas las caras que comparten textura y se
+            //    dibujan de una vez: un bind y un glBegin por textura, no por
+            //    bloque. Un arbol entero pasa de ~200 lotes a 3 o 4 (corteza,
+            //    anillos, hojas).
+            //
+            // Las caras se acumulan aqui: textura -> vertices (x,y,z,u,v).
+            static std::map<GLuint, std::vector<float>> carasPorTextura;
+            for (auto& e : carasPorTextura) e.second.clear();
+
+            // Anade las seis caras de un cubo, cada una a su textura.
+            auto acumularCubo = [&](BlockType tipo, float bx, float by, float bz) {
+                if (!g_textureManager) return;
+
+                const float X0 = bx, X1 = bx + 1.0f;
+                const float Y0 = by, Y1 = by + 1.0f;
+                const float Z0 = bz, Z1 = bz + 1.0f;
+
+                // Las seis caras, en el orden que espera getBlockTexture.
+                // Cada una son 4 vertices con su (u,v).
+                const float CARAS[6][4][5] = {
+                    // 0 arriba
+                    {{X0,Y1,Z0, 0,0}, {X1,Y1,Z0, 1,0}, {X1,Y1,Z1, 1,1}, {X0,Y1,Z1, 0,1}},
+                    // 1 abajo
+                    {{X0,Y0,Z0, 0,0}, {X0,Y0,Z1, 1,0}, {X1,Y0,Z1, 1,1}, {X1,Y0,Z0, 0,1}},
+                    // 2 norte (-Z)
+                    {{X0,Y0,Z0, 0,0}, {X0,Y1,Z0, 1,0}, {X1,Y1,Z0, 1,1}, {X1,Y0,Z0, 0,1}},
+                    // 3 sur (+Z)
+                    {{X0,Y0,Z1, 0,0}, {X1,Y0,Z1, 1,0}, {X1,Y1,Z1, 1,1}, {X0,Y1,Z1, 0,1}},
+                    // 4 este (+X)
+                    {{X1,Y0,Z0, 0,0}, {X1,Y1,Z0, 1,0}, {X1,Y1,Z1, 1,1}, {X1,Y0,Z1, 0,1}},
+                    // 5 oeste (-X)
+                    {{X0,Y0,Z0, 0,0}, {X0,Y0,Z1, 1,0}, {X0,Y1,Z1, 1,1}, {X0,Y1,Z0, 0,1}}
+                };
+
+                for (int cara = 0; cara < 6; ++cara) {
+                    const GLuint tex = g_textureManager->getBlockTexture(tipo, cara);
+                    if (tex == 0) continue;
+
+                    std::vector<float>& v = carasPorTextura[tex];
+                    for (int k = 0; k < 4; ++k) {
+                        v.push_back(CARAS[cara][k][0]);
+                        v.push_back(CARAS[cara][k][1]);
+                        v.push_back(CARAS[cara][k][2]);
+                        v.push_back(CARAS[cara][k][3]);
+                        v.push_back(CARAS[cara][k][4]);
+                    }
+                }
+            };
+
+            // Las ESTRUCTURAS enteras (arboles, columnas, puentes).
             for (const Fisica::PiezaCayendo& pz : g_piezasCayendo) {
                 for (const auto& pieza : pz.bloques) {
-                    const GLuint tp = g_textureManager
-                        ? g_textureManager->getBlockTexture(pieza.tipo, 0) : 0;
-                    if (tp == 0) continue;
-                    g_textureManager->bindOptimized(tp);
-
-                    const float px = pz.x + (float)pieza.dx;
-                    const float py = pz.y + (float)pieza.dy;
-                    const float pzz = pz.z + (float)pieza.dz;
-                    const float X0 = px, X1 = px + 1.0f;
-                    const float Y0 = py, Y1 = py + 1.0f;
-                    const float Z0 = pzz, Z1 = pzz + 1.0f;
-
-                    glBegin(GL_QUADS);
-                    glTexCoord2f(0,0); glVertex3f(X0,Y1,Z0);
-                    glTexCoord2f(1,0); glVertex3f(X1,Y1,Z0);
-                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z1);
-                    glTexCoord2f(0,1); glVertex3f(X0,Y1,Z1);
-
-                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z0);
-                    glTexCoord2f(1,0); glVertex3f(X0,Y0,Z1);
-                    glTexCoord2f(1,1); glVertex3f(X1,Y0,Z1);
-                    glTexCoord2f(0,1); glVertex3f(X1,Y0,Z0);
-
-                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z0);
-                    glTexCoord2f(1,0); glVertex3f(X0,Y1,Z0);
-                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z0);
-                    glTexCoord2f(0,1); glVertex3f(X1,Y0,Z0);
-
-                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z1);
-                    glTexCoord2f(1,0); glVertex3f(X1,Y0,Z1);
-                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z1);
-                    glTexCoord2f(0,1); glVertex3f(X0,Y1,Z1);
-
-                    glTexCoord2f(0,0); glVertex3f(X1,Y0,Z0);
-                    glTexCoord2f(1,0); glVertex3f(X1,Y1,Z0);
-                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z1);
-                    glTexCoord2f(0,1); glVertex3f(X1,Y0,Z1);
-
-                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z0);
-                    glTexCoord2f(1,0); glVertex3f(X0,Y0,Z1);
-                    glTexCoord2f(1,1); glVertex3f(X0,Y1,Z1);
-                    glTexCoord2f(0,1); glVertex3f(X0,Y1,Z0);
-                    glEnd();
+                    acumularCubo(pieza.tipo,
+                                 pz.x + (float)pieza.dx,
+                                 pz.y + (float)pieza.dy,
+                                 pz.z + (float)pieza.dz);
                 }
             }
 
+            // Y los bloques sueltos.
             for (const Fisica::BloqueCayendo& b : g_bloquesCayendo) {
-                const GLuint tex = g_textureManager
-                    ? g_textureManager->getBlockTexture(b.tipo, 0) : 0;
-                if (tex == 0) continue;
+                acumularCubo(b.tipo, b.x, b.y, b.z);
+            }
 
-                g_textureManager->bindOptimized(tex);
+            // Un bind y un lote por TEXTURA, no por bloque.
+            for (const auto& entrada : carasPorTextura) {
+                const std::vector<float>& v = entrada.second;
+                if (v.empty()) continue;
 
-                const float x0 = b.x,        x1 = b.x + 1.0f;
-                const float y0 = b.y,        y1 = b.y + 1.0f;
-                const float z0 = b.z,        z1 = b.z + 1.0f;
-
+                g_textureManager->bindOptimized(entrada.first);
                 glBegin(GL_QUADS);
-                // arriba
-                glTexCoord2f(0,0); glVertex3f(x0,y1,z0);
-                glTexCoord2f(1,0); glVertex3f(x1,y1,z0);
-                glTexCoord2f(1,1); glVertex3f(x1,y1,z1);
-                glTexCoord2f(0,1); glVertex3f(x0,y1,z1);
-                // abajo
-                glTexCoord2f(0,0); glVertex3f(x0,y0,z0);
-                glTexCoord2f(1,0); glVertex3f(x0,y0,z1);
-                glTexCoord2f(1,1); glVertex3f(x1,y0,z1);
-                glTexCoord2f(0,1); glVertex3f(x1,y0,z0);
-                // norte
-                glTexCoord2f(0,0); glVertex3f(x0,y0,z0);
-                glTexCoord2f(1,0); glVertex3f(x0,y1,z0);
-                glTexCoord2f(1,1); glVertex3f(x1,y1,z0);
-                glTexCoord2f(0,1); glVertex3f(x1,y0,z0);
-                // sur
-                glTexCoord2f(0,0); glVertex3f(x0,y0,z1);
-                glTexCoord2f(1,0); glVertex3f(x1,y0,z1);
-                glTexCoord2f(1,1); glVertex3f(x1,y1,z1);
-                glTexCoord2f(0,1); glVertex3f(x0,y1,z1);
-                // este
-                glTexCoord2f(0,0); glVertex3f(x1,y0,z0);
-                glTexCoord2f(1,0); glVertex3f(x1,y1,z0);
-                glTexCoord2f(1,1); glVertex3f(x1,y1,z1);
-                glTexCoord2f(0,1); glVertex3f(x1,y0,z1);
-                // oeste
-                glTexCoord2f(0,0); glVertex3f(x0,y0,z0);
-                glTexCoord2f(1,0); glVertex3f(x0,y0,z1);
-                glTexCoord2f(1,1); glVertex3f(x0,y1,z1);
-                glTexCoord2f(0,1); glVertex3f(x0,y1,z0);
+                for (size_t k = 0; k + 4 < v.size() + 1; k += 5) {
+                    glTexCoord2f(v[k + 3], v[k + 4]);
+                    glVertex3f(v[k], v[k + 1], v[k + 2]);
+                }
                 glEnd();
             }
         }

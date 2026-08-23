@@ -450,7 +450,13 @@ enum BlockType {
     // El PICO de pedernal: lo mismo que el de piedra pero con las puntas de
     // pedernal afilado, que aguantan mucho mas antes de mellarse.
     BLOCK_PICO_PEDERNAL,    // 155 Pico de pedernal afilado
-    BLOCK_MARTILLO_PEDERNAL // 156 Martillo de pedernal (250 usos de taller)
+    BLOCK_MARTILLO_PEDERNAL, // 156 Martillo de pedernal (250 usos de taller)
+
+    // Los tazones LLENOS de agua. Uno por especie, igual que los vacios: lo
+    // que cambia es la textura, no la madera de la que estan hechos.
+    BLOCK_TAZON_PINO_AGUA,   // 157 Tazon de pino con agua
+    BLOCK_TAZON_ENCINO_AGUA, // 158 Tazon de encino con agua
+    BLOCK_TAZON_OYAMEL_AGUA  // 159 Tazon de oyamel con agua
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -973,6 +979,48 @@ inline bool esMartillo(BlockType t) {
     return t == BLOCK_MARTILLO_PIEDRA || t == BLOCK_MARTILLO_PEDERNAL;
 }
 
+// ============================================================================
+// LOS TAZONES: VACIO <-> LLENO
+// ============================================================================
+// La correspondencia entre cada tazon y su version con agua vive AQUI, en un
+// solo sitio. Cualquier otro punto del motor (llenar en el rio, vaciar,
+// dibujar el icono) pregunta a estas funciones en vez de llevar su propia
+// lista, que es como se acaba teniendo dos que no coinciden.
+
+inline bool esTazonVacio(BlockType t) {
+    return t == BLOCK_TAZON_PINO || t == BLOCK_TAZON_ENCINO ||
+           t == BLOCK_TAZON_OYAMEL;
+}
+
+inline bool esTazonConAgua(BlockType t) {
+    return t == BLOCK_TAZON_PINO_AGUA || t == BLOCK_TAZON_ENCINO_AGUA ||
+           t == BLOCK_TAZON_OYAMEL_AGUA;
+}
+
+inline bool esTazon(BlockType t) {
+    return esTazonVacio(t) || esTazonConAgua(t);
+}
+
+// El mismo tazon, lleno de agua. Devuelve BLOCK_AIR si no era un tazon vacio.
+inline BlockType tazonLleno(BlockType vacio) {
+    switch (vacio) {
+        case BLOCK_TAZON_PINO:   return BLOCK_TAZON_PINO_AGUA;
+        case BLOCK_TAZON_ENCINO: return BLOCK_TAZON_ENCINO_AGUA;
+        case BLOCK_TAZON_OYAMEL: return BLOCK_TAZON_OYAMEL_AGUA;
+        default:                 return BLOCK_AIR;
+    }
+}
+
+// El mismo tazon, vacio. Devuelve BLOCK_AIR si no era un tazon con agua.
+inline BlockType tazonVaciado(BlockType lleno) {
+    switch (lleno) {
+        case BLOCK_TAZON_PINO_AGUA:   return BLOCK_TAZON_PINO;
+        case BLOCK_TAZON_ENCINO_AGUA: return BLOCK_TAZON_ENCINO;
+        case BLOCK_TAZON_OYAMEL_AGUA: return BLOCK_TAZON_OYAMEL;
+        default:                      return BLOCK_AIR;
+    }
+}
+
 // Vida COMPLETA de cada herramienta, en medios puntos.
 // Devuelve 0 si no es una herramienta que se gaste.
 inline int vidaMaximaHerramienta(BlockType t) {
@@ -1066,9 +1114,7 @@ inline bool esRocaParaPico(BlockType t) {
     // Las herramientas, los tazones y los items sueltos no son bloques del
     // mundo: nada que picar ahi.
     if (esHerramientaGastable(t)) return false;
-    if (t == BLOCK_TAZON_PINO || t == BLOCK_TAZON_ENCINO ||
-        t == BLOCK_TAZON_OYAMEL)
-        return false;
+    if (esTazon(t)) return false;   // vacios y llenos, ninguno es roca
 
     return true;
 }
@@ -1099,4 +1145,4 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_MARTILLO_PEDERNAL;
+constexpr int BLOCK_TYPE_MAX = BLOCK_TAZON_OYAMEL_AGUA;

@@ -18173,6 +18173,9 @@ void prewarmItemTextures() {
         { BLOCK_TAZON_PINO,    "tazon de madera de pino.png"             },
         { BLOCK_TAZON_ENCINO,  "tazon de madera de encino.png"           },
         { BLOCK_TAZON_OYAMEL,  "tazon de madera de oyame.png"            },
+        { BLOCK_TAZON_PINO_AGUA,   "Tazon de madera de Pino con agua.png"   },
+        { BLOCK_TAZON_ENCINO_AGUA, "Tazon de madera de Encino con agua.png" },
+        { BLOCK_TAZON_OYAMEL_AGUA, "Tazon de madera de oyame con agua.png"  },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -19584,6 +19587,10 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_TAZON_PINO:
         case BLOCK_TAZON_ENCINO:
         case BLOCK_TAZON_OYAMEL:
+        // Y los mismos llenos de agua: tampoco se colocan.
+        case BLOCK_TAZON_PINO_AGUA:
+        case BLOCK_TAZON_ENCINO_AGUA:
+        case BLOCK_TAZON_OYAMEL_AGUA:
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable
@@ -19610,12 +19617,77 @@ void placeBlock(GameState* state) {
     // El hueco vuelve a quedar vacio y su contador se reinicia, asi que a los
     // 7 minutos habra otra vez: un maguey capado se ordena muchas veces, como
     // el de verdad.
-    if (selectedBlock == BLOCK_TAZON_PINO ||
-        selectedBlock == BLOCK_TAZON_ENCINO ||
-        selectedBlock == BLOCK_TAZON_OYAMEL) {
+    if (esTazonVacio(selectedBlock)) {
 
         const Vec3 ori = state->player.getEyePosition();
         const Vec3 dir = state->player.getForward();
+
+        // ====================================================================
+        // ⭐ LLENAR EL TAZON EN EL AGUA
+        // ====================================================================
+        // El raycast normal ATRAVIESA el agua (la trata como aire para poder
+        // apuntar al fondo del rio), asi que apuntando a un bloque de agua
+        // nunca devolveria impacto. Aqui se recorre el rayo a mano, a pasos
+        // cortos, y se para en la PRIMERA celda con agua.
+        //
+        // Se para tambien si antes aparece algo solido: si hay una pared
+        // delante, no se puede llenar el tazon en el rio que hay detras.
+        {
+            const float ALCANCE = 5.0f;
+            const float PASO    = 0.1f;
+
+            for (float d = 0.0f; d <= ALCANCE; d += PASO) {
+                const int bx = (int)floorf(ori.x + dir.x * d);
+                const int by = (int)floorf(ori.y + dir.y * d);
+                const int bz = (int)floorf(ori.z + dir.z * d);
+
+                const BlockType b = state->world.getBlock(bx, by, bz);
+                if (b == BLOCK_AIR) continue;
+
+                if (b == BLOCK_WATER) {
+                    // ⭐ EL AGUA BAJA UN NIVEL
+                    //
+                    // Los niveles van de 0 (fuente) a 7 (el hilo mas fino),
+                    // asi que "bajar un nivel" es SUBIR el numero: queda
+                    // menos agua. Al pasar de 7 la celda se queda seca.
+                    //
+                    // Una FUENTE (nivel 0) no se agota: es un manantial, y
+                    // vaciarlo con un tazon dejaria secos los rios. Se llena
+                    // el tazon y el agua se queda como estaba.
+                    const int nivel = state->world.getWaterLevel(bx, by, bz);
+
+                    if (nivel > 0) {
+                        const int nuevo = nivel + 1;
+                        if (nuevo > 7) {
+                            // Se acabo el agua de esa celda.
+                            state->world.setBlock(bx, by, bz, BLOCK_AIR);
+                            state->world.setWaterLevel(bx, by, bz, -1);
+                            state->world.notifyWaterRemoved(bx, by, bz);
+                        } else {
+                            state->world.setWaterLevel(bx, by, bz, nuevo);
+                            state->world.scheduleWaterUpdate(bx, by, bz);
+                        }
+                    }
+
+                    // El tazon vacio se cambia por el mismo tazon con agua.
+                    const BlockType lleno = tazonLleno(selectedBlock);
+                    state->inventory.consumeSelected();
+
+                    const Vec3 pj(state->player.position.x,
+                                  state->player.position.y + 1.0f,
+                                  state->player.position.z);
+                    state->spawnItem(pj, lleno);
+
+                    state->placeCooldown = 0.25f;
+                    return;
+                }
+
+                // Cualquier otra cosa corta el rayo: es solida o vegetacion,
+                // y el agua que hubiera detras no se alcanza.
+                break;
+            }
+        }
+
         RaycastResult r = raycastBlock(state->world, ori, dir, 5.0f);
 
         if (r.hit && state->world.getBlock(r.blockPos.x, r.blockPos.y,
@@ -25957,6 +26029,9 @@ int main() {
                     ponerEnCreativo(BLOCK_TAZON_PINO);
                     ponerEnCreativo(BLOCK_TAZON_ENCINO);
                     ponerEnCreativo(BLOCK_TAZON_OYAMEL);
+                    ponerEnCreativo(BLOCK_TAZON_PINO_AGUA);
+                    ponerEnCreativo(BLOCK_TAZON_ENCINO_AGUA);
+                    ponerEnCreativo(BLOCK_TAZON_OYAMEL_AGUA);
                     ponerEnCreativo(BLOCK_MAGUEY_PUNTA);
 
                     std::cout << "Inventario creativo: " << creativeCount

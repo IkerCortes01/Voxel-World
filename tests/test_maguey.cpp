@@ -195,6 +195,74 @@ TEST_CASE("Los tazones: uno por especie de madera") {
     CHECK_FALSE(esHerramientaGastable(BLOCK_TAZON_OYAMEL));
 }
 
+// ============================================================================
+// LOS TAZONES CON AGUA
+// ============================================================================
+
+TEST_CASE("Tazones: vacio y lleno se corresponden, cada uno con su madera") {
+    // Ida: cada tazon vacio da SU version con agua, no la de otra madera.
+    CHECK(tazonLleno(BLOCK_TAZON_PINO)   == BLOCK_TAZON_PINO_AGUA);
+    CHECK(tazonLleno(BLOCK_TAZON_ENCINO) == BLOCK_TAZON_ENCINO_AGUA);
+    CHECK(tazonLleno(BLOCK_TAZON_OYAMEL) == BLOCK_TAZON_OYAMEL_AGUA);
+
+    // Vuelta: y al vaciarlo se recupera exactamente el de partida.
+    CHECK(tazonVaciado(BLOCK_TAZON_PINO_AGUA)   == BLOCK_TAZON_PINO);
+    CHECK(tazonVaciado(BLOCK_TAZON_ENCINO_AGUA) == BLOCK_TAZON_ENCINO);
+    CHECK(tazonVaciado(BLOCK_TAZON_OYAMEL_AGUA) == BLOCK_TAZON_OYAMEL);
+}
+
+TEST_CASE("Tazones: la ida y la vuelta son inversas exactas") {
+    // Llenar y vaciar tiene que devolver el mismo tazon: si no, la madera se
+    // perderia por el camino y un tazon de encino volveria siendo de pino.
+    const BlockType VACIOS[3] = { BLOCK_TAZON_PINO, BLOCK_TAZON_ENCINO,
+                                  BLOCK_TAZON_OYAMEL };
+    for (BlockType v : VACIOS)
+        CHECK(tazonVaciado(tazonLleno(v)) == v);
+}
+
+TEST_CASE("Tazones: lo que no es tazon no se convierte en nada") {
+    CHECK(tazonLleno(BLOCK_STONE) == BLOCK_AIR);
+    CHECK(tazonLleno(BLOCK_HACHA_PIEDRA) == BLOCK_AIR);
+    CHECK(tazonVaciado(BLOCK_WATER) == BLOCK_AIR);
+    // Un tazon YA lleno no se puede volver a llenar.
+    CHECK(tazonLleno(BLOCK_TAZON_PINO_AGUA) == BLOCK_AIR);
+    // Ni uno vacio vaciarse mas.
+    CHECK(tazonVaciado(BLOCK_TAZON_PINO) == BLOCK_AIR);
+}
+
+TEST_CASE("Tazones: las tres preguntas distinguen vacio, lleno y ninguno") {
+    CHECK(esTazonVacio(BLOCK_TAZON_PINO));
+    CHECK_FALSE(esTazonVacio(BLOCK_TAZON_PINO_AGUA));
+
+    CHECK(esTazonConAgua(BLOCK_TAZON_OYAMEL_AGUA));
+    CHECK_FALSE(esTazonConAgua(BLOCK_TAZON_OYAMEL));
+
+    // esTazon cubre los dos estados.
+    CHECK(esTazon(BLOCK_TAZON_ENCINO));
+    CHECK(esTazon(BLOCK_TAZON_ENCINO_AGUA));
+    CHECK_FALSE(esTazon(BLOCK_STONE));
+}
+
+TEST_CASE("Tazones: ninguno es roca para el pico, ni lleno ni vacio") {
+    // El pico define "roca" por EXCLUSION, asi que cada objeto nuevo entra
+    // solo en su lista si nadie lo excluye. Ya paso una vez con el maguey.
+    CHECK_FALSE(esRocaParaPico(BLOCK_TAZON_PINO));
+    CHECK_FALSE(esRocaParaPico(BLOCK_TAZON_PINO_AGUA));
+    CHECK_FALSE(esRocaParaPico(BLOCK_TAZON_ENCINO_AGUA));
+    CHECK_FALSE(esRocaParaPico(BLOCK_TAZON_OYAMEL_AGUA));
+}
+
+TEST_CASE("Tazones con agua: no son herramientas, se apilan como items") {
+    CHECK_FALSE(esHerramientaGastable(BLOCK_TAZON_PINO_AGUA));
+    CHECK_FALSE(esHerramientaGastable(BLOCK_TAZON_ENCINO_AGUA));
+    CHECK_FALSE(esHerramientaGastable(BLOCK_TAZON_OYAMEL_AGUA));
+
+    Inventory inv;
+    inv.at(0).add(BLOCK_TAZON_PINO_AGUA, 3);
+    CHECK(inv.vidaFraccionSlot(0) == -1.0f);   // -1 = sin barra
+    CHECK(inv.at(0).count == 3);
+}
+
 TEST_CASE("Items nuevos: no son herramientas que se gasten") {
     // Estos se acumulan como cualquier item: no llevan barra de vida.
     CHECK_FALSE(esHerramientaGastable(BLOCK_ESPINAS_NOPAL));
@@ -217,4 +285,5 @@ TEST_CASE("Bloques nuevos: caben en el rango valido del enum") {
     CHECK((int)BLOCK_TAZON_OYAMEL <= BLOCK_TYPE_MAX);
     CHECK((int)BLOCK_PICO_PEDERNAL <= BLOCK_TYPE_MAX);
     CHECK((int)BLOCK_MARTILLO_PEDERNAL <= BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_TAZON_OYAMEL_AGUA <= BLOCK_TYPE_MAX);
 }

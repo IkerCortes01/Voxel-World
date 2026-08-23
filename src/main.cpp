@@ -13313,6 +13313,79 @@ public:
                                 uT.push_back(TU[i]); uT.push_back(TV[i]);
                             }
 
+                            // ================================================
+                            // ⭐ LA CARA DE ABAJO
+                            // ================================================
+                            // Un nivel se dibujaba SIN suelo: solo los lados y
+                            // la tapa. Mientras esta en el suelo da igual --
+                            // nadie ve por debajo -- pero puesto de TECHO se
+                            // veia hueco: se miraba hacia arriba y a traves de
+                            // la capa se veia el cielo.
+                            //
+                            // Ahora se cierra por abajo, y el nivel se
+                            // comporta como un bloque de verdad SIN perder su
+                            // forma: sigue midiendo su alto real, solo que ya
+                            // no es una cascara abierta.
+                            //
+                            // Solo se emite si se puede VER, que es cuando el
+                            // bloque de abajo no la tapa. Si hay terreno
+                            // macizo debajo, esta cara no se ve nunca y
+                            // emitirla seria gastar vertices para nada -- el
+                            // caso normal de un nivel apoyado en el suelo.
+                            {
+                                const BlockType debajo =
+                                    getNeighborBlockCached(x, y, z, 0, -1, 0);
+
+                                // Se ve si abajo hay hueco, o algo que no tapa
+                                // (otro nivel parcial, una planta, agua).
+                                const bool seVe = (debajo == BLOCK_AIR) ||
+                                                  !isBlockOpaque(debajo);
+
+                                // Y en una celda mixta, la capa de ARRIBA
+                                // nunca enseña su suelo: lo tapa la de abajo.
+                                const bool tapadaPorLaOtraCapa =
+                                    (esMixto(block) && capa == 1);
+
+                                if (seVe && !tapadaPorLaOtraCapa) {
+                                    // La luz sale del vecino de ABAJO, igual
+                                    // que hacen los bloques macizos.
+                                    const float luzAbajo =
+                                        faceLightFactor(x, y, z, 0, -1, 0);
+
+                                    // 0.5 es lo que usa DIR_BRIGHT para la
+                                    // cara inferior: sin esto, el suelo de la
+                                    // capa saldria tan claro como su tapa y
+                                    // el bloque se veria plano.
+                                    constexpr float BRILLO_ABAJO = 0.5f;
+                                    const float crB = clamp1(luzAbajo * lightColorR) * BRILLO_ABAJO;
+                                    const float cgB = clamp1(luzAbajo * lightColorG) * BRILLO_ABAJO;
+                                    const float cbB = clamp1(luzAbajo * lightColorB) * BRILLO_ABAJO;
+
+                                    auto& vB = verticesByTexture[texN];
+                                    auto& cB = colorsByTexture[texN];
+                                    auto& uB = uvsByTexture[texN];
+
+                                    // Orden INVERSO al de la tapa: mirando
+                                    // hacia abajo, para que el culling no se
+                                    // la coma.
+                                    const float BX[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
+                                    const float BZ[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+                                    const float BU[4] = { U0, U1, U1, U0 };
+                                    const float BV[4] = { U0, U0, U1, U1 };
+
+                                    for (int i = 0; i < 4; ++i) {
+                                        vB.push_back(wx + BX[i]);
+                                        vB.push_back(wy + yIni);
+                                        vB.push_back(wz + BZ[i]);
+                                        cB.push_back(crB);
+                                        cB.push_back(cgB);
+                                        cB.push_back(cbB);
+                                        cB.push_back(ca);
+                                        uB.push_back(BU[i]); uB.push_back(BV[i]);
+                                    }
+                                }
+                            }
+
                             }   // fin del bucle de capas (celda mixta)
 
                             continue;   // no emitir las caras del cubo
@@ -19887,18 +19960,59 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
 // El bloque se SACA del mundo mientras vuela y se devuelve al aterrizar. Es
 // lo que permite verlo caer suave en vez de a saltos de voxel.
 
+// Declarada aqui porque puedeCaer() la necesita y se define mas abajo: las
+// dos preguntas son la cara y la cruz de lo mismo (lo que sujeta no cae), asi
+// que tienen que responder de forma coherente.
+inline bool esSueloFirme(BlockType t);
+
 // ¿Este bloque puede caer?
 //
-// Casi todo cae. Lo que NO:
+// Lo que NO cae:
 //   - el aire, obviamente
 //   - el agua y la lava, que tienen su propio sistema de flujo
 //   - la bedrock, que es el fondo del mundo
+//   - los guijarros, que son un monton apoyado, no un bloque
+//   - EL TERRENO: piedra, tierra, arena y demas cimiento (ver abajo)
 //
 // Las plantas SI caen: se pidio expresamente. Eso significa que al talar el
 // tronco de un arbol, la copa se le viene encima al jugador.
 inline bool puedeCaer(BlockType t) {
     if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
     if (t == BLOCK_BEDROCK) return false;
+
+    // ========================================================================
+    // ⭐ EL TERRENO NO SE DERRUMBA. NUNCA.
+    // ========================================================================
+    // ESTE ERA EL BUG DE LOS PARCHES DE PIEDRA A RAS DE SUELO.
+    //
+    // El sistema de estructuras existe para lo que ESTA PUESTO SOBRE el
+    // terreno: un arbol, una torre, un puente. El terreno en si es el
+    // cimiento -- no puede caerse, porque no hay nada debajo sobre lo que
+    // caer.
+    //
+    // Que pasaba: al romper un bloque, revisarSoporte() lanzaba el flood fill
+    // sobre los cuatro vecinos. Si el vecino era piedra o tierra, el fill se
+    // metia en el terreno. Y ahi ocurria lo peor:
+    //
+    //   al mirar hacia ABAJO desde un bloque de piedra, el vecino inferior es
+    //   MAS PIEDRA -- que tambien pasaba puedeCaer(), asi que en vez de
+    //   contar como APOYO se sumaba a la estructura.
+    //
+    // El fill se comia la columna hacia abajo, y con ella el parche entero.
+    // Si el trozo no llegaba a los 512 bloques del tope, `apoyada` no se
+    // activaba nunca y TODO ESE TERRENO se desprendia y caia: aparecian
+    // placas de piedra tiradas sobre el pasto, con huecos donde antes habia
+    // suelo. Justo lo que se veia.
+    //
+    // La regla correcta es la que ya usa esSueloFirme() para decidir que
+    // SUJETA: si un material sostiene una estructura, es cimiento, y un
+    // cimiento no se desprende. Se reusa esa misma funcion para que las dos
+    // decisiones no puedan discrepar -- que un bloque sujete y ademas pueda
+    // caerse es la contradiccion que produjo el fallo.
+    //
+    // Lo que SI cae sigue cayendo: troncos, hojas, ramas y raices no son
+    // suelo firme, asi que un arbol se viene abajo igual que antes.
+    if (esSueloFirme(t)) return false;
 
     // ⭐ LOS GUIJARROS SE QUEDAN DONDE ESTAN.
     //

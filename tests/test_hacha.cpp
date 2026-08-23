@@ -252,9 +252,17 @@ TEST_CASE("Niveles: los troncos y tablones no admiten capas parciales") {
     CHECK(conNivel(BLOCK_WOOD, 3) == BLOCK_WOOD);
     CHECK(conNivel(BLOCK_PLANKS, 1) == BLOCK_PLANKS);
 
-    // Y no se pueden mezclar en una celda: mixto() lo rechaza.
+    // La madera NO puede ser la capa de ABAJO de una celda mixta: esa capa se
+    // mide por niveles, y la madera no los tiene.
     CHECK(mixto(BLOCK_WOOD, 4, BLOCK_DIRT) == BLOCK_AIR);
-    CHECK(mixto(BLOCK_DIRT, 4, BLOCK_PLANKS) == BLOCK_AIR);
+
+    // Pero SI puede ser el RELLENO (la parte de arriba). Son dos cosas
+    // distintas: un relleno no se parte en lonchas, ocupa de golpe desde
+    // donde acaba la capa de abajo hasta el techo de la celda. Asi que un
+    // tronco entero encima de una capa de tierra vale, y sigue siendo un
+    // tronco entero -- nunca una loncha de 3 px.
+    CHECK(mixto(BLOCK_DIRT, 4, BLOCK_PLANKS) != BLOCK_AIR);
+    CHECK(mixtoRelleno(mixto(BLOCK_DIRT, 4, BLOCK_PLANKS)) == BLOCK_PLANKS);
 }
 
 TEST_CASE("Niveles: el terreno y los macizos SI siguen teniendolos") {

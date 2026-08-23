@@ -13,6 +13,7 @@ add_executable(voxel_tests
     test_inventory.cpp
     test_hacha.cpp
     test_creativo.cpp
+    test_cuevas.cpp
 )
 
 target_include_directories(voxel_tests PRIVATE

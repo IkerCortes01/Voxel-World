@@ -8150,45 +8150,89 @@ public:
                     unsigned hpd = (unsigned)(worldX * 2654435761u) ^
                                    (unsigned)(worldZ * 40503u) ^ 0x1b873593u;
                     hpd ^= hpd >> 13; hpd *= 1274126177u; hpd ^= hpd >> 16;
-                    if ((hpd % 25u) == 0u) {
+
+                    // ⭐ DONDE ESTAMOS: eso decide cuantos guijarros hay y de
+                    // que son. Se calcula una vez y sirve para las dos cosas.
+                    //
+                    // MONTANA: por pendiente y altura, no por bioma. Asi vale
+                    // igual para un risco de cualquier bioma, y no depende de
+                    // como se clasifique el terreno.
+                    const bool enMontana = (col.slope > 0.55f) ||
+                                           (col.surfaceHeight > 92);
+                    const bool enPlaya   = col.isBeach;
+                    const bool enRio     = col.isRiverBed ||
+                                           (col.riverStrength > 0.25f);
+
+                    // Frecuencia del guijarro: 1 de cada 25 columnas en
+                    // terreno normal, 1 de cada 8 donde de verdad se
+                    // acumulan piedras -- al pie de un risco, en la orilla y
+                    // en el cauce, que es donde el agua y la gravedad las
+                    // juntan.
+                    const unsigned cada = (enMontana || enPlaya || enRio) ? 8u : 25u;
+
+                    if ((hpd % cada) == 0u) {
                         // ⭐ DE QUE ES EL GUIJARRO
                         //
                         // Se arma una lista con los materiales que pegan con
                         // ESE suelo y se saca uno al azar. Todos los que
                         // entran en la lista tienen la MISMA probabilidad
                         // entre si, que es lo que se pidio.
-                        // Ocho huecos: caben los seis materiales y las dos
-                        // entradas del pedernal. Con seis se quedaba corto
-                        // justo en grava y piedra -- que ya llenan cinco --
-                        // y el pedernal no llegaba a entrar donde mas debia.
-                        BlockType posibles[8];
+                        // El reparto se hace metiendo un material VARIAS
+                        // VECES en la lista: cuantas mas entradas, mas
+                        // probable. Es la forma mas simple de dar pesos sin
+                        // montar una tabla de porcentajes, y se lee de un
+                        // vistazo.
+                        //
+                        // Hacen falta 24 huecos porque en una montana el
+                        // cobre solo mete 5 entradas.
+                        BlockType posibles[24];
                         int n = 0;
+                        auto meter = [&](BlockType b, int veces) {
+                            for (int k = 0; k < veces &&
+                                 n < (int)(sizeof(posibles)/sizeof(posibles[0])); ++k)
+                                posibles[n++] = b;
+                        };
 
                         // La piedra y los terrones salen en todas partes:
                         // son lo que hay debajo de cualquier terreno.
-                        posibles[n++] = BLOCK_PEDAZO_PIEDRA;
-                        posibles[n++] = BLOCK_PEDAZO_TIERRA;
+                        meter(BLOCK_PEDAZO_PIEDRA, 2);
+                        meter(BLOCK_PEDAZO_TIERRA, 2);
 
                         // Grava: en su propio terreno y donde hay piedra.
                         if (ground == BLOCK_GRAVEL || ground == BLOCK_STONE ||
                             ground == BLOCK_DIRT) {
-                            posibles[n++] = BLOCK_PEDAZO_GRAVA;
+                            meter(BLOCK_PEDAZO_GRAVA, 2);
                         }
 
-                        // Caliza y cobre, donde asoma la roca.
+                        // Caliza, donde asoma la roca.
                         if (ground == BLOCK_STONE || ground == BLOCK_GRAVEL ||
                             ground == BLOCK_LIMESTONE) {
-                            posibles[n++] = BLOCK_PEDAZO_CALIZA;
-                            posibles[n++] = BLOCK_PEDAZO_COBRE;
+                            meter(BLOCK_PEDAZO_CALIZA, 2);
                         }
 
-                        // ⭐ EL PEDERNAL, MAS COMUN, Y JUNTO AL AGUA
+                        // ================================================
+                        // ⭐ COBRE CRUDO: MONTANA Y RIO
+                        // ================================================
+                        // El cobre nativo aparece donde la roca esta partida
+                        // y el agua lo ha concentrado: vetas expuestas en el
+                        // risco, y placeres en el cauce, que es exactamente
+                        // como se encontraba en Mexico antes de la mineria
+                        // de socavon.
                         //
-                        // El pedernal se forma en sedimentos, asi que sale
-                        // donde hay grava, arena o piedra CERCA DEL AGUA.
-                        // Se mete DOS veces en la lista, que es la forma
-                        // sencilla de que salga el doble que los demas sin
-                        // tocar el resto del reparto.
+                        // Comun en todas partes (2), pero MUCHO mas donde
+                        // toca: 5 entradas en montana y en rio, que lo
+                        // convierte en el guijarro mas probable de esos dos
+                        // sitios.
+                        meter(BLOCK_PEDAZO_COBRE, 2);
+                        if (enMontana) meter(BLOCK_PEDAZO_COBRE, 5);
+                        if (enRio)     meter(BLOCK_PEDAZO_COBRE, 5);
+
+                        // ================================================
+                        // ⭐ PEDERNAL: PLAYA, MONTANA Y ORILLA
+                        // ================================================
+                        // El pedernal se forma en sedimento y queda suelto
+                        // cuando la roca que lo contenia se deshace, asi que
+                        // se acumula en la playa y al pie de los riscos.
                         bool aguaCerca = false;
                         for (int dx = -2; dx <= 2 && !aguaCerca; ++dx) {
                             for (int dz = -2; dz <= 2 && !aguaCerca; ++dz) {
@@ -8204,13 +8248,67 @@ public:
                         const bool sedimento = (ground == BLOCK_GRAVEL ||
                                                 ground == BLOCK_SAND ||
                                                 ground == BLOCK_STONE);
-                        if (aguaCerca && sedimento) {
-                            posibles[n++] = BLOCK_PEDAZO_PEDERNAL;
-                            posibles[n++] = BLOCK_PEDAZO_PEDERNAL;
-                        }
+
+                        // Comun en cualquier sitio, como el cobre.
+                        meter(BLOCK_PEDAZO_PEDERNAL, 2);
+                        if (enPlaya)              meter(BLOCK_PEDAZO_PEDERNAL, 5);
+                        if (enMontana)            meter(BLOCK_PEDAZO_PEDERNAL, 4);
+                        if (aguaCerca && sedimento) meter(BLOCK_PEDAZO_PEDERNAL, 3);
 
                         const unsigned cual = (hpd >> 7) % (unsigned)n;
                         chunk->setBlock(x, surfaceY + 1, z, posibles[cual]);
+                    }
+                }
+
+                // ================================================================
+                // ⭐ GUIJARROS EN EL SUELO DE LAS CUEVAS
+                // ================================================================
+                // Aqui es donde cobre y pedernal son MAS comunes de todo el
+                // mundo, y tiene sentido: bajo tierra la roca esta partida y
+                // expuesta, que es justo donde se recogian ambos.
+                //
+                // No se consulta al generador de cuevas: se busca el hueco ya
+                // tallado. Un suelo de cueva es simplemente aire con roca
+                // debajo, por debajo de la superficie. Asi funciona con
+                // cualquier cueva -- tunel, camara o boca -- sin repetir la
+                // logica de IsCave ni tener que mantener las dos a la vez.
+                //
+                // Se recorre de abajo arriba y se para en la primera repisa
+                // que sirva: mas de una por columna tapizaria las galerias.
+                {
+                    const int techo = surfaceY - TerrainGen::CaveGenerator::SURFACE_MARGIN;
+                    unsigned hc = (unsigned)(worldX * 374761393u) ^
+                                  (unsigned)(worldZ * 668265263u) ^ 0x9e3779b9u;
+                    hc ^= hc >> 15; hc *= 2246822519u; hc ^= hc >> 13;
+
+                    // 1 de cada 6 columnas con cueva deja un guijarro: en una
+                    // galeria de veinte bloques de largo salen tres o cuatro,
+                    // que es "muy comun" sin llegar a alfombra.
+                    if ((hc % 6u) == 0u) {
+                        for (int cy = TerrainGen::CaveGenerator::CAVE_MIN_Y + 1; cy < techo; ++cy) {
+                            if (chunk->getBlock(x, cy, z) != BLOCK_AIR) continue;
+
+                            const BlockType suelo = chunk->getBlock(x, cy - 1, z);
+                            if (suelo != BLOCK_STONE && suelo != BLOCK_LIMESTONE &&
+                                suelo != BLOCK_GRAVEL && suelo != BLOCK_CLAY)
+                                continue;
+
+                            // Que sea suelo de galeria y no una grieta de un
+                            // bloque: encima tiene que haber hueco.
+                            if (chunk->getBlock(x, cy + 1, z) != BLOCK_AIR) continue;
+
+                            // Reparto de cueva: cobre y pedernal dominan, y
+                            // la piedra y la caliza salen de vez en cuando.
+                            static const BlockType DE_CUEVA[10] = {
+                                BLOCK_PEDAZO_COBRE,    BLOCK_PEDAZO_COBRE,
+                                BLOCK_PEDAZO_COBRE,    BLOCK_PEDAZO_COBRE,
+                                BLOCK_PEDAZO_PEDERNAL, BLOCK_PEDAZO_PEDERNAL,
+                                BLOCK_PEDAZO_PEDERNAL, BLOCK_PEDAZO_PEDERNAL,
+                                BLOCK_PEDAZO_PIEDRA,   BLOCK_PEDAZO_CALIZA
+                            };
+                            chunk->setBlock(x, cy, z, DE_CUEVA[(hc >> 9) % 10u]);
+                            break;   // uno por columna
+                        }
                     }
                 }
             }
@@ -19098,9 +19196,27 @@ void placeBlock(GameState* state) {
             //
             // Ahora entra cualquier celda que admita apilado -- parcial,
             // mixta o llena -- y cada caso sabe a donde va lo siguiente.
+            //
+            // ⭐ Y TAMBIEN LOS BLOQUES SIN NIVELES (troncos, tablones).
+            //
+            // AQUI ESTABA EL BLOQUE QUE APARECIA AL LADO. admiteNiveles() es
+            // false para la madera, asi que apuntar a la tapa de un tronco se
+            // caia de esta rama y acababa en previousPos -- el voxel de al
+            // lado -- en vez de subir la columna.
+            //
+            // Lo que decide si una celda apila NO es tener niveles, sino ser
+            // un bloque MACIZO: si ocupa su voxel entero, lo siguiente va
+            // encima, tenga niveles o no. Con esto un tronco apila sobre otro
+            // tronco igual que la piedra sobre la piedra.
+            const bool macizoSinNiveles =
+                !esNivelParcial(tocado) && !esMixto(tocado) &&
+                !admiteNiveles(tocado) && isBlockSolid(tocado) &&
+                !isCrossSprite(tocado) && alturaDe(tocado) >= 1.0f;
+
             const bool celdaApilable = esNivelParcial(tocado) ||
                                        esMixto(tocado) ||
-                                       admiteNiveles(tocado);
+                                       admiteNiveles(tocado) ||
+                                       macizoSinNiveles;
 
             if (celdaApilable) {
                 // Se mira si el rayo entro por ARRIBA de la capa. La normal

@@ -141,16 +141,21 @@ public:
         // papel es variar suavemente la anchura del tunel.
         const float widthNoise = Noise::simplex3D(seedWorm(),
                                                   x * 0.004f, fy * 0.004f, z * 0.004f);
-        // Rango de umbral: ahora 0.020 (conducto estrecho) a 0.068 (galeria
-        // amplia), que sube la ocupacion del subsuelo de ~8-12% a ~14-18%:
-        // las cuevas pasan a ser ALGO COMUN, se topa uno con ellas cavando,
-        // sin llegar a dejar la roca como un queso.
+        // ⭐ CUEVAS POR TODAS PARTES
         //
-        // La cifra no es inventada: en el karst de Quintana Roo se han
-        // medido de 6 a 19 km de galeria por km cuadrado (Smart et al.,
-        // 2006), que es de las densidades de conducto mas altas del mundo, y
-        // el 25.5% del territorio mexicano es karst (INEGI/WOKAM).
-        const float tunnelThreshold = (0.044f + widthNoise * 0.024f) * depthFactor;
+        // Rango de umbral: 0.048 (conducto estrecho) a 0.136 (galeria
+        // amplia). Es el DOBLE del ajuste anterior, que daba ~14-18% de
+        // subsuelo hueco; este deja el subsuelo entre ~28 y ~35%: cavar en
+        // cualquier direccion topa con galeria casi seguro, y las bocas se
+        // encuentran paseando.
+        //
+        // La referencia sigue siendo el karst mexicano, que es de los mas
+        // densos del mundo: 6 a 19 km de galeria por km cuadrado en Quintana
+        // Roo (Smart et al., 2006), y el 25.5% del territorio es karst
+        // (INEGI/WOKAM). Esto lo exagera a proposito -- es un juego, y se
+        // pidieron cuevas SUPER comunes -- pero el sistema es el mismo, solo
+        // se abre mas la llave.
+        const float tunnelThreshold = (0.092f + widthNoise * 0.044f) * depthFactor;
 
         if (tunnel < tunnelThreshold) {
             // Termino de COLUMNA: preserva pilares de roca dentro de los
@@ -168,8 +173,11 @@ public:
         // 2. CAMARAS / CAVERNAS ENORMES (Perlin 3D "cheese")
         // --------------------------------------------------------------------
         // Baja frecuencia + umbral alto = pocas cavidades pero muy grandes.
-        // Solo en profundidad, para que sean un hallazgo y no algo comun.
-        if (depthRatio > 0.45f) {
+        //
+        // ⭐ Empiezan MAS ARRIBA (0.28 en vez de 0.45) y con el umbral mas
+        // suelto: las cavernas grandes dejan de ser cosa exclusiva del fondo
+        // del mundo y aparecen a media altura, que es donde el jugador cava.
+        if (depthRatio > 0.28f) {
             const float cheese = Noise::fbm3D(seedCheese(),
                                               wx * 0.0115f,
                                               wy * 0.0150f,
@@ -177,8 +185,8 @@ public:
 
             // Umbral que se relaja con la profundidad: las camaras mas
             // grandes estan en el fondo del mundo.
-            const float chamberThreshold = Noise::lerp(0.60f, 0.44f,
-                Noise::smoothstep(0.45f, 1.0f, depthRatio));
+            const float chamberThreshold = Noise::lerp(0.50f, 0.34f,
+                Noise::smoothstep(0.28f, 1.0f, depthRatio));
 
             if (cheese > chamberThreshold) {
                 // Tambien aqui se preservan columnas: una caverna enorme
@@ -202,7 +210,10 @@ public:
                                                      wx * 0.034f,
                                                      wy * 0.034f * 1.5f,
                                                      wz * 0.034f);
-        if (tunnel2 < 0.016f * depthFactor) {
+        // ⭐ Tambien mas generosa: 0.016 -> 0.036. Es la red que conecta la
+        // principal consigo misma, asi que abrirla no solo anade hueco, hace
+        // que las galerias se comuniquen entre si en vez de quedar sueltas.
+        if (tunnel2 < 0.036f * depthFactor) {
             return true;
         }
 
@@ -225,12 +236,16 @@ public:
         const float entrance = Noise::fbmSimplex3D(seedCheese() + 5501,
                                                    x * 0.020f, fy * 0.020f, z * 0.020f, 3);
 
-        // Umbral alto: solo el ~2% de las columnas tiene entrada.
-        if (entrance > 0.72f) {
+        // ⭐ MAS BOCAS: del ~2% de las columnas a alrededor del ~8%.
+        //
+        // De poco sirve llenar el subsuelo de galerias si no hay por donde
+        // entrar. Bajar este umbral es lo que convierte "hay muchas cuevas"
+        // en "me encuentro cuevas paseando".
+        if (entrance > 0.58f) {
             // Estrechamiento hacia arriba: la boca es mas angosta que la
             // galeria, como una sima real.
             const float narrowing = (float)(surfaceHeight - y) / 18.0f;
-            const float required = Noise::lerp(0.80f, 0.72f, narrowing);
+            const float required = Noise::lerp(0.68f, 0.58f, narrowing);
             return entrance > required;
         }
         return false;

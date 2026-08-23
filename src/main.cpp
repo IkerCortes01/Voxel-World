@@ -44,6 +44,7 @@ PFNGLBUFFERDATAPROC glBufferData = NULL;
 #include <vector>
 #include <queue>
 #include <unordered_set>
+#include <unordered_map>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -795,6 +796,15 @@ struct MagueyManando {
 };
 std::vector<MagueyManando> g_magueyesManando;
 constexpr double AGUAMIEL_SEG = 600.0;   // 10 minutos
+
+// ⭐ CADA CUANTO CRECE UNA BIZNAGA
+//
+// 48 minutos de juego por etapa: de pequena a mediana, y de mediana a
+// adulta. Son dos horas y media largas para ver una hecha del todo, que es
+// mucho -- y es a proposito: una biznaga de verdad tarda decadas, asi que
+// encontrarse una grande tiene que seguir siendo un hallazgo.
+constexpr double BIZNAGA_CRECER_SEG = 48.0 * 60.0;
+double g_ultimoCrecerBiznagas = 0.0;
 
 // ⭐ EL LLENADO GRADUAL DE LOS MAGUEYES COMPUESTOS
 //
@@ -1834,6 +1844,24 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
             minY = 0.0f;
             maxY = 0.30f + 0.55f * esc;  if (maxY > 1.0f) maxY = 1.0f;
             minZ = 0.5f - mm;  maxZ = 0.5f + mm;
+            return true;
+        }
+
+        // ⭐ LA BIZNAGA: una bola achatada apoyada en el suelo.
+        //
+        // No es un cubo: es un barril mas ancho que alto, y su caja tiene que
+        // coincidir con lo que se ve. Una biznaga pequena apenas estorba al
+        // caminar; una adulta llena casi el voxel.
+        if (Compuesto::familiaDe(type) == Compuesto::FAM_BIZNAGA) {
+            const float esc = Compuesto::Biznaga::escalaDeEtapa(
+                Compuesto::Biznaga::etapaDe(type));
+            const float r = esc * 0.5f;
+            minX = 0.5f - r;  maxX = 0.5f + r;
+            minY = 0.0f;
+            // Achatada: mide en alto ~0.75 de lo que mide de ancho, que es la
+            // proporcion de un Ferocactus real.
+            maxY = esc * 0.75f;
+            minZ = 0.5f - r;  maxZ = 0.5f + r;
             return true;
         }
     }
@@ -4828,6 +4856,9 @@ public:
         loadTexture("Mineral de Carbon.png");   // BLOCK_COAL_ORE (común)
         loadTexture("Desecho de metales.png");  // BLOCK_SCRAP_METAL (común)
         loadTexture("Pirita.png");              // BLOCK_PYRITE_ORE (muy común)
+        // La biznaga: costados acanalados y tapa con la roseta de espinas.
+        loadTexture("Biznaga.png");
+        loadTexture("Biznaga up y down.png");
         // Los tres hierros de superficie y la nieve suelta: se usan como
         // guijarros, pero la textura es de bloque (llena el cuadro entero).
         loadTexture("Goethita.png");
@@ -5336,6 +5367,21 @@ public:
         // llama medio motor, y sin esta linea un ID mixto caeria al default
         // del switch y saldria una textura equivocada o ninguna.
         if (esMixto(type)) type = mixtoBase(type);
+
+        // ⭐ LA BIZNAGA
+        //
+        // Va ANTES del switch porque su ID vive fuera del enum (es un bloque
+        // compuesto, con su estado dentro del numero), asi que no puede ser
+        // un `case`.
+        //
+        // Dos texturas: los costados acanalados y la tapa vista desde arriba,
+        // que es donde se ve la roseta de espinas.
+        if (Compuesto::esCompuesto(type) &&
+            Compuesto::familiaDe(type) == Compuesto::FAM_BIZNAGA) {
+            if (face == 0 || face == 1)
+                return getTexture("Biznaga up y down.png");
+            return getTexture("Biznaga.png");
+        }
 
         switch (type) {
             // ⭐ EL HORNO PREHISPÁNICO
@@ -7568,6 +7614,44 @@ public:
         return out;
     }
 
+    // ========================================================================
+    // ⭐ LAS BIZNAGAS CRECEN
+    // ========================================================================
+    // Cada 48 minutos de juego, toda biznaga que no sea adulta pasa a la
+    // siguiente etapa: pequena -> mediana -> adulta.
+    //
+    // Se recorren los chunks CARGADOS, no el mundo entero: una biznaga que
+    // nadie ha visto no necesita crecer, y cuando el jugador vuelva por alli
+    // el chunk se regenera con la etapa que le tocara por su hash. El coste
+    // es proporcional a lo que hay cargado, y solo se paga una vez cada 48
+    // minutos.
+    void crecerBiznagas() {
+        for (auto& par : chunks) {
+            Chunk* c = par.second;
+            if (!c || !c->isGenerated) continue;
+
+            bool alguna = false;
+
+            for (int x = 0; x < CHUNK_SIZE; ++x)
+                for (int z = 0; z < CHUNK_SIZE; ++z)
+                    for (int y = 1; y < CHUNK_HEIGHT; ++y) {
+                        const BlockType b = c->getBlock(x, y, z);
+                        if (!Compuesto::Biznaga::esBiznaga(b)) continue;
+                        if (Compuesto::Biznaga::estaHecha(b)) continue;
+
+                        c->setBlock(x, y, z, Compuesto::Biznaga::crecida(b));
+                        alguna = true;
+                    }
+
+            // Solo se rehace la malla si de verdad crecio alguna: si no,
+            // remallar seria trabajo tirado.
+            if (alguna) {
+                c->needsRebuild = true;
+                c->isModified = true;
+            }
+        }
+    }
+
     void marcarChunksConTunas() {
         for (auto& par : chunks) {
             Chunk* c = par.second;
@@ -8797,6 +8881,52 @@ public:
                             if ((hm % 100u) < prob) {
                                 generarIxtle(worldX, surfaceY + 1, worldZ);
                             }
+                        }
+                    }
+                }
+
+                // ================================================================
+                // ---- BIZNAGAS ----
+                // ================================================================
+                // El cactus de barril del desierto mexicano. A diferencia del
+                // maguey, NO sale en manchones: una biznaga crece sola, con
+                // metros de arena de por medio. Por eso se siembra con un
+                // hash directo y muy bajo, sin agrupar.
+                //
+                // Va en desierto y en las laderas secas de montana, que es
+                // donde crece de verdad -- no en pasto ni en bosque.
+                {
+                    const bool sitioSeco =
+                        (col.biome == TerrainGen::BIOME_DESERT) ||
+                        (col.biome == TerrainGen::BIOME_MOUNTAINS &&
+                         ground == BLOCK_SAND);
+
+                    if (sitioSeco &&
+                        chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR &&
+                        (ground == BLOCK_SAND || ground == BLOCK_CLAY_SAND ||
+                         ground == BLOCK_GRAVEL)) {
+
+                        unsigned hb = (unsigned)(worldX * 3571u) ^
+                                      (unsigned)(worldZ * 6547u) ^ 0x27d4eb2fu;
+                        hb ^= hb >> 15; hb *= 2246822519u; hb ^= hb >> 13;
+
+                        // 1 de cada 140 columnas: se ven de vez en cuando,
+                        // nunca en grupo.
+                        if ((hb % 140u) == 0u) {
+                            // La etapa NO es aleatoria pura: las pequenas son
+                            // lo comun y las adultas un hallazgo, como en el
+                            // desierto de verdad, donde una biznaga grande
+                            // tiene decadas.
+                            const unsigned d = (hb >> 8) % 100u;
+                            uint16_t etapa = Compuesto::Biznaga::PEQUENA;
+                            if (d >= 70u) etapa = Compuesto::Biznaga::MEDIANA;
+                            if (d >= 92u) etapa = Compuesto::Biznaga::ADULTA;
+
+                            const uint16_t giro = (uint16_t)((hb >> 17) % 4u);
+                            const uint16_t cost = (uint16_t)((hb >> 21) % 8u);
+
+                            chunk->setBlock(x, surfaceY + 1, z,
+                                Compuesto::Biznaga::nuevo(etapa, giro, cost));
                         }
                     }
                 }
@@ -11357,6 +11487,32 @@ public:
         */
     }
 
+    // ========================================================================
+    // MODO LOTE: MUCHOS BLOQUES DE GOLPE, UNA SOLA PASADA DE LUZ
+    // ========================================================================
+    // Colocar un bloque recalcula la luz de su chunk. Esta bien para uno,
+    // pero cuando aterriza un arbol de 200 bloques son 200 recalculos en el
+    // mismo frame, y 199 de ellos los pisa el ultimo.
+    //
+    // Entre abrirLote() y cerrarLote() los setBlock solo APUNTAN que chunk
+    // hay que rehacer; al cerrar se hace una pasada por chunk tocado.
+    bool lotePendiente = false;
+    std::set<Vec3i> chunksDelLote;
+
+    void abrirLote() {
+        lotePendiente = true;
+        chunksDelLote.clear();
+    }
+
+    void cerrarLote() {
+        lotePendiente = false;
+        for (const Vec3i& cp : chunksDelLote) {
+            Chunk* c = getChunk(cp);
+            if (c) c->computeSkylight();
+        }
+        chunksDelLote.clear();
+    }
+
     BlockType getBlock(int x, int y, int z) {
         if (y < 0 || y >= CHUNK_HEIGHT) return BLOCK_AIR;
 
@@ -11440,7 +11596,19 @@ public:
         // horizontal, tapar o abrir un hueco cambia la luz de las celdas
         // vecinas, no solo de la columna). ~1 ms — despreciable frente al
         // rebuild de mesh que este mismo cambio ya dispara.
-        chunk->computeSkylight();
+        //
+        // ⭐ SALVO EN MODO LOTE. Cuando aterriza un arbol entero se colocan
+        // 200 bloques de golpe, y recalcular la luz 200 veces en el mismo
+        // frame es exactamente el tiron que se quiere evitar -- ademas de ser
+        // trabajo tirado, porque las 199 primeras las pisa la ultima.
+        //
+        // En lote solo se APUNTA que hay que rehacerla, y quien abrio el lote
+        // la recalcula UNA vez al cerrarlo.
+        if (lotePendiente) {
+            chunksDelLote.insert(chunkPos);
+        } else {
+            chunk->computeSkylight();
+        }
 
         // ⭐ Marcar chunk como modificado (para guardarlo después)
         chunk->isModified = true;
@@ -20093,33 +20261,79 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
             const int baseZ = (int)floorf(pz.z);
 
             int colocados = 0;
-            std::vector<Vec3i> hojasSueltas;
+
+            // ⭐ LA ALTURA DE CADA COLUMNA SE CALCULA UNA SOLA VEZ
+            //
+            // AQUI ESTABA EL CONGELAMIENTO. Antes cada bloque buscaba su
+            // suelo recorriendo la columna entera, hasta 256 llamadas a
+            // getBlock -- y cada una hace dos floor y una busqueda en
+            // std::map. Con un arbol de 200 bloques eran unas 50.000
+            // busquedas de mapa EN UN SOLO FRAME. De ahi el tiron.
+            //
+            // Dos arreglos:
+            //
+            //   1. La busqueda se ACOTA a 24 bloques arriba y abajo del
+            //      punto de partida. Un arbol no cae en un pozo de 200 de
+            //      hondo; si no hay suelo cerca, ese bloque se descarta.
+            //
+            //   2. Y el resultado se GUARDA por columna. Un tronco tumbado
+            //      apila varios bloques en la misma (x,z), y todos comparten
+            //      la misma altura de suelo: se calcula para el primero y los
+            //      demas la leen.
+            //
+            // Un arbol de 200 bloques ocupa ~30 columnas, asi que se pasa de
+            // ~50.000 consultas a poco mas de 700.
+            static std::unordered_map<long long, int> alturaColumna;
+            alturaColumna.clear();
+
+            // Un solo recalculo de luz para todo el arbol, no uno por bloque.
+            world.abrirLote();
 
             for (const auto& b : pz.bloques) {
                 // El giro: la altura (dy) se convierte en avance horizontal,
                 // y lo que sobresalia a los lados se queda donde estaba.
                 const int avance = b.dy;
-                int cx = baseX + b.dx + pz.volcarX * avance;
-                int cz = baseZ + b.dz + pz.volcarZ * avance;
-                int cy = baseY;
+                const int cx = baseX + b.dx + pz.volcarX * avance;
+                const int cz = baseZ + b.dz + pz.volcarZ * avance;
 
-                // Buscar el suelo bajo esa columna: el arbol se adapta al
-                // relieve en vez de quedarse flotando o enterrarse.
-                int suelo = cy;
-                while (suelo > 0 &&
-                       world.getBlock(cx, suelo - 1, cz) == BLOCK_AIR)
-                    --suelo;
-                while (suelo < CHUNK_HEIGHT - 1 &&
-                       world.getBlock(cx, suelo, cz) != BLOCK_AIR)
-                    ++suelo;
-                cy = suelo;
+                const long long clave = ((long long)(cx + 1048576) << 21) |
+                                        (long long)(cz + 1048576);
+
+                int cy;
+                auto it = alturaColumna.find(clave);
+                if (it != alturaColumna.end()) {
+                    // Ya se sabe donde esta el suelo de esta columna: los
+                    // bloques se van apilando uno sobre otro.
+                    cy = it->second;
+                } else {
+                    // Primera vez en esta columna: buscar el suelo, pero solo
+                    // en un margen razonable.
+                    constexpr int MARGEN = 24;
+                    const int minY = (baseY - MARGEN > 0) ? baseY - MARGEN : 0;
+                    const int maxY = (baseY + MARGEN < CHUNK_HEIGHT - 1)
+                                   ? baseY + MARGEN : CHUNK_HEIGHT - 1;
+
+                    int suelo = baseY;
+                    while (suelo > minY &&
+                           world.getBlock(cx, suelo - 1, cz) == BLOCK_AIR)
+                        --suelo;
+                    while (suelo < maxY &&
+                           world.getBlock(cx, suelo, cz) != BLOCK_AIR)
+                        ++suelo;
+                    cy = suelo;
+                }
 
                 if (cy < 0 || cy >= CHUNK_HEIGHT) continue;
                 if (world.getBlock(cx, cy, cz) != BLOCK_AIR) continue;
 
                 world.setBlock(cx, cy, cz, b.tipo);
                 ++colocados;
+
+                // La proxima pieza de esta columna se apoya encima de esta.
+                alturaColumna[clave] = cy + 1;
             }
+
+            world.cerrarLote();
 
             if (colocados > 0) {
                 if (g_soundManager)
@@ -20187,6 +20401,8 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
         const int baseZ = (int)floorf(pz.z);
 
         int colocados = 0;
+        world.abrirLote();
+
         for (const auto* b : orden) {
             int cx = baseX + b->dx;
             int cy = baseY + b->dy;
@@ -20208,6 +20424,8 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
                 ++colocados;
             }
         }
+
+        world.cerrarLote();
 
         // Ruido y polvo del golpe, una vez por pieza y no por bloque.
         if (colocados > 0) {
@@ -20396,6 +20614,17 @@ void actualizarVida(GameState* state, float deltaTime) {
                 ++i;
             }
         }
+    }
+
+    // --- LAS BIZNAGAS CRECEN CADA 48 MINUTOS ---
+    //
+    // Se compara contra el reloj de juego, no contra un contador que se
+    // acumule por frame: asi el crecimiento no depende de los FPS ni se
+    // desfasa al pausar, y sobrevive a salir y volver a entrar al mundo.
+    if (state->tiempoJugadoSegundos - g_ultimoCrecerBiznagas
+            >= BIZNAGA_CRECER_SEG) {
+        g_ultimoCrecerBiznagas = state->tiempoJugadoSegundos;
+        state->world.crecerBiznagas();
     }
 
     // --- LA PENCA LIMPIA SE SECA A LOS 20 SEGUNDOS ---

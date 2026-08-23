@@ -77,6 +77,10 @@ enum Familia : int {
     FAM_PIEDRA_MUSGO,   // roca + musgo
     FAM_PLANTA_FLOR,    // mata + flores
 
+    // La BIZNAGA: cactus de barril del desierto mexicano. Crece por etapas,
+    // como el maguey, pero es una bola y no una roseta.
+    FAM_BIZNAGA,
+
     FAM_COUNT
 };
 
@@ -280,6 +284,89 @@ namespace Maguey {
     }
 
 } // namespace Maguey
+
+// ============================================================================
+// FAMILIA: BIZNAGA
+// ============================================================================
+// El cactus de barril del desierto mexicano (Ferocactus, Echinocactus). Una
+// bola achatada y acanalada, cubierta de espinas, que crece MUY despacio: los
+// ejemplares grandes tienen decadas.
+//
+// Se modela con el mismo sistema que el maguey, pero es mucho mas simple: no
+// produce nada, no se capa. Solo crece.
+namespace Biznaga {
+
+    // Etapa de crecimiento. Tres etapas reales, como se pidio.
+    //   0 pequena | 1 mediana | 2 adulta
+    constexpr Campo ETAPA = { 0, 2 };   // 0..3 (sobra una)
+
+    // Giro: cuatro orientaciones para que un grupo no parezca calcado.
+    constexpr Campo GIRO  = { 2, 2 };   // 0..3
+
+    // Cuantas costillas tiene. Una biznaga real tiene entre 13 y 21, y el
+    // numero es constante durante toda su vida: se fija al brotar.
+    constexpr Campo COSTILLAS = { 4, 3 };   // 0..7 -> se mapea a 13..20
+
+    // Quedan libres los bits 7..15.
+
+    enum Etapa : uint16_t {
+        PEQUENA = 0, MEDIANA = 1, ADULTA = 2
+    };
+
+    // Cuanto mide cada etapa, en fraccion de bloque. Una biznaga adulta de
+    // verdad pasa del metro de diametro, asi que llena casi el voxel.
+    inline float escalaDeEtapa(uint16_t etapa) {
+        switch (etapa) {
+            case PEQUENA: return 0.35f;
+            case MEDIANA: return 0.62f;
+            default:      return 0.92f;   // adulta
+        }
+    }
+
+    // Costillas de verdad, a partir del campo de 3 bits.
+    inline int costillasDe(uint16_t v) { return 13 + (int)(v % 8u); }
+
+    // --- Construir ---
+    inline BlockType crear(uint16_t etapa, uint16_t giro, uint16_t costillas) {
+        uint16_t e = 0;
+        e = escribir(e, ETAPA,     etapa);
+        e = escribir(e, GIRO,      giro);
+        e = escribir(e, COSTILLAS, costillas);
+        return hacer(FAM_BIZNAGA, e);
+    }
+
+    inline BlockType nuevo(uint16_t etapa, uint16_t giro, uint16_t costillas) {
+        return crear(etapa, giro, costillas);
+    }
+
+    // --- Leer ---
+    inline uint16_t etapaDe(BlockType t) { return leer(estadoDe(t), ETAPA); }
+    inline uint16_t giroDe(BlockType t)  { return leer(estadoDe(t), GIRO); }
+    inline uint16_t costillasCampoDe(BlockType t) {
+        return leer(estadoDe(t), COSTILLAS);
+    }
+    inline int costillasReales(BlockType t) {
+        return costillasDe(costillasCampoDe(t));
+    }
+
+    inline bool esBiznaga(BlockType t) {
+        return esCompuesto(t) && familiaDe(t) == FAM_BIZNAGA;
+    }
+
+    // --- Crecer ---
+    // Devuelve la biznaga una etapa mas vieja, o la misma si ya es adulta.
+    inline BlockType crecida(BlockType t) {
+        const uint16_t e = etapaDe(t);
+        if (e >= ADULTA) return t;
+        uint16_t est = estadoDe(t);
+        est = escribir(est, ETAPA, (uint16_t)(e + 1));
+        return hacer(FAM_BIZNAGA, est);
+    }
+
+    // ¿Ya no puede crecer mas?
+    inline bool estaHecha(BlockType t) { return etapaDe(t) >= ADULTA; }
+
+} // namespace Biznaga
 
 // ============================================================================
 // COMPONENTES: LAS PARTES DE UN BLOQUE COMPUESTO

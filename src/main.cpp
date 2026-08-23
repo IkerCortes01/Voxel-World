@@ -809,10 +809,15 @@ constexpr double AGUAMIEL_SEG = 600.0;   // 10 minutos
 // esta la parte que toca el mundo.
 std::vector<Fisica::BloqueCayendo> g_bloquesCayendo;
 
-// Tope de seguridad. Derrumbar una montana entera podria meter miles de
-// bloques a la vez y hundir el frame; pasado este numero, lo que quede se
+// Y las ESTRUCTURAS enteras: un arbol, una columna, un puente. Todo lo que
+// esta pegado cae junto, como una sola pieza.
+std::vector<Fisica::PiezaCayendo> g_piezasCayendo;
+
+// Topes de seguridad. Derrumbar una montana entera podria meter miles de
+// bloques a la vez y hundir el frame; pasados estos numeros, lo que quede se
 // queda quieto hasta que haya sitio.
 constexpr size_t MAX_BLOQUES_CAYENDO = 512;
+constexpr size_t MAX_PIEZAS_CAYENDO  = 32;
 
 // Se define mucho mas abajo (necesita World completo), pero se llama desde
 // updateMining, que va antes.
@@ -1668,6 +1673,24 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // Esta funcion devuelve la caja de la celda ENTERA (la union de las
     // dos), que es lo que necesitan la colision y el resaltado general.
     // Quien quiera una pieza concreta usa cajaDePieza().
+    // ⭐ EL MAGUEY CAPADO: FRENA EL CUENCO, NO EL JUGO.
+    //
+    // El aguamiel es un LIQUIDO y se atraviesa, pero el borde de maguey que
+    // lo rodea es solido: el jugador se apoya en el. Por eso la celda declara
+    // las cinco cajas del cuenco (fondo + cuatro paredes) y NINGUNA para el
+    // liquido -- el hueco de dentro queda libre y se cruza sin frenar.
+    //
+    // Va antes del caso general de las compartidas, que devuelve el voxel
+    // entero: con esa caja se chocaria contra el jugo.
+    if (type == BLOCK_AGUAMIEL) {
+        // La union de las paredes: el cuenco visto por fuera. La colision
+        // real, pieza a pieza, la resuelve formaDeBloque().
+        minX = 0.0f;  maxX = 1.0f;
+        minY = 0.0f;  maxY = 1.0f;
+        minZ = 0.0f;  maxZ = 1.0f;
+        return true;
+    }
+
     if (esCompartido(type)) {
         minX = 0.0f;  maxX = 1.0f;
         minY = 0.0f;  maxY = 1.0f;
@@ -1725,6 +1748,23 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
 
         minY = 0.0f;
         maxY = alto;
+        return true;
+    }
+
+    // --- LA PUNTA DEL MAGUEY: EL CONO ---
+    //
+    // Sin esto caia al cubo completo por defecto, y la COLISION (un cubo) no
+    // coincidia con lo que se DIBUJA y se SELECCIONA (un cono escalonado): el
+    // jugador chocaba con aire en las esquinas de arriba.
+    //
+    // Se declara la caja del escalon MAS ANCHO, que es la base. Es la
+    // envolvente del cono, asi que el contacto cae donde de verdad hay
+    // planta; el detalle escalonado lo resuelve formaDeBloque().
+    if (type == BLOCK_MAGUEY_PUNTA) {
+        constexpr float A = (12.0f / 16.0f) * 0.5f;   // medio ancho de la base
+        minX = 0.5f - A;  maxX = 0.5f + A;
+        minY = 0.0f;      maxY = 1.0f;
+        minZ = 0.5f - A;  maxZ = 0.5f + A;
         return true;
     }
 
@@ -1813,15 +1853,36 @@ template <typename TGet>
 FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
     FormaBloque f;
 
-    // --- CELDA COMPARTIDA: dos bloques en el mismo voxel ---
+    // --- EL MAGUEY CAPADO CON JUGO: SOLIDO SOLO EL CUENCO ---
+    //
+    // Va antes del caso general de las compartidas porque su forma NO es la
+    // union de sus dos piezas: el liquido se atraviesa, asi que no aporta
+    // colision. Se declaran las cinco cajas del cuenco (fondo + 4 paredes) y
+    // el hueco de dentro queda libre.
+    //
+    // La SELECCION del jugo no se pierde por esto: la resuelve el raycast con
+    // cajaDePiezaN(), que si prueba las dos piezas.
+    if (type == BLOCK_AGUAMIEL) {
+        f.anadir(0.0f, 0.0f, 0.0f, 1.0f, CAJETE_SUELO, 1.0f);        // fondo
+        f.anadir(0.0f, CAJETE_SUELO, 0.0f, CAJETE_PARED, 1.0f, 1.0f); // -X
+        f.anadir(1.0f - CAJETE_PARED, CAJETE_SUELO, 0.0f, 1.0f, 1.0f, 1.0f); // +X
+        f.anadir(CAJETE_PARED, CAJETE_SUELO, 0.0f,
+                 1.0f - CAJETE_PARED, 1.0f, CAJETE_PARED);            // -Z
+        f.anadir(CAJETE_PARED, CAJETE_SUELO, 1.0f - CAJETE_PARED,
+                 1.0f - CAJETE_PARED, 1.0f, 1.0f);                    // +Z
+        return f;
+    }
+
+    // --- CELDA COMPARTIDA: varios bloques en el mismo voxel ---
     // Cada uno con su caja, que es lo que ya permitia seleccionarlos por
-    // separado. El contorno tiene que mostrar las dos.
+    // separado. El contorno tiene que mostrarlas todas.
     if (esCompartido(type)) {
-        float a0,b0,c0,a1,b1,c1;
-        cajaDePieza(type, false, a0,b0,c0, a1,b1,c1);
-        f.anadir(a0,b0,c0, a1,b1,c1);
-        cajaDePieza(type, true, a0,b0,c0, a1,b1,c1);
-        f.anadir(a0,b0,c0, a1,b1,c1);
+        const int n = piezasDe(type);
+        for (int i = 0; i < n; ++i) {
+            float a0,b0,c0,a1,b1,c1;
+            cajaDePiezaN(type, i, a0,b0,c0, a1,b1,c1);
+            f.anadir(a0,b0,c0, a1,b1,c1);
+        }
         return f;
     }
 
@@ -19177,37 +19238,262 @@ inline bool tieneApoyo(World& world, int x, int y, int z) {
     return true;
 }
 
-// Suelta un bloque: lo saca del mundo y lo mete en la lista de los que caen.
-// Devuelve false si no se pudo (no cabe, o el bloque no cae).
-bool soltarBloque(World& world, int x, int y, int z) {
-    if (g_bloquesCayendo.size() >= MAX_BLOQUES_CAYENDO) return false;
+// ============================================================================
+// LO QUE ESTA PEGADO CAE JUNTO
+// ============================================================================
+// Un arbol no es un monton de bloques sueltos: es UNA PIEZA. Si le quitas el
+// suelo no se deshace en el aire, se viene abajo entero.
+//
+// Para saber que forma parte de la pieza se recorre lo que esta CONECTADO
+// (un flood fill por las seis caras) partiendo del bloque que se quedo
+// colgando. Mientras se recorre se comprueba si ALGO de lo encontrado toca
+// suelo firme:
+//
+//   - si algo lo toca, la estructura esta sujeta y no cae NADA;
+//   - si no lo toca nada, se desprende entera.
+//
+// Eso vale igual para un arbol que para una columna que hayas construido o
+// para un puente de piedra: no hay codigo especifico de arboles, solo
+// conectividad. Lo que sujeta es el terreno.
 
-    const BlockType t = world.getBlock(x, y, z);
-    if (!puedeCaer(t)) return false;
-    if (tieneApoyo(world, x, y, z)) return false;
+// Cuantos bloques como mucho puede tener una pieza. Mas alla de esto se deja
+// donde esta: recorrer una montana entera bloque a bloque congelaria el
+// frame, y ese caso (tirar medio mundo) no es el que interesa.
+constexpr int MAX_BLOQUES_PIEZA = 512;
 
-    world.setBlock(x, y, z, BLOCK_AIR);
-    g_bloquesCayendo.emplace_back(x, y, z, t);
+// ¿Es TERRENO firme, de lo que sujeta una estructura?
+//
+// La clave del sistema. Sujetan los bloques del suelo -- piedra, tierra,
+// arena, minerales -- y NO sujetan las partes de una planta: un tronco no
+// puede sostenerse a si mismo, ni una rama sostener al arbol.
+//
+// Sin esta distincion, un arbol nunca caeria: su tronco se apoyaria en el
+// tronco de abajo y el flood fill siempre encontraria "suelo".
+inline bool esSueloFirme(BlockType t) {
+    if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
+
+    // Nada de lo que es planta sujeta.
+    if (isCrossSprite(t)) return false;
+    if (t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO || t == BLOCK_WOOD_OYAMEL)
+        return false;
+    if (t == BLOCK_LEAVES || t == BLOCK_LEAVES_ENCINO ||
+        t == BLOCK_LEAVES_OYAMEL)
+        return false;
+
+    // El resto -- terreno, roca, construccion -- si sujeta.
     return true;
 }
 
-// Mira si el bloque de esa celda se ha quedado sin suelo, y tambien los de
-// alrededor. Se llama despues de romper o mover algo.
+// Recorre la estructura conectada a (x,y,z) y la desprende si nada de ella
+// esta apoyado en suelo firme.
 //
-// Solo mira los vecinos INMEDIATOS, no toda la columna: si al caer uno deja
-// a otro colgando, ese se detecta en el siguiente aterrizaje. Asi un derrumbe
-// se propaga solo, sin recorrer el mundo entero de una vez.
+// Devuelve true si se desprendio algo.
+bool desprenderEstructura(World& world, int x, int y, int z) {
+    if (g_piezasCayendo.size() >= MAX_PIEZAS_CAYENDO) return false;
+
+    const BlockType inicial = world.getBlock(x, y, z);
+    if (!puedeCaer(inicial)) return false;
+
+    // --- Flood fill por las seis caras ---
+    std::vector<Vec3i> encontrados;
+    std::set<std::tuple<int,int,int>> vistos;
+    std::vector<Vec3i> pila;
+
+    pila.push_back(Vec3i(x, y, z));
+    vistos.insert(std::make_tuple(x, y, z));
+
+    bool apoyada = false;
+
+    static const int CARAS[6][3] = {
+        { 1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+    };
+
+    while (!pila.empty()) {
+        const Vec3i p = pila.back();
+        pila.pop_back();
+
+        // Demasiado grande: se deja donde esta.
+        if ((int)encontrados.size() >= MAX_BLOQUES_PIEZA) return false;
+
+        encontrados.push_back(p);
+
+        for (int i = 0; i < 6; ++i) {
+            const int nx = p.x + CARAS[i][0];
+            const int ny = p.y + CARAS[i][1];
+            const int nz = p.z + CARAS[i][2];
+
+            if (ny < 0) { apoyada = true; continue; }   // el fondo sujeta
+            if (ny >= CHUNK_HEIGHT) continue;
+
+            const BlockType vec = world.getBlock(nx, ny, nz);
+
+            // ⭐ ¿Esta pegada a terreno firme? Entonces esta sujeta y no cae.
+            if (esSueloFirme(vec)) { apoyada = true; continue; }
+
+            // Si es parte de la estructura, se sigue por ahi.
+            if (!puedeCaer(vec)) continue;
+
+            const auto clave = std::make_tuple(nx, ny, nz);
+            if (vistos.count(clave)) continue;
+            vistos.insert(clave);
+            pila.push_back(Vec3i(nx, ny, nz));
+        }
+
+        if (apoyada) return false;   // ya se sabe que no cae: no seguir
+    }
+
+    if (apoyada || encontrados.empty()) return false;
+
+    // --- Se desprende: sacar del mundo y armar la pieza ---
+    Fisica::PiezaCayendo pieza;
+
+    // El ancla es el bloque mas bajo, para que la caida se mida desde ahi.
+    int anclaY = encontrados[0].y;
+    for (const Vec3i& p : encontrados) if (p.y < anclaY) anclaY = p.y;
+
+    pieza.x = (float)x;
+    pieza.y = (float)anclaY;
+    pieza.z = (float)z;
+    pieza.velocidad = 0.0f;
+
+    // Para el area frontal: cuenta COLUMNAS distintas, no bloques. Los que
+    // estan uno encima de otro se tapan entre si, y el aire solo empuja
+    // contra la silueta vista desde abajo.
+    std::set<std::pair<int,int>> columnas;
+
+    for (const Vec3i& p : encontrados) {
+        const BlockType t = world.getBlock(p.x, p.y, p.z);
+        pieza.bloques.push_back({ p.x - x, p.y - anclaY, p.z - z, t });
+        pieza.masaTotal += Fisica::masaDe(t);
+        columnas.insert(std::make_pair(p.x, p.z));
+        world.setBlock(p.x, p.y, p.z, BLOCK_AIR);
+    }
+
+    pieza.areaTotal = (float)columnas.size() * Fisica::AREA_M2;
+
+    g_piezasCayendo.push_back(std::move(pieza));
+    return true;
+}
+
+// Mira si lo que hay alrededor se ha quedado sin soporte. Se llama despues
+// de romper o mover algo.
 void revisarSoporte(World& world, int x, int y, int z) {
-    // El de encima, que es el que mas probable que se quede colgando.
-    if (y + 1 < CHUNK_HEIGHT) soltarBloque(world, x, y + 1, z);
+    // El de encima, que es el candidato mas probable.
+    if (y + 1 < CHUNK_HEIGHT) desprenderEstructura(world, x, y + 1, z);
 
     // Y los cuatro de al lado, por si eran parte de un saliente.
     static const int LADOS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
     for (int i = 0; i < 4; ++i)
-        soltarBloque(world, x + LADOS[i][0], y, z + LADOS[i][1]);
+        desprenderEstructura(world, x + LADOS[i][0], y, z + LADOS[i][1]);
 }
 
 // Avanza la caida de todos los bloques en el aire.
+// ============================================================================
+// AVANZAR LAS ESTRUCTURAS QUE CAEN
+// ============================================================================
+// La pieza entera baja con UNA sola velocidad, calculada con la masa y el
+// area de todo el conjunto (ver aceleracionPieza en FisicaCaida.h).
+//
+// Al aterrizar se recoloca BLOQUE A BLOQUE: cada uno busca su celda y, si
+// esta ocupada, sube hasta encontrar hueco. Asi la estructura se adapta al
+// relieve en vez de incrustarse en el.
+void actualizarPiezasCayendo(GameState* state, float deltaTime) {
+    if (g_piezasCayendo.empty()) return;
+    if (deltaTime <= 0.0f || deltaTime > 0.5f) return;
+
+    World& world = state->world;
+
+    for (size_t i = 0; i < g_piezasCayendo.size(); ) {
+        Fisica::PiezaCayendo& pz = g_piezasCayendo[i];
+
+        pz.velocidad += Fisica::aceleracionPieza(pz.masaTotal, pz.areaTotal,
+                                                 pz.velocidad) * deltaTime;
+
+        const float nuevaY = pz.y - pz.velocidad * deltaTime;
+        const int desplazado = (int)floorf(nuevaY) - (int)floorf(pz.y);
+
+        // ¿Choca algo de la pieza al bajar? Se prueba la posicion nueva
+        // completa: basta con que UN bloque tope para que pare toda.
+        bool choca = false;
+        if (desplazado != 0 || nuevaY < 0.0f) {
+            for (const auto& b : pz.bloques) {
+                const int cx = (int)floorf(pz.x) + b.dx;
+                const int cy = (int)floorf(nuevaY) + b.dy;
+                const int cz = (int)floorf(pz.z) + b.dz;
+
+                if (cy < 0) { choca = true; break; }
+
+                const BlockType enDestino = world.getBlock(cx, cy, cz);
+                if (enDestino != BLOCK_AIR && enDestino != BLOCK_WATER &&
+                    enDestino != BLOCK_LAVA) {
+                    choca = true;
+                    break;
+                }
+            }
+        }
+
+        if (!choca) {
+            pz.y = nuevaY;
+            ++i;
+            continue;
+        }
+
+        // --- ATERRIZAJE: cada bloque busca su sitio ---
+        //
+        // Se colocan de ABAJO ARRIBA. Es importante: si se hiciera al reves,
+        // un bloque de arriba ocuparia la celda que necesita el de abajo y
+        // la estructura se desarmaria.
+        std::vector<const Fisica::PiezaCayendo::Pieza*> orden;
+        orden.reserve(pz.bloques.size());
+        for (const auto& b : pz.bloques) orden.push_back(&b);
+        std::sort(orden.begin(), orden.end(),
+                  [](const Fisica::PiezaCayendo::Pieza* a,
+                     const Fisica::PiezaCayendo::Pieza* b) {
+                      return a->dy < b->dy;
+                  });
+
+        const int baseX = (int)floorf(pz.x);
+        const int baseY = (int)floorf(pz.y);
+        const int baseZ = (int)floorf(pz.z);
+
+        int colocados = 0;
+        for (const auto* b : orden) {
+            int cx = baseX + b->dx;
+            int cy = baseY + b->dy;
+            int cz = baseZ + b->dz;
+
+            if (cy < 0) cy = 0;
+
+            // Si su celda esta ocupada, sube hasta encontrar hueco. Es lo que
+            // hace que la estructura se pose sobre un relieve irregular en
+            // vez de meterse dentro de el.
+            int intentos = 0;
+            while (intentos < 8 && cy < CHUNK_HEIGHT &&
+                   world.getBlock(cx, cy, cz) != BLOCK_AIR) {
+                ++cy; ++intentos;
+            }
+
+            if (cy < CHUNK_HEIGHT && world.getBlock(cx, cy, cz) == BLOCK_AIR) {
+                world.setBlock(cx, cy, cz, b->tipo);
+                ++colocados;
+            }
+        }
+
+        // Ruido y polvo del golpe, una vez por pieza y no por bloque.
+        if (colocados > 0) {
+            if (g_soundManager)
+                g_soundManager->playBreakBlock(pz.bloques[0].tipo, glfwGetTime());
+            state->particles.spawnBlockBreakParticles(
+                Vec3((float)baseX + 0.5f, (float)baseY + 0.5f,
+                     (float)baseZ + 0.5f),
+                pz.bloques[0].tipo);
+        }
+
+        g_piezasCayendo[i] = std::move(g_piezasCayendo.back());
+        g_piezasCayendo.pop_back();
+    }
+}
+
 void actualizarBloquesCayendo(GameState* state, float deltaTime) {
     if (g_bloquesCayendo.empty()) return;
     if (deltaTime <= 0.0f || deltaTime > 0.5f) return;   // frame raro: saltar
@@ -27175,6 +27461,7 @@ int main() {
                 // Si no hay ninguno cayendo, sale en la primera linea y no
                 // cuesta nada.
                 actualizarBloquesCayendo(g_gameState, deltaTime);
+                actualizarPiezasCayendo(g_gameState, deltaTime);
 
                 // ⭐ VIDA: un corazon por cada hora jugada.
                 // Solo cuenta el tiempo DENTRO del mundo (no los menus ni la
@@ -27819,10 +28106,59 @@ int main() {
         // no los dibuja: hay que pintarlos aqui, uno a uno, en su posicion
         // exacta. Son pocos y duran un instante, asi que el modo inmediato
         // basta y no merece un VBO.
-        if (!g_bloquesCayendo.empty()) {
+        if (!g_bloquesCayendo.empty() || !g_piezasCayendo.empty()) {
             glEnable(GL_TEXTURE_2D);
             glEnable(GL_CULL_FACE);
             glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+            // Las ESTRUCTURAS enteras: cada bloque en su sitio relativo.
+            for (const Fisica::PiezaCayendo& pz : g_piezasCayendo) {
+                for (const auto& pieza : pz.bloques) {
+                    const GLuint tp = g_textureManager
+                        ? g_textureManager->getBlockTexture(pieza.tipo, 0) : 0;
+                    if (tp == 0) continue;
+                    g_textureManager->bindOptimized(tp);
+
+                    const float px = pz.x + (float)pieza.dx;
+                    const float py = pz.y + (float)pieza.dy;
+                    const float pzz = pz.z + (float)pieza.dz;
+                    const float X0 = px, X1 = px + 1.0f;
+                    const float Y0 = py, Y1 = py + 1.0f;
+                    const float Z0 = pzz, Z1 = pzz + 1.0f;
+
+                    glBegin(GL_QUADS);
+                    glTexCoord2f(0,0); glVertex3f(X0,Y1,Z0);
+                    glTexCoord2f(1,0); glVertex3f(X1,Y1,Z0);
+                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z1);
+                    glTexCoord2f(0,1); glVertex3f(X0,Y1,Z1);
+
+                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z0);
+                    glTexCoord2f(1,0); glVertex3f(X0,Y0,Z1);
+                    glTexCoord2f(1,1); glVertex3f(X1,Y0,Z1);
+                    glTexCoord2f(0,1); glVertex3f(X1,Y0,Z0);
+
+                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z0);
+                    glTexCoord2f(1,0); glVertex3f(X0,Y1,Z0);
+                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z0);
+                    glTexCoord2f(0,1); glVertex3f(X1,Y0,Z0);
+
+                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z1);
+                    glTexCoord2f(1,0); glVertex3f(X1,Y0,Z1);
+                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z1);
+                    glTexCoord2f(0,1); glVertex3f(X0,Y1,Z1);
+
+                    glTexCoord2f(0,0); glVertex3f(X1,Y0,Z0);
+                    glTexCoord2f(1,0); glVertex3f(X1,Y1,Z0);
+                    glTexCoord2f(1,1); glVertex3f(X1,Y1,Z1);
+                    glTexCoord2f(0,1); glVertex3f(X1,Y0,Z1);
+
+                    glTexCoord2f(0,0); glVertex3f(X0,Y0,Z0);
+                    glTexCoord2f(1,0); glVertex3f(X0,Y0,Z1);
+                    glTexCoord2f(1,1); glVertex3f(X0,Y1,Z1);
+                    glTexCoord2f(0,1); glVertex3f(X0,Y1,Z0);
+                    glEnd();
+                }
+            }
 
             for (const Fisica::BloqueCayendo& b : g_bloquesCayendo) {
                 const GLuint tex = g_textureManager

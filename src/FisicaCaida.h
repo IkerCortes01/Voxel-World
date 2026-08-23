@@ -327,4 +327,74 @@ struct BloqueCayendo {
           origenX(bx), origenY(by), origenZ(bz) {}
 };
 
+// ============================================================================
+// UNA ESTRUCTURA ENTERA CAYENDO
+// ============================================================================
+// Un arbol no es un monton de bloques sueltos: es UNA PIEZA. Si le quitas el
+// suelo, no se deshace en el aire -- se viene abajo entero, con su tronco,
+// sus ramas y sus hojas, y se rompe al llegar.
+//
+// Eso es lo que representa esto: un conjunto de bloques que caen JUNTOS,
+// manteniendo sus posiciones relativas, como un solo cuerpo rigido.
+//
+// ----------------------------------------------------------------------------
+// POR QUE UNA SOLA VELOCIDAD PARA TODA LA PIEZA
+// ----------------------------------------------------------------------------
+// Cada bloque por separado tendria su propia densidad y su propio arrastre.
+// Pero estan PEGADOS: forman un cuerpo unico, y un cuerpo unico cae con una
+// sola aceleracion.
+//
+// La fisica correcta para eso es sumar toda la masa y toda el area frontal
+// del conjunto, no promediar velocidades. Un arbol es sobre todo hojas (poco
+// densas) con un tronco dentro (denso), y lo que cae es la suma: se comporta
+// como un cuerpo de densidad intermedia, que es justo lo que pasaria de
+// verdad.
+struct PiezaCayendo {
+    // Cada bloque, con su desplazamiento RESPECTO AL ANCLA de la pieza. Se
+    // guardan relativos y no absolutos para que mover la pieza sea mover un
+    // solo punto.
+    struct Pieza {
+        int dx, dy, dz;
+        BlockType tipo;
+    };
+
+    std::vector<Pieza> bloques;
+
+    float x, y, z;        // ancla de la pieza, en coordenadas de mundo
+    float velocidad;      // bloques/s, positiva hacia abajo
+
+    // Masa y area de TODO el conjunto, precalculadas al desprenderse. Se
+    // guardan porque no cambian durante la caida y recalcularlas cada frame
+    // seria recorrer todos los bloques sin necesidad.
+    float masaTotal;      // kg
+    float areaTotal;      // m^2
+
+    PiezaCayendo() : x(0), y(0), z(0), velocidad(0),
+                     masaTotal(0), areaTotal(0) {}
+};
+
+// ----------------------------------------------------------------------------
+// ACELERACION DE UNA PIEZA ENTERA
+// ----------------------------------------------------------------------------
+// La misma fisica que un bloque suelto, pero con la masa y el area del
+// conjunto:
+//
+//     a = g - (1/2 * rho * |v|*v * Cd * A_total) / m_total
+//
+// El AREA no es la suma de las areas de todos los bloques: los que estan uno
+// encima de otro se tapan entre si, y el aire solo empuja contra la SILUETA
+// vista desde abajo. Por eso el area se calcula contando columnas distintas
+// (ver areaFrontalDe en main.cpp), no bloques.
+inline float aceleracionPieza(float masaTotal, float areaTotal,
+                              float velocidadBloques) {
+    if (masaTotal <= 0.0f) return 0.0f;
+
+    const float v = velocidadBloques * LADO_M;
+    const float arrastre =
+        0.5f * RHO_AIRE * std::fabs(v) * v * CD_CUBO * areaTotal;
+
+    const float a = G - (arrastre / masaTotal);
+    return a / LADO_M;
+}
+
 } // namespace Fisica

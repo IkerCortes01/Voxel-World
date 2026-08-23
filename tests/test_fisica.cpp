@@ -261,3 +261,50 @@ TEST_CASE("Caida: una pieza sin masa no revienta") {
     CHECK(aceleracionPieza(0.0f, AREA_M2, 10.0f) == doctest::Approx(0.0f));
     CHECK(std::isfinite(aceleracionPieza(1.0f, 0.0f, 10.0f)));
 }
+
+// ============================================================================
+// LOS GUIJARROS NO CAEN
+// ============================================================================
+// Piedritas, pedernal, polvo de tierra y demas cantos sueltos se quedan
+// donde estan. No son bloques que ocupen su celda: son un montoncito
+// apoyado en el suelo, y un punado de piedras no se derrumba.
+
+TEST_CASE("Guijarros: ninguno entra en el sistema de caida") {
+    // La lista completa, uno por uno. Si manana se anade otro canto a
+    // esGuijarro() queda excluido solo, pero estos son los que hay hoy.
+    const BlockType CANTOS[] = {
+        BLOCK_PEDAZO_PIEDRA, BLOCK_PEDAZO_GRAVA, BLOCK_PEDAZO_PEDERNAL,
+        BLOCK_PEDAZO_CALIZA, BLOCK_PEDAZO_TIERRA, BLOCK_PEDAZO_COBRE,
+        BLOCK_PEDAZO_GOETHITA, BLOCK_PEDAZO_HEMATITE, BLOCK_PEDAZO_LIMONITA,
+        BLOCK_PEDAZO_NIEVE
+    };
+
+    for (BlockType t : CANTOS) {
+        CHECK(esGuijarro(t));
+    }
+}
+
+TEST_CASE("Guijarros: los bloques de verdad SI siguen cayendo") {
+    // La exclusion tiene que ser solo para los cantos: el terreno, la roca
+    // y la madera siguen sujetos a la gravedad.
+    CHECK_FALSE(esGuijarro(BLOCK_STONE));
+    CHECK_FALSE(esGuijarro(BLOCK_DIRT));
+    CHECK_FALSE(esGuijarro(BLOCK_SAND));
+    CHECK_FALSE(esGuijarro(BLOCK_GRAVEL));      // el BLOQUE de grava, no el canto
+    CHECK_FALSE(esGuijarro(BLOCK_WOOD));
+    CHECK_FALSE(esGuijarro(BLOCK_SNOW));        // el BLOQUE de nieve
+
+    // Y sus capas parciales tampoco son guijarros.
+    CHECK_FALSE(esGuijarro(conNivel(BLOCK_STONE, 3)));
+}
+
+TEST_CASE("Guijarros: el canto y el bloque del mismo material no se confunden") {
+    // Es el error facil: BLOCK_GRAVEL es un bloque de grava (cae) y
+    // BLOCK_PEDAZO_GRAVA es un punado de gravilla (no cae). Son distintos.
+    CHECK(BLOCK_GRAVEL != BLOCK_PEDAZO_GRAVA);
+    CHECK(BLOCK_SNOW   != BLOCK_PEDAZO_NIEVE);
+    CHECK(BLOCK_STONE  != BLOCK_PEDAZO_PIEDRA);
+
+    CHECK(esGuijarro(BLOCK_PEDAZO_GRAVA));
+    CHECK_FALSE(esGuijarro(BLOCK_GRAVEL));
+}

@@ -796,6 +796,13 @@ struct MagueyManando {
 std::vector<MagueyManando> g_magueyesManando;
 constexpr double AGUAMIEL_SEG = 600.0;   // 10 minutos
 
+// ⭐ EL LLENADO GRADUAL DE LOS MAGUEYES COMPUESTOS
+//
+// Un punto de jugo cada 40 s. Un productor cabe 15, asi que llenarlo entero
+// son 10 minutos -- el mismo ritmo de antes, pero repartido: el jugador ve el
+// nivel subir en el cajete en vez de encontrarse el tazon lleno de golpe.
+constexpr double AGUAMIEL_PASO_SEG = 40.0;
+
 // ============================================================================
 // BLOQUES QUE ESTAN CAYENDO AHORA MISMO
 // ============================================================================
@@ -2191,6 +2198,10 @@ inline bool esBloqueMacizoOpaco(BlockType type) {
 
 // Obtener tiempo de rotura de un bloque en segundos (como Minecraft)
 float getBlockBreakTime(BlockType type) {
+    // Un bloque COMPUESTO cuesta lo que su planta: el maguey es fibra, no
+    // roca, asi que se corta rapido. Sin esto caeria al default y se
+    // comportaria como un bloque cualquiera.
+    if (Compuesto::esCompuesto(type)) return 0.6f;
     // Un nivel parcial cuesta lo mismo que su bloque entero.
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
     // En una celda mixta lo que se pica es el RELLENO (la capa de arriba),
@@ -7386,6 +7397,83 @@ public:
     }
 
     // ========================================================================
+    // PRODUCCION DE LOS BLOQUES COMPUESTOS (aguamiel del maguey)
+    // ========================================================================
+    // Recorre los magueyes CARGADOS y les sube el jugo un punto. No hay lista
+    // de plantas que mantener ni entidades: el estado vive en el propio ID, y
+    // este barrido lo lee del chunk.
+    //
+    // Eso evita de raiz el problema que si tiene g_magueyesManando (y antes
+    // waterLevels): una lista paralela que hay que purgar al descargar un
+    // chunk, y que si no se purga crece toda la sesion y devuelve datos
+    // rancios al volver a la zona.
+    //
+    // Coste: se llama UNA vez por tick de produccion (minutos, no frames), y
+    // solo mira los subchunks cuya paleta contiene algun maguey -- que son
+    // casi ninguno. Un chunk sin magueyes se descarta con 8 comparaciones.
+    //
+    // Devuelve cuantas plantas han cambiado, para saber si hay que remallar.
+    int producirCompuestos() {
+        int cambiados = 0;
+
+        for (auto& par : chunks) {
+            Chunk* c = par.second;
+            if (!c || !c->isGenerated) continue;
+
+            for (int si = 0; si < SUBCHUNKS_PER_CHUNK; ++si) {
+                const PalettedSubChunk& sub = c->subchunks[si];
+
+                // ⭐ ATAJO POR PALETA: si en este subchunk no hay ni un
+                // maguey que produzca, no se recorren sus 4096 bloques.
+                // La paleta ya sabe que tipos hay dentro.
+                bool hayMaguey = false;
+                if (sub.isUniform()) {
+                    const BlockType u = sub.getUniformBlock();
+                    hayMaguey = Compuesto::esCompuesto(u) &&
+                                Compuesto::familiaDe(u) == Compuesto::FAM_MAGUEY;
+                } else {
+                    for (size_t p = 0; p < sub.getPaletteSize(); ++p) {
+                        const BlockType b = sub.tipoDePaleta(p);
+                        if (Compuesto::esCompuesto(b) &&
+                            Compuesto::familiaDe(b) == Compuesto::FAM_MAGUEY) {
+                            hayMaguey = true;
+                            break;
+                        }
+                    }
+                }
+                if (!hayMaguey) continue;
+
+                for (int ly = 0; ly < SUBCHUNK_HEIGHT; ++ly)
+                for (int lz = 0; lz < CHUNK_SIZE; ++lz)
+                for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
+                    const int wy = si * SUBCHUNK_HEIGHT + ly;
+                    const BlockType b = c->getBlock(lx, wy, lz);
+
+                    if (!Compuesto::esCompuesto(b)) continue;
+                    if (Compuesto::familiaDe(b) != Compuesto::FAM_MAGUEY) continue;
+
+                    namespace M = Compuesto::Maguey;
+                    const uint16_t est = Compuesto::estadoDe(b);
+                    if (!M::produce(est)) continue;          // aun no da
+
+                    const uint16_t tope = M::capacidad(M::etapaDe(b));
+                    const uint16_t hoy  = M::aguamielDe(b);
+                    if (hoy >= tope) continue;               // ya esta lleno
+
+                    // Sube UN punto por tick: el llenado es gradual, nunca
+                    // aparece de golpe.
+                    c->setBlock(lx, wy, lz, M::conAguamiel(b, (uint16_t)(hoy + 1)));
+                    ++cambiados;
+                }
+            }
+
+            if (cambiados > 0) c->needsRebuild = true;
+        }
+
+        return cambiados;
+    }
+
+    // ========================================================================
     // RECARGA MANUAL (tecla R): REHACER LAS MALLAS, NO EL MUNDO
     // ========================================================================
     // Fuerza a que TODOS los chunks cargados vuelvan a mallarse. Sirve para
@@ -10541,24 +10629,42 @@ public:
 
         if (!cabe) return;
 
-        setBlock(worldX, baseY, worldZ, cuerpo);
+        // ====================================================================
+        // ⭐ EL MAGUEY, COMO BLOQUE COMPUESTO
+        // ====================================================================
+        // Un solo bloque lleva la planta entera: su ETAPA, su GIRO y cuantas
+        // PUNTAS tiene, todo empaquetado en el ID (ver BloqueCompuesto.h).
+        //
+        // Antes hacian falta dos bloques -- el cuerpo abajo y la punta encima
+        // -- y las variaciones se deducian de la posicion. Ahora la planta es
+        // UNA celda con estado, asi que puede crecer, capar-se y llenarse de
+        // jugo sin cambiar de sitio ni ocupar dos voxeles.
+        //
+        // El reparto de etapas sale del hash de la POSICION, asi que un
+        // maguey concreto siempre nace igual: la misma semilla da el mismo
+        // mundo, y volver a mirar la planta no la cambia.
+        //
+        //   30% brote      -- recien salido, no da nada
+        //   25% joven
+        //   20% adulto
+        //   15% maduro     -- ya se puede capar
+        //   10% productor  -- el grande, el que mas da
+        {
+            const unsigned d100 = dado % 100u;
+            uint16_t etapa;
+            if      (d100 < 30u) etapa = Compuesto::Maguey::BROTE;
+            else if (d100 < 55u) etapa = Compuesto::Maguey::JOVEN;
+            else if (d100 < 75u) etapa = Compuesto::Maguey::ADULTO;
+            else if (d100 < 90u) etapa = Compuesto::Maguey::MADURO;
+            else                 etapa = Compuesto::Maguey::PRODUCTOR;
 
-        // ====================================================================
-        // ⭐ EL MAGUEY MADURO DE CINCO ANOS
-        // ====================================================================
-        // El 45% de las matas son ejemplares hechos. Se distinguen de un
-        // vistazo porque rematan en una PUNTA GRUESA -- mas larga, mas ancha
-        // y mas gorda que la espina normal -- que ocupa el bloque de encima.
-        //
-        // Esa punta es el bloque que hay que capar para sacar aguamiel, y no
-        // se puede arrancar a mano: hace falta el hacha de pedernal afilado.
-        //
-        // El dado sale del hash de la POSICION, asi que un maguey concreto es
-        // maduro o no de forma determinista: la misma semilla da siempre el
-        // mismo mundo, y volver a mirar la planta no la cambia.
-        if ((dado % 100u) < 45u &&
-            getBlock(worldX, baseY + 1, worldZ) == BLOCK_AIR) {
-            setBlock(worldX, baseY + 1, worldZ, BLOCK_MAGUEY_PUNTA);
+            // El giro sale de otro trozo del mismo dado: cuatro
+            // orientaciones, para que un campo de magueyes no se vea como
+            // copias calcadas.
+            const uint16_t giro = (uint16_t)((dado >> 7) & 3u);
+
+            setBlock(worldX, baseY, worldZ,
+                     Compuesto::Maguey::nuevo(etapa, giro));
         }
 
         // ⭐ LA PUNTA VA UN BLOQUE MAS ABAJO
@@ -18839,6 +18945,64 @@ void updateMining(GameState* state, float deltaTime) {
         //
         // Es la propiedad que se pidio: dos bloques juntos en un mismo
         // espacio, pero seleccionables -- y rompibles -- por separado.
+        // ====================================================================
+        // ROMPER UN BLOQUE COMPUESTO: SE VA LO QUE SE MIRA
+        // ====================================================================
+        // Golpear las PUNTAS arranca una y la planta se queda; golpear el
+        // CUERPO se lleva la planta entera. El FLUIDO no se rompe nunca: es
+        // liquido, solo sale con un recipiente.
+        //
+        // Es la misma regla que las celdas compartidas, pero por COMPONENTE:
+        // el raycast ya dijo cual se estaba mirando (result.piezaIndice).
+        if (Compuesto::esCompuesto(blockType)) {
+            const int comp = result.piezaIndice;
+
+            // El jugo aguanta los golpes: no pasa nada.
+            if (!Compuesto::componenteRompible(blockType, comp)) {
+                state->isMining = false;
+                state->miningProgress = 0.0f;
+                state->miningParticleTimer = 0.0f;
+                return;
+            }
+
+            const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
+
+            if (Compuesto::componenteN(blockType, comp) ==
+                Compuesto::COMP_ADORNO) {
+                // Una punta: se arranca UNA y la planta sigue en pie.
+                namespace M = Compuesto::Maguey;
+                const uint16_t p = M::puntasDe(blockType);
+                if (p > 0) {
+                    state->world.setBlock(bx, by, bz,
+                        M::conPuntas(blockType, (uint16_t)(p - 1)));
+                    state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
+                }
+                if (g_soundManager)
+                    g_soundManager->playBreakBlock(blockType, glfwGetTime());
+                state->isMining = false;
+                state->miningProgress = 0.0f;
+                state->miningParticleTimer = 0.0f;
+                return;
+            }
+
+            // El cuerpo: cae la planta entera. Suelta las espinas que le
+            // quedaran, que es lo que el jugador puede aprovechar de ella.
+            {
+                namespace M = Compuesto::Maguey;
+                const uint16_t p = M::puntasDe(blockType);
+                for (uint16_t i = 0; i < p; ++i)
+                    state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
+            }
+            state->world.setBlock(bx, by, bz, BLOCK_AIR);
+            if (g_soundManager)
+                g_soundManager->playBreakBlock(blockType, glfwGetTime());
+            state->particles.spawnBlockBreakParticles(pos, BLOCK_IXTLE_HOJA);
+            state->isMining = false;
+            state->miningProgress = 0.0f;
+            state->miningParticleTimer = 0.0f;
+            return;
+        }
+
         if (esCompartido(blockType)) {
             // ⭐ EL AGUAMIEL NO SE ROMPE NUNCA
             //
@@ -19532,6 +19696,23 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
 inline bool puedeCaer(BlockType t) {
     if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
     if (t == BLOCK_BEDROCK) return false;
+
+    // ⭐ LOS GUIJARROS SE QUEDAN DONDE ESTAN.
+    //
+    // Piedritas, pedernal, polvo de tierra, cantos de hierro, nieve suelta:
+    // no son bloques que ocupen su celda, son un montoncito de cantos
+    // apoyado en el suelo. Un puñado de piedras no "se derrumba" -- se queda
+    // donde cayó, encajado en el terreno.
+    //
+    // Y hay una razon practica ademas de la logica: van sembrados por toda
+    // la superficie del mundo, asi que meterlos en el flood fill de las
+    // estructuras haria recorrerlos una y otra vez sin que nunca caiga
+    // ninguno. Se paga el coste sin ganar nada.
+    //
+    // esGuijarro() los cubre todos a la vez, asi que si manana se anade otro
+    // canto, queda excluido solo.
+    if (esGuijarro(t)) return false;
+
     return true;
 }
 
@@ -20071,6 +20252,22 @@ void actualizarVida(GameState* state, float deltaTime) {
                 state->world.setBlock(m.x, m.y, m.z, BLOCK_AGUAMIEL);
             }
             ++i;
+        }
+    }
+
+    // --- LOS MAGUEYES COMPUESTOS VAN LLENANDOSE DE AGUAMIEL ---
+    //
+    // Un punto de jugo cada AGUAMIEL_PASO_SEG. Como la capacidad de un
+    // productor son 15 puntos, llenarlo del todo lleva 15 pasos: el llenado
+    // es GRADUAL y se ve subir en el cajete, no aparece de golpe.
+    //
+    // El barrido es barato (descarta subchunks por paleta) y corre una vez
+    // por paso, no por frame.
+    {
+        static double ultimoPaso = 0.0;
+        if (state->tiempoJugadoSegundos - ultimoPaso >= AGUAMIEL_PASO_SEG) {
+            ultimoPaso = state->tiempoJugadoSegundos;
+            state->world.producirCompuestos();
         }
     }
 
@@ -21093,6 +21290,72 @@ void placeBlock(GameState* state) {
     // (tira el agua y se queda el jugo) y el que ya lleva aguamiel tambien
     // (lo rellena). Ojo: llenar en el RIO sigue siendo cosa solo de los
     // vacios -- eso se comprueba dentro, en su propia rama.
+    // ========================================================================
+    // ⭐ EXTRAER AGUAMIEL DE UN MAGUEY COMPUESTO
+    // ========================================================================
+    // El flujo completo de la planta:
+    //
+    //   maduro -> capado -> produce poco a poco -> el jugador lo recoge ->
+    //   sigue produciendo
+    //
+    // Va ANTES del resto para que apuntar a un maguey con el tazon en la mano
+    // haga siempre lo esperado, sin caer en la rama de "colocar bloque".
+    if (esTazon(selectedBlock)) {
+        const Vec3 oriM = state->player.getEyePosition();
+        const Vec3 dirM = state->player.getForward();
+        RaycastResult rm = raycastBlock(state->world, oriM, dirM, 5.0f);
+
+        if (rm.hit) {
+            const BlockType b = state->world.getBlock(
+                rm.blockPos.x, rm.blockPos.y, rm.blockPos.z);
+
+            if (Compuesto::esCompuesto(b) &&
+                Compuesto::familiaDe(b) == Compuesto::FAM_MAGUEY) {
+                namespace M = Compuesto::Maguey;
+                const uint16_t est = Compuesto::estadoDe(b);
+
+                // -- Aun no esta capado: se abre --
+                if (!M::capadoDe(b)) {
+                    if (M::capacidad(M::etapaDe(b)) == 0) {
+                        std::cout << "Este maguey aun es joven: no da aguamiel."
+                                  << std::endl;
+                    } else {
+                        state->world.setBlock(rm.blockPos.x, rm.blockPos.y,
+                                              rm.blockPos.z, M::capar(b));
+                        std::cout << "Maguey capado: empezara a dar aguamiel."
+                                  << std::endl;
+                    }
+                    state->placeCooldown = 0.25f;
+                    return;
+                }
+
+                // -- Capado: se recoge si hay bastante --
+                if (!M::hayParaTazon(est)) {
+                    std::cout << "Todavia no hay aguamiel suficiente ("
+                              << M::aguamielDe(b) << "/"
+                              << M::AGUAMIEL_PARA_TAZON << ")." << std::endl;
+                    state->placeCooldown = 0.25f;
+                    return;
+                }
+
+                const BlockType conJugo = tazonConAguamiel(selectedBlock);
+                if (conJugo != BLOCK_AIR) {
+                    // La planta se vacia y SIGUE produciendo: no se rompe ni
+                    // pierde el capado.
+                    state->world.setBlock(rm.blockPos.x, rm.blockPos.y,
+                                          rm.blockPos.z, M::vaciado(b));
+                    state->inventory.consumeSelected();
+                    const Vec3 pj(state->player.position.x,
+                                  state->player.position.y + 1.0f,
+                                  state->player.position.z);
+                    state->spawnItem(pj, conJugo);
+                    state->placeCooldown = 0.25f;
+                }
+                return;
+            }
+        }
+    }
+
     if (esTazon(selectedBlock)) {
 
         const Vec3 ori = state->player.getEyePosition();

@@ -463,6 +463,14 @@ bool isCrossSprite(BlockType type) {
            type == BLOCK_NOPAL_TIRAS ||
            type == BLOCK_NOPAL_SIN_BABA ||
            type == BLOCK_NOPAL_BABA ||
+           // La penca SECA es la misma pieza que la mojada, solo que sin
+           // agua: mismo sprite, otra textura.
+           type == BLOCK_NOPAL_SECO ||
+           // La punta gruesa del maguey maduro y el tocon que queda al
+           // caparla son parte de la planta: sprites, no cubos.
+           type == BLOCK_MAGUEY_PUNTA ||
+           type == BLOCK_MAGUEY_HUECO ||
+           type == BLOCK_AGUAMIEL ||
            esTuna(type);
 }
 
@@ -746,6 +754,37 @@ inline bool ahogaAlPasto(BlockType encima) {
 
 // Cuanto tarda el desbabado, en segundos.
 constexpr double TIRAS_DESBABAR_SEG = 10.0;
+
+// ============================================================================
+// LA PENCA LIMPIA SE SECA
+// ============================================================================
+// Una penca mojada y sin espinas, dejada al aire, pierde el agua y queda
+// seca. Veinte segundos: lo justo para que se note que es un proceso y no un
+// cambio instantaneo, sin que el jugador se quede mirando.
+//
+// Mismo patron que el desbabado: se apunta donde y cuando, y si el bloque
+// deja de estar ahi (el jugador lo rompio o lo movio) el temporizador se
+// descarta en vez de convertir algo ajeno.
+struct PencaSecandose {
+    int x, y, z;
+    double t0;
+};
+std::vector<PencaSecandose> g_pencasSecandose;
+constexpr double PENCA_SECAR_SEG = 20.0;
+
+// ============================================================================
+// EL AGUAMIEL DEL MAGUEY CAPADO
+// ============================================================================
+// Cortada la punta, el maguey suelta su jugo en el hueco. Siete minutos por
+// tazon: es una espera larga a proposito, porque un maguey real da aguamiel
+// dos veces al dia durante meses. Aqui se comprime, pero la idea es la
+// misma: se capa una vez y luego se vuelve a recoger cada tanto.
+struct MagueyManando {
+    int x, y, z;
+    double t0;          // cuando se corto (o cuando se recogio la ultima vez)
+};
+std::vector<MagueyManando> g_magueyesManando;
+constexpr double AGUAMIEL_SEG = 420.0;   // 7 minutos
 
 // Cuanto dura la caida. Corta a proposito: es un gesto, no una escena.
 constexpr double PENCA_CAIDA_SEG = 0.40;
@@ -1923,6 +1962,13 @@ float getBlockBreakTime(BlockType type) {
         // labrada, encendido o apagado.
         case BLOCK_HORNO:            return 2.0f;
         case BLOCK_HORNO_ENCENDIDO:  return 2.0f;
+        // La punta del maguey maduro: dura y fibrosa. El tiempo real lo
+        // decide getBlockBreakTimeForMode segun la herramienta (13 minutos
+        // sin el hacha de pedernal); esto es solo el valor base.
+        case BLOCK_MAGUEY_PUNTA:     return 3.0f;
+        case BLOCK_MAGUEY_HUECO:     return 0.5f;
+        case BLOCK_AGUAMIEL:         return 0.0f;   // liquido: no se pica
+        case BLOCK_NOPAL_SECO:       return 0.4f;
         case BLOCK_LAVA:      return 0.0f;   // Lava - no se puede romper
         default:              return 1.0f;   // Por defecto
     }
@@ -2011,7 +2057,19 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
     // --- CON UNA HERRAMIENTA EN LA MANO ---
     // Manda sobre todo lo demás, porque la herramienta es justo lo que cambia
     // las reglas. En creativo no aplica: ahí se construye y todo es rápido.
-    if (isSurvival && herramienta == BLOCK_HACHA_PIEDRA) {
+    // ⭐ LA PUNTA DEL MAGUEY MADURO: SOLO EL HACHA DE PEDERNAL
+    //
+    // Es la punta gruesa de una planta de cinco años, dura y fibrosa. Con la
+    // de piedra o a mano cuesta 13 minutos, igual que cualquier herramienta
+    // mal usada: no es irrompible, es inviable, y el jugador entiende solo
+    // que necesita el hacha buena.
+    if (isSurvival && type == BLOCK_MAGUEY_PUNTA) {
+        return (herramienta == BLOCK_HACHA_PEDERNAL)
+                   ? HACHA_ORGANICO_BREAK_TIME
+                   : HERRAMIENTA_MAL_USADA_BREAK_TIME;
+    }
+
+    if (isSurvival && esHacha(herramienta)) {
         return esOrganicoParaHacha(type) ? HACHA_ORGANICO_BREAK_TIME
                                          : HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
@@ -4939,6 +4997,21 @@ public:
             // que el mesher recoge la textura del momento en que malla. Como
             // el bloque se remalla al cambiar de cuadro (ver el tick del
             // horno), el fuego se ve moverse.
+            // ⭐ EL MAGUEY MADURO
+            //
+            // La punta gruesa, el tocon ya capado y el aguamiel que se junta
+            // dentro. El hueco usa la textura del maguey por dentro, que es
+            // justo lo que se ve al cortar la punta.
+            case BLOCK_MAGUEY_PUNTA:
+                return getTexture("Puntas de Maguei.png");
+            case BLOCK_MAGUEY_HUECO:
+                return getTexture("Maguei por dentro.png");
+            case BLOCK_AGUAMIEL:
+                return getTexture("Aguamiel en el maguei.gif");
+
+            case BLOCK_NOPAL_SECO:
+                return getTexture("../Items/Penca de Nopal de Castilla seco sin espinas.png");
+
             case BLOCK_HORNO:
                 if (face == 0 || face == 1) return getTexture("partes del horno.png");
                 if (face == 2) return getTexture("Horno preispanico.png");
@@ -6478,6 +6551,47 @@ public:
             recipe.pattern[0] = BLOCK_MARTILLO_PIEDRA;
             recipe.pattern[1] = BLOCK_PEDAZO_PEDERNAL;
             recipes.push_back(recipe);
+        }
+
+        // ⭐ HACHA DE PEDERNAL AFILADO
+        //
+        //     .  H  F      H = hilo de ixtle (la atadura)
+        //     .  M  .      F = pedernal afilado (el filo)
+        //     .  .  .      M = palo (el mango)
+        //
+        // La evolucion del hacha de piedra: corta lo mismo, aguanta 400
+        // bloques en vez de 250, y es la UNICA que puede con la punta del
+        // maguey maduro.
+        {
+            CraftingRecipe recipe(BLOCK_HACHA_PEDERNAL, 1, false);
+            recipe.pattern[1] = BLOCK_HILO_IXTLE;        // arriba centro
+            recipe.pattern[2] = BLOCK_PEDERNAL_AFILADO;  // arriba derecha
+            recipe.pattern[4] = BLOCK_STICK;             // centro: el mango
+            recipes.push_back(recipe);
+        }
+
+        // ⭐ TAZONES DE MADERA
+        //
+        //     M  P  M      M = palo
+        //     .  T  .      P = pedazo de piedra (para vaciar la madera)
+        //     .  .  .      T = tablones (el cuerpo del tazon)
+        //
+        // Uno por especie: el tazon sale de la madera que se use, igual que
+        // los tablones salen de su tronco. Sirven para recoger el aguamiel
+        // del maguey capado.
+        {
+            const BlockType TABLON[3] = { BLOCK_PLANKS, BLOCK_PLANKS_ENCINO,
+                                          BLOCK_PLANKS_OYAMEL };
+            const BlockType TAZON[3]  = { BLOCK_TAZON_PINO, BLOCK_TAZON_ENCINO,
+                                          BLOCK_TAZON_OYAMEL };
+            for (int i = 0; i < 3; ++i) {
+                CraftingRecipe recipe(TAZON[i], 1, false);
+                recipe.pattern[0] = BLOCK_STICK;          // arriba izquierda
+                recipe.pattern[1] = BLOCK_PEDAZO_PIEDRA;  // arriba centro
+                recipe.pattern[2] = BLOCK_STICK;          // arriba derecha
+                recipe.pattern[4] = TABLON[i];            // centro
+                recipes.push_back(recipe);
+            }
         }
 
         // ⭐ NUEVO: 1 Wood = 6 Planks (más eficiente)
@@ -9915,7 +10029,6 @@ public:
         // de cuatro tamanos pero todas son el mismo bloque.
         const BlockType cuerpo = BLOCK_IXTLE_HOJA;
         const int alturaPunta = -1;   // la espina va en la propia roseta
-        (void)dado;
 
         // Hueco que hay que reservar: hasta donde llega la pieza mas alta.
         const int BLOQUES_HOJA = (alturaPunta > 0) ? alturaPunta : 0;
@@ -9934,6 +10047,24 @@ public:
         if (!cabe) return;
 
         setBlock(worldX, baseY, worldZ, cuerpo);
+
+        // ====================================================================
+        // ⭐ EL MAGUEY MADURO DE CINCO ANOS
+        // ====================================================================
+        // El 45% de las matas son ejemplares hechos. Se distinguen de un
+        // vistazo porque rematan en una PUNTA GRUESA -- mas larga, mas ancha
+        // y mas gorda que la espina normal -- que ocupa el bloque de encima.
+        //
+        // Esa punta es el bloque que hay que capar para sacar aguamiel, y no
+        // se puede arrancar a mano: hace falta el hacha de pedernal afilado.
+        //
+        // El dado sale del hash de la POSICION, asi que un maguey concreto es
+        // maduro o no de forma determinista: la misma semilla da siempre el
+        // mismo mundo, y volver a mirar la planta no la cambia.
+        if ((dado % 100u) < 45u &&
+            getBlock(worldX, baseY + 1, worldZ) == BLOCK_AIR) {
+            setBlock(worldX, baseY + 1, worldZ, BLOCK_MAGUEY_PUNTA);
+        }
 
         // ⭐ LA PUNTA VA UN BLOQUE MAS ABAJO
         //
@@ -11282,6 +11413,19 @@ public:
         // deducirlo comparando IDs de textura (ver TextureBatch::transparente).
         std::set<GLuint> texturasTransparentes;
 
+        // ⭐ TEXTURAS QUE NECESITAN RECORTE POR ALFA (GL_ALPHA_TEST)
+        //
+        // No es lo mismo TRANSPARENTE que RECORTADO:
+        //   - transparente (agua, lava) -> se mezcla, va en el pase 2
+        //   - recortado (hierba, flores, hojas, niveles) -> es OPACO donde
+        //     pinta, pero su PNG tiene zonas vacias que hay que descartar
+        //
+        // Se anotan aparte porque el pase opaco APAGA el alpha test para que
+        // la GPU pueda usar early-Z (ver la nota en el pase 1), y solo lo
+        // enciende para los batches que de verdad lo necesitan. Sin esta
+        // distincion, apagarlo dejaria la hierba con un cuadro negro alrededor.
+        std::set<GLuint> texturasRecortadas;
+
         int facesRendered = 0;  // Contador para debug
 
         // OPTIMIZACIÓN: Reset texture bind cache para este chunk
@@ -11564,6 +11708,17 @@ public:
                     if (isCrossSprite(block) || esNivelParcial(block) ||
                         esMixto(block)) {
                         GLuint texture = texSegura(block, 0);
+
+                        // ⭐ Esta textura lleva fondo que hay que recortar.
+                        //
+                        // Se marca en cuanto UN sprite en cruz la usa: si la
+                        // misma imagen la comparte otro bloque, el batch
+                        // entero conserva el recorte. Es la eleccion segura --
+                        // como mucho, ese batch renuncia al early-Z; al reves
+                        // (no marcarla) apareceria un cuadro negro alrededor
+                        // de la planta.
+                        if (isCrossSprite(block) && texture != 0)
+                            texturasRecortadas.insert(texture);
 
                         // NOTA: la marca de union con el cladodio ya NO se
                         // aplica al bloque entero. Antes bastaba con tener un
@@ -15066,6 +15221,28 @@ public:
         glDisable(GL_BLEND);
         glDepthMask(GL_TRUE);  // Escribir en depth buffer
 
+        // ⭐ EL TEST DE ALFA SE APAGA AQUI: DEJA TRABAJAR AL EARLY-Z
+        //
+        // El motor enciende GL_ALPHA_TEST al arrancar y lo deja puesto para
+        // todo. El problema es que, con el test activo, la GPU NO PUEDE
+        // descartar un pixel antes de texturizarlo: necesita leer la textura
+        // para saber el alfa y decidir si lo tira. Eso desactiva el early-Z,
+        // que es justo la optimizacion que evita sombrear lo que queda tapado.
+        //
+        // En una integrada como la HD 4000 eso duele mucho: el terreno tiene
+        // muchisimo overdraw (colinas que tapan colinas), y sin early-Z se
+        // paga el texturizado de cada pixel oculto.
+        //
+        // Los batches OPACOS no lo necesitan: su textura no tiene zonas
+        // transparentes -- por definicion, o serian del otro pase. Los que si
+        // lo necesitan (hierba, flores, hojas) lo encienden ellos mismos, y
+        // desde aqui hasta el final del pase transparente nadie mas lo toca.
+        //
+        // Como los chunks ya vienen ordenados de CERCA a LEJOS, lo cercano se
+        // dibuja primero y llena el z-buffer, y la GPU descarta gratis casi
+        // todo lo que hay detras.
+        glDisable(GL_ALPHA_TEST);
+
         // Renderizar chunks visibles ordenados - BLOQUES OPACOS
         for (const auto& info : visibleChunks) {
             Chunk* chunk = info.chunk;
@@ -17557,6 +17734,34 @@ void updateMining(GameState* state, float deltaTime) {
             return;
         }
 
+        // ====================================================================
+        // ⭐ CAPAR EL MAGUEY: LA PUNTA NO DESAPARECE, QUEDA HUECA
+        // ====================================================================
+        // Cortar la punta de un maguey maduro no la borra del mundo: deja el
+        // tocon abierto, que es el "cajete" donde se junta el aguamiel. Es
+        // exactamente como se hace el pulque -- se capa la planta y el hueco
+        // recoge lo que mana.
+        //
+        // Suelta 4 espinas (la punta gruesa tiene mas que una hoja normal) y
+        // el hueco queda apuntado para que empiece a manar a los 7 minutos.
+        if (blockType == BLOCK_MAGUEY_PUNTA) {
+            const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
+            for (int i = 0; i < 4; ++i)
+                state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
+
+            state->world.setBlock(bx, by, bz, BLOCK_MAGUEY_HUECO);
+            g_magueyesManando.push_back({ bx, by, bz,
+                                          state->tiempoJugadoSegundos });
+
+            if (g_soundManager) g_soundManager->playBreakBlock(blockType, glfwGetTime());
+            state->particles.spawnBlockBreakParticles(pos, blockType);
+
+            state->isMining = false;
+            state->miningProgress = 0.0f;
+            state->miningParticleTimer = 0.0f;
+            return;
+        }
+
         // Romper el bloque
         state->world.setBlock(bx, by, bz, BLOCK_AIR);
 
@@ -17791,6 +17996,12 @@ void prewarmItemTextures() {
         { BLOCK_MARTILLO_PIEDRA, "Martillo de Piedra.png"                },
         { BLOCK_PICO_PIEDRA,     "pico de Piedra.png"                    },
         { BLOCK_PEDERNAL_AFILADO, "pedernal afilado.png"                 },
+        { BLOCK_HACHA_PEDERNAL, "Hacha de Pedernal afilado.png"          },
+        { BLOCK_NOPAL_SECO,    "Penca de Nopal de Castilla seco sin espinas.png" },
+        { BLOCK_ESPINAS_NOPAL, "Espinas de Nopal de castilla.png"        },
+        { BLOCK_TAZON_PINO,    "tazon de madera de pino.png"             },
+        { BLOCK_TAZON_ENCINO,  "tazon de madera de encino.png"           },
+        { BLOCK_TAZON_OYAMEL,  "tazon de madera de oyame.png"            },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -18154,16 +18365,76 @@ void actualizarVida(GameState* state, float deltaTime) {
             if (dt >= TIRAS_DESBABAR_SEG) {
                 // Las tiras quedan limpias...
                 state->world.setBlock(t.x, t.y, t.z, BLOCK_NOPAL_SIN_BABA);
-                // ...y sueltan DOS babas, que caen como item.
+                // ...y sueltan DOS babas y DOS espinas, que caen como item.
+                //
+                // ⭐ Las espinas son lo que se le quita a la penca al
+                // limpiarla: si el nopal sale "sin espinas", esas espinas
+                // tienen que ir a alguna parte. Ahora se recogen.
                 const Vec3 pos(t.x + 0.5f, t.y + 0.5f, t.z + 0.5f);
                 state->spawnItem(pos, BLOCK_NOPAL_BABA);
                 state->spawnItem(pos, BLOCK_NOPAL_BABA);
+                state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
+                state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
+
+                // ⭐ Y EMPIEZA A SECARSE: la penca queda limpia y mojada, y
+                // a partir de aqui pierde el agua. A los 20 segundos estara
+                // seca.
+                g_pencasSecandose.push_back({ t.x, t.y, t.z,
+                                              state->tiempoJugadoSegundos });
 
                 g_tirasDesbabando[i] = g_tirasDesbabando.back();
                 g_tirasDesbabando.pop_back();
             } else {
                 ++i;
             }
+        }
+    }
+
+    // --- LA PENCA LIMPIA SE SECA A LOS 20 SEGUNDOS ---
+    if (!g_pencasSecandose.empty()) {
+        for (size_t i = 0; i < g_pencasSecandose.size(); ) {
+            const PencaSecandose& p = g_pencasSecandose[i];
+            const double dt = state->tiempoJugadoSegundos - p.t0;
+
+            // Si ya no esta ahi la penca mojada, se descarta el temporizador.
+            if (state->world.getBlock(p.x, p.y, p.z) != BLOCK_NOPAL_SIN_BABA) {
+                g_pencasSecandose[i] = g_pencasSecandose.back();
+                g_pencasSecandose.pop_back();
+                continue;
+            }
+
+            if (dt >= PENCA_SECAR_SEG) {
+                state->world.setBlock(p.x, p.y, p.z, BLOCK_NOPAL_SECO);
+                g_pencasSecandose[i] = g_pencasSecandose.back();
+                g_pencasSecandose.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
+
+    // --- EL MAGUEY CAPADO SUELTA AGUAMIEL CADA 7 MINUTOS ---
+    if (!g_magueyesManando.empty()) {
+        for (size_t i = 0; i < g_magueyesManando.size(); ) {
+            const MagueyManando& m = g_magueyesManando[i];
+            const BlockType actual = state->world.getBlock(m.x, m.y, m.z);
+
+            // Si el hueco desaparecio (lo rompieron o lo taparon), fuera.
+            if (actual != BLOCK_MAGUEY_HUECO && actual != BLOCK_AGUAMIEL) {
+                g_magueyesManando[i] = g_magueyesManando.back();
+                g_magueyesManando.pop_back();
+                continue;
+            }
+
+            // Si ya hay aguamiel esperando, no se acumula mas: el hueco da
+            // para un tazon. El contador no vuelve a correr hasta que el
+            // jugador lo recoja (ahi se reinicia t0).
+            if (actual == BLOCK_AGUAMIEL) { ++i; continue; }
+
+            if (state->tiempoJugadoSegundos - m.t0 >= AGUAMIEL_SEG) {
+                state->world.setBlock(m.x, m.y, m.z, BLOCK_AGUAMIEL);
+            }
+            ++i;
         }
     }
 
@@ -19133,6 +19404,13 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_MARTILLO_PIEDRA: // Martillo - herramienta de taller
         case BLOCK_PICO_PIEDRA:     // Pico - herramienta
         case BLOCK_PEDERNAL_AFILADO: // Pedernal afilado - item puro
+        case BLOCK_HACHA_PEDERNAL:  // Hacha de pedernal - herramienta
+        case BLOCK_ESPINAS_NOPAL:   // Espinas - item puro
+        case BLOCK_AGUAMIEL:        // Aguamiel - liquido, se recoge con tazon
+        // Los tazones se USAN sobre el maguey, no se colocan en el mundo.
+        case BLOCK_TAZON_PINO:
+        case BLOCK_TAZON_ENCINO:
+        case BLOCK_TAZON_OYAMEL:
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable
@@ -19147,8 +19425,56 @@ void placeBlock(GameState* state) {
     if (state->placeCooldown > 0) return;
     if (!state->inventory.hasSelectedBlock()) return;
 
-    // ⭐ Verificar si el item seleccionado es colocable
     BlockType selectedBlock = state->inventory.getSelectedBlock();
+
+    // ========================================================================
+    // ⭐ RECOGER EL AGUAMIEL CON UN TAZON
+    // ========================================================================
+    // Va ANTES de la comprobacion de "es colocable": el tazon no se pone en
+    // el mundo, se USA sobre el maguey capado. Apuntar al hueco con aguamiel
+    // y hacer clic derecho cambia el tazon vacio por uno lleno.
+    //
+    // El hueco vuelve a quedar vacio y su contador se reinicia, asi que a los
+    // 7 minutos habra otra vez: un maguey capado se ordena muchas veces, como
+    // el de verdad.
+    if (selectedBlock == BLOCK_TAZON_PINO ||
+        selectedBlock == BLOCK_TAZON_ENCINO ||
+        selectedBlock == BLOCK_TAZON_OYAMEL) {
+
+        const Vec3 ori = state->player.getEyePosition();
+        const Vec3 dir = state->player.getForward();
+        RaycastResult r = raycastBlock(state->world, ori, dir, 5.0f);
+
+        if (r.hit && state->world.getBlock(r.blockPos.x, r.blockPos.y,
+                                           r.blockPos.z) == BLOCK_AGUAMIEL) {
+            // El hueco se vacia y vuelve a manar desde cero.
+            state->world.setBlock(r.blockPos.x, r.blockPos.y, r.blockPos.z,
+                                  BLOCK_MAGUEY_HUECO);
+            for (auto& m : g_magueyesManando) {
+                if (m.x == r.blockPos.x && m.y == r.blockPos.y &&
+                    m.z == r.blockPos.z) {
+                    m.t0 = state->tiempoJugadoSegundos;
+                    break;
+                }
+            }
+
+            // El tazon vacio se cambia por uno lleno. De momento el "lleno"
+            // es el propio aguamiel como item: cuando exista el tazon lleno
+            // como objeto, se cambia solo aqui.
+            state->inventory.consumeSelected();
+            const Vec3 pj(state->player.position.x,
+                          state->player.position.y + 1.0f,
+                          state->player.position.z);
+            state->spawnItem(pj, BLOCK_AGUAMIEL);
+
+            state->placeCooldown = 0.25f;
+            return;
+        }
+        // Sin aguamiel delante, el tazon no hace nada (no se coloca).
+        return;
+    }
+
+    // ⭐ Verificar si el item seleccionado es colocable
     if (!isPlaceableItem(selectedBlock)) {
         return;  // No se puede colocar este item
     }
@@ -19524,6 +19850,18 @@ void placeBlock(GameState* state) {
                                                   placePos.z,
                                                   g_tiempoJugadoSegundos });
                 }
+            }
+
+            // ⭐ UNA PENCA LIMPIA COLOCADA EMPIEZA A SECARSE
+            //
+            // Vale tanto si viene del desbabado como si el jugador la
+            // coloca a mano: en cuanto esta puesta al aire, los 20 segundos
+            // corren. Se apunta aqui para que el secado no dependa de por
+            // donde haya llegado la penca al mundo.
+            if (blockToPlace == BLOCK_NOPAL_SIN_BABA) {
+                g_pencasSecandose.push_back({ placePos.x, placePos.y,
+                                              placePos.z,
+                                              g_tiempoJugadoSegundos });
             }
 
             // ⭐ CUALQUIER BLOQUE EMPIEZA POR SU NIVEL 1
@@ -24740,7 +25078,24 @@ int main() {
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-    glfwWindowHint(GLFW_SAMPLES, 4);
+
+    // ⭐ SIN MSAA: ERA LA FASE MAS CARA DEL FRAME
+    //
+    // Estaba en GLFW_SAMPLES=4 (antialiasing 4x). Eso obliga a la GPU a
+    // calcular CADA PIXEL CUATRO VECES y a resolver el multisample al
+    // presentar, y el coste no aparece en el render sino en el SWAP, que es
+    // donde el driver se bloquea esperando a la tarjeta.
+    //
+    // Medido en este equipo (Intel HD 4000, una integrada de 2012):
+    //     render = 7,8 ms   swap = 11,3 ms   -> 47 FPS
+    // El swap era la fase MAS cara del frame, mas que dibujar el mundo entero.
+    //
+    // Y es justo el efecto que menos aporta aqui: en un juego de voxeles los
+    // bordes son rectos y verticales, y la textura es pixel-art. El
+    // antialiasing suaviza precisamente lo que se quiere ver nitido.
+    //
+    // 0 = desactivado. Es, con diferencia, el cambio que mas FPS da por linea.
+    glfwWindowHint(GLFW_SAMPLES, 0);
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "Voxel World - Sandbox Infinito", NULL, NULL);
     if (!window) {
@@ -24752,7 +25107,28 @@ int main() {
     }
 
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // VSync activado - Limitar a 60 FPS
+
+    // ========================================================================
+    // ⭐ SIN VSYNC: ES LO QUE IMPEDIA PASAR DE 33 FPS
+    // ========================================================================
+    // Con VSync (swapInterval 1) el juego SOLO puede ir a los divisores del
+    // refresco del monitor: en uno de 60 Hz, a 60, 30, 20 o 15 FPS. No hay
+    // nada en medio. Si un frame tarda 17 ms -- una miseria por encima de los
+    // 16,6 que caben en 60 Hz -- el swap espera al siguiente refresco entero
+    // y el juego cae a 30 CLAVADOS.
+    //
+    // Eso era exactamente lo que se medía: 33 FPS de media con el peor frame
+    // en 31-32 ms, que es medio refresco de 60 Hz bordado. El motor no iba
+    // lento: iba esperando.
+    //
+    // Quitándolo, cada frame se muestra en cuanto está, y el framerate es el
+    // que de verdad da la máquina -- 40, 47, lo que salga -- en vez de saltar
+    // entre 60 y 30.
+    //
+    // El coste es el tearing (la imagen puede partirse en movimiento). A
+    // cambio se ganan los FPS pedidos y, de propina, menos latencia de
+    // entrada: el ratón responde antes porque no se encola un frame de espera.
+    glfwSwapInterval(0);
 
     // VBO OPTIMIZATION: Cargar extensiones de VBO
     std::cout << "Cargando extensiones VBO..." << std::endl;
@@ -25061,6 +25437,8 @@ int main() {
     // no lo eran. Fuera del bucle conservan la medida del frame anterior, que
     // es justo lo que un indicador por segundo necesita.
     double physics_ms = 0, chunks_ms = 0, render_ms = 0;
+    // El tiempo del swap: ver la nota junto a glfwSwapBuffers.
+    double swap_ms = 0;
 
     // ⭐ PROTECCIÓN CONTRA CRASHES: Try-catch en el game loop
     try {
@@ -25112,20 +25490,37 @@ int main() {
                 static int   fpsFrames = 0;
                 static double fpsAcum  = 0.0;
                 static double fpsPeor  = 0.0;
+                // ⭐ DESGLOSE POR FASE, no solo el total.
+                //
+                // "Va a 57 FPS" no dice donde se va el tiempo, y sin eso
+                // optimizar es adivinar. Estas cuatro cifras reparten el frame
+                // entero, asi que la fase gorda salta a la vista y se ataca esa
+                // -- y las demas se dejan en paz.
+                static double acPhys = 0.0, acChunks = 0.0,
+                              acRender = 0.0, acSwap = 0.0;
                 const double dt = (double)frameDuration / 1000.0;
                 if (dt > 0.0) {
                     ++fpsFrames;
                     fpsAcum += dt;
                     if (dt > fpsPeor) fpsPeor = dt;
+                    acPhys += physics_ms; acChunks += chunks_ms;
+                    acRender += render_ms; acSwap += swap_ms;
                     if (fpsAcum >= 2.0) {
                         const double media = (double)fpsFrames / fpsAcum;
                         const double minimo = (fpsPeor > 0.0)
                                             ? 1.0 / fpsPeor : 0.0;
+                        const double n = (double)fpsFrames;
                         std::cout << "[FPS] media=" << (int)media
                                   << " minimo=" << (int)minimo
                                   << " peorFrame=" << (int)(fpsPeor * 1000.0)
-                                  << "ms" << std::endl;
+                                  << "ms"
+                                  << " | fis=" << (acPhys / n)
+                                  << " chunks=" << (acChunks / n)
+                                  << " render=" << (acRender / n)
+                                  << " swap=" << (acSwap / n)
+                                  << " (ms/frame)" << std::endl;
                         fpsFrames = 0; fpsAcum = 0.0; fpsPeor = 0.0;
+                        acPhys = acChunks = acRender = acSwap = 0.0;
                     }
                 }
             }
@@ -25381,6 +25776,13 @@ int main() {
                     ponerEnCreativo(BLOCK_PICO_PIEDRA);
                     ponerEnCreativo(BLOCK_MARTILLO_PIEDRA);
                     ponerEnCreativo(BLOCK_PEDERNAL_AFILADO);
+                    ponerEnCreativo(BLOCK_HACHA_PEDERNAL);
+                    ponerEnCreativo(BLOCK_NOPAL_SECO);
+                    ponerEnCreativo(BLOCK_ESPINAS_NOPAL);
+                    ponerEnCreativo(BLOCK_TAZON_PINO);
+                    ponerEnCreativo(BLOCK_TAZON_ENCINO);
+                    ponerEnCreativo(BLOCK_TAZON_OYAMEL);
+                    ponerEnCreativo(BLOCK_MAGUEY_PUNTA);
 
                     std::cout << "Inventario creativo: " << creativeCount
                               << " objetos en " << g_gameState->inventory.total()
@@ -27449,7 +27851,19 @@ int main() {
                 }
             }
 
-            glfwSwapBuffers(window);
+            // ⭐ EL SWAP SE MIDE APARTE
+            //
+            // Es el sospechoso numero uno cuando los FPS se quedan clavados en
+            // una cifra sospechosamente redonda: si el driver esta esperando al
+            // refresco del monitor, TODO el tiempo sobrante aparece aqui y no
+            // en fisica, chunks ni render. Sin medirlo por separado, un motor
+            // que espera y un motor saturado se ven exactamente igual.
+            {
+                const auto tSwap = std::chrono::high_resolution_clock::now();
+                glfwSwapBuffers(window);
+                swap_ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::high_resolution_clock::now() - tSwap).count();
+            }
             glfwPollEvents();
         }
     } catch (const std::exception& e) {

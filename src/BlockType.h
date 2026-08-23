@@ -415,7 +415,37 @@ enum BlockType {
     // guardado y meterlos en medio corrompería los mundos ya jugados.
     BLOCK_MARTILLO_PIEDRA,  // 143 Martillo de piedra (150 usos, para craftear)
     BLOCK_PICO_PIEDRA,      // 144 Pico de piedra (340 usos, para la roca)
-    BLOCK_PEDERNAL_AFILADO  // 145 Pedernal afilado (pedernal + martillo)
+    BLOCK_PEDERNAL_AFILADO, // 145 Pedernal afilado (pedernal + martillo)
+
+    // ========================================================================
+    // EL HACHA DE PEDERNAL Y EL MAGUEY MADURO
+    // ========================================================================
+    // Al final del enum, como siempre: los IDs son el formato de guardado.
+    BLOCK_HACHA_PEDERNAL,   // 146 Hacha de pedernal afilado
+
+    // El nopal que se seca: una penca mojada sin espinas, si se deja 20
+    // segundos, pierde el agua y queda seca.
+    BLOCK_NOPAL_SECO,       // 147 Penca seca sin espinas
+    BLOCK_ESPINAS_NOPAL,    // 148 Espinas (salen al limpiar la penca)
+
+    // Tazones de madera: uno por especie, para recoger el aguamiel.
+    BLOCK_TAZON_PINO,       // 149 Tazon de madera de pino
+    BLOCK_TAZON_ENCINO,     // 150 Tazon de madera de encino
+    BLOCK_TAZON_OYAMEL,     // 151 Tazon de madera de oyamel
+
+    // ------------------------------------------------------------------
+    // EL MAGUEY DE 5 ANOS
+    // ------------------------------------------------------------------
+    // Un maguey maduro es mas grande y remata en una punta gruesa. Esa
+    // punta es un bloque PROPIO, no la espina normal: se ve distinta y no
+    // se puede arrancar a mano, hace falta el hacha de pedernal.
+    //
+    // Al cortarla queda HUECA, y en ese hueco se junta el aguamiel, que es
+    // exactamente como se hace el pulque: se capa el maguey, se raspa el
+    // cajete y la planta suelta el jugo ahi dentro.
+    BLOCK_MAGUEY_PUNTA,     // 152 Punta gruesa del maguey maduro
+    BLOCK_MAGUEY_HUECO,     // 153 La punta ya cortada, hueca
+    BLOCK_AGUAMIEL          // 154 Aguamiel juntandose en el hueco
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -550,11 +580,53 @@ inline const FamiliaNivel* tablaNiveles(int& n) {
         // significado de todos los bloques mixtos ya guardados: una capa de
         // tierra con arena encima pasaría a leerse como otra cosa. El hueco
         // que dejan estas seis familias se queda reservado.
+        //
+        // ⭐ La madera SÍ puede ser RELLENO de una celda mixta aunque no
+        // tenga niveles propios: ver tablaRelleno() justo debajo.
         { BLOCK_COAL_ORE,       BLOCK_COAL_L1    },
         { BLOCK_SILVER_ORE,     BLOCK_SILVER_L1  },
         { BLOCK_GOLD_ORE,       BLOCK_GOLD_L1    },
         { BLOCK_DIAMOND_ORE,    BLOCK_DIAMOND_L1 },
         { BLOCK_SCRAP_METAL,    BLOCK_SCRAP_L1   },
+    };
+    n = (int)(sizeof(TABLA) / sizeof(TABLA[0]));
+    return TABLA;
+}
+
+// ============================================================================
+// MATERIALES QUE PUEDEN SER RELLENO DE UNA CELDA MIXTA
+// ============================================================================
+// TENER NIVELES PROPIOS y PODER RELLENAR UNA CELDA son dos cosas distintas, y
+// confundirlas era justo el bug de los troncos flotando.
+//
+// Un relleno no se parte en lonchas: ocupa DE GOLPE desde donde acaba la capa
+// de abajo hasta el techo de la celda. Para eso no hace falta que el material
+// tenga siete niveles — solo que se le pueda asignar un índice para meterlo en
+// el ID mixto. Por eso la madera entra aquí sin volver a tablaNiveles(): un
+// tronco sigue siendo un tronco entero, nunca una loncha de 3 px.
+//
+//     ┌────────────┐ 16
+//     │▓▓ TRONCO ▓▓│  relleno: de la capa al techo, sin partirse
+//     ├────────────┤  5
+//     │███ TIERRA █│  base: su nivel de siempre
+//     └────────────┘  0
+//
+// ORDEN INTOCABLE. El índice de esta tabla se guarda dentro del ID mixto, así
+// que reordenarla o insertar en medio cambiaría el significado de las celdas
+// mixtas YA GUARDADAS. Las 16 primeras posiciones son exactamente las de
+// tablaNiveles() y en el mismo orden, para que todo lo guardado hasta hoy siga
+// leyéndose igual; lo nuevo se añade DETRÁS, ocupando los huecos reservados.
+inline const BlockType* tablaRelleno(int& n) {
+    static const BlockType TABLA[] = {
+        // --- Las 16 con niveles propios: MISMO ORDEN que tablaNiveles() ---
+        BLOCK_GRASS,      BLOCK_DIRT,       BLOCK_STONE,     BLOCK_SAND,
+        BLOCK_GRAVEL,     BLOCK_SNOW,       BLOCK_CLAY_DIRT, BLOCK_CLAY_SAND,
+        BLOCK_COBBLESTONE, BLOCK_CLAY,      BLOCK_LIMESTONE,
+        BLOCK_COAL_ORE,   BLOCK_SILVER_ORE, BLOCK_GOLD_ORE,
+        BLOCK_DIAMOND_ORE, BLOCK_SCRAP_METAL,
+        // --- Los 6 huecos reservados: la madera, que no tiene niveles ---
+        BLOCK_WOOD,       BLOCK_WOOD_ENCINO, BLOCK_WOOD_OYAMEL,
+        BLOCK_PLANKS,     BLOCK_PLANKS_ENCINO, BLOCK_PLANKS_OYAMEL,
     };
     n = (int)(sizeof(TABLA) / sizeof(TABLA[0]));
     return TABLA;
@@ -624,6 +696,8 @@ inline bool admiteNiveles(BlockType t) {
 // El ID no está en el enum: se calcula. Ver el comentario de BLOCK_MIXTO_BASE.
 
 // Posición de una familia dentro de tablaNiveles(), o -1 si no tiene niveles.
+// Es quien puede ser la CAPA DE ABAJO de una celda mixta: esa sí necesita
+// niveles, porque su altura es la del nivel.
 inline int indiceFamilia(BlockType entero) {
     int n = 0; const FamiliaNivel* T = tablaNiveles(n);
     entero = bloqueBaseDe(entero);
@@ -631,27 +705,41 @@ inline int indiceFamilia(BlockType entero) {
     return -1;
 }
 
-// ¿Cabe la tabla en el espacio de IDs reservado para las celdas mixtas?
+// Posición dentro de tablaRelleno(), o -1 si el material no puede rellenar.
+// Es quien puede ser el MATERIAL DE ARRIBA: no necesita niveles, porque
+// siempre ocupa de la capa al techo.
+inline int indiceRelleno(BlockType entero) {
+    int n = 0; const BlockType* T = tablaRelleno(n);
+    entero = bloqueBaseDe(entero);
+    for (int i = 0; i < n; ++i) if (T[i] == entero) return i;
+    return -1;
+}
+
+// ¿Caben las tablas en el espacio de IDs reservado para las celdas mixtas?
 //
-// FAMILIAS_CON_NIVEL es el ANCHO del hueco reservado (22), no el número de
-// familias que hay ahora (16, desde que la madera salió de la tabla). Lo que
-// hay que vigilar es que la tabla no CREZCA por encima del hueco: si eso
+// FAMILIAS_CON_NIVEL es el ANCHO del hueco reservado (22). Lo que hay que
+// vigilar es que ninguna de las dos tablas CREZCA por encima de él: si eso
 // pasara, los índices se solaparían y dos parejas distintas de materiales
 // darían el mismo ID mixto.
 //
-// Añadir una familia nueva mientras quepa es seguro y no toca nada guardado:
-// ocupa uno de los huecos reservados.
+// Añadir una entrada nueva mientras quepa es seguro y no toca nada guardado:
+// ocupa uno de los huecos reservados, siempre POR DETRÁS de lo que ya hay.
 inline bool familiasCaben() {
-    int n = 0; tablaNiveles(n);
-    return n <= FAMILIAS_CON_NIVEL;
+    int nNiv = 0; tablaNiveles(nNiv);
+    int nRel = 0; tablaRelleno(nRel);
+    return nNiv <= FAMILIAS_CON_NIVEL && nRel <= FAMILIAS_CON_NIVEL;
 }
 
 // El ID de "capa de `base` a nivel `nivel`, y de ahí a 16 px, `relleno`".
 // Devuelve BLOCK_AIR si la pareja no se puede representar.
 inline BlockType mixto(BlockType base, int nivel, BlockType relleno) {
+    // La capa de ABAJO necesita niveles (su altura es la del nivel); el
+    // material de ARRIBA no, porque siempre llega hasta el techo. Por eso
+    // cada uno usa su propia tabla: es lo que permite que un tronco rellene
+    // una celda sin tener que partirse en lonchas.
     const int ib = indiceFamilia(base);
-    const int ir = indiceFamilia(relleno);
-    if (ib < 0 || ir < 0) return BLOCK_AIR;      // alguno no admite niveles
+    const int ir = indiceRelleno(relleno);
+    if (ib < 0 || ir < 0) return BLOCK_AIR;      // no se puede representar
     if (nivel < 1 || nivel > 7) return BLOCK_AIR; // 8 es la celda llena
     return (BlockType)(BLOCK_MIXTO_BASE +
                        (ib * 7 + (nivel - 1)) * FAMILIAS_CON_NIVEL + ir);
@@ -672,9 +760,9 @@ inline int mixtoNivel(BlockType t) {
 }
 inline BlockType mixtoRelleno(BlockType t) {
     if (!esMixto(t)) return BLOCK_AIR;
-    int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    int n = 0; const BlockType* T = tablaRelleno(n);
     const int ir = ((int)t - BLOCK_MIXTO_BASE) % FAMILIAS_CON_NIVEL;
-    return (ir >= 0 && ir < n) ? T[ir].entero : BLOCK_AIR;
+    return (ir >= 0 && ir < n) ? T[ir] : BLOCK_AIR;
 }
 
 // Altura en bloques (0..1) que ocupa este bloque. Es su colision EXACTA.
@@ -832,15 +920,28 @@ constexpr int HACHA_VIDA_BLOQUES    = 250;
 constexpr int PICO_VIDA_BLOQUES     = 340;
 constexpr int MARTILLO_VIDA_USOS    = 150;
 
+// El hacha de PEDERNAL es la evolución de la de piedra: el pedernal se afila
+// mucho mejor que la piedra común, así que corta lo mismo pero aguanta más.
+// Y es la única que puede con la punta del maguey maduro.
+constexpr int HACHA_PEDERNAL_BLOQUES = 400;
+
 constexpr int HACHA_VIDA_MEDIOS     = HACHA_VIDA_BLOQUES  * 2;   // 500
 constexpr int PICO_VIDA_MEDIOS      = PICO_VIDA_BLOQUES   * 2;   // 680
 constexpr int MARTILLO_VIDA_MEDIOS  = MARTILLO_VIDA_USOS  * 2;   // 300
+constexpr int HACHA_PEDERNAL_MEDIOS = HACHA_PEDERNAL_BLOQUES * 2; // 800
 
 // ¿Este objeto es una herramienta que se gasta?
 inline bool esHerramientaGastable(BlockType t) {
     return t == BLOCK_HACHA_PIEDRA ||
            t == BLOCK_PICO_PIEDRA  ||
-           t == BLOCK_MARTILLO_PIEDRA;
+           t == BLOCK_MARTILLO_PIEDRA ||
+           t == BLOCK_HACHA_PEDERNAL;
+}
+
+// ¿Es un hacha, de la clase que sea? Las dos cortan lo mismo; la de pedernal
+// aguanta más y además puede con la punta del maguey.
+inline bool esHacha(BlockType t) {
+    return t == BLOCK_HACHA_PIEDRA || t == BLOCK_HACHA_PEDERNAL;
 }
 
 // Vida COMPLETA de cada herramienta, en medios puntos.
@@ -850,6 +951,7 @@ inline int vidaMaximaHerramienta(BlockType t) {
         case BLOCK_HACHA_PIEDRA:    return HACHA_VIDA_MEDIOS;
         case BLOCK_PICO_PIEDRA:     return PICO_VIDA_MEDIOS;
         case BLOCK_MARTILLO_PIEDRA: return MARTILLO_VIDA_MEDIOS;
+        case BLOCK_HACHA_PEDERNAL:  return HACHA_PEDERNAL_MEDIOS;
         default:                    return 0;
     }
 }
@@ -916,8 +1018,26 @@ inline bool esRocaParaPico(BlockType t) {
         t == BLOCK_LEAVES_ENCINO || t == BLOCK_LEAVES_OYAMEL)
         return false;
 
-    // Las herramientas y los items sueltos no son bloques del mundo.
+    // ⭐ EL MAGUEY MADURO Y LO QUE SALE DE EL
+    //
+    // La punta gruesa es planta, no piedra: el pico no debe poder con ella
+    // (solo el hacha de pedernal), y desde luego no debe gastarse al
+    // intentarlo. El tocon capado y el aguamiel, por lo mismo.
+    //
+    // Este agujero salio de un test, y es el riesgo de definir "roca" por
+    // EXCLUSION: cada planta nueva que se anade entra sola en la lista del
+    // pico si nadie se acuerda de excluirla.
+    if (t == BLOCK_MAGUEY_PUNTA || t == BLOCK_MAGUEY_HUECO ||
+        t == BLOCK_AGUAMIEL || t == BLOCK_NOPAL_SECO ||
+        t == BLOCK_ESPINAS_NOPAL)
+        return false;
+
+    // Las herramientas, los tazones y los items sueltos no son bloques del
+    // mundo: nada que picar ahi.
     if (esHerramientaGastable(t)) return false;
+    if (t == BLOCK_TAZON_PINO || t == BLOCK_TAZON_ENCINO ||
+        t == BLOCK_TAZON_OYAMEL)
+        return false;
 
     return true;
 }
@@ -932,6 +1052,11 @@ inline int desgastePico(BlockType t) {
 inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
     switch (herramienta) {
         case BLOCK_HACHA_PIEDRA: return desgasteHacha(bloque);
+        // La de pedernal corta lo mismo, y ademas la punta del maguey, que
+        // es el unico bloque que solo ella puede arrancar.
+        case BLOCK_HACHA_PEDERNAL:
+            return (desgasteHacha(bloque) > 0 ||
+                    bloque == BLOCK_MAGUEY_PUNTA) ? 2 : 0;
         case BLOCK_PICO_PIEDRA:  return desgastePico(bloque);
         // El martillo no pica: se gasta al craftear, no al romper.
         default:                 return 0;
@@ -941,4 +1066,4 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_PEDERNAL_AFILADO;
+constexpr int BLOCK_TYPE_MAX = BLOCK_AGUAMIEL;

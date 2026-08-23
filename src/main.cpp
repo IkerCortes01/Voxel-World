@@ -286,6 +286,9 @@ struct Vec3i {
 #endif
 
 #include "BlockType.h"
+// Fisica de caida (densidades reales, gravedad, arrastre del aire).
+// Va aqui arriba porque la lista de bloques cayendo se declara pronto.
+#include "FisicaCaida.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "WorldName.h"
@@ -790,7 +793,31 @@ struct MagueyManando {
     double t0;          // cuando se corto (o cuando se recogio la ultima vez)
 };
 std::vector<MagueyManando> g_magueyesManando;
-constexpr double AGUAMIEL_SEG = 420.0;   // 7 minutos
+constexpr double AGUAMIEL_SEG = 600.0;   // 10 minutos
+
+// ============================================================================
+// BLOQUES QUE ESTAN CAYENDO AHORA MISMO
+// ============================================================================
+// Mientras cae, un bloque NO esta en el mundo: se saca de su celda y vive en
+// esta lista, con su posicion y velocidad propias. Al aterrizar vuelve a ser
+// un bloque normal.
+//
+// La lista suele estar VACIA, asi que no cuesta nada: solo hay entradas
+// mientras algo esta en el aire, y eso dura uno o dos segundos.
+//
+// La fisica (gravedad, arrastre, densidades) vive en FisicaCaida.h; aqui solo
+// esta la parte que toca el mundo.
+std::vector<Fisica::BloqueCayendo> g_bloquesCayendo;
+
+// Tope de seguridad. Derrumbar una montana entera podria meter miles de
+// bloques a la vez y hundir el frame; pasado este numero, lo que quede se
+// queda quieto hasta que haya sitio.
+constexpr size_t MAX_BLOQUES_CAYENDO = 512;
+
+// Se define mucho mas abajo (necesita World completo), pero se llama desde
+// updateMining, que va antes.
+class World;
+void revisarSoporte(World& world, int x, int y, int z);
 
 // Cuanto dura la caida. Corta a proposito: es un gesto, no una escena.
 constexpr double PENCA_CAIDA_SEG = 0.40;
@@ -1493,8 +1520,54 @@ void tunaCajaCon(TGet get,
 // es la que el jugador esta mirando.
 inline void cajaDePieza(BlockType compuesto, bool segunda,
                         float& x0, float& y0, float& z0,
+                        float& x1, float& y1, float& z1);
+
+// ⭐ LA MISMA CAJA, PEDIDA POR INDICE
+//
+// Es la puerta por la que el motor recorre N piezas sin saber cuantas hay.
+// Hoy todas las celdas son de dos, asi que traduce el indice al bool de
+// siempre; el dia que exista una de tres, este es el unico sitio que cambia.
+inline void cajaDePiezaN(BlockType compuesto, int i,
+                         float& x0, float& y0, float& z0,
+                         float& x1, float& y1, float& z1) {
+    cajaDePieza(compuesto, i >= 1, x0, y0, z0, x1, y1, z1);
+}
+
+inline void cajaDePieza(BlockType compuesto, bool segunda,
+                        float& x0, float& y0, float& z0,
                         float& x1, float& y1, float& z1) {
     constexpr float PX = 1.0f / 16.0f;
+
+    // ⭐ EL MAGUEY CAPADO: EL CUENCO Y EL JUGO DE DENTRO
+    //
+    // Las dos piezas ocupan el MISMO voxel pero cajas distintas, y por eso se
+    // pueden seleccionar por separado: el rayo entra antes en una o en otra
+    // segun a donde apunte el jugador.
+    //
+    //   PRIMERA (el cajete): el borde de maguey. Es todo el voxel MENOS el
+    //   agujero de dentro, asi que apuntar al canto selecciona la planta.
+    //
+    //   SEGUNDA (el aguamiel): solo el agujero, y sin llegar al borde. Es lo
+    //   que se ve al asomarse por arriba, que es justo cuando se quiere
+    //   recoger con el tazon.
+    //
+    // Como el rayo elige la caja en la que entra ANTES, mirar el cuenco desde
+    // arriba da SIEMPRE el liquido (esta mas cerca del ojo que el fondo), que
+    // es el comportamiento pedido.
+    if (compuesto == BLOCK_AGUAMIEL) {
+        if (!segunda) {
+            // El cuenco entero: la caja exterior.
+            x0 = 0.0f; y0 = 0.0f; z0 = 0.0f;
+            x1 = 1.0f; y1 = 1.0f; z1 = 1.0f;
+        } else {
+            // El jugo: dentro del agujero, hundido respecto al borde.
+            x0 = CAJETE_PARED;  x1 = 1.0f - CAJETE_PARED;
+            y0 = CAJETE_SUELO;  y1 = AGUAMIEL_ALTO;
+            z0 = CAJETE_PARED;  z1 = 1.0f - CAJETE_PARED;
+        }
+        return;
+    }
+
     if (!segunda) {
         // El ixtle: columna central. La roseta se dibuja mucho mas ancha,
         // pero lo que se SELECCIONA es su corazon, que es donde de verdad
@@ -1781,6 +1854,55 @@ FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
         return f;
     }
 
+    // --- LA PUNTA DEL MAGUEY: EL CONO ESCALONADO ---
+    //
+    // La misma pila de cajas que dibuja el mesher, para que el contorno de
+    // seleccion siga la forma del cono en vez de envolverlo en un cubo. Las
+    // medidas tienen que coincidir con las de alli.
+    if (type == BLOCK_MAGUEY_PUNTA) {
+        static const float ANCHO[5] =
+            { 12.0f/16.0f, 9.0f/16.0f, 6.0f/16.0f, 4.0f/16.0f, 2.0f/16.0f };
+        for (int e = 0; e < 5; ++e) {
+            const float a = ANCHO[e] * 0.5f;
+            f.anadir(0.5f - a, (float)e / 5.0f,       0.5f - a,
+                     0.5f + a, (float)(e + 1) / 5.0f, 0.5f + a);
+        }
+        return f;
+    }
+
+    // --- EL MAGUEY CAPADO: UN CAJETE CON AGUAMIEL DENTRO ---
+    //
+    // El tocon no es un cubo: es un cuenco. Las cuatro paredes y el suelo son
+    // maguey, y en medio hay un agujero cuadrado donde se junta el jugo.
+    //
+    // Se describe con CINCO cajas (suelo + 4 paredes) en vez de una, para que
+    // la seleccion y el contorno sigan el borde real del cuenco y no envuelvan
+    // el hueco como si fuera macizo.
+    if (type == BLOCK_MAGUEY_HUECO) {
+        f.anadir(0.0f, 0.0f, 0.0f, 1.0f, CAJETE_SUELO, 1.0f);        // fondo
+        f.anadir(0.0f, CAJETE_SUELO, 0.0f, CAJETE_PARED, 1.0f, 1.0f); // -X
+        f.anadir(1.0f - CAJETE_PARED, CAJETE_SUELO, 0.0f, 1.0f, 1.0f, 1.0f); // +X
+        f.anadir(CAJETE_PARED, CAJETE_SUELO, 0.0f,
+                 1.0f - CAJETE_PARED, 1.0f, CAJETE_PARED);            // -Z
+        f.anadir(CAJETE_PARED, CAJETE_SUELO, 1.0f - CAJETE_PARED,
+                 1.0f - CAJETE_PARED, 1.0f, 1.0f);                    // +Z
+        return f;
+    }
+
+    // --- EL AGUAMIEL: EL LIQUIDO DENTRO DEL CAJETE ---
+    //
+    // Ocupa SOLO el agujero, no el voxel entero. Asi el jugador ve —y
+    // selecciona— el charco de jugo que hay dentro del cuenco, que es
+    // exactamente lo que va a recoger con el tazon.
+    //
+    // Su caja es la del hueco interior, un poco mas baja que el borde: el
+    // liquido no llega a rebosar.
+    if (type == BLOCK_AGUAMIEL) {
+        f.anadir(CAJETE_PARED, CAJETE_SUELO, CAJETE_PARED,
+                 1.0f - CAJETE_PARED, AGUAMIEL_ALTO, 1.0f - CAJETE_PARED);
+        return f;
+    }
+
     // --- EL RESTO: una caja, la que ya declaraba el proveedor ---
     float x0,y0,z0,x1,y1,z1;
     if (nopalHitboxCon(type, get, wx, wy, wz, x0,y0,z0, x1,y1,z1)) {
@@ -1857,6 +1979,19 @@ bool isBlockSolid(BlockType type) {
     // Una celda MIXTA llega hasta arriba: frena como un bloque entero.
     if (esNivelParcial(type) || esMixto(type)) return true;
 
+    // ⭐ EL AGUAMIEL SE ATRAVIESA, COMO EL AGUA.
+    //
+    // Es un liquido: la mano lo cruza. Pero OJO -- el ID BLOCK_AGUAMIEL es
+    // una celda COMPARTIDA (cuenco + jugo), y el cuenco SI es solido: el
+    // jugador tiene que poder apoyarse en su borde.
+    //
+    // Se resuelve con la colision por FORMA: la celda declara sus cajas en
+    // formaDeBloque/nopalHitboxCon, y ahi solo se declaran las del maguey, no
+    // la del liquido. Asi el borde frena y el jugo no. Por eso aqui se
+    // devuelve true (la celda tiene algo solido dentro) y la forma se encarga
+    // del detalle.
+    if (type == BLOCK_AGUAMIEL) return true;
+
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA;
 }
 
@@ -1872,6 +2007,15 @@ bool isBlockOpaque(BlockType type) {
         type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
         type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
         esTuna(type)) return false;
+    // El maguey capado es un CUENCO, no un cubo: por su agujero se ve el
+    // interior, asi que no puede tapar las caras de sus vecinos (dejaria
+    // huecos negros al mirar dentro). El aguamiel, por lo mismo: es una
+    // lamina hundida dentro del cajete.
+    //
+    // Y la PUNTA es un cono escalonado: alrededor de ella se ve el cielo, asi
+    // que tampoco puede tapar a nadie.
+    if (type == BLOCK_MAGUEY_HUECO || type == BLOCK_AGUAMIEL ||
+        type == BLOCK_MAGUEY_PUNTA) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
         && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
 }
@@ -6787,6 +6931,39 @@ public:
                 CraftingRecipe recipe(BLOCK_HOE, 1, false);
                 recipe.pattern[0] = tablon;
                 recipe.pattern[3] = tablon;
+                recipes.push_back(recipe);
+            }
+        }
+
+        // ========================================================================
+        // EL BARRO: TIERRA AMASADA CON AGUA
+        // ========================================================================
+        // Un tazon LLENO DE AGUA mas polvo de tierra dan un pedazo de barro.
+        // Es como se hace de verdad: el agua liga el polvo hasta dejar una
+        // pasta que se puede modelar.
+        //
+        // Vale CUALQUIERA de los tres tazones (pino, encino, oyamel): lo que
+        // importa es el agua que llevan dentro, no de que arbol salio la
+        // madera. Una receta por cada uno, igual que se hace con las hojas de
+        // maguey en la receta del hilo de ixtle.
+        //
+        // SIN FORMA, para que valga en cualquier rincon de la rejilla y no
+        // haya que acertar la casilla exacta.
+        //
+        // ⭐ EL TAZON NO SE CONSUME: SE VACIA. El recipiente vuelve al
+        // jugador, ya sin agua (lo hace executeCrafting, igual que con el
+        // martillo, que se gasta en vez de desaparecer). Tragarse el tazon
+        // obligaria a tallar uno nuevo por cada barro, que no tiene sentido.
+        {
+            const BlockType TAZONES_AGUA[] = {
+                BLOCK_TAZON_PINO_AGUA,
+                BLOCK_TAZON_ENCINO_AGUA,
+                BLOCK_TAZON_OYAMEL_AGUA
+            };
+            for (BlockType t : TAZONES_AGUA) {
+                CraftingRecipe recipe(BLOCK_PEDAZO_BARRO, 1, true);
+                recipe.pattern[0] = t;
+                recipe.pattern[1] = BLOCK_DIRT_POWDER;
                 recipes.push_back(recipe);
             }
         }
@@ -11896,6 +12073,187 @@ public:
                     // Los NIVELES entran por aqui (no llenan el voxel, asi
                     // que no valen para el greedy meshing), pero tienen su
                     // propia rama mas abajo con la caja de altura reducida.
+                    // ============================================
+                    // LA PUNTA DEL MAGUEY: UNA ESPINA 3D GRUESA
+                    // ============================================
+                    // El quiote que remata un maguey de cinco años. Se
+                    // dibujaba como un CUBO, que ni parecia una punta ni se
+                    // distinguia del resto de la planta.
+                    //
+                    // Ahora es un CONO ESCALONADO: una pila de cajas que van
+                    // menguando hacia arriba. Cada escalon es una caja CERRADA
+                    // -- con sus seis caras -- asi que no queda ni un hueco sin
+                    // textura por ningun angulo, que es el fallo tipico de
+                    // apilar prismas abiertos.
+                    //
+                    // Es GRUESA a proposito: arranca ocupando 12 de los 16 px
+                    // del voxel. Un maguey maduro se reconoce por su punta, y
+                    // una espina fina no se veria desde lejos.
+                    if (block == BLOCK_MAGUEY_PUNTA) {
+                        const GLuint texPunta = texSegura(BLOCK_MAGUEY_PUNTA, 0);
+                        auto tope1p = [](float v) { return v > 1.0f ? 1.0f : v; };
+                        const float lzp = faceLightFactor(x, y, z, 0, 1, 0);
+                        const float Rp = tope1p(lzp * lightColorR);
+                        const float Gp = tope1p(lzp * lightColorG);
+                        const float Bp = tope1p(lzp * lightColorB);
+
+                        auto& VP = verticesByTexture[texPunta];
+                        auto& CP = colorsByTexture[texPunta];
+                        auto& UP = uvsByTexture[texPunta];
+
+                        // Una caja con las SEIS caras. Cerrarlas todas es lo
+                        // que evita los huecos: un escalon visto desde abajo o
+                        // de lado enseña pared, nunca el vacio del interior.
+                        auto cajaP = [&](float x0, float y0, float z0,
+                                         float x1, float y1, float z1,
+                                         float br) {
+                            const float r = Rp * br, g = Gp * br, b = Bp * br;
+                            const float P[6][4][3] = {
+                              {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}},
+                              {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}},
+                              {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}},
+                              {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}},
+                              {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}},
+                              {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}},
+                            };
+                            // La UV se recorta al trozo real de cada cara, asi
+                            // el dibujo de la espina conserva su escala en
+                            // todos los escalones en vez de estirarse.
+                            const float T[6][4][2] = {
+                              {{x0,z0},{x0,z1},{x1,z1},{x1,z0}},
+                              {{x0,z0},{x1,z0},{x1,z1},{x0,z1}},
+                              {{z0,1-y1},{z0,1-y0},{z1,1-y0},{z1,1-y1}},
+                              {{z0,1-y0},{z1,1-y0},{z1,1-y1},{z0,1-y1}},
+                              {{x0,1-y0},{x1,1-y0},{x1,1-y1},{x0,1-y1}},
+                              {{x0,1-y0},{x0,1-y1},{x1,1-y1},{x1,1-y0}},
+                            };
+                            for (int cara = 0; cara < 6; ++cara)
+                                for (int i = 0; i < 4; ++i) {
+                                    VP.push_back(wx + P[cara][i][0]);
+                                    VP.push_back(wy + P[cara][i][1]);
+                                    VP.push_back(wz + P[cara][i][2]);
+                                    CP.push_back(r); CP.push_back(g);
+                                    CP.push_back(b); CP.push_back(1.0f);
+                                    UP.push_back(T[cara][i][0]);
+                                    UP.push_back(T[cara][i][1]);
+                                }
+                        };
+
+                        // Cinco escalones del ancho a la punta. El primero
+                        // ocupa 12/16 (bien gruesa) y el ultimo 2/16, casi un
+                        // pico. Las alturas se reparten el voxel entero.
+                        constexpr int ESCALONES = 5;
+                        static const float ANCHO[ESCALONES] =
+                            { 12.0f/16.0f, 9.0f/16.0f, 6.0f/16.0f,
+                               4.0f/16.0f, 2.0f/16.0f };
+
+                        for (int e = 0; e < ESCALONES; ++e) {
+                            const float a  = ANCHO[e] * 0.5f;
+                            const float y0 = (float)e / ESCALONES;
+                            const float y1 = (float)(e + 1) / ESCALONES;
+                            // Los de arriba, un pelo mas oscuros: da volumen
+                            // al cono sin necesidad de luz por vertice.
+                            const float br = 1.0f - 0.04f * (float)e;
+                            cajaP(0.5f - a, y0, 0.5f - a,
+                                  0.5f + a, y1, 0.5f + a, br);
+                        }
+
+                        continue;   // no emitir las caras del cubo
+                    }
+
+                    // ============================================
+                    // EL MAGUEY CAPADO: UN CUENCO CON AGUAMIEL
+                    // ============================================
+                    // El tocon no es un cubo macizo: tiene suelo y cuatro
+                    // paredes de maguey, y en medio un AGUJERO CUADRADO. En
+                    // ese hueco se junta el jugo, que se dibuja como una
+                    // lamina de liquido hundida, sin llegar al borde.
+                    //
+                    // Las dos piezas se dibujan aqui juntas porque son la
+                    // misma planta vista por dentro: el aguamiel solo existe
+                    // dentro del cajete, y sus medidas salen de las mismas
+                    // constantes (CAJETE_*), asi que no pueden descuadrar.
+                    if (block == BLOCK_MAGUEY_HUECO ||
+                        block == BLOCK_AGUAMIEL) {
+                        // Las paredes y el fondo llevan SIEMPRE la textura de
+                        // maguey por dentro: es lo que se ve al cortar la
+                        // punta, tambien cuando hay jugo encima.
+                        const GLuint texPared = texSegura(BLOCK_MAGUEY_HUECO, 0);
+                        // (clamp1 se declara mas abajo en esta funcion, asi
+                        // que aqui se acota a mano: mismo resultado.)
+                        auto tope1 = [](float v) { return v > 1.0f ? 1.0f : v; };
+                        const float lz = faceLightFactor(x, y, z, 0, 1, 0);
+                        const float R = tope1(lz * lightColorR);
+                        const float G = tope1(lz * lightColorG);
+                        const float B = tope1(lz * lightColorB);
+
+                        // Caja con las seis caras, en coordenadas 0..1 dentro
+                        // del voxel. La textura se recorta a la porcion que
+                        // ocupa cada cara para que el pixel no se estire.
+                        auto caja = [&](GLuint tex,
+                                        float x0, float y0, float z0,
+                                        float x1, float y1, float z1,
+                                        float br) {
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
+                            const float r = R * br, g = G * br, b = B * br;
+
+                            // Cada cara: 4 vertices en sentido antihorario
+                            // vistos desde fuera, para que el back-face
+                            // culling no se las coma.
+                            const float P[6][4][3] = {
+                              {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}}, // arriba
+                              {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}}, // abajo
+                              {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}}, // +X
+                              {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}}, // -X
+                              {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}}, // +Z
+                              {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}}, // -Z
+                            };
+                            // UV recortada al trozo real de cada cara: asi el
+                            // dibujo de la madera conserva su escala.
+                            const float T[6][4][2] = {
+                              {{x0,z0},{x0,z1},{x1,z1},{x1,z0}},
+                              {{x0,z0},{x1,z0},{x1,z1},{x0,z1}},
+                              {{z0,1-y1},{z0,1-y0},{z1,1-y0},{z1,1-y1}},
+                              {{z0,1-y0},{z1,1-y0},{z1,1-y1},{z0,1-y1}},
+                              {{x0,1-y0},{x1,1-y0},{x1,1-y1},{x0,1-y1}},
+                              {{x0,1-y0},{x0,1-y1},{x1,1-y1},{x1,1-y0}},
+                            };
+                            for (int cara = 0; cara < 6; ++cara)
+                                for (int i = 0; i < 4; ++i) {
+                                    V.push_back(wx + P[cara][i][0]);
+                                    V.push_back(wy + P[cara][i][1]);
+                                    V.push_back(wz + P[cara][i][2]);
+                                    C.push_back(r); C.push_back(g);
+                                    C.push_back(b); C.push_back(1.0f);
+                                    U.push_back(T[cara][i][0]);
+                                    U.push_back(T[cara][i][1]);
+                                }
+                        };
+
+                        // El cuenco: fondo y cuatro paredes. Los laterales
+                        // van algo mas oscuros que la tapa, igual que en
+                        // cualquier bloque, para que se les vea el volumen.
+                        const float P = CAJETE_PARED, S = CAJETE_SUELO;
+                        caja(texPared, 0,0,0, 1,S,1, 1.0f);              // fondo
+                        caja(texPared, 0,S,0, P,1,1, 0.92f);             // -X
+                        caja(texPared, 1-P,S,0, 1,1,1, 0.92f);           // +X
+                        caja(texPared, P,S,0, 1-P,1,P, 0.92f);           // -Z
+                        caja(texPared, P,S,1-P, 1-P,1,1, 0.92f);         // +Z
+
+                        // Y el jugo dentro, si lo hay. Se hunde respecto al
+                        // borde (AGUAMIEL_ALTO < 1) para que se vea que esta
+                        // DENTRO del cuenco y no encima del bloque.
+                        if (block == BLOCK_AGUAMIEL) {
+                            const GLuint texJugo = texSegura(BLOCK_AGUAMIEL, 0);
+                            caja(texJugo, P, S, P,
+                                 1-P, AGUAMIEL_ALTO, 1-P, 1.0f);
+                        }
+
+                        continue;   // no emitir las caras del cubo
+                    }
+
                     if (isCrossSprite(block) || esNivelParcial(block) ||
                         esMixto(block)) {
                         GLuint texture = texSegura(block, 0);
@@ -12834,11 +13192,43 @@ public:
                             // giro. Asi todas las matas son EL MISMO bloque y
                             // se apilan entre si.
                             const unsigned ht = mezcla(7u) % 100u;
-                            const float escala =
+                            float escala =
                                 (ht < 30u) ? 0.45f :      // 30% brotes
                                 (ht < 70u) ? 1.00f :      // 40% medianas
                                 (ht < 92u) ? 1.40f        // 22% grandes
                                            : 1.90f;       //  8% enormes
+
+                            // ============================================
+                            // ⭐ EL MAGUEY DE 5 AÑOS ES MUCHO MAS GRANDE
+                            // ============================================
+                            // Un maguey maduro se reconoce DESDE LEJOS: es el
+                            // doble de alto que una mata normal y bastante mas
+                            // ancho. Esa diferencia de tamaño es la pista que
+                            // tiene el jugador para saber a cual acercarse,
+                            // porque son los unicos que dan aguamiel.
+                            //
+                            // Se sabe que la mata es madura porque ENCIMA
+                            // tiene su punta gruesa -- o el cajete, si ya la
+                            // caparon. Se mira el vecino de arriba en vez de
+                            // guardarlo en el propio bloque: asi no hace falta
+                            // un ID nuevo ni tocar el formato de guardado, y
+                            // las matas de los mundos ya jugados crecen solas
+                            // al recargar el chunk.
+                            //
+                            // El factor 2.0 sale de lo pedido: doble de alto.
+                            // Como la roseta crece en proporcion, tambien se
+                            // ensancha (~1.4x de radio), que es justo la
+                            // silueta de un agave hecho.
+                            {
+                                const BlockType arriba =
+                                    getNeighborBlockCached(x, y, z, 0, 1, 0);
+                                if (arriba == BLOCK_MAGUEY_PUNTA ||
+                                    arriba == BLOCK_MAGUEY_HUECO ||
+                                    arriba == BLOCK_AGUAMIEL) {
+                                    escala *= 2.0f;
+                                }
+                            }
+
                             float LARGO = 26.0f * PXL * escala;
 
                             // Las hojas de la espina se alargan lo que haga
@@ -17160,6 +17550,17 @@ struct GameState {
                 // Plantas/flores no sueltan nada (retornar AIR para no spawnear)
                 return BLOCK_AIR;
 
+            // ⭐ EL AGUAMIEL NO SE COGE CON LA MANO (ver getBlockDrops).
+            // Solo con un tazon. Aqui tambien, porque esta es la SEGUNDA
+            // tabla de drops del motor y minar pasa por las dos: si solo se
+            // cerrara una, el aguamiel seguiria saliendo por la otra.
+            case BLOCK_AGUAMIEL:
+            // La punta del maguey tampoco suelta nada: capar abre la planta,
+            // no la cosecha (ver getBlockDrops).
+            case BLOCK_MAGUEY_PUNTA:
+            case BLOCK_MAGUEY_HUECO:
+                return BLOCK_AIR;
+
             // El NOPAL si suelta item: cualquier parte da un nopal, que en el
             // inventario se ve como textura plana 2D (ver isFlatItem).
             case BLOCK_NOPAL_BASE_PASTO:
@@ -17321,6 +17722,26 @@ struct GameState {
                 continue;                        // NO se consume la pieza
             }
 
+            // ⭐ LOS TAZONES NO SE CONSUMEN: SE VACIAN.
+            //
+            // Un tazon es un RECIPIENTE, no un ingrediente. Lo que la receta
+            // del barro gasta es el AGUA que lleva dentro, no la madera: por
+            // eso al craftear el tazon se queda, pero vacio.
+            //
+            // Sin esto, hacer barro se tragaria el tazon entero y habria que
+            // tallar uno nuevo cada vez -- que es justo lo que no pasa cuando
+            // amasas barro en un cuenco de verdad.
+            //
+            // Se hace en el sitio: el slot conserva su cuenta y solo cambia de
+            // tipo, asi que un stack de tazones se vacia de uno en uno.
+            if (esTazonConAgua(s.blockType)) {
+                const BlockType vacio = tazonVaciado(s.blockType);
+                if (vacio != BLOCK_AIR) {
+                    s.blockType = vacio;
+                    continue;                    // se queda, ya sin agua
+                }
+            }
+
             s.remove(1);
         }
 
@@ -17405,13 +17826,18 @@ struct RaycastResult {
     Vec3i normal;       // Normal de la cara del bloque
     float distance;
 
-    // ⭐ CUAL de las dos piezas se ha tocado, cuando la celda es COMPARTIDA.
-    // false = el ixtle (el centro), true = la acompanante (la esquina).
-    // En una celda normal siempre es false y no significa nada.
+    // ⭐ QUE PIEZA se ha tocado, cuando la celda es COMPARTIDA.
+    //
+    // Es un INDICE (0 = la principal, 1.. = las acompañantes), no un bool,
+    // para que el sistema admita celdas de tres o mas piezas sin tocar el
+    // raycast. `piezaSegunda` se conserva como atajo del caso de dos, que es
+    // lo que usa casi todo el motor.
+    int  piezaIndice;
     bool piezaSegunda;
 
     RaycastResult() : hit(false), blockPos(0, 0, 0), previousPos(0, 0, 0),
-                      normal(0, 0, 0), distance(0), piezaSegunda(false) {}
+                      normal(0, 0, 0), distance(0),
+                      piezaIndice(0), piezaSegunda(false) {}
 };
 
 // Raycast principal (como Minecraft - detecta todos los bloques excepto aire y agua)
@@ -17520,18 +17946,23 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
             // ========================================================
             // CELDA COMPARTIDA: ELEGIR LA PIEZA QUE SE MIRA
             // ========================================================
-            // Aqui hay DOS bloques en el mismo voxel. Se prueba el rayo
+            // Aqui hay VARIOS bloques en el mismo voxel. Se prueba el rayo
             // contra la caja de cada uno y gana el que entra ANTES: es el
             // que el jugador tiene delante. Asi se rompen por separado
             // aunque compartan celda.
+            //
+            // ⭐ El bucle va hasta piezasDe(block), no hasta 2: una celda de
+            // tres piezas funcionaria aqui sin tocar nada.
             if (esCompartido(block)) {
                 float mejorT = 0.0f;
-                bool  hayImpacto = false, cual = false;
+                bool  hayImpacto = false;
+                int   cualIdx = 0;
 
-                for (int pieza = 0; pieza < 2; ++pieza) {
+                const int nPiezas = piezasDe(block);
+                for (int pieza = 0; pieza < nPiezas; ++pieza) {
                     float px0, py0, pz0, px1, py1, pz1;
-                    cajaDePieza(block, pieza == 1,
-                                px0, py0, pz0, px1, py1, pz1);
+                    cajaDePiezaN(block, pieza,
+                                 px0, py0, pz0, px1, py1, pz1);
                     px0 += (float)x; px1 += (float)x;
                     py0 += (float)y; py1 += (float)y;
                     pz0 += (float)z; pz1 += (float)z;
@@ -17556,11 +17987,11 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                     }
                     if (!ok) continue;
                     if (!hayImpacto || tEnt < mejorT) {
-                        mejorT = tEnt; hayImpacto = true; cual = (pieza == 1);
+                        mejorT = tEnt; hayImpacto = true; cualIdx = pieza;
                     }
                 }
 
-                // Ninguna de las dos piezas: se sigue buscando detras.
+                // Ninguna de las piezas: se sigue buscando detras.
                 if (!hayImpacto) continue;
 
                 result.hit = true;
@@ -17569,7 +18000,8 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 result.normal = Vec3i(prevBlock.x - x, prevBlock.y - y,
                                       prevBlock.z - z);
                 result.distance = t;
-                result.piezaSegunda = cual;
+                result.piezaIndice  = cualIdx;
+                result.piezaSegunda = (cualIdx >= 1);
                 return result;
             }
 
@@ -17847,6 +18279,32 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
             drops.push_back({BLOCK_RAW_COPPER, 1, 1.0f});
             break;
 
+        // ⭐ EL AGUAMIEL NO SE COGE CON LA MANO
+        //
+        // Es un LIQUIDO dentro del cajete del maguey: se raspa y se recoge
+        // con un tazon, que es como se saca de verdad. Sin esto caia por el
+        // `default` de mas abajo y romperlo a mano soltaba un item de
+        // aguamiel, con lo que el tazon no servia para nada.
+        //
+        // Devolver el vector VACIO es lo correcto (no un drop de AIR): el
+        // bucle que consume esto llama a spawnItem por cada entrada, y un
+        // drop de aire spawnearia un item invisible.
+        //
+        // La ruta buena sigue viva y esta en placeBlock: con un tazon vacio
+        // en la mano, apuntar al aguamiel lo recoge y vacia el cajete.
+        case BLOCK_AGUAMIEL:
+            break;
+
+        // ⭐ LA PUNTA DEL MAGUEY NO SUELTA ESPINAS
+        //
+        // Capar la planta la ABRE para que mane; lo que se saca de ella es el
+        // aguamiel, no material. Se cierra aqui ademas de en la ruta de
+        // capado porque hay dos tablas de drops y minar pasa por las dos: si
+        // solo se tapara una, las espinas seguirian saliendo por la otra.
+        case BLOCK_MAGUEY_PUNTA:
+        case BLOCK_MAGUEY_HUECO:
+            break;
+
         case BLOCK_TALLGRASS:
         case BLOCK_ORANGE_FLOWER:
             // VEGETACIÓN: no suelta NADA al romperse.
@@ -18012,6 +18470,23 @@ void updateMining(GameState* state, float deltaTime) {
         // Es la propiedad que se pidio: dos bloques juntos en un mismo
         // espacio, pero seleccionables -- y rompibles -- por separado.
         if (esCompartido(blockType)) {
+            // ⭐ EL AGUAMIEL NO SE ROMPE NUNCA
+            //
+            // Es un LIQUIDO: darle golpes no hace nada. La unica forma de
+            // sacarlo es recogerlo con un tazon (clic derecho), que es como
+            // se hace de verdad.
+            //
+            // Solo se protege el LIQUIDO. El cajete que lo contiene si se
+            // puede romper, y al romperlo se lleva el jugo con el: si los dos
+            // fueran irrompibles, un maguey capado quedaria clavado en el
+            // mundo para siempre sin manera de quitarlo.
+            if (blockType == BLOCK_AGUAMIEL && result.piezaSegunda) {
+                state->isMining = false;
+                state->miningProgress = 0.0f;
+                state->miningParticleTimer = 0.0f;
+                return;
+            }
+
             const BlockType rota = result.piezaSegunda
                                  ? piezaSegunda(blockType)
                                  : piezaPrimera(blockType);
@@ -18072,16 +18547,43 @@ void updateMining(GameState* state, float deltaTime) {
         // exactamente como se hace el pulque -- se capa la planta y el hueco
         // recoge lo que mana.
         //
-        // Suelta 4 espinas (la punta gruesa tiene mas que una hoja normal) y
-        // el hueco queda apuntado para que empiece a manar a los 7 minutos.
+        // ⭐ CAPAR NO SUELTA NADA.
+        //
+        // Antes daba 4 espinas. Se quitan a proposito: capar un maguey no es
+        // cosecharlo, es ABRIRLO para que mane. Lo que se saca de la planta es
+        // el aguamiel, y darle ademas un puñado de espinas convertia el
+        // capado en una fuente de material gratis.
+        //
+        // El hueco queda apuntado para que empiece a manar a los 10 minutos.
         if (blockType == BLOCK_MAGUEY_PUNTA) {
             const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
-            for (int i = 0; i < 4; ++i)
-                state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
 
             state->world.setBlock(bx, by, bz, BLOCK_MAGUEY_HUECO);
-            g_magueyesManando.push_back({ bx, by, bz,
-                                          state->tiempoJugadoSegundos });
+
+            // ⭐ SOLO 1 DE CADA 4 MAGUEYES MADUROS DA AGUAMIEL
+            //
+            // No todas las plantas sirven: un maguey se capa cuando esta en
+            // su punto, y muchos no lo estan. Asi capar deja de ser un
+            // tramite y hay que buscar el bueno.
+            //
+            // El dado sale del HASH DE LA POSICION, no de rand(): asi un
+            // maguey concreto da aguamiel o no de forma FIJA. Con rand() el
+            // jugador podria volver a capar hasta que le tocara, y ademas dos
+            // partidas con la misma semilla darian mundos distintos.
+            //
+            // El que no da nada queda igualmente hueco (se ve capado), pero
+            // nunca se apunta en g_magueyesManando, asi que no mana jamas.
+            {
+                unsigned h = (unsigned)(bx * 73856093)
+                           ^ (unsigned)(by * 19349663)
+                           ^ (unsigned)(bz * 83492791);
+                h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+
+                if ((h % 100u) < 25u) {
+                    g_magueyesManando.push_back({ bx, by, bz,
+                                                  state->tiempoJugadoSegundos });
+                }
+            }
 
             if (g_soundManager) g_soundManager->playBreakBlock(blockType, glfwGetTime());
             state->particles.spawnBlockBreakParticles(pos, blockType);
@@ -18094,6 +18596,14 @@ void updateMining(GameState* state, float deltaTime) {
 
         // Romper el bloque
         state->world.setBlock(bx, by, bz, BLOCK_AIR);
+
+        // ⭐ LO QUE HABIA ENCIMA SE CAE
+        //
+        // Al quitar este bloque, el de arriba (y los de los lados, si eran un
+        // saliente) se quedan sin apoyo. Se sueltan y caen con su fisica.
+        // Si al posarse dejan a otro colgando, ese cae en el siguiente
+        // aterrizaje: el derrumbe se propaga solo.
+        revisarSoporte(state->world, bx, by, bz);
 
         // ⭐ VEGETACIÓN SIN SOPORTE
         // Un sprite en cruz necesita un bloque debajo. Al romper el soporte,
@@ -18337,6 +18847,10 @@ void prewarmItemTextures() {
         { BLOCK_TAZON_PINO_AGUA,   "Tazon de madera de Pino con agua.png"   },
         { BLOCK_TAZON_ENCINO_AGUA, "Tazon de madera de Encino con agua.png" },
         { BLOCK_TAZON_OYAMEL_AGUA, "Tazon de madera de oyame con agua.png"  },
+        { BLOCK_PEDAZO_BARRO,  "Pedazo de barro.png"                     },
+        { BLOCK_TAZON_PINO_AGUAMIEL,   "Tazon de madera pino con aguamiel.png"  },
+        { BLOCK_TAZON_ENCINO_AGUAMIEL, "Tazon de Encino con aguamiel.png"       },
+        { BLOCK_TAZON_OYAMEL_AGUAMIEL, "Tazon de madera de oyame con aguamiel.png" },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -18624,6 +19138,149 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
 
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     glDisable(GL_TEXTURE_2D);
+}
+
+// ============================================================================
+// CAIDA DE BLOQUES SIN SOPORTE
+// ============================================================================
+// Un bloque al que se le quita el suelo se cae. Con la gravedad de verdad
+// (9.80665 m/s^2) y frenado por el aire segun su densidad -- ver
+// FisicaCaida.h, donde estan los numeros y de donde salen.
+//
+// El bloque se SACA del mundo mientras vuela y se devuelve al aterrizar. Es
+// lo que permite verlo caer suave en vez de a saltos de voxel.
+
+// ¿Este bloque puede caer?
+//
+// Casi todo cae. Lo que NO:
+//   - el aire, obviamente
+//   - el agua y la lava, que tienen su propio sistema de flujo
+//   - la bedrock, que es el fondo del mundo
+//
+// Las plantas SI caen: se pidio expresamente. Eso significa que al talar el
+// tronco de un arbol, la copa se le viene encima al jugador.
+inline bool puedeCaer(BlockType t) {
+    if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
+    if (t == BLOCK_BEDROCK) return false;
+    return true;
+}
+
+// ¿Hay algo debajo que lo sujete?
+//
+// Sujeta cualquier bloque que no sea aire ni liquido. Un nivel parcial
+// sujeta: es terreno, solo que mas bajo.
+inline bool tieneApoyo(World& world, int x, int y, int z) {
+    if (y <= 0) return true;   // el fondo del mundo sujeta siempre
+    const BlockType abajo = world.getBlock(x, y - 1, z);
+    if (abajo == BLOCK_AIR) return false;
+    if (abajo == BLOCK_WATER || abajo == BLOCK_LAVA) return false;
+    return true;
+}
+
+// Suelta un bloque: lo saca del mundo y lo mete en la lista de los que caen.
+// Devuelve false si no se pudo (no cabe, o el bloque no cae).
+bool soltarBloque(World& world, int x, int y, int z) {
+    if (g_bloquesCayendo.size() >= MAX_BLOQUES_CAYENDO) return false;
+
+    const BlockType t = world.getBlock(x, y, z);
+    if (!puedeCaer(t)) return false;
+    if (tieneApoyo(world, x, y, z)) return false;
+
+    world.setBlock(x, y, z, BLOCK_AIR);
+    g_bloquesCayendo.emplace_back(x, y, z, t);
+    return true;
+}
+
+// Mira si el bloque de esa celda se ha quedado sin suelo, y tambien los de
+// alrededor. Se llama despues de romper o mover algo.
+//
+// Solo mira los vecinos INMEDIATOS, no toda la columna: si al caer uno deja
+// a otro colgando, ese se detecta en el siguiente aterrizaje. Asi un derrumbe
+// se propaga solo, sin recorrer el mundo entero de una vez.
+void revisarSoporte(World& world, int x, int y, int z) {
+    // El de encima, que es el que mas probable que se quede colgando.
+    if (y + 1 < CHUNK_HEIGHT) soltarBloque(world, x, y + 1, z);
+
+    // Y los cuatro de al lado, por si eran parte de un saliente.
+    static const int LADOS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+    for (int i = 0; i < 4; ++i)
+        soltarBloque(world, x + LADOS[i][0], y, z + LADOS[i][1]);
+}
+
+// Avanza la caida de todos los bloques en el aire.
+void actualizarBloquesCayendo(GameState* state, float deltaTime) {
+    if (g_bloquesCayendo.empty()) return;
+    if (deltaTime <= 0.0f || deltaTime > 0.5f) return;   // frame raro: saltar
+
+    World& world = state->world;
+
+    for (size_t i = 0; i < g_bloquesCayendo.size(); ) {
+        Fisica::BloqueCayendo& b = g_bloquesCayendo[i];
+
+        // ⭐ AQUI ESTA LA FISICA: aceleracion real segun el material.
+        //
+        // La gravedad es la misma para todos (9.80665); lo que cambia entre
+        // materiales es cuanto los frena el aire, que depende de su masa.
+        b.velocidad += Fisica::aceleracionCaida(b.tipo, b.velocidad) * deltaTime;
+
+        const float nuevaY = b.y - b.velocidad * deltaTime;
+
+        // ¿Ha llegado al suelo? Se mira la celda bajo la posicion nueva.
+        const int celdaX = (int)floorf(b.x);
+        const int celdaZ = (int)floorf(b.z);
+        const int celdaAbajo = (int)floorf(nuevaY);
+
+        bool aterriza = false;
+        int destinoY = celdaAbajo;
+
+        if (celdaAbajo < 0) {
+            // Se salio por el fondo del mundo: se pierde.
+            g_bloquesCayendo[i] = g_bloquesCayendo.back();
+            g_bloquesCayendo.pop_back();
+            continue;
+        }
+
+        const BlockType enDestino = world.getBlock(celdaX, celdaAbajo, celdaZ);
+        if (enDestino != BLOCK_AIR && enDestino != BLOCK_WATER &&
+            enDestino != BLOCK_LAVA) {
+            // Choca: se queda en la celda de encima.
+            aterriza = true;
+            destinoY = celdaAbajo + 1;
+        }
+
+        if (aterriza) {
+            // Si la celda de aterrizaje esta ocupada, se busca hueco arriba.
+            // Si no lo hay en tres intentos, el bloque se pierde antes que
+            // machacar lo que haya.
+            int intentos = 0;
+            while (intentos < 3 && destinoY < CHUNK_HEIGHT &&
+                   world.getBlock(celdaX, destinoY, celdaZ) != BLOCK_AIR) {
+                ++destinoY; ++intentos;
+            }
+
+            if (destinoY < CHUNK_HEIGHT &&
+                world.getBlock(celdaX, destinoY, celdaZ) == BLOCK_AIR) {
+                world.setBlock(celdaX, destinoY, celdaZ, b.tipo);
+
+                // Sonido y polvo al golpear, con la fuerza del impacto.
+                if (g_soundManager)
+                    g_soundManager->playBreakBlock(b.tipo, glfwGetTime());
+                state->particles.spawnMiningParticles(
+                    Vec3((float)celdaX + 0.5f, (float)destinoY + 0.5f,
+                         (float)celdaZ + 0.5f), b.tipo);
+
+                // Al posarse puede dejar colgando a sus vecinos.
+                revisarSoporte(world, celdaX, destinoY, celdaZ);
+            }
+
+            g_bloquesCayendo[i] = g_bloquesCayendo.back();
+            g_bloquesCayendo.pop_back();
+            continue;
+        }
+
+        b.y = nuevaY;
+        ++i;
+    }
 }
 
 // ============================================================================
@@ -19752,6 +20409,13 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_TAZON_PINO_AGUA:
         case BLOCK_TAZON_ENCINO_AGUA:
         case BLOCK_TAZON_OYAMEL_AGUA:
+        // Y los de aguamiel: el jugo se bebe o se craftea, no se coloca.
+        case BLOCK_TAZON_PINO_AGUAMIEL:
+        case BLOCK_TAZON_ENCINO_AGUAMIEL:
+        case BLOCK_TAZON_OYAMEL_AGUAMIEL:
+        // El BARRO es material en bruto: se lleva en la mano y se craftea,
+        // pero todavia no es un bloque que se ponga en el suelo.
+        case BLOCK_PEDAZO_BARRO:
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable
@@ -19776,9 +20440,16 @@ void placeBlock(GameState* state) {
     // y hacer clic derecho cambia el tazon vacio por uno lleno.
     //
     // El hueco vuelve a quedar vacio y su contador se reinicia, asi que a los
-    // 7 minutos habra otra vez: un maguey capado se ordena muchas veces, como
-    // el de verdad.
-    if (esTazonVacio(selectedBlock)) {
+    // 10 minutos habra otra vez: un maguey capado se ordena muchas veces,
+    // como el de verdad.
+    //
+    // ⭐ ENTRA CUALQUIER TAZON, no solo el vacio.
+    //
+    // Se pidio poder recoger "con cualquier tipo de tazon". El de agua sirve
+    // (tira el agua y se queda el jugo) y el que ya lleva aguamiel tambien
+    // (lo rellena). Ojo: llenar en el RIO sigue siendo cosa solo de los
+    // vacios -- eso se comprueba dentro, en su propia rama.
+    if (esTazon(selectedBlock)) {
 
         const Vec3 ori = state->player.getEyePosition();
         const Vec3 dir = state->player.getForward();
@@ -19806,6 +20477,15 @@ void placeBlock(GameState* state) {
                 if (b == BLOCK_AIR) continue;
 
                 if (b == BLOCK_WATER) {
+                    // ⭐ SOLO SE LLENA EN EL RIO UN TAZON VACIO.
+                    //
+                    // Ahora esta rama la alcanzan tambien los tazones que ya
+                    // llevan algo (para poder recoger aguamiel con
+                    // cualquiera). Sin esta guarda, meter en el agua un tazon
+                    // de aguamiel lo cambiaria por agua: se perderia el jugo
+                    // sin querer, que cuesta 10 minutos de espera conseguir.
+                    if (!esTazonVacio(selectedBlock)) break;
+
                     // ⭐ EL AGUA BAJA UN NIVEL
                     //
                     // Los niveles van de 0 (fuente) a 7 (el hilo mas fino),
@@ -19864,14 +20544,23 @@ void placeBlock(GameState* state) {
                 }
             }
 
-            // El tazon vacio se cambia por uno lleno. De momento el "lleno"
-            // es el propio aguamiel como item: cuando exista el tazon lleno
-            // como objeto, se cambia solo aqui.
+            // ⭐ EL TAZON SALE LLENO DE AGUAMIEL
+            //
+            // Antes esto soltaba el aguamiel como item suelto y el tazon se
+            // consumia: el jugador perdia el recipiente y se quedaba con un
+            // liquido en la mano sin nada donde llevarlo.
+            //
+            // Ahora el tazon se transforma. tazonConAguamiel acepta CUALQUIER
+            // tazon -- vacio, con agua o ya con aguamiel -- porque se pidio
+            // que valiera "cualquier tipo de tazon"; el que llevara agua la
+            // pierde, que es lo que haria cualquiera al cambiarla por algo
+            // mejor.
+            const BlockType conJugo = tazonConAguamiel(selectedBlock);
             state->inventory.consumeSelected();
             const Vec3 pj(state->player.position.x,
                           state->player.position.y + 1.0f,
                           state->player.position.z);
-            state->spawnItem(pj, BLOCK_AGUAMIEL);
+            state->spawnItem(pj, conJugo);
 
             state->placeCooldown = 0.25f;
             return;
@@ -26482,6 +27171,11 @@ int main() {
                 // g_gameState->world.processLightingQueue();
                 g_gameState->updateItems(deltaTime);
 
+                // ⭐ BLOQUES EN EL AIRE: gravedad real (ver FisicaCaida.h).
+                // Si no hay ninguno cayendo, sale en la primera linea y no
+                // cuesta nada.
+                actualizarBloquesCayendo(g_gameState, deltaTime);
+
                 // ⭐ VIDA: un corazon por cada hora jugada.
                 // Solo cuenta el tiempo DENTRO del mundo (no los menus ni la
                 // pausa), que es lo que hace justo el contador.
@@ -27117,6 +27811,64 @@ int main() {
             glPopMatrix();
         }
         glPopMatrix();
+
+        // ====================================================================
+        // ⭐ LOS BLOQUES QUE ESTAN CAYENDO
+        // ====================================================================
+        // Mientras vuelan no estan en el mundo, asi que el mallado de chunks
+        // no los dibuja: hay que pintarlos aqui, uno a uno, en su posicion
+        // exacta. Son pocos y duran un instante, asi que el modo inmediato
+        // basta y no merece un VBO.
+        if (!g_bloquesCayendo.empty()) {
+            glEnable(GL_TEXTURE_2D);
+            glEnable(GL_CULL_FACE);
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+            for (const Fisica::BloqueCayendo& b : g_bloquesCayendo) {
+                const GLuint tex = g_textureManager
+                    ? g_textureManager->getBlockTexture(b.tipo, 0) : 0;
+                if (tex == 0) continue;
+
+                g_textureManager->bindOptimized(tex);
+
+                const float x0 = b.x,        x1 = b.x + 1.0f;
+                const float y0 = b.y,        y1 = b.y + 1.0f;
+                const float z0 = b.z,        z1 = b.z + 1.0f;
+
+                glBegin(GL_QUADS);
+                // arriba
+                glTexCoord2f(0,0); glVertex3f(x0,y1,z0);
+                glTexCoord2f(1,0); glVertex3f(x1,y1,z0);
+                glTexCoord2f(1,1); glVertex3f(x1,y1,z1);
+                glTexCoord2f(0,1); glVertex3f(x0,y1,z1);
+                // abajo
+                glTexCoord2f(0,0); glVertex3f(x0,y0,z0);
+                glTexCoord2f(1,0); glVertex3f(x0,y0,z1);
+                glTexCoord2f(1,1); glVertex3f(x1,y0,z1);
+                glTexCoord2f(0,1); glVertex3f(x1,y0,z0);
+                // norte
+                glTexCoord2f(0,0); glVertex3f(x0,y0,z0);
+                glTexCoord2f(1,0); glVertex3f(x0,y1,z0);
+                glTexCoord2f(1,1); glVertex3f(x1,y1,z0);
+                glTexCoord2f(0,1); glVertex3f(x1,y0,z0);
+                // sur
+                glTexCoord2f(0,0); glVertex3f(x0,y0,z1);
+                glTexCoord2f(1,0); glVertex3f(x1,y0,z1);
+                glTexCoord2f(1,1); glVertex3f(x1,y1,z1);
+                glTexCoord2f(0,1); glVertex3f(x0,y1,z1);
+                // este
+                glTexCoord2f(0,0); glVertex3f(x1,y0,z0);
+                glTexCoord2f(1,0); glVertex3f(x1,y1,z0);
+                glTexCoord2f(1,1); glVertex3f(x1,y1,z1);
+                glTexCoord2f(0,1); glVertex3f(x1,y0,z1);
+                // oeste
+                glTexCoord2f(0,0); glVertex3f(x0,y0,z0);
+                glTexCoord2f(1,0); glVertex3f(x0,y0,z1);
+                glTexCoord2f(1,1); glVertex3f(x0,y1,z1);
+                glTexCoord2f(0,1); glVertex3f(x0,y1,z0);
+                glEnd();
+            }
+        }
 
         // Re-habilitar culling y deshabilitar texturas para el resto del renderizado
         glEnable(GL_CULL_FACE);

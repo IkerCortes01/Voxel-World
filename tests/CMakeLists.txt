@@ -16,7 +16,11 @@ add_executable(voxel_tests
     test_cuevas.cpp
     test_maguey.cpp
     test_minerales.cpp
+    test_fisica.cpp
     test_celdas_mixtas.cpp
+    test_barro.cpp
+    test_aguamiel.cpp
+    test_maguey_punta.cpp
 )
 
 target_include_directories(voxel_tests PRIVATE

@@ -47,7 +47,9 @@ enum TreeType : uint8_t {
     TREE_SMALL_OAK,
     TREE_MOUNTAIN,
     TREE_ENCINO,     // Encino: copa ancha y redondeada
-    TREE_OYAMEL      // Oyamel: conifera alta y conica
+    TREE_OYAMEL,     // Oyamel: conifera alta y conica
+    TREE_OCOTE,      // Ocote (Pinus montezumae): fuste largo, copa redondeada
+    TREE_OCOTE_CHINO // Ocote chino (Pinus leiophylla): copa mas tupida
 };
 
 class DecorationSystem {
@@ -185,23 +187,41 @@ public:
                     if (r < 0.94f) return TREE_PINE;
                     return TREE_BIRCH;
                 }
-                // Bosque templado: el oyamel pasa a ser la especie principal.
-                if (r < 0.72f) return TREE_OYAMEL;
+                // Bosque templado: el oyamel sigue mandando, pero comparte con
+                // el OCOTE, que es justo el pino de esta franja de clima --
+                // los bosques de pino-encino del centro de Mexico. Le cede una
+                // cuarta parte de su tramo.
+                //
+                // Los DOS OCOTES conviven aqui, que es lo que pasa de verdad:
+                // en los bosques de pino-encino del centro de Mexico el
+                // montezumae y el leiophylla crecen mezclados. El tramo del
+                // ocote se reparte entre los dos, asi que la cantidad total de
+                // pino no cambia -- lo que cambia es que ahora hay dos.
+                if (r < 0.54f) return TREE_OYAMEL;
+                if (r < 0.63f) return TREE_OCOTE;
+                if (r < 0.72f) return TREE_OCOTE_CHINO;
                 if (r < 0.83f) return TREE_ENCINO;
                 if (r < 0.90f) return TREE_OAK;
                 if (r < 0.96f) return TREE_BIRCH;
                 return TREE_SMALL_OAK;
 
             case BIOME_PLAINS:
-                // Incluso en llanura el oyamel es ya el arbol mas frecuente.
-                if (r < 0.65f) return TREE_OYAMEL;
+                // En llanura el ocote es raro: es arbol de ladera y altura.
+                if (r < 0.58f) return TREE_OYAMEL;
+                if (r < 0.65f) return TREE_OCOTE;
                 if (r < 0.82f) return TREE_SMALL_OAK;
                 if (r < 0.93f) return TREE_OAK;
                 return TREE_ENCINO;
 
             case BIOME_MOUNTAINS:
-                // Alta montana: su habitat por excelencia, casi exclusivo.
-                if (r < 0.88f) return TREE_OYAMEL;
+                // Alta montana: el oyamel domina la cota alta, pero el ocote
+                // es EL pino de la montana mexicana y aqui tiene su sitio.
+                //
+                // El chino sube menos que el blanco: Pinus leiophylla es de
+                // cota media, asi que aqui se lleva la parte pequena.
+                if (r < 0.62f) return TREE_OYAMEL;
+                if (r < 0.81f) return TREE_OCOTE;
+                if (r < 0.88f) return TREE_OCOTE_CHINO;
                 if (r < 0.95f) return TREE_MOUNTAIN;
                 return TREE_PINE;
 

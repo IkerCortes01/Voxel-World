@@ -1,0 +1,174 @@
+#pragma once
+
+#include <vector>
+#include <map>
+#include <set>
+#include <cstdint>
+
+// ============================================================================
+// LA GEOMETRIA DE UN CHUNK, SIN OPENGL
+// ============================================================================
+// Este archivo existe para separar UNA cosa de otra:
+//
+//     construir la geometria   (CPU pura -- se puede hacer en cualquier hilo)
+//     subirla a la GPU         (OpenGL   -- SOLO el hilo principal)
+//
+// ----------------------------------------------------------------------------
+// POR QUE HACIA FALTA
+// ----------------------------------------------------------------------------
+// Medido en el juego real, 90 segundos de partida:
+//
+//     estado estacionario:  chunks = 0.06 ms   (nada)
+//     durante la carga:     chunks = 25.3 ms   <- el tiron, FPS de 199 a 30
+//
+// Los 25 ms no son de GENERAR terreno: son de MALLARLO. Los 2 hilos de
+// generacion producen chunks en paralelo y luego el hilo principal los malla
+// de uno en uno, en serie, con un presupuesto de 2.5 ms que un solo chunk
+// puede desbordar entero (un chunk son ~330.000 iteraciones de celda).
+//
+// Subir el numero de hilos de generacion no arregla esto: la generacion ya
+// cuesta 0.06 ms. Lo que hay que mover de hilo es el MALLADO.
+//
+// ----------------------------------------------------------------------------
+// POR QUE SE PUEDE
+// ----------------------------------------------------------------------------
+// Se comprobo dónde vive OpenGL dentro de buildChunkMesh: TODAS las llamadas
+// (glGenBuffers, glBufferData, glDeleteBuffers) estan concentradas en las
+// ultimas ~100 lineas. Las ~5.600 anteriores solo llenan tres
+// `std::map<GLuint, std::vector<float>>` con vertices, colores y UVs.
+//
+// O sea: la parte cara ya es CPU pura, solo estaba pegada a la parte de GPU.
+// Este tipo es la frontera entre las dos.
+//
+// ----------------------------------------------------------------------------
+// QUE ES Y QUE NO ES
+// ----------------------------------------------------------------------------
+// `MallaChunk` es un CONTENEDOR DE DATOS, no un objeto de render. No tiene
+// handles de GL, no llama a ninguna funcion de GL y no necesita contexto.
+// Por eso puede viajar entre hilos: se construye en un worker, se pasa al
+// hilo principal, y alli se convierte en VBOs.
+//
+// Es deliberadamente el MISMO layout que ya usaba el mesher (tres mapas
+// indexados por textura), para que el cambio sea mecanico y no toque las
+// 5.600 lineas de geometria.
+// ============================================================================
+
+namespace Render {
+
+// El identificador de textura. Se usa un alias en vez de GLuint para que este
+// header NO tenga que incluir OpenGL: es lo que le permite compilarse en un
+// worker y, de paso, en los tests.
+using TexID = unsigned int;
+
+// ----------------------------------------------------------------------------
+// LA GEOMETRIA DE UN BATCH (una textura)
+// ----------------------------------------------------------------------------
+struct BatchCPU {
+    TexID              textura = 0;
+    std::vector<float> vertices;   // x,y,z por vertice
+    std::vector<float> colores;    // r,g,b,a por vertice
+    std::vector<float> uvs;        // u,v por vertice
+
+    // Las dos marcas que el render necesita y que el mesher ya calculaba:
+    //   transparente -> agua/lava: va en el pase con blending
+    //   recortado    -> hierba/hojas: necesita GL_ALPHA_TEST
+    bool transparente = false;
+    bool recortado    = false;
+
+    // Cuantos vertices hay. Se deriva, no se guarda por duplicado.
+    size_t numVertices() const { return vertices.size() / 3; }
+
+    bool vacio() const { return vertices.empty(); }
+
+    // ⭐ VALIDACION QUE ANTES ESTABA SUELTA EN EL MESHER
+    //
+    // El mesher comprobaba a mano que los tres vectores cuadraran y que no
+    // hubiera NaN. Se trae aqui para que la comprobacion viaje CON los datos:
+    // asi el hilo principal puede rechazar un batch corrupto sin tener que
+    // repetir la logica, y un test puede verificarla sin arrancar OpenGL.
+    bool coherente() const {
+        if (vertices.empty()) return false;
+        const size_t n = numVertices();
+        if (vertices.size() % 3 != 0) return false;
+        if (colores.size() != n * 4)  return false;
+        if (uvs.size()     != n * 2)  return false;
+        // GL_QUADS: los vertices van de cuatro en cuatro.
+        if (n % 4 != 0) return false;
+        return true;
+    }
+};
+
+// ----------------------------------------------------------------------------
+// LA MALLA COMPLETA DE UN CHUNK
+// ----------------------------------------------------------------------------
+struct MallaChunk {
+    std::vector<BatchCPU> batches;
+
+    // Si el mesher no pudo resolver alguna textura. El hilo principal lo usa
+    // para decidir si reintentar mas tarde en vez de dar la malla por buena.
+    bool texturasFaltantes = false;
+
+    // Un chunk sin nada que dibujar es un resultado VALIDO (aire puro), no un
+    // error: hay que distinguirlo de "no se pudo mallar".
+    bool vacia() const { return batches.empty(); }
+
+    size_t totalVertices() const {
+        size_t t = 0;
+        for (const BatchCPU& b : batches) t += b.numVertices();
+        return t;
+    }
+
+    void limpiar() {
+        batches.clear();
+        texturasFaltantes = false;
+    }
+
+    // ⭐ CONSTRUIR DESDE EL LAYOUT QUE YA USA EL MESHER
+    //
+    // El mesher acumula en tres mapas paralelos indexados por textura. Esto
+    // los convierte en la lista de batches, aplicando de paso la validacion.
+    //
+    // Se pasa por parametro y no se toca el mesher por dentro: el objetivo es
+    // que la separacion de hilos NO obligue a reescribir las 5.600 lineas de
+    // geometria, que es donde estarian los bugs.
+    static MallaChunk desdeMapas(
+            const std::map<TexID, std::vector<float>>& vertices,
+            const std::map<TexID, std::vector<float>>& colores,
+            const std::map<TexID, std::vector<float>>& uvs,
+            const std::set<TexID>& transparentes,
+            const std::set<TexID>& recortadas,
+            bool faltanTexturas) {
+
+        MallaChunk m;
+        m.texturasFaltantes = faltanTexturas;
+        m.batches.reserve(vertices.size());
+
+        for (const auto& par : vertices) {
+            const TexID tex = par.first;
+            if (par.second.empty()) continue;
+
+            auto itC = colores.find(tex);
+            auto itU = uvs.find(tex);
+            if (itC == colores.end() || itU == uvs.end()) continue;
+
+            BatchCPU b;
+            b.textura      = tex;
+            b.vertices     = par.second;
+            b.colores      = itC->second;
+            b.uvs          = itU->second;
+            b.transparente = (transparentes.count(tex) != 0);
+            b.recortado    = (recortadas.count(tex) != 0);
+
+            // Un batch incoherente se DESCARTA aqui, antes de cruzar de hilo.
+            // Asi el hilo principal solo recibe geometria que ya se sabe
+            // valida, y no hay que decidir que hacer con basura a mitad de la
+            // subida a GPU.
+            if (!b.coherente()) continue;
+
+            m.batches.push_back(std::move(b));
+        }
+        return m;
+    }
+};
+
+} // namespace Render

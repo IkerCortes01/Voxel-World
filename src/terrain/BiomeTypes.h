@@ -31,20 +31,30 @@ namespace TerrainGen {
 // Ahora cada constante se DERIVA del enum: si manana se reordena otra vez,
 // estos valores se actualizan solos y el fallo no puede repetirse.
 namespace Blocks {
-    // ⭐ 16 BITS, NO 8.
+    // ⭐ 32 BITS, NO 16 (y antes fueron 8).
     //
-    // Esto era un uint8_t, y el enum ya pasa de 255 IDs: la pirita (262) se
-    // truncaba a 6 al generar terreno, asi que su veta NUNCA aparecia en el
-    // mundo. En silencio, sin error ni aviso -- solo un mineral que no
-    // existia.
+    // La historia de este tipo es la historia de un mismo fallo repetido: un
+    // ID que no cabe se trunca EN SILENCIO y el bloque resultante es otro.
     //
-    // Lo detecto un test que MIDE cuanto sale de cada mineral: la pirita daba
-    // 0,00% donde deberia dar ~4%. Sin esa medicion habria pasado por un
-    // umbral mal puesto.
+    //   uint8_t  -> la pirita (262) se truncaba a 6, asi que su veta NUNCA
+    //               aparecia en el mundo. Sin error ni aviso. Lo caso un test
+    //               que MIDE cuanto sale de cada mineral: daba 0,00% donde
+    //               debia dar ~4%.
     //
-    // El alias existe para que este limite tenga UN SOLO sitio: el dia que se
-    // pasen los 65.535 bloques, se cambia aqui y ya.
-    using Id = uint16_t;
+    //   uint16_t -> el mismo fallo esperando a los BLOQUES COMPUESTOS. Su
+    //               espacio de IDs empieza en 100.000 (ver BloqueCompuesto.h),
+    //               muy por encima de los 65.535 que caben en 16 bits. Con
+    //               este tipo, el generador NO PUEDE escribir agua con nivel:
+    //               `Agua::nuevo(8)` = 100.008 se truncaria a 34.472, que no
+    //               es agua ni es nada.
+    //
+    // Por eso sube a 32 bits ahora, que es cuando el generador de rios empieza
+    // a necesitar escribir agua con volumen. BlockType es un enum de 4 bytes y
+    // el chunk lo guarda como tal, asi que este tipo no ensancha nada en disco
+    // ni en memoria: solo deja de estrechar por el camino.
+    //
+    // El alias existe para que este limite tenga UN SOLO sitio.
+    using Id = uint32_t;
 
     constexpr Id AIR          = (Id)BLOCK_AIR;
     constexpr Id GRASS        = (Id)BLOCK_GRASS;

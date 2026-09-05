@@ -1,0 +1,447 @@
+{
+  "_meta": {
+    "titulo": "Pecarí de collar — segunda ronda de investigación: cierre de lagunas declaradas",
+    "version": "1.0",
+    "proyecto": "Voxel World — AI simulator",
+    "fecha": "2026-08-30",
+    "rol": "Quinta capa de datos de la especie. NO sustituye a 10_PECARI_BIOLOGIA.json: lo AMPLÍA atacando específicamente las 22 lagunas que aquel archivo declaró en su bloque 'lagunas_declaradas'.",
+    "por_que_existe_este_archivo": "10_PECARI_BIOLOGIA.json hizo lo correcto al declarar sus huecos en vez de rellenarlos a ojo. Un hueco declarado es una invitación a mejorar el modelo (02_PROTOCOLO_DE_INVESTIGACION.fase_5). Esta es la ejecución de esa invitación: una segunda pasada de búsqueda bibliográfica dirigida SOLO a esos huecos.",
+    "metodo": "Fases 1-3 del protocolo 02 aplicadas a cada laguna. Se reporta el resultado sea cual sea: laguna CERRADA con dato citable, laguna PARCIAL, o laguna CONFIRMADA como hueco real de la literatura.",
+    "regla_de_integridad": "Ningún dato de este archivo se ha promovido de nivel de confianza para que quede mejor. Varias lagunas siguen abiertas y se dice.",
+    "advertencia_de_acceso": "Persisten los bloqueos de la primera sesión: IUCN Red List (403), ResearchGate (403), PubMed (bloqueo por cookies), ScienceDirect (403). Algunos datos provienen de abstracts o de fuentes de nivel 2 que citan la primaria, y se marcan como tales."
+  },
+
+  "resumen_de_la_sesion": {
+    "lagunas_atacadas": 22,
+    "lagunas_CERRADAS_con_dato_citable": 9,
+    "lagunas_PARCIALMENTE_cerradas": 5,
+    "lagunas_CONFIRMADAS_como_hueco_real": 8,
+    "hallazgos_que_MODIFICAN_decisiones_de_diseno_previas": 2,
+    "hallazgos_nuevos_no_buscados": 3,
+    "lectura_honesta": "La mayor ganancia no es el número de lagunas cerradas, sino que DOS de los hallazgos obligan a matizar decisiones que el proyecto ya había tomado, y que la decisión #1 (no hay macho alfa) sale REFORZADA por una fuente independiente que no se había citado."
+  },
+
+  "hallazgos_que_modifican_decisiones_previas": {
+    "_nota": "Esto es lo más importante del archivo. Son los dos puntos donde la investigación nueva contradice o matiza lo que el modelo ya asumía.",
+
+    "MODIFICACION_1_el_patron_de_actividad_es_PLASTICO_no_fijo": {
+      "que_decia_el_modelo": "00_LEEME.txt, decisión de diseño #2: 'ES DIURNO, NO NOCTURNO. Pico de actividad hacia las 09:24'. Se trata como una constante de la especie.",
+      "que_dice_la_evidencia_nueva": "El patrón de actividad NO es una constante: es una RESPUESTA al riesgo de depredación percibido, y varía dentro de la MISMA población según el tipo de sitio.",
+      "datos": {
+        "zonas_de_forrajeo_de_ALTO_riesgo": { "diurno_pct": 98, "nocturno_pct": 2, "pico": "0800-1700 h", "patron": "Exclusivamente diurno, un solo pico" },
+        "zonas_de_forrajeo_de_BAJO_riesgo": { "diurno_pct": 42, "nocturno_pct": 58, "patron": "Dos picos crepusculares: amanecer 0600-1000 h y atardecer 1700-2030 h" },
+        "rasgos_lineales_caminos_y_senderos": { "diurno_pct": 92, "nocturno_pct": 8, "solapamiento_con_alto_riesgo": 0.82, "interpretacion": "El pecarí percibe los caminos y senderos como RIESGO, y se comporta en ellos igual que en una zona de alto riesgo" },
+        "solapamiento_temporal_con_depredadores_en_alto_riesgo": { "jaguar": 0.16, "puma": 0.57, "interpretacion": "Evitación temporal activa del jaguar; mucho menor del puma" }
+      },
+      "muestra": { "rasgos_lineales": "34 registros / 451 cámara-noches", "forrajeo_alto_riesgo": "52 registros / 468 cámara-noches", "forrajeo_bajo_riesgo": "316 registros" },
+      "region": "Reserva de la Biosfera Sierra de Manantlán, Jalisco, MÉXICO",
+      "fechas": "Abril-mayo 2015 (zonas de forrajeo); marzo-junio 2015 (rasgos lineales)",
+      "fuente": "Journal of Mammalogy 106(1):118, 'Landscape and diel fear cycles: linear features are perceived as risky by peccary (Dicotyles tajacu)'",
+      "url": "https://academic.oup.com/jmammal/article/106/1/118/7866790",
+      "confianza": "MEDIDO",
+      "valor_para_el_proyecto": "ALTÍSIMO. Es un estudio MEXICANO, con el nombre taxonómico vigente, y convierte un parámetro fijo en un COMPORTAMIENTO EMERGENTE.",
+      "instruccion_para_el_modelo": "NO codificar el ritmo circadiano como una curva fija de la especie. Codificarlo como una PREFERENCIA BASE diurna MODULADA por el nivel de riesgo percibido de la ubicación. El animal debe volverse crepuscular/nocturno donde se siente seguro y estrictamente diurno donde no. Esto ya encaja con el sistema existente: 'seguridad' es una de las siete necesidades base de 01_ARQUITECTURA, y la memoria espacial de lugares peligrosos ya está especificada.",
+      "regalo_de_diseno": "El hallazgo de los rasgos lineales es directamente jugable: si el jugador abre un camino o un sendero por el mundo de vóxeles, los pecaríes deberían tratarlo como zona de riesgo y volverse diurnos allí. Es una interacción jugador-fauna emergente que sale gratis del dato."
+    },
+
+    "MODIFICACION_2_no_puede_jadear_la_termorregulacion_es_CONDUCTUAL": {
+      "que_decia_el_modelo": "10_PECARI_BIOLOGIA registra temperatura corporal 37.5-40.9 °C y declara AUSENTE la zona termoneutral y los umbrales térmicos de actividad.",
+      "que_dice_la_evidencia_nueva": "El pecarí de collar NO PUEDE evaporar humedad jadeando para evitar el sobrecalentamiento, a diferencia de coyotes y linces que comparten su hábitat.",
+      "consecuencia_biologica": "Su ÚNICA vía de termorregulación frente al calor es CONDUCTUAL: buscar sombra, echarse en el suelo fresco, usar cuevas, y revolcarse en lodo. No tiene salida fisiológica.",
+      "datos_termicos_asociados": {
+        "temperatura_corporal_labil_C": [37.5, 40.9],
+        "nota_labilidad": "El rango se registra TANTO en invierno como en verano: la temperatura corporal es lábil, no estrictamente regulada. Es en sí mismo una estrategia de ahorro.",
+        "temperatura_de_la_piel_maxima_verano_C": 49.2,
+        "nota_piel": "La temperatura de la piel está SIEMPRE por encima de la ambiental",
+        "confianza": "MEDIDO"
+      },
+      "comportamiento_documentado": "Se echan a la sombra durante el calor del mediodía (bajo arbusto, roca o en cueva) y forrajean donde hace más fresco. En verano desplazan actividad a la noche.",
+      "confianza": "MEDIDO (la incapacidad de jadear y el uso de sombra); AUSENTE (la zona termoneutral numérica sigue sin encontrarse)",
+      "instruccion_para_el_modelo": "La necesidad 'estres_termico' de 01_ARQUITECTURA debe tener en esta especie un peso ALTO y, sobre todo, NINGUNA vía de satisfacción fisiológica. El único satisfactor es moverse: sombra, cueva, lodo. Esto hace que el comportamiento TERMORREGULAR compita de verdad con FORRAJEAR en las horas centrales, que es exactamente lo que se observa en campo.",
+      "conexion_con_la_modificacion_1": "Las dos modificaciones se refuerzan: el animal es diurno por miedo pero no puede estar activo al mediodía por calor. De ese conflicto salen SOLOS los dos picos crepusculares. El ritmo de actividad no hay que programarlo: emerge de dos presiones opuestas."
+    }
+  },
+
+  "lagunas_CERRADAS": [
+    {
+      "laguna_original": "Química de la secreción de la glándula dorsal y dimensiones glandulares",
+      "estado_nuevo": "CERRADA (la química) / SIGUE ABIERTA (las dimensiones)",
+      "hallazgo": {
+        "tejidos": "La glándula dorsal contiene tejido secretor TANTO sebáceo COMO sudoríparo",
+        "numero_de_volatiles": "~20 componentes volátiles, algunos específicos de macho o de hembra",
+        "compuestos_en_AMBOS_sexos": [
+          "(2E,6E,10E)-geranilgeraniol",
+          "escualeno (isómero allE)",
+          "(3E,6E,10E)-alfa-springeno",
+          "(3Z,6E,10E)-alfa-springeno",
+          "(6E,10E)-beta-springeno"
+        ],
+        "compuestos_SOLO_en_hembras": "Ésteres de cadena lineal y ramificada, abundantes en hembras y NO detectados en machos",
+        "metodo": "Cromatografía de gases-espectrometría de masas (GC-MS)"
+      },
+      "fuente": "Waterhouse, J.S., Ke, J., Pickett, J.A. y Weldon, P.J. (1996), 'Volatile components in dorsal gland secretions of the collared peccary, Tayassu tajacu (Tayassuidae, Mammalia)', Journal of Chemical Ecology",
+      "url": "https://repository.rothamsted.ac.uk/item/876x7/volatile-components-in-dorsal-gland-secretions-of-the-collared-peccary-tayassu-tajacu-tayassuidae-mammalia",
+      "confianza": "MEDIDO",
+      "por_que_importa_para_la_simulacion": "El dimorfismo QUÍMICO es el hallazgo aprovechable: la secreción de la hembra contiene ésteres que la del macho no tiene. Eso da base MEDIDA a que el marcaje transmita el SEXO del emisor, no solo la identidad de manada. Un macho puede detectar por olor que ha pasado una hembra.",
+      "instruccion_para_el_modelo": "El evento de marcaje debe llevar al menos: identidad de manada, sexo del emisor y antigüedad. La distinción por sexo NO es invención: está medida."
+    },
+    {
+      "laguna_original": "Distancia diaria recorrida",
+      "estado_nuevo": "CERRADA",
+      "hallazgo": { "distancia_diaria_media_km": 2.2, "area_diaria_media_ha": 18.2 },
+      "fuente": "Taber et al. (1993), citado en fichas de Ultimate Ungulate y ADW",
+      "confianza": "MEDIDO (el valor) / nivel 2 (la vía de acceso: no se pudo leer el original)",
+      "nota_de_honestidad": "El número viene citado consistentemente en fuentes de nivel 2 que atribuyen a Taber et al. 1993. NO se pudo acceder al artículo original. Verificar antes de citarlo formalmente.",
+      "coherencia_cruzada": "2.2 km/día sobre un ámbito hogareño de 150-250 ha es dimensionalmente coherente: el animal recorre una fracción de su ámbito cada día, que es lo esperable. Y 18.2 ha diarias sobre 150-250 ha de ámbito da ~8-12% del ámbito por día, coherente con un uso rotatorio del territorio.",
+      "contraste_regional": "Las fuentes de Texas dan cifras menores: 'rara vez más de una milla al día', y hasta media milla cuando las condiciones del hábitat son buenas. Es coherente: mejor hábitat, menos desplazamiento."
+    },
+    {
+      "laguna_original": "Uso de madrigueras y cuevas",
+      "estado_nuevo": "CERRADA (cualitativamente)",
+      "hallazgos": {
+        "refugio_nocturno_invierno": "Descansan en CUEVAS o en hoyos excavados por ellos mismos",
+        "refugio_general": "Duermen en madrigueras, a menudo bajo arbustos o en sistemas de raíces de árboles grandes",
+        "refugio_de_mediodia": "Se echan en matorral denso o en macizos de nopal durante el calor del mediodía",
+        "sitios_de_descanso_como_infraestructura_social": "Los machos marcan rocas y árboles cerca de las zonas de descanso con la glándula dorsal, y en esos sitios muy usados hay LETRINAS visitadas por toda la manada",
+        "habitat_rocoso": "Cañones rocosos donde cavernas y oquedades ofrecen protección"
+      },
+      "confianza": "MEDIDO (cualitativo, múltiples fuentes independientes) / AUSENTE (dimensiones, profundidad, número de refugios por manada)",
+      "valor_para_un_mundo_de_VOXELES": "ALTO y directamente implementable. El refugio no es un punto abstracto: es un TIPO DE BLOQUE identificable (cueva, matorral denso, macizo de nopal, raíces). El motor ya tiene nopal implementado.",
+      "instruccion_para_el_modelo": "Definir 'refugio' como una consulta al mundo, no como una entidad aparte: un bloque es refugio si tiene techo sólido encima, o si es vegetación densa. Encaja con IFaunaWorldQuery.isSolid y getBlock sin añadir métodos nuevos.",
+      "regalo_de_diseno": "La LETRINA compartida junto al sitio de descanso es un objeto de mundo emergente, visible y barato: marca el territorio de una manada de forma que el JUGADOR puede leerla. Es exactamente el tipo de legibilidad que 01_ARQUITECTURA identifica como la lección de Rain World."
+    },
+    {
+      "laguna_original": "Dieta con especies vegetales mexicanas concretas",
+      "estado_nuevo": "CERRADA",
+      "hallazgo_principal": {
+        "region": "Calakmul, Campeche, MÉXICO — selva tropical",
+        "composicion_anual": { "frutos_pct": 57.9, "hojas_pct": 30.1, "resto_pct": 12.0, "nota_resto": "El artículo no desglosa el 12% restante en el abstract accesible" },
+        "numero_de_especies_vegetales": 37,
+        "especies_principales_identificadas": [
+          { "nombre": "Brosimum alicastrum", "comun": "Ramón / ojite", "nota": "Árbol clave de la selva maya; su fruto y semilla fueron alimento humano prehispánico documentado" },
+          { "nombre": "Manilkara zapota", "comun": "Chicozapote", "nota": "El árbol del chicle" },
+          { "nombre": "Piper amalago", "comun": "Cordoncillo" },
+          { "nombre": "Zea mays", "comun": "MAÍZ", "nota": "CONSUMO DE CULTIVO. Ver nota de diseño abajo." }
+        ],
+        "periodo_de_estudio": "Mayo 2005 - julio 2006",
+        "fuente": "Pérez-Cortez, S. y Reyna-Hurtado, R., 'La dieta de los pecaríes (Pecari tajacu y Tayassu pecari) en la región de Calakmul, Campeche, México', Revista Mexicana de Mastozoología (Nueva Época)",
+        "url": "https://www.revmexmastozoologia.unam.mx/ojs/index.php/rmm/article/view/45",
+        "confianza": "MEDIDO"
+      },
+      "hallazgo_secundario_yucatan": {
+        "numero_de_especies": 38,
+        "numero_de_familias": 18,
+        "familia_mas_consumida": "Arecaceae (palmas)",
+        "confianza": "MEDIDO",
+        "nota": "Estudio independiente en la península de Yucatán; concuerda en magnitud con Calakmul (37 vs 38 especies)"
+      },
+      "contraste_con_el_dato_semiarido_ya_registrado": "10_PECARI_BIOLOGIA registra Opuntia (nopal) al 25-80% de la dieta en zona SEMIÁRIDA. Calakmul da 57.9% frutos y 30.1% hojas en SELVA. NO se contradicen: son biomas distintos y confirman que la dieta es fuertemente dependiente del bioma.",
+      "instruccion_para_el_modelo": "La tabla de alimento NO puede ser única para la especie: debe indexarse por BIOMA. En semiárido domina el nopal (que además da agua); en selva dominan los frutos de árbol. Esto encaja con el patrón de 'smart objects' de 01_ARQUITECTURA: cada bloque anuncia qué necesidad satisface y en qué cantidad, y el mismo animal come cosas distintas según dónde esté, sin código nuevo.",
+      "REGALO_DE_DISENO_IMPORTANTE": {
+        "hallazgo": "Zea mays (maíz) aparece en la dieta silvestre medida en Calakmul",
+        "por_que_es_oro_para_este_proyecto": "El juego está ambientado en Mesoamérica. El pecarí comiéndose la milpa NO es una mecánica inventada para dar juego: es un dato de campo publicado. Es el conflicto humano-fauna real del sureste mexicano.",
+        "implicacion_jugable": "Si el jugador siembra maíz, los pecaríes deben venir a comérselo. Y la defensa de la milpa contra el pecarí es una actividad históricamente real en la zona maya.",
+        "confianza": "MEDIDO"
+      }
+    },
+    {
+      "laguna_original": "Densidad por tipo de hábitat en México",
+      "estado_nuevo": "CERRADA (para selva) / PARCIAL (otros biomas)",
+      "hallazgos": [
+        { "region": "Quintana Roo, MÉXICO", "densidad_ind_km2": 1.9, "error": 0.8, "densidad_manadas_km2": 0.2, "error_manadas": 0.1, "confianza": "MEDIDO", "nota": "Es el dato mexicano que faltaba. Confirma el rango 1-2 ind/km² que 10_PECARI_BIOLOGIA ya usaba con confianza MEDIA." },
+        { "region": "Tierras bajas del Caribe, COSTA RICA", "densidad_ind_km2": [19.1, 65.9], "confianza": "MEDIDO", "ADVERTENCIA": "Un ORDEN DE MAGNITUD por encima del dato mexicano. NO usar para México. La diferencia probablemente refleja presión de caza y calidad de hábitat." },
+        { "region": "Reserva Zicuirán-Infiernillo, Michoacán, MÉXICO", "dato": "Densidad menor que la del venado cola blanca, estimado en 6-12 ind/km²", "confianza": "INFERIDO", "nota": "Basado en observaciones de campo y entrevistas a cazadores, no en estimación formal" }
+      ],
+      "instruccion_para_el_modelo": "Usar 1.9 ind/km² y 0.2 manadas/km² como densidad objetivo para bioma de selva mexicana. La divergencia con Costa Rica (hasta 35x) debe declararse: la densidad es de los parámetros MÁS variables de esta especie, y elegir el valor costarricense llenaría el mundo de pecaríes.",
+      "coherencia_cruzada": "1.9 ind/km² con manadas de 0.2/km² implica un tamaño medio de manada de 9.5 individuos, que cae DENTRO del rango 6-10 (selva) que ya registraba 10_PECARI_BIOLOGIA. Los dos datos son mutuamente consistentes, lo que refuerza ambos."
+    },
+    {
+      "laguna_original": "Rango altitudinal específico en México",
+      "estado_nuevo": "CERRADA (parcialmente, con dato regional de EE.UU.)",
+      "hallazgos": {
+        "limite_superior_tipico_m": 1800,
+        "maximo_documentado_m": 2335,
+        "habitat_del_maximo": "Piñón-enebro y pino ponderosa, Reserva Zuni, Nuevo México",
+        "distribucion_en_mexico": "Presente en AMBAS COSTAS y en todo el sur de México, al sur de Guanajuato. AUSENTE del centro de México entre la frontera con EE.UU. y Guanajuato.",
+        "confianza": "MEDIDO (los valores altitudinales) / MEDIDO (el hueco distribucional del centro de México)"
+      },
+      "instruccion_para_el_modelo": "Regla de aparición: no generar pecaríes por encima de ~1800 m salvo excepción rara hasta 2335 m. El hueco del centro de México es un dato biogeográfico real, no un error de muestreo.",
+      "nota": "El rango altitudinal se apoya en datos de EE.UU. y en la ficha de distribución general. No se encontró un estudio altitudinal específico mexicano."
+    },
+    {
+      "laguna_original": "Alocuidado / amamantamiento cruzado (ningún estudio cuantitativo)",
+      "estado_nuevo": "CERRADA cualitativamente / SIGUE ABIERTA cuantitativamente",
+      "hallazgos": {
+        "amamantamiento_cooperativo": "DOCUMENTADO. Se ha observado amamantamiento comunal en libertad.",
+        "tolerancia_adulta": "TODOS los adultos son tolerantes con las crías",
+        "defensa_cooperativa": "Los adultos se agrupan alrededor de las crías y las alejan de los depredadores",
+        "fuente_principal": "Byers, J.A. y Bekoff, M. (1981), 'Social, Spacing, and Cooperative Behavior of the Collared Peccary, Tayassu tajacu', Journal of Mammalogy 62(4):767",
+        "url": "https://academic.oup.com/jmammal/article-abstract/62/4/767/882636",
+        "region": "Laderas orientales bajas de las montañas Mazatzal, Arizona",
+        "estudio_adicional": "Existe un análisis exploratorio brasileño sobre amamantamiento de la prole y amamantamiento cooperativo en catetos (Tayassu tajacu), pero no fue accesible (ResearchGate 403)"
+      },
+      "confianza": "MEDIDO (que ocurre) / AUSENTE (frecuencia, qué proporción de tomas son de cría ajena, criterios de aceptación)",
+      "nota_teorica": "La literatura general señala que el alocuidado es enigmático porque la lactancia es energéticamente costosa y aumenta el riesgo de transmisión de patógenos entre madres y crías ajenas. Que ocurra en esta especie es informativo sobre lo estrecho de sus vínculos de manada.",
+      "instruccion_para_el_modelo": "Implementar CUIDAR_CRIA sin exigir que la cría sea propia. La condición del catálogo base de 01_ARQUITECTURA dice 'Hembra con cría dependiente'; en esta especie debe relajarse a 'hembra lactante con CUALQUIER cría dependiente cerca'. Es un cambio de una línea con base medida."
+    },
+    {
+      "laguna_original": "Mobbing / huida coordinada documentada cuantitativamente",
+      "estado_nuevo": "CERRADA cualitativamente / SIGUE ABIERTA cuantitativamente",
+      "hallazgos": {
+        "defensa_grupal": "Documentada: defensa cooperativa contra depredadores, con los adultos agrupándose en torno a las crías",
+        "mecanismo_de_cohesion": "DOS actos conspicuos, uno OLFATIVO y uno AUDITIVO, funcionan para mantener el espaciado corto entre individuos",
+        "efecto_de_las_interacciones": "Las interacciones sociales son BREVES pero tienden a SINCRONIZAR las actividades de los animales y a acercarlos entre sí",
+        "defensa_frente_a_carroneros": "En el estudio de tanatología, la manada defendió activamente el cadáver de un miembro frente a coyotes"
+      },
+      "confianza": "MEDIDO (cualitativo)",
+      "instruccion_para_el_modelo": "El mecanismo de cohesión medido —dos señales, una olfativa y una auditiva, y interacciones breves que sincronizan— es EXACTAMENTE el modelo de propagación de eventos con radio que 01_ARQUITECTURA ya especifica en 'comunicacion_entre_agentes'. La biología confirma la arquitectura elegida sin necesidad de cambiarla.",
+      "nota_de_calibracion": "'Interacciones breves que sincronizan' es una guía de ajuste concreta: los eventos sociales deben ser frecuentes y cortos, no largos y raros."
+    },
+    {
+      "laguna_original": "Jerarquía de dominancia lineal / macho alfa en D. tajacu (NO documentado)",
+      "estado_nuevo": "CERRADA — el hueco se confirma, y ahora con una fuente PRIMARIA que lo respalda por evidencia positiva",
+      "importancia": "MÁXIMA. Esta laguna sostiene la decisión de diseño #1 de todo el proyecto.",
+      "hallazgo_nuevo": {
+        "fuente": "Byers, J.A. y Bekoff, M. (1981), Journal of Mammalogy 62(4):767, estudio de campo en Arizona",
+        "citas_textuales_del_abstract": [
+          "'La unidad social de esta especie es una manada cohesiva, en la que se mantienen distancias interindividuales pequeñas'",
+          "'Las acciones amistosas y neutras ocurrieron con MUCHA MAYOR frecuencia que las interacciones agonísticas. La mayor parte del comportamiento agonístico NO implicó contacto físico'",
+          "'Los machos mostraron POCA competencia manifiesta por las hembras en estro'",
+          "'Hubo amamantamiento cooperativo, defensa contra depredadores y alimentación cooperativa; todos los adultos fueron tolerantes con las crías'"
+        ],
+        "lo_que_NO_dice": "El abstract NO menciona jerarquía lineal ni individuos alfa, en un estudio dedicado específicamente al comportamiento social y de espaciamiento.",
+        "confianza": "MEDIDO"
+      },
+      "por_que_esto_es_mas_fuerte_que_antes": "Antes la decisión #1 se apoyaba en un argumento de AUSENCIA (nadie ha documentado un alfa) más un argumento indirecto (el monomorfismo sexual predice poca competencia intrasexual). Ahora se apoya además en EVIDENCIA POSITIVA: un estudio de campo dedicado al comportamiento social encontró poca agresión, casi sin contacto físico, y poca competencia por hembras en estro. Eso es lo que se esperaría de una especie SIN jerarquía de dominancia marcada, y es una predicción cumplida.",
+      "matiz_honesto": "Varias fuentes de nivel 2 (fichas divulgativas) SÍ afirman que hay 'una clara jerarquía de dominancia' y 'un macho dominante que se aparea con varias hembras'. Esas fuentes NO citan estudio. Se RECHAZAN conforme a la jerarquía de fuentes del protocolo 02: contradicen a la literatura primaria disponible y probablemente extrapolan de suidos o de Tayassu pecari. Se registra el desacuerdo en vez de ocultarlo.",
+      "instruccion_para_el_modelo": "MANTENER la decisión #1 sin cambios. Y calibrar: la mayoría de encuentros agonísticos deben resolverse SIN contacto físico, lo que coincide exactamente con el criterio de calibración de teoría de juegos que 01_ARQUITECTURA ya exigía ('si la simulación produce peleas constantes, está mal calibrada')."
+    }
+  ],
+
+  "lagunas_PARCIALMENTE_cerradas": [
+    {
+      "laguna_original": "Composición etaria y sexual de manadas",
+      "estado_nuevo": "PARCIAL",
+      "lo_que_se_encontro": {
+        "proporcion_de_sexos": "1:1 dentro de los grupos sociales",
+        "composicion": "Grupos mixtos de machos y hembras adultos, juveniles y subadultos, de varias clases de edad",
+        "estabilidad": "Manadas ESTABLES y cohesivas",
+        "filopatria": "FEMENINA: las hembras permanecen en su grupo natal, con alto parentesco medio dentro de la manada",
+        "confianza": "MEDIDO (proporción de sexos y filopatría) / AUSENTE (proporciones numéricas por clase de edad)"
+      },
+      "hallazgo_de_parentesco": {
+        "fuente": "Biondo, C., Izar, P., Miyaki, C.Y. y Bussab, V.S.R. (2014), 'Social structure of collared peccaries (Pecari tajacu): Does relatedness matter?', Behavioural Processes 109:70-78",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/25173619/",
+        "metodo": "Asociación espacial y tasas de interacción en dos grupos CAUTIVOS, con parentesco por pares calculado a partir de microsatélites",
+        "resultado_1": "Los PARIENTES están espacialmente MÁS CERCA que los no parientes. El parentesco es un buen predictor de la asociación espacial.",
+        "resultado_2": "El parentesco NO predice las TASAS de interacción social",
+        "confianza": "MEDIDO (en cautiverio)",
+        "IMPORTANCIA_ARQUITECTONICA": "Esto valida EMPÍRICAMENTE la 'extension_1_relacion_social' de 01_ARQUITECTURA, que propone ponderar las fuerzas de boids por la relación social entre individuos. El estudio dice exactamente eso: el parentesco modula la DISTANCIA, no la frecuencia de interacción. La extensión propuesta era correcta y ahora tiene respaldo medido.",
+        "instruccion_precisa": "Ponderar por parentesco el término de COHESIÓN de boids (la distancia preferida), y NO ponderar por parentesco la tasa de eventos sociales. Es una distinción fina que sale directamente del dato."
+      }
+    },
+    {
+      "laguna_original": "Magnitud y edad de dispersión juvenil (solo la dirección)",
+      "estado_nuevo": "PARCIAL — la magnitud genética se cierra, la distancia y la edad siguen abiertas",
+      "hallazgos": {
+        "tasa_de_dispersion_de_machos_entre_grupos": 0.37,
+        "porcentaje_de_machos_clasificados_como_dispersores": 38,
+        "concordancia": "La tasa por parentesco (37%) concuerda con la inferida por ADN mitocondrial (38%): dos métodos independientes que coinciden",
+        "muestra": "268 individuos de 31 manadas en 3 poblaciones de Texas",
+        "fuente": "Tesis doctoral, Purdue University, 'Using genetic data to characterize dispersal, relatedness and parentage in the collared peccary (Pecari tajacu)'",
+        "url": "https://docs.lib.purdue.edu/dissertations/AAI3378722",
+        "confianza": "MEDIDO"
+      },
+      "dato_de_distancia_con_advertencia": {
+        "valor_km": [4, 8],
+        "condicion": "TRANSLOCACIÓN EXPERIMENTAL (liberación dura) en Mason Mountain WMA, Texas Hill Country",
+        "ADVERTENCIA_METODOLOGICA": "Esto NO es dispersión natal natural. Es la distancia que recorrieron animales SOLTADOS de golpe en un sitio desconocido. Los de liberación blanda se dispersaron mucho menos y se quedaron en el área. Usar este número como dispersión juvenil natural sería un ERROR DE MÉTODO.",
+        "confianza": "MEDIDO (como distancia de translocación) / NO APLICABLE (como dispersión natal)"
+      },
+      "lo_que_sigue_AUSENTE": "Edad concreta de dispersión y distancia de dispersión NATAL en condiciones naturales",
+      "instruccion_para_el_modelo": "Usar la tasa de 37-38% de machos dispersores, que es un dato sólido y directamente utilizable en el motor demográfico. NO usar los 4-8 km como distancia de dispersión: marcar la distancia como ESTIMADO y declararlo."
+    },
+    {
+      "laguna_original": "Presupuesto de actividad (% tiempo forrajeo/descanso/desplazamiento)",
+      "estado_nuevo": "PARCIAL — solo hay dato de la especie HERMANA",
+      "dato_disponible": {
+        "especie": "Tayassu pecari (pecarí labiado) — NO es D. tajacu",
+        "presupuesto": { "alimentacion_pct": 34, "desplazamiento_pct": 33, "descanso_pct": 28, "interaccion_con_conespecificos_pct": 3, "otros_pct": 2 },
+        "confianza": "MEDIDO en T. pecari"
+      },
+      "ADVERTENCIA_DE_USO": "10_PECARI_BIOLOGIA.taxonomia ya advierte que T. pecari tiene manadas de 25-100+ individuos y es NOCTURNO, no diurno, y pide extrapolar con cautela extrema. Usar su presupuesto de actividad para D. tajacu es INFERENCIA DE ESPECIE HERMANA, no dato.",
+      "instruccion_para_el_modelo": "Si se usa, marcarlo INFERIDO con la analogía declarada, nunca MEDIDO. La suma 34/33/28 es un punto de partida razonable para un ungulado social, pero el pecarí de collar tiene manada más pequeña y ritmo distinto, así que el reparto real casi seguro difiere.",
+      "sigue_AUSENTE": "El presupuesto de actividad medido en D. tajacu, y la cuantificación del hozar"
+    },
+    {
+      "laguna_original": "Tasas de depredación (proporción de la población consumida/año)",
+      "estado_nuevo": "PARCIAL",
+      "hallazgos": {
+        "mortalidad_juvenil_total_pct": 22,
+        "desglose_declarado": "Atribuida a depredación, agresión y abandono materno",
+        "abandono_materno_pct": 22,
+        "agresion_intraespecifica_pct": 14,
+        "PROBLEMA_DE_COHERENCIA": "Las cifras citadas por fuentes de nivel 2 son internamente confusas: se declara un 22% de mortalidad juvenil Y un 22% atribuido a abandono materno Y un 14% a agresión. No pueden ser todas fracciones del mismo total sin más contexto. NO se usan hasta poder leer la fuente primaria.",
+        "confianza": "BAJA — se registra el desacuerdo, no se resuelve"
+      },
+      "depredadores_confirmados": ["Jaguar (Panthera onca)", "Puma (Puma concolor)", "Coyote (Canis latrans)", "Lince rojo (Lynx rufus)", "Oso negro", "Ocelote (Leopardus pardalis)", "Humano"],
+      "dato_conductual_valioso": "El solapamiento temporal medido con el jaguar es MUY BAJO (0.16) en zonas de riesgo, frente a 0.57 con el puma. El pecarí evita al jaguar EN EL TIEMPO, no solo en el espacio.",
+      "instruccion_para_el_modelo": "La evitación diferenciada por depredador está MEDIDA y es implementable: el jaguar debe generar una respuesta de evitación temporal más fuerte que el puma. Las tasas de depredación numéricas siguen sin ser fiables: marcar ESTIMADO."
+    },
+    {
+      "laguna_original": "Estatus IUCN y NOM-059 verificados",
+      "estado_nuevo": "PARCIAL — sigue sin verificación directa",
+      "situacion": {
+        "IUCN": "NO VERIFICADO. iucnredlist.org devuelve HTTP 403 igual que en la primera sesión.",
+        "NOM_059_SEMARNAT_2010": "NO VERIFICADO DIRECTAMENTE en el texto de la norma. Las fuentes consultadas hablan del marco normativo y de las UMA, pero no se pudo confirmar si Pecari tajacu aparece listado en alguna categoría de riesgo.",
+        "indicio_indirecto": "La literatura mexicana propone las UMA (Unidad de Manejo para la Conservación de la Vida Silvestre) como estrategia de aprovechamiento SUSTENTABLE de la especie en Yucatán, y en Texas se cosecharon 17,730 individuos en 1999. Ambas cosas son incompatibles con una especie en peligro, pero NO son una verificación del estatus."
+      },
+      "confianza": "AUSENTE",
+      "instruccion_honesta": "SIGUE SIN PODER CITARSE un estatus de conservación. Si el juego necesita mostrarlo, hay que verificarlo manualmente en el DOF o en el PDF de la NOM-059 de PROFEPA. El indicio de aprovechamiento sustentable sugiere que no está amenazada, pero un indicio no es un dato."
+    }
+  ],
+
+  "lagunas_CONFIRMADAS_como_hueco_real": {
+    "_nota": "Se buscaron activamente en esta segunda ronda y siguen sin aparecer. Que dos sesiones independientes no las encuentren refuerza que son huecos reales de la literatura, no fallos de búsqueda.",
+    "lista": [
+      { "laguna": "Catálogo de vocalizaciones", "estado": "CONFIRMADA COMO HUECO", "lo_unico_disponible": "Descripción CUALITATIVA repetida: gruñidos (grunts), ladridos (barks), castañeteo de dientes (tooth-chattering), y una 'tos-ladrido' de alarma. El castañeteo acompaña al empuje de contacto cercano y a la coordinación del movimiento del grupo.", "lo_que_falta": "CERO análisis acústico publicado: ninguna frecuencia, duración, estructura espectral ni tasa de emisión para esta especie.", "gravedad": "MEDIA-BAJA para la simulación: se necesita saber QUÉ tipos de señal existen y qué función cumplen, y eso SÍ se tiene. Los parámetros acústicos exactos importan para el diseño de sonido, no para la IA.", "instruccion": "Modelar cuatro eventos sonoros: CONTACTO (gruñido), ALARMA (tos-ladrido), AGRESIÓN (castañeteo) y COORDINACIÓN. La función está medida; la acústica es diseño de audio y se marca ESTIMADO." },
+      { "laguna": "Curva de crecimiento peso-edad", "estado": "CONFIRMADA COMO HUECO", "nota": "Siguen sin aparecer más puntos que los tres anclajes ya registrados (0.5 kg al nacer, ~10 kg juvenil, 18.7 kg adulto). La instrucción original de ajustar Gompertz entre los tres anclajes y declararlo como interpolación propia sigue siendo la única vía honesta." },
+      { "laguna": "Cifra de dimorfismo sexual", "estado": "CONFIRMADA COMO HUECO", "nota": "Se reconfirma el monomorfismo cualitativo ('la ausencia de dimorfismo sexual y la proporción de sexos 1:1 sugieren una historia evolutiva de socialidad pronunciada') pero sigue sin haber una cifra porcentual." },
+      { "laguna": "Estacionalidad de nacimientos en México", "estado": "CONFIRMADA COMO HUECO", "nota": "Ningún estudio mexicano. Texas documenta reproducción durante todo el año." },
+      { "laguna": "Cortisol basal vs estrés", "estado": "CONFIRMADA COMO HUECO", "nota": "Sigue habiendo un solo valor de 1985 (6.57 µg/dl). Gravedad para el modelo: BAJA, porque el sistema HPA de 01_ARQUITECTURA se modela normalizado 0-1 y necesita la FORMA de la curva, no el valor en µg/dl." },
+      { "laguna": "Prueba experimental de reconocimiento individual por olor", "estado": "CONFIRMADA COMO HUECO", "matiz_nuevo": "El dimorfismo químico medido (ésteres solo en hembras) demuestra que la INFORMACIÓN DE SEXO está presente en la secreción. Que el animal la USE para reconocer individuos sigue sin probarse experimentalmente. La distinción importa: hay señal, falta demostrar el receptor." },
+      { "laguna": "Frecuencia cardíaca y respiratoria", "estado": "CONFIRMADA COMO HUECO", "nota": "No encontradas. El estudio de metabolismo respiratorio estacional de Zervanos existe pero no fue accesible (ResearchGate 403)." },
+      { "laguna": "Zona termoneutral / umbrales térmicos numéricos", "estado": "CONFIRMADA COMO HUECO en lo NUMÉRICO", "matiz_importante": "Aunque el número sigue ausente, el MECANISMO quedó cerrado y es más útil: la incapacidad de jadear obliga a termorregulación conductual. Ver MODIFICACION_2." }
+    ]
+  },
+
+  "hallazgos_nuevos_no_buscados": {
+    "_nota": "Aparecieron durante la búsqueda sin estar en la lista de lagunas. Dos de ellos son de alto valor para el juego.",
+
+    "1_TANATOLOGIA_reacciones_ante_un_miembro_muerto": {
+      "importancia": "ALTA — es un comportamiento espectacular, legible por el jugador y publicado",
+      "fuente": "de Kort, D., Altrichter, M., Cortez, S. y Camino, M. (2018), 'Collared peccary (Pecari tajacu) behavioral reactions toward a dead member of the herd', Ethology 124(2)",
+      "url": "https://onlinelibrary.wiley.com/doi/abs/10.1111/eth.12709",
+      "ubicacion": "Zona forestal suburbana en las montañas del centro de Arizona",
+      "muestra": "Una manada de cinco miembros",
+      "comportamientos_observados": [
+        "Empujar al individuo muerto",
+        "Mirarlo fijamente",
+        "Morderlo",
+        "Intentar LEVANTARLO metiendo el hocico bajo el cadáver y empujando hacia arriba",
+        "DEFENDERLO de los coyotes"
+      ],
+      "duracion": "La manada visitó y pasó tiempo con el cadáver durante 10 DÍAS tras la muerte, con frecuencia de visita decreciente hasta que los carroñeros consumieron los restos",
+      "patron_de_visitas": { "dos_individuos_pct": 44, "visitas_solitarias_pct": 39, "tres_individuos_pct": 4, "visitas_nocturnas_pct": 64 },
+      "conclusion_de_los_autores": "Demuestra una complejidad de respuesta ante la muerte 'más allá de las conocidas hasta ahora', y que estas reacciones no son exclusivas de humanos, cetáceos, chimpancés y elefantes",
+      "confianza": "MEDIDO (n=1 manada, estudio observacional oportunista)",
+      "advertencia_de_muestra": "UNA sola manada, UN solo evento. Es un estudio de caso, no una frecuencia poblacional. No generalizar como si fuera un comportamiento cuantificado.",
+      "valor_para_el_JUEGO": "MUY ALTO. Es exactamente el tipo de comportamiento que 01_ARQUITECTURA identifica como la lección de Rain World y de F.E.A.R.: enorme realismo percibido por muy poco coste de cómputo. Un evento onDeath que haga que la manada vuelva al cadáver durante días es barato de implementar y memorable para el jugador.",
+      "instruccion_para_el_modelo": "El evento onDeath ya está especificado en 01_ARQUITECTURA. Añadir un comportamiento VELAR_CADAVER de rank bajo (categoría social, rank 3) con un lugar en memoria que decae en ~10 días. La defensa del cadáver frente a carroñeros reutiliza el comportamiento DEFENDER que ya existe."
+    },
+
+    "2_REVOLCADEROS_como_ingenieria_de_ecosistema": {
+      "importancia": "ALTA — el pecarí MODIFICA el mundo, lo que en un juego de vóxeles es directamente jugable",
+      "fuente": "Eckhoff, A. et al. (2025), 'Collared Peccary Wallows are Hubs of Animal Activity and Diversity in a Central American Wet Forest', Ecology and Evolution 15(2):e70713",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11850760/",
+      "ubicacion": "Estación Biológica La Selva, Heredia, Costa Rica (10°26'N, 83°59'W), 35-137 m de altitud",
+      "periodo": "Junio-agosto 2019 (estación húmeda)",
+      "datos_MEDIDOS": {
+        "numero_de_revolcaderos_localizados": 17,
+        "area_superficial_m2": [0.47, 6.59],
+        "profundidad_mm": { "minimo_medio": 25.2, "desviacion_minimo": 19, "maximo_medio": 77.1, "desviacion_maximo": 8.5 },
+        "especies_de_vertebrados_que_los_usan": 42,
+        "desglose": { "anfibios": 13, "reptiles": 2, "aves": 11, "mamiferos_no_voladores": 16 },
+        "eventos_independientes_de_camara": 624,
+        "esfuerzo": "9 revolcaderos con cámara, 5-40 días de despliegue cada uno",
+        "PERSISTENCIA": "Cuatro de los revolcaderos ya estaban documentados en 2012: persisten AL MENOS 6 AÑOS con uso consistente"
+      },
+      "funcion_para_el_pecari": "Revolcarse elimina parásitos y cubre el lomo de lodo para mantenerse fresco. Es su vía de termorregulación (ver MODIFICACION_2). Los revolcaderos se usan sobre todo de NOCHE y son puntos focales compartidos donde se solapan los territorios de varios grupos.",
+      "funcion_ecosistemica": "En la estación seca (mayo-octubre) los revolcaderos se convierten en charcas de agua para una enorme variedad de animales, de ranas a tapires y ocelotes.",
+      "confianza": "MEDIDO",
+      "valor_para_un_MUNDO_DE_VOXELES": "EXCEPCIONAL. Las dimensiones están medidas y son traducibles a bloques: 0.47-6.59 m² con el lado de bloque de 0.60 m del motor son entre ~1 y ~18 bloques de superficie. La profundidad de 25-77 mm es una fracción de bloque, es decir, una depresión de un solo bloque de profundidad.",
+      "instruccion_para_el_modelo": "Implementar el revolcadero como una MODIFICACIÓN DEL MUNDO que el animal crea y mantiene, no como un objeto decorativo: el pecarí pisotea y excava el suelo. Persistencia larga (años de juego). Satisface a la vez estres_termico y una necesidad de higiene. Y atrae a otras especies, lo que lo convierte en un generador natural de puntos de interés para el jugador.",
+      "por_que_encaja_con_la_arquitectura": "Es el ejemplo perfecto del patrón 'smart object' de The Sims que 01_ARQUITECTURA ya adopta: el bloque de revolcadero ANUNCIA {estres_termico: -X, parasitos: -Y} y cualquier especie con esos receptores lo usa. Añadir el tapir después no requiere tocar el pecarí."
+    },
+
+    "3_el_peccary_percibe_los_CAMINOS_como_peligro": {
+      "importancia": "MEDIA-ALTA — interacción jugador-mundo emergente",
+      "dato": "En rasgos lineales (caminos y senderos) el pecarí es 92% diurno, con solapamiento de 0.82 respecto al patrón de zonas de alto riesgo",
+      "interpretacion_de_los_autores": "Los rasgos lineales son PERCIBIDOS COMO RIESGOSOS",
+      "fuente": "Journal of Mammalogy 106(1):118 (ver MODIFICACION_1)",
+      "confianza": "MEDIDO",
+      "valor_para_el_juego": "Si el jugador construye caminos, los pecaríes cambian su comportamiento en ellos. Es una consecuencia ecológica de la construcción del jugador que sale de un dato publicado, no de una regla inventada."
+    }
+  },
+
+  "coherencia_con_el_archivo_10": {
+    "_proposito": "Comprobación explícita de que esta segunda ronda no contradice la primera. El protocolo 02 exige registrar los desacuerdos en vez de promediarlos a ciegas.",
+    "confirmaciones": [
+      { "dato": "Densidad 1-2 ind/km²", "en_10": "MEDIA (sin dato mexicano)", "ahora": "Confirmado con 1.9 ± 0.8 ind/km² en Quintana Roo", "efecto": "SUBE la confianza" },
+      { "dato": "Tamaño de manada 6-10 en selva", "en_10": "MEDIA", "ahora": "Coherente: 1.9 ind/km² ÷ 0.2 manadas/km² = 9.5 ind/manada", "efecto": "SUBE la confianza por vía independiente" },
+      { "dato": "No hay macho alfa", "en_10": "Argumento por ausencia + monomorfismo", "ahora": "Evidencia POSITIVA de Byers y Bekoff 1981", "efecto": "SUBE mucho la confianza" },
+      { "dato": "Nopal 25-80% en semiárido", "en_10": "ALTA", "ahora": "No contradicho; se añade el perfil de SELVA (57.9% frutos)", "efecto": "Se AMPLÍA a un segundo bioma" },
+      { "dato": "Temperatura corporal 37.5-40.9 °C", "en_10": "ALTA", "ahora": "Confirmado, más el dato nuevo de piel a 49.2 °C", "efecto": "CONFIRMADO" }
+    ],
+    "desacuerdos_registrados": [
+      { "tema": "Jerarquía de dominancia", "posturas": "Literatura primaria: no documentada. Fuentes divulgativas: 'clara jerarquía' y 'macho dominante'.", "resolucion": "Se sigue la primaria conforme al protocolo. Las divulgativas no citan estudio y probablemente extrapolan de suidos o de T. pecari.", "accion": "Ninguna. Se mantiene la decisión #1." },
+      { "tema": "Patrón de actividad", "posturas": "10_PECARI_BIOLOGIA: diurno con pico ~08:45-10:03. Fuentes de Texas: 'nocturno en verano, diurno en invierno' y 'crepuscular en hábitat no forestal'. Jalisco 2025: depende del riesgo percibido.", "resolucion": "NO son contradictorios: son la MISMA plasticidad vista desde regiones distintas. El estudio de Jalisco da el mecanismo que unifica las tres observaciones.", "accion": "MODIFICACION_1: convertir el ritmo en respuesta modulada en vez de constante." },
+      { "tema": "Densidad poblacional", "posturas": "México 1.9 ind/km² vs Costa Rica 19.1-65.9 ind/km²", "resolucion": "Se registran AMBOS con su región. La diferencia de hasta 35x es real y probablemente refleja presión de caza y calidad de hábitat.", "accion": "Usar el dato mexicano para biomas mexicanos. Declarar la divergencia." }
+    ],
+    "veredicto": "CERO contradicciones reales con el archivo 10. Dos matices que lo enriquecen y ningún dato que haya que retirar."
+  },
+
+  "impacto_en_los_otros_archivos_del_sistema": {
+    "11_PECARI_IA": [
+      "Convertir el ritmo circadiano en una curva base diurna MODULADA por riesgo percibido (MODIFICACION_1)",
+      "Subir el peso de la necesidad estres_termico y quitarle toda vía de satisfacción fisiológica (MODIFICACION_2)",
+      "Relajar la condición de CUIDAR_CRIA a cualquier cría dependiente, no solo la propia (alocuidado medido)",
+      "Ponderar por parentesco el término de COHESIÓN de boids, y NO la tasa de eventos sociales (Biondo et al. 2014)",
+      "Añadir comportamiento VELAR_CADAVER, rank 3, memoria de ~10 días (tanatología)",
+      "Añadir comportamiento REVOLCARSE con creación persistente de revolcadero",
+      "Diferenciar la respuesta antidepredatoria: el jaguar genera evitación temporal más fuerte que el puma"
+    ],
+    "12_PECARI_TRAZABILIDAD": [
+      "Absorber en la auditoría los datos nuevos con su confianza",
+      "IMPORTANTE: varios parámetros que estaban marcados ESTIMADO pueden PROMOVERSE ahora que hay dato: distancia diaria (2.2 km), densidad mexicana (1.9 ind/km²), tasa de dispersión de machos (37-38%), composición de dieta en selva",
+      "El archivo declaraba ocho parámetros ESTIMADO; conviene revisar cuáles siguen siéndolo tras esta ronda"
+    ],
+    "13_PECARI_ANATOMIA": [
+      "La glándula dorsal: la química queda documentada (Waterhouse et al. 1996), pero las DIMENSIONES siguen ESTIMADO. No cambia nada del modelo 3D.",
+      "Confirmado que la posición sobre las ancas es correcta: 'glándulas dorsales grandes anteriores a la base de la cola'"
+    ],
+    "99_FUENTES": [
+      "Añadir las 8 fuentes primarias nuevas listadas en el bloque fuentes_nuevas de este archivo"
+    ]
+  },
+
+  "fuentes_nuevas": [
+    { "id": "JM_2025_MIEDO", "cita": "Journal of Mammalogy 106(1):118 (2025), 'Landscape and diel fear cycles: linear features are perceived as risky by peccary (Dicotyles tajacu)'", "url": "https://academic.oup.com/jmammal/article/106/1/118/7866790", "region": "Sierra de Manantlán, Jalisco, México", "aporta": "Plasticidad del ritmo de actividad según riesgo; solapamiento con jaguar y puma", "nivel": 1 },
+    { "id": "BYERS_BEKOFF_1981", "cita": "Byers, J.A. y Bekoff, M. (1981), 'Social, Spacing, and Cooperative Behavior of the Collared Peccary, Tayassu tajacu', Journal of Mammalogy 62(4):767", "url": "https://academic.oup.com/jmammal/article-abstract/62/4/767/882636", "region": "Montañas Mazatzal, Arizona", "aporta": "Ausencia de jerarquía lineal; agresión sin contacto; amamantamiento y defensa cooperativos", "nivel": 1 },
+    { "id": "BIONDO_2014", "cita": "Biondo, C., Izar, P., Miyaki, C.Y. y Bussab, V.S.R. (2014), 'Social structure of collared peccaries (Pecari tajacu): Does relatedness matter?', Behavioural Processes 109:70-78", "url": "https://pubmed.ncbi.nlm.nih.gov/25173619/", "condicion": "CAUTIVERIO", "aporta": "El parentesco predice la distancia espacial pero no la tasa de interacción", "nivel": 1 },
+    { "id": "WATERHOUSE_1996", "cita": "Waterhouse, J.S., Ke, J., Pickett, J.A. y Weldon, P.J. (1996), 'Volatile components in dorsal gland secretions of the collared peccary, Tayassu tajacu', Journal of Chemical Ecology", "url": "https://repository.rothamsted.ac.uk/item/876x7/volatile-components-in-dorsal-gland-secretions-of-the-collared-peccary-tayassu-tajacu-tayassuidae-mammalia", "aporta": "Química de la glándula dorsal y dimorfismo químico por sexo", "nivel": 1 },
+    { "id": "PEREZ_CORTEZ_REYNA", "cita": "Pérez-Cortez, S. y Reyna-Hurtado, R., 'La dieta de los pecaríes (Pecari tajacu y Tayassu pecari) en la región de Calakmul, Campeche, México', Revista Mexicana de Mastozoología (Nueva Época)", "url": "https://www.revmexmastozoologia.unam.mx/ojs/index.php/rmm/article/view/45", "region": "Calakmul, Campeche, México", "aporta": "Dieta mexicana con especies concretas y porcentajes; consumo de maíz", "nivel": 1 },
+    { "id": "DE_KORT_2018", "cita": "de Kort, D., Altrichter, M., Cortez, S. y Camino, M. (2018), 'Collared peccary (Pecari tajacu) behavioral reactions toward a dead member of the herd', Ethology 124(2)", "url": "https://onlinelibrary.wiley.com/doi/abs/10.1111/eth.12709", "region": "Arizona central", "aporta": "Tanatología: comportamiento ante un miembro muerto durante 10 días", "nivel": 1 },
+    { "id": "ECKHOFF_2025", "cita": "Eckhoff, A. et al. (2025), 'Collared Peccary Wallows are Hubs of Animal Activity and Diversity in a Central American Wet Forest', Ecology and Evolution 15(2):e70713", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11850760/", "region": "La Selva, Costa Rica", "aporta": "Dimensiones medidas de revolcaderos, persistencia y uso por 42 especies", "nivel": 1 },
+    { "id": "PURDUE_DISPERSION", "cita": "Tesis doctoral, Purdue University, 'Using genetic data to characterize dispersal, relatedness and parentage in the collared peccary (Pecari tajacu)'", "url": "https://docs.lib.purdue.edu/dissertations/AAI3378722", "region": "Texas (3 poblaciones, 31 manadas, 268 individuos)", "aporta": "Tasa de dispersión de machos 37-38% por dos métodos independientes", "nivel": 3 },
+    { "id": "SANTOS_2024", "cita": "Santos et al. (2024), 'The influence of climate and the presence of predators on the daily activity pattern of collared peccaries (Dicotyles tajacu)', Austral Ecology", "url": "https://onlinelibrary.wiley.com/doi/10.1111/aec.13498", "region": "Ouro Preto, Brasil", "aporta": "Ni lluvia ni temperatura influyen en el patrón de actividad; bajo solapamiento con puma", "nivel": 1, "muestra": "132 detecciones, 8 cámaras, 13 meses" },
+    { "id": "TTU_MAMMALS_TEXAS", "cita": "Natural Science Research Laboratory, Texas Tech, 'Mammals of Texas', ficha de Pecari tajacu", "url": "https://www.depts.ttu.edu/nsrl/mammals-of-texas-online-edition/Accounts_Artiodactyla/Pecari_tajacu.php", "aporta": "Ámbito hogareño 73-225 ha; dieta semiárida; refugio; cosecha de 17,730 individuos en 1999", "nivel": 2 }
+  ],
+
+  "lo_que_esta_sesion_NO_pudo_hacer": {
+    "_nota": "Se declara para que la siguiente ronda sepa por dónde seguir.",
+    "bloqueos_de_acceso": [
+      "IUCN Red List — HTTP 403, igual que en la primera sesión",
+      "ResearchGate — HTTP 403 en todos los intentos (bloqueó el estudio de metabolismo respiratorio de Zervanos y el de amamantamiento cooperativo brasileño)",
+      "ScienceDirect — HTTP 403 (bloqueó el texto completo de Biondo et al. 2014)",
+      "PubMed — bloqueo por consentimiento de cookies en fetch directo",
+      "El PDF de Acta Zoológica Mexicana sobre hábitos alimentarios se descargó pero llegó como binario no extraíble"
+    ],
+    "lo_que_haria_falta_para_cerrar_el_resto": [
+      "Acceso institucional a ScienceDirect y Wiley para los textos completos",
+      "Lectura manual del PDF de la NOM-059-SEMARNAT-2010 de PROFEPA para verificar el estatus mexicano",
+      "OCR o lectura manual del PDF de Acta Zoológica Mexicana ya descargado",
+      "Búsqueda en repositorios mexicanos (TESIUNAM) de tesis sobre presupuesto de actividad y vocalizaciones, que el protocolo 02 identifica como fuente de nivel 3 especialmente valiosa para especies poco estudiadas"
+    ]
+  }
+}

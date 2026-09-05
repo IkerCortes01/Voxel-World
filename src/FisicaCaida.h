@@ -117,6 +117,14 @@ namespace Densidad {
     // --- Madera (seca, densidad aparente con el aire de los poros) ---
     constexpr float PINO       = 449.0f;
     constexpr float OYAMEL     = 481.0f;   // abeto: de las coniferas ligeras
+    // Pinus montezumae, el ocote blanco. Mas pesado que el pino comun porque
+    // su madera va cargada de RESINA -- es la que se usa como tea justamente
+    // por eso. Queda entre las coniferas y el roble.
+    constexpr float OCOTE      = 560.0f;
+    // Pinus leiophylla, el ocote chino. Su madera es menos resinosa y de
+    // grano mas fino que la del montezumae, asi que pesa algo menos. Sigue
+    // por encima del pino comun: es un ocote.
+    constexpr float OCOTE_CHINO = 520.0f;
     constexpr float ENCINO     = 705.0f;   // roble: madera dura
 
     // --- Agua congelada ---
@@ -188,6 +196,13 @@ inline float densidadDe(BlockType t) {
         case BLOCK_PLANKS:            return Densidad::PINO;
         case BLOCK_WOOD_OYAMEL:
         case BLOCK_PLANKS_OYAMEL:     return Densidad::OYAMEL;
+        case BLOCK_WOOD_OCOTE:
+        case BLOCK_WOOD_OCOTE_DENTRO:
+        case BLOCK_PLANKS_OCOTE:      return Densidad::OCOTE;
+        // El ocote CHINO. Pinus leiophylla es algo mas ligero que el
+        // montezumae: su madera es menos resinosa y de grano mas fino.
+        case BLOCK_WOOD_OCOTE_CHINO:
+        case BLOCK_WOOD_OCOTE_CHINO_DENTRO: return Densidad::OCOTE_CHINO;
         case BLOCK_WOOD_ENCINO:
         case BLOCK_PLANKS_ENCINO:     return Densidad::ENCINO;
 
@@ -221,10 +236,26 @@ inline float densidadDe(BlockType t) {
         // --- Vegetacion ---
         case BLOCK_LEAVES:
         case BLOCK_LEAVES_ENCINO:
-        case BLOCK_LEAVES_OYAMEL:     return Densidad::HOJAS;
+        case BLOCK_LEAVES_OYAMEL:
+        case BLOCK_LEAVES_OCOTE:
+        // Las del chino, y su celda con la rama dentro: sigue siendo follaje.
+        case BLOCK_LEAVES_OCOTE_CHINO:
+        case BLOCK_LEAVES_OCOTE_CHINO_RAMA: return Densidad::HOJAS;
         case BLOCK_TALLGRASS:         return Densidad::HIERBA;
 
         default:
+            // ⭐ LOS BLOQUES COMPUESTOS SON PLANTA, NO PIEDRA
+            //
+            // BUG QUE ESTO CORRIGE: el maguey del sistema nuevo caia aqui y
+            // se le daba la densidad por defecto (roca). Un agave se
+            // desplomaba con el peso de un bloque de granito -- caia como una
+            // piedra y golpeaba el suelo como tal.
+            //
+            // Se comprueba por rango de ID porque Compuesto::esCompuesto()
+            // vive en un header que incluye a este (ver la nota del
+            // static_assert en BloqueCompuesto.h).
+            if ((int)t >= BLOQUE_COMPUESTO_BASE_ID) return Densidad::NOPAL;
+
             // Lo que quede: nopal, maguey y demas carne de planta pesan como
             // agua; el resto, como roca.
             if (esCladodio(t) || t == BLOCK_NOPAL_FRUTO || esTuna(t) ||
@@ -386,6 +417,23 @@ struct PiezaCayendo {
     float angulo = 0.0f;
     bool  vuelca = false;     // false = cae recto, como un bloque suelto
 
+    // ⭐ EL RUMBO REAL, EN CONTINUO
+    //
+    // `volcarX/Z` son ENTEROS porque se usan para recolocar bloques al
+    // aterrizar, y una celda solo puede estar en una de las cuatro
+    // direcciones. Pero eso hacia que un arbol cayera SIEMPRE hacia uno de
+    // cuatro rumbos, y con un bosque entero se nota muchisimo: todos los
+    // troncos acaban alineados en cruz.
+    //
+    // Estos dos guardan la direccion de verdad -- un vector unitario en
+    // cualquier angulo -- y son los que usa el RENDER mientras el arbol cae.
+    // Asi el vuelco se ve en su rumbo exacto (miles de posibilidades) y la
+    // colocacion final sigue cuadrando con la rejilla de voxeles.
+    //
+    // Es la misma separacion que ya usa el motor entre lo que se DIBUJA y lo
+    // que se COLOCA: el modelo puede ser continuo, la celda no.
+    float rumboX = 0.0f, rumboZ = 0.0f;
+
     // Lo alto que es, en bloques. Es lo unico que decide la velocidad del
     // vuelco: un arbol alto se tumba mas despacio (ver aceleracionVuelco).
     float alturaBloques = 1.0f;
@@ -455,4 +503,282 @@ inline float aceleracionPieza(float masaTotal, float areaTotal,
     return a / LADO_M;
 }
 
+
+// ============================================================================
+// QUE SE DERRUMBA Y QUE ES CIMIENTO
+// ============================================================================
+// Estas dos preguntas son la cara y la cruz de lo mismo, y por eso viven
+// juntas: LO QUE SUJETA UNA ESTRUCTURA NO PUEDE CAERSE. Tenerlas separadas fue
+// lo que permitio que se contradijeran, y de ahi salio un bug que destruia
+// terreno (la explicacion completa esta dentro de puedeCaer).
+//
+// Viven en el header, y no en main.cpp, por dos motivos:
+//   1. Son logica pura sobre BlockType: no tocan el mundo ni OpenGL.
+//   2. Asi los tests comprueban la invariante sin arrancar el juego
+//      (ver tests/test_derrumbe.cpp).
+
+// ⭐ isCrossSprite: la definicion real vive fuera de este header.
+//
+// El JUEGO la aporta desde main.cpp (necesita el motor entero para decidir
+// que es un sprite). Los TESTS aportan la suya, que reconoce las plantas por
+// tipo sin arrastrar OpenGL (ver tests/test_derrumbe.cpp).
+//
+// Declarada aqui dentro del namespace: asi las dos implementaciones y esta
+// declaracion hablan del mismo simbolo, Fisica::isCrossSprite.
+bool isCrossSprite(BlockType type);
+
+// ⭐ esRamaParaFisica: mismo caso que isCrossSprite.
+//
+// isRama() vive en main.cpp y no se alcanza desde aqui (ya lo advierte el
+// comentario del calculo de densidad, mas arriba). La necesita
+// aplastablePorArbol() para NO machacar las ramas del propio arbol.
+//
+// El JUEGO la reenvia a isRama(); los TESTS aportan la suya.
+bool esRamaParaFisica(BlockType type);
+
+// ============================================================================
+// ¿ES TERRENO NATURAL? (el cimiento del mundo)
+// ============================================================================
+// Lo que el GENERADOR pone como suelo: roca, tierra, arena, grava, arcilla,
+// nieve y los minerales en veta. Es lo unico que nunca se derrumba.
+//
+// ⚠️ NO ES LO MISMO QUE esSueloFirme(). Esa responde "¿aguanta peso?", y hay
+// cosas que aguantan peso pero SI pueden caerse: un puente de tablones
+// sostiene lo que le pongas encima, pero si le quitas los pilares se viene
+// abajo, porque es CONSTRUCCION y no suelo.
+//
+// Confundir las dos preguntas es lo que dejaba los tablones clavados en el
+// aire, y lo caza el test "la madera trabajada tambien cae".
+//
+// Se define por lista EXPLICITA, no por exclusion. Por exclusion, cada bloque
+// nuevo entraria solo en la categoria de "no se cae nunca" sin que nadie lo
+// decidiera -- y esa clase de descuido silencioso es justo lo que produjo el
+// bug de los parches de piedra.
+inline bool esTerrenoNatural(BlockType t) {
+    // Las capas parciales y las celdas mixtas son el mismo material, solo que
+    // con otra forma: una loncha de tierra sigue siendo tierra.
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    if (esMixto(t))        t = mixtoRelleno(t);
+
+    switch (t) {
+        // --- Suelo y roca ---
+        case BLOCK_STONE:
+        case BLOCK_DIRT:
+        case BLOCK_GRASS:
+        case BLOCK_SAND:
+        case BLOCK_GRAVEL:
+        case BLOCK_SNOW:
+        case BLOCK_CLAY:
+        case BLOCK_CLAY_DIRT:
+        case BLOCK_CLAY_SAND:
+        case BLOCK_LIMESTONE:
+        case BLOCK_COBBLESTONE:
+        case BLOCK_BEDROCK:
+        // --- Minerales en veta: van incrustados en la roca. Si cayeran,
+        //     minar una veta abriria un socavon en la montaña.
+        case BLOCK_COAL_ORE:
+        case BLOCK_SILVER_ORE:
+        case BLOCK_GOLD_ORE:
+        case BLOCK_DIAMOND_ORE:
+        case BLOCK_SCRAP_METAL:
+        case BLOCK_IRON_ORE:
+        case BLOCK_PYRITE_ORE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline bool esSueloFirme(BlockType t) {
+    if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
+
+    // Nada de lo que es planta sujeta.
+    if (isCrossSprite(t)) return false;
+
+    // ⭐ NORMALIZAR ANTES DE DECIDIR.
+    //
+    // Sin esto, la regla solo valia para el bloque ENTERO. Una capa parcial
+    // de tronco (media loncha de madera) o una celda mixta con madera arriba
+    // no se reconocian como planta, asi que SUJETABAN el arbol y este no
+    // caia nunca. La regla se aplica igual sea entero, capa o celda mixta.
+    //
+    // En una celda mixta manda el RELLENO: es la parte de arriba, sobre la
+    // que se apoyaria lo que hubiera encima.
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    if (esMixto(t))        t = mixtoRelleno(t);
+
+    // El arbol no sujeta nada: ni su madera ni su follaje. Va por los
+    // predicados centralizados en vez de repetir la lista de especies, que es
+    // justo como el ocote se quedo fuera de media docena de sitios.
+    if (esTroncoDeArbol(t)) return false;
+    if (esHojaDeArbol(t))   return false;
+
+    // El resto -- terreno, roca, construccion -- si sujeta. Incluidas sus
+    // capas parciales: una loncha de tierra es tierra y aguanta lo que haya
+    // encima, igual que el bloque entero.
+    return true;
+}
+
+// ============================================================================
+// ¿UN ARBOL QUE SE VIENE ABAJO PUEDE APLASTAR ESTO?
+// ============================================================================
+// Un pino de veinte metros que cae no se para porque haya un maguey debajo:
+// lo revienta y se queda donde estaba el maguey. Antes no era asi -- el
+// aterrizaje comprobaba `!= BLOCK_AIR` y DESCARTABA el bloque del arbol, de
+// modo que caer sobre vegetacion no la aplastaba: hacia desaparecer el tronco.
+// Un arbol talado sobre un nopal perdia media copa sin dejar rastro.
+//
+// ----------------------------------------------------------------------------
+// POR QUE NO SE REUTILIZA EL CRITERIO DE CONSTRUIR
+// ----------------------------------------------------------------------------
+// Al COLOCAR un bloque a mano, el motor PROTEGE el nopal y el maguey a
+// proposito ("machacarlas al apilar seria destruir cosas sin querer", ver
+// placeBlock). Son dos situaciones opuestas y por eso son dos predicados
+// distintos: colocar es un gesto deliberado y reversible; un arbol cayendo es
+// una tonelada de madera y tiene que arrasar.
+//
+// ----------------------------------------------------------------------------
+// QUE SE APLASTA Y QUE NO
+// ----------------------------------------------------------------------------
+// SE APLASTA todo lo que es BLANDO: hierba, flores, nopal, maguey, biznaga,
+// agave y las capas parciales de terreno sueltas. Lo que en el campo un
+// tronco se lleva por delante.
+//
+// NO SE APLASTA:
+//   - El terreno firme y la roca. El arbol se apoya encima; no perfora el
+//     suelo, que es lo que pasaria si se dejara aplastar cualquier cosa.
+//   - Las piezas del PROPIO ARBOL (troncos, hojas, ramas, raices). Un arbol
+//     que cae junto a otro no se lo come: los dos quedan tumbados. Ademas,
+//     como los bloques del arbol se colocan uno a uno, sin esto un tronco
+//     podria borrar el que acaba de posarse en la misma celda.
+//   - El agua y la lava, que tienen su propio sistema y no son obstaculo.
+//
+// El AGUA se deja fuera a proposito: no impide el paso, asi que el bloque de
+// arriba (el que decide si hay hueco) ya la trata como celda libre.
+inline bool aplastablePorArbol(BlockType t) {
+    if (t == BLOCK_AIR) return false;          // no hay nada que aplastar
+    if (t == BLOCK_BEDROCK) return false;
+
+    // ⚠️ EL AGUA VA LA PRIMERA, Y CON esAguaCualquiera().
+    //
+    // No basta con `t == BLOCK_WATER`: desde que el agua tiene volumen, una
+    // celda de agua con nivel es un bloque COMPUESTO, y mas abajo los
+    // compuestos se aplastan por ser plantas. Sin este filtro, un arbol que
+    // cayera en un charco BORRARIA esa agua del mundo -- y el sistema de
+    // fluidos se sostiene justo sobre lo contrario: el agua no se crea ni se
+    // destruye, solo se reparte. Un tronco no puede evaporar un lago.
+    //
+    // Ademas no hace falta aplastarla: el agua no frena a un bloque que cae,
+    // asi que la comprobacion de hueco ya la trata como celda libre.
+    if (esAguaCualquiera(t) || t == BLOCK_LAVA) return false;
+
+    // --- Las piezas de arbol se respetan entre si ---
+    //
+    // El tronco y las hojas van por los predicados centralizados. Las RAMAS y
+    // las RAICES por esRaiz() y por la declaracion de arriba: isRama() vive en
+    // main.cpp y desde aqui no se alcanza (misma situacion que isCrossSprite).
+    if (esTroncoDeArbol(t)) return false;
+    if (esHojaDeArbol(t))   return false;
+    if (esRaiz(t)) return false;
+    if (esRamaParaFisica(t)) return false;
+
+    // --- LO BLANDO SE APLASTA ---
+    //
+    // isCrossSprite cubre de una vez la hierba, las flores, el nopal entero
+    // (cladodios, pencas y tunas) y lo que se anada manana con la misma
+    // naturaleza: si es un sprite que se atraviesa, un tronco lo revienta.
+    if (isCrossSprite(t)) return true;
+
+    // Los bloques COMPUESTOS son las plantas con estado: maguey, biznaga y
+    // agave azul. Se aplastan igual -- son plantas, no cimiento.
+    //
+    // ⚠️ El AGUA tambien es una familia compuesta (FAM_AGUA), y ya salio por
+    // el filtro de liquidos de arriba. Por eso ese `return false` del agua
+    // tiene que ir ANTES que esto: si no, un tronco "aplastaria" el agua y la
+    // borraria del mundo, que es justo lo que el sistema de fluidos no
+    // perdona (el agua no se crea ni se destruye, solo se reparte).
+    if ((int)t >= BLOQUE_COMPUESTO_BASE_ID) return true;
+
+    // --- LAS CAPAS PARCIALES SUELTAS ---
+    //
+    // Una loncha fina de tierra o arena en el suelo no detiene un arbol: se
+    // la lleva por delante. El bloque ENTERO si lo detiene, porque ya es
+    // terreno asentado.
+    //
+    // El corte esta en la mitad: hasta 4 octavos es una capa suelta que cede;
+    // de 5 en adelante es suelo hecho y derecho.
+    if (esNivelParcial(t) && nivelDe(t) <= 4) return true;
+
+    // Todo lo demas -- terreno, roca, construccion, celdas mixtas -- aguanta.
+    return false;
+}
+
+//   - el agua y la lava, que tienen su propio sistema de flujo
+//   - la bedrock, que es el fondo del mundo
+//   - los guijarros, que son un monton apoyado, no un bloque
+//   - EL TERRENO: piedra, tierra, arena y demas cimiento (ver abajo)
+//
+// Las plantas SI caen: se pidio expresamente. Eso significa que al talar el
+// tronco de un arbol, la copa se le viene encima al jugador.
+inline bool puedeCaer(BlockType t) {
+    if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
+    if (t == BLOCK_BEDROCK) return false;
+
+    // ========================================================================
+    // ⭐ EL TERRENO NO SE DERRUMBA. NUNCA.
+    // ========================================================================
+    // ESTE ERA EL BUG DE LOS PARCHES DE PIEDRA A RAS DE SUELO.
+    //
+    // El sistema de estructuras existe para lo que ESTA PUESTO SOBRE el
+    // terreno: un arbol, una torre, un puente. El terreno en si es el
+    // cimiento -- no puede caerse, porque no hay nada debajo sobre lo que
+    // caer.
+    //
+    // Que pasaba: al romper un bloque, revisarSoporte() lanzaba el flood fill
+    // sobre los cuatro vecinos. Si el vecino era piedra o tierra, el fill se
+    // metia en el terreno. Y ahi ocurria lo peor:
+    //
+    //   al mirar hacia ABAJO desde un bloque de piedra, el vecino inferior es
+    //   MAS PIEDRA -- que tambien pasaba puedeCaer(), asi que en vez de
+    //   contar como APOYO se sumaba a la estructura.
+    //
+    // El fill se comia la columna hacia abajo, y con ella el parche entero.
+    // Si el trozo no llegaba a los 512 bloques del tope, `apoyada` no se
+    // activaba nunca y TODO ESE TERRENO se desprendia y caia: aparecian
+    // placas de piedra tiradas sobre el pasto, con huecos donde antes habia
+    // suelo. Justo lo que se veia.
+    //
+    // La regla: EL TERRENO NATURAL no cae. Lo que el generador pone como
+    // suelo del mundo -- roca, tierra, arena, minerales en veta -- es
+    // cimiento, y un cimiento no se desprende.
+    //
+    // ⚠️ NO vale usar esSueloFirme() para esto, aunque sea tentador.
+    //
+    // Esa funcion responde a otra pregunta: "¿aguanta peso?". Y hay
+    // materiales que aguantan peso Y ADEMAS pueden caerse: los TABLONES. Un
+    // puente de madera sostiene lo que le pongas encima, pero si le quitas
+    // los pilares se viene abajo -- porque es CONSTRUCCION, no suelo.
+    //
+    // Confundir las dos preguntas dejaba los tablones clavados en el aire.
+    // Lo cazo un test al escribir este arreglo.
+    if (esTerrenoNatural(t)) return false;
+
+    // ⭐ LOS GUIJARROS SE QUEDAN DONDE ESTAN.
+    //
+    // Piedritas, pedernal, polvo de tierra, cantos de hierro, nieve suelta:
+    // no son bloques que ocupen su celda, son un montoncito de cantos
+    // apoyado en el suelo. Un puñado de piedras no "se derrumba" -- se queda
+    // donde cayó, encajado en el terreno.
+    //
+    // Y hay una razon practica ademas de la logica: van sembrados por toda
+    // la superficie del mundo, asi que meterlos en el flood fill de las
+    // estructuras haria recorrerlos una y otra vez sin que nunca caiga
+    // ninguno. Se paga el coste sin ganar nada.
+    //
+    // esGuijarro() los cubre todos a la vez, asi que si manana se anade otro
+    // canto, queda excluido solo.
+    if (esGuijarro(t)) return false;
+
+    return true;
+}
 } // namespace Fisica

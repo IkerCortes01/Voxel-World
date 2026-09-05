@@ -292,7 +292,19 @@
   },
 
   "poblacion": {
-    "densidad_objetivo": { "valor": [1, 2], "unidad": "individuos/km²", "convergencia": "El Edén (México, 0.2 manadas/km² × 6-10 ind) da 1.2-2.0, coincidente con Texas (2.0). La convergencia entre dos métodos y regiones distintas da confianza.", "confianza": "MEDIDO" },
+    "densidad_objetivo": {
+      "valor": [30, 60],
+      "unidad": "individuos/km²",
+      "confianza": "ESTIMADO",
+      "_ATENCION": "Este es el valor DE JUEGO, no el biológico. Es el dato biológico multiplicado por 30 (ver MULTIPLICADOR_DE_JUEGO en aparicion_por_bioma.abundancia_esperada).",
+      "densidad_biologica_real": {
+        "valor": [1, 2],
+        "unidad": "individuos/km²",
+        "convergencia": "El Edén (México, 0.2 manadas/km² × 6-10 ind) da 1.2-2.0, coincidente con Texas (2.0). La convergencia entre dos métodos y regiones distintas da confianza.",
+        "confianza": "MEDIDO",
+        "nota": "Se conserva intacto. Es el número que hay que citar si alguien pregunta cuál es la densidad real de la especie, y el que hay que restaurar si se quiere una simulación ecológicamente fiel."
+      }
+    },
     "demografia": {
       "crias_por_hembra_por_ano_silvestre": [1.0, 1.5],
       "advertencia": "NO usar el 1.86 de cautiverio: representa el techo con alimentación garantizada",
@@ -311,16 +323,117 @@
     },
     "aparicion_por_bioma": {
       "nota": "Mapeo a los biomas que el motor ya define en BiomeTypes.h",
+
+      "_PRINCIPIO": "El pecarí de collar es una especie ABUNDANTE y GENERALISTA en México, no un animal raro. Su rango cubre el país prácticamente entero, ocupa al menos 9 tipos de vegetación distintos y está EXPANDIÉNDOSE. Un jugador que recorra terreno mexicano debe encontrarlos con regularidad; que sean escasos sería tan falso como que fueran plaga.",
+
+      "_DECISION_DE_DISENO_APARICION_UNIVERSAL": {
+        "fecha": "2026-09-01",
+        "decision": "El pecarí aparece en TODOS los biomas terrestres del motor, incluidos playa y picos nevados. Solo se excluye el océano.",
+        "origen": "Petición explícita de diseño, no un hallazgo de literatura.",
+        "que_respalda_la_literatura": "Que la especie es generalista, ocupa ≥9 tipos de vegetación, tolera hábitats modificados y está expandiendo su rango. Eso justifica presencia amplia y las subidas de PLANICIES y MONTAÑA, que salen de datos medidos.",
+        "que_NO_respalda_la_literatura": "La presencia en PICOS NEVADOS. No hay ningún registro de D. tajacu sobre nieve permanente; es una especie neotropical. El valor 0.25 es enteramente de diseño.",
+        "por_que_se_marca_asi": "La regla del sistema es que el dato y la invención se distingan de un vistazo. Esta decisión es legítima —es un videojuego, no un atlas— pero no debe poder confundirse con un hallazgo. Queda como ESTIMADO y con la advertencia puesta.",
+        "como_revertirlo": "Poner BIOME_MOUNTAIN_PEAKS a 0.0 y BIOME_BEACH a 0.1 devuelve el archivo a la distribución respaldada por datos.",
+        "alternativa_mas_realista_si_se_quiere_recuperar_rigor": "Restringir los picos a las cotas bajas del bioma (por debajo de la línea de nieve) en vez de excluirlos: da presencia universal sin poner al animal sobre hielo permanente."
+      },
+
       "reglas": [
-        { "bioma_motor": "BIOME_FOREST", "densidad_relativa": 1.0, "justificacion": "Selva alta perennifolia y selva mediana son hábitat óptimo documentado" },
-        { "bioma_motor": "BIOME_PLAINS", "densidad_relativa": 0.6, "justificacion": "Usa vegetación secundaria y pastizales inducidos (58.1% y 29% de los puntos en Campeche)" },
-        { "bioma_motor": "BIOME_DESERT", "densidad_relativa": 0.5, "justificacion": "Hábitat semiárido bien documentado, dependiente de Opuntia; expansión reciente al Altiplano" },
-        { "bioma_motor": "BIOME_MOUNTAINS", "densidad_relativa": 0.2, "confianza": "ESTIMADO — el rango altitudinal en México es AUSENTE" },
-        { "bioma_motor": "BIOME_OCEAN / BIOME_OCEAN_DEEP", "densidad_relativa": 0.0 },
-        { "bioma_motor": "BIOME_BEACH", "densidad_relativa": 0.1 },
-        { "bioma_motor": "BIOME_MOUNTAIN_PEAKS", "densidad_relativa": 0.0 }
+        { "bioma_motor": "BIOME_FOREST", "densidad_relativa": 1.0, "justificacion": "Selva alta perennifolia y selva mediana son hábitat óptimo documentado", "confianza": "MEDIDO" },
+        { "bioma_motor": "BIOME_PLAINS", "densidad_relativa": 0.75, "justificacion": "Usa vegetación secundaria (58.1% de los puntos en Campeche) y pastizales inducidos (29%). Juntos son el 87% de los registros de Campeche: NO es hábitat marginal. Se sube de 0.6 a 0.75 para reflejarlo.", "confianza": "MEDIDO", "revision": "Corregido al alza: el valor previo de 0.6 infravaloraba el dato de Campeche." },
+        { "bioma_motor": "BIOME_DESERT", "densidad_relativa": 0.5, "justificacion": "Hábitat semiárido bien documentado, dependiente de Opuntia; expansión reciente al Altiplano", "confianza": "MEDIDO", "dependencia_critica": "En este bioma la densidad depende de que HAYA NOPAL. Es el 25-80% de la dieta y su ~87% de agua es lo que permite vivir sin agua libre. Sin Opuntia en el chunk, la densidad efectiva debe caer a ~0.15: el desierto sin nopal no lo sostiene." },
+        { "bioma_motor": "BIOME_MOUNTAINS", "densidad_relativa": 0.35, "confianza": "ESTIMADO", "justificacion": "El rango altitudinal en México es AUSENTE, pero La Sepultura (Chiapas) abarca 60-2,550 m y allí la abundancia MEDIDA es la más alta registrada (1.875 huellas/km). Subir de 0.2 a 0.35: el valor previo asumía que la montaña es hábitat pobre, y el único dato disponible apunta a lo contrario.", "revision": "Corregido al alza." },
+        { "bioma_motor": "BIOME_BEACH", "densidad_relativa": 0.45, "confianza": "ESTIMADO", "justificacion": "Subido de 0.1 por decisión de diseño: presencia en todos los biomas terrestres. Hay respaldo parcial —la especie ocupa selva baja inundable, tular/popal y manglar costero—, pero 0.45 está por encima de lo que ese respaldo sostiene por sí solo.", "revision": "DECISIÓN DE DISEÑO 2026-09-01: aparición universal solicitada." },
+        { "bioma_motor": "BIOME_MOUNTAIN_PEAKS", "densidad_relativa": 0.25, "confianza": "ESTIMADO", "justificacion": "Picos nevados. NO hay registro de la especie por encima de la línea de nieve: este valor es enteramente de diseño, no biológico.", "revision": "DECISIÓN DE DISEÑO 2026-09-01: aparición universal solicitada.", "advertencia": "Es el valor menos defendible del archivo. Un pecarí sobre nieve permanente contradice la distribución conocida de la especie, que es neotropical." },
+        { "bioma_motor": "BIOME_OCEAN / BIOME_OCEAN_DEEP", "densidad_relativa": 0.0, "confianza": "MEDIDO", "justificacion": "Océano abierto. Se mantiene en 0 porque no es un bioma donde la especie sea rara: es agua, y el animal se ahogaría. Nadan —cruzan ríos y cuerpos de agua— pero no habitan mar abierto.", "nota": "Único bioma excluido de la aparición universal, por imposibilidad física y no por escasez." }
       ],
+
+      "_POR_QUE_EL_FACTOR_DE_BIOMA_NO_BASTA": "El motor define solo 8 biomas, pero su selector usa un espacio climático de 5 dimensiones (temperature, humidity, continentalness, erosion, weirdness — ver BiomeGenerator.h). Dos puntos del mismo BIOME_FOREST pueden ser climas muy distintos. Los modificadores de abajo aprovechan ese clima ya calculado, y son GRATIS: el terreno ya lo tiene en ClimateData al generar la columna.",
+
+      "modificadores_dentro_del_bioma": [
+        {
+          "factor": "proximidad_al_agua",
+          "multiplicador": [0.6, 1.4],
+          "justificacion": "MEDIDO en Chiapas: la ocurrencia está influida por la proximidad a fuentes de agua. Preferencia medida bebederos > aguadas > sartenejas.",
+          "confianza": "MEDIDO (la dirección); ESTIMADO (la magnitud del multiplicador)",
+          "implementacion": "El motor ya detecta agua (updateWaterFlow). Aplicar sobre el punto de aparición de la manada, no por individuo."
+        },
+        {
+          "factor": "corredores_xero_riparios",
+          "multiplicador": 1.5,
+          "justificacion": "MEDIDO y reciente: los nuevos registros del Altiplano (Llanos de Ojuelos, Acta Zoológica Mexicana 41, 2025) señalan los hábitats xero-riparios como CORREDORES CLAVE de la expansión del rango.",
+          "confianza": "MEDIDO",
+          "implementacion": "Zona árida (humidity baja) CON agua cerca. Es la conjunción de dos consultas que el motor ya tiene, no un sistema nuevo.",
+          "importancia": "Es lo que convierte un desierto en atravesable para la especie. Sin esto, los pecaríes del desierto quedan como bolsas aisladas en vez de una población conectada."
+        },
+        {
+          "factor": "borde_de_bosque",
+          "multiplicador": 1.25,
+          "justificacion": "La especie tolera y usa hábitats agroforestales: en La Sepultura el índice de abundancia en CAFETAL igualó exactamente al de montaña (1.875 huellas/km en ambos). El cafetal es estructuralmente un borde: dosel parcial sobre sotobosque abierto.",
+          "confianza": "MEDIDO (la equivalencia cafetal-selva); ESTIMADO (traducirlo a 'borde')",
+          "implementacion": "El motor ya calcula blendWeight en BiomeSample: blendWeight bajo = frontera entre biomas. Aplicar cuando el bosque linda con planicie. Coste cero: el dato ya está ahí."
+        },
+        {
+          "factor": "altitud_extrema",
+          "multiplicador": 0.6,
+          "umbral": "Por encima de la línea de nieve",
+          "confianza": "ESTIMADO",
+          "nota": "El rango altitudinal en México es AUSENTE. Este valor es de diseño, no un dato.",
+          "revision": "CAMBIADO de 0.0 a 0.6 el 2026-09-01. Antes era un corte duro que anulaba la aparición sobre la línea de nieve; con la decisión de aparición universal habría cancelado BIOME_MOUNTAIN_PEAKS y dejado el bioma vacío pese a tener densidad asignada.",
+          "efecto_conjunto": "0.25 (picos) × 0.6 (altitud) = 0.15 efectivo. Presencia real pero claramente escasa: el pecarí de las cumbres existe pero es un encuentro raro."
+        }
+      ],
+
+      "abundancia_esperada": {
+        "densidad_base": "1-2 individuos/km² (MEDIDO, convergencia de dos métodos independientes)",
+        "advertencia_de_escala": "Esa densidad es de campo abierto real. Un mundo de videojuego se recorre MUCHO más deprisa que el monte, así que aplicada literalmente el jugador casi no vería pecaríes. Debe ajustarse al ritmo del juego SIN romper la proporción entre biomas: lo que hay que preservar es que el bosque tenga el doble que el desierto, no el número absoluto.",
+        "confianza_de_la_proporcion": "MEDIDO",
+        "confianza_del_absoluto": "ESTIMADO — es una decisión de ritmo de juego, no biológica. Marcarla como tal.",
+
+        "MULTIPLICADOR_DE_JUEGO": {
+          "valor": 30.0,
+          "fecha": "2026-09-01",
+          "confianza": "ESTIMADO",
+          "origen": "Petición explícita de diseño: 'que los pecaríes sean súper mega comunes'. NO es un dato biológico.",
+          "densidad_resultante": "45 individuos/km² (1.5 × 30), es decir ~5.6 manadas/km²",
+          "que_significa_para_el_jugador": {
+            "una_manada_cada": "~420 m",
+            "encuentros_caminando": "~1 cada 3-4 minutos a 5 m/s con 90 m de visibilidad",
+            "lectura": "Abundancia tipo 'vaca de Minecraft': el jugador los encuentra sin buscarlos, de forma constante, pero siguen siendo grupos separados y no una alfombra continua de animales."
+          },
+          "por_que_30_y_no_mas": "Por encima de ×50 las manadas dejan de leerse como grupos distintos y el mundo empieza a parecer un corral. ×30 es el punto donde la especie se siente omnipresente sin perder la estructura de piara, que es su rasgo más característico.",
+          "como_ajustarlo": "Es UN SOLO número. Subirlo o bajarlo escala la población entera sin tocar nada más, porque las proporciones entre biomas son independientes de él.",
+          "lo_que_NO_cambia": "Las densidades relativas por bioma siguen intactas: el bosque sigue teniendo el doble que el desierto. Se multiplica todo por igual, así que la estructura MEDIDA se conserva.",
+
+          "coste_de_rendimiento": {
+            "_ATENCION": "×30 animales NO es gratis. El presupuesto declarado del sistema es ~2 ms/frame para TODA la fauna (01_ARQUITECTURA_DEL_SISTEMA.json).",
+            "cuantos_hay_de_verdad_cerca_del_jugador": "A 45 ind/km², un radio de simulación de 200 m (0.126 km²) contiene ~5.7 individuos; uno de 500 m (0.785 km²), ~35. La cifra que importa NO es la del mundo entero sino la de los que están en LOD alto.",
+            "por_que_es_manejable": "La arquitectura ya tiene exactamente lo que hace falta: LOD 0-3 con histéresis, time-slicing, layout SoA y decaimiento perezoso. Con LOD_3 (estadístico, coste casi nulo) fuera del mundo cargado, el número global apenas influye en el coste por frame.",
+            "donde_vigilar": "El spatial hash. Con 30 veces más agentes por celda, las consultas de vecindad se encarecen si el tamaño de celda se quedó calibrado para la densidad vieja. Conviene reducir el lado de celda para mantener ~8-15 agentes por celda, que es donde el hash rinde.",
+            "lo_que_NO_hay_que_hacer": "Subir el multiplicador Y mantener a todos en LOD_0. El presupuesto se agota. La abundancia se sostiene sobre el LOD, no sobre fuerza bruta.",
+            "confianza": "DERIVADO — cálculo geométrico sobre la densidad elegida y el presupuesto declarado."
+          }
+        },
+
+        "_CONSECUENCIA_CRITICA_DEL_MULTIPLICADOR": {
+          "_IMPORTANCIA": "Esto NO es un detalle: a esta densidad, un sistema del modelo deja de tener sentido y hay que desactivarlo.",
+          "el_problema": "El ámbito de hogar MEDIDO es de 150-250 ha (1.5-2.5 km²) por manada, y el solapamiento MEDIDO entre manadas vecinas es del 20-40%. A ×30 hay una manada cada 0.18 km²: once manadas comparten el espacio que la literatura asigna a una sola. El solapamiento real sería del 1100%, no del 20-40%.",
+          "que_hacer": "DESACTIVAR la exclusión territorial entre manadas, o al menos elevar muchísimo su umbral de tolerancia. Si se deja activa tal cual, las manadas se pasarán la vida en conflicto de territorio y el comportamiento observable será el de un mundo en guerra permanente, no el de una especie abundante.",
+          "que_NO_se_rompe": "La cohesión INTERNA de la manada (boids, k≈7 vecinos topológicos) es independiente de cuántas manadas haya alrededor. Eso sigue funcionando igual y es lo que mantiene el rasgo característico de la especie.",
+          "honestidad": "Con ×30 la simulación ya no reproduce la ecología espacial real de D. tajacu. Reproduce su COMPORTAMIENTO —manadas cohesivas, diurnidad modulada por miedo, dieta por bioma, termorregulación conductual— a una densidad que no es la suya. Es una decisión legítima de videojuego, pero conviene saber exactamente qué se cambió."
+        },
+        "reparto_esperado_en_el_mundo": {
+          "nota": "Combinando las densidades relativas con la ocupación medida del generador (bosque 52% de la tierra firme, planicies 33%, desierto 15%). Montaña, playa y picos son fracciones menores que el generador reparte dentro de esos porcentajes.",
+          "calculo": "bosque 52%×1.0 = 0.520 | planicies 33%×0.75 = 0.248 | desierto 15%×0.5 = 0.075",
+          "resultado": "~62% de los pecaríes del mundo en bosque, ~29% en planicies, ~9% en desierto",
+          "veredicto": "Coherente con una especie de selva que además penetra en zonas abiertas y áridas. El pecarí del desierto existe y se encuentra, pero el jugador que quiera verlos irá al bosque — que es como es.",
+          "efecto_de_la_aparicion_universal": "Subir playa a 0.45 y picos a 0.25 NO altera de forma apreciable estos porcentajes: ambos biomas ocupan una fracción pequeña de la superficie. Lo que cambia es que dejan de ser huecos vacíos. El jugador que llegue a una playa o a un pico ahora puede encontrar una piara, en vez de tener la certeza de que ahí no hay ninguna.",
+          "lo_que_si_cambia": "La sensación de continuidad: sin biomas a cero, la especie se percibe como presente en todo el mundo, que es el objetivo de la decisión."
+        }
+      },
+
       "regla_de_grupo": "Aparecer como MANADA COMPLETA (6-10 individuos con estructura de edades), nunca como individuos sueltos",
+      "_CONSECUENCIA_DE_LA_REGLA_DE_GRUPO": "Con manadas de 6-10, la unidad de aparición NO es el individuo sino el grupo. A 1-2 ind/km² eso significa una manada cada ~5 km². Los encuentros son POCOS pero NUMEROSOS: el jugador no ve un pecarí de vez en cuando, ve nueve de golpe y luego nada en un buen rato. Ese patrón agrupado es el correcto y NO debe suavizarse repartiendo individuos sueltos.",
+
       "proximidad_al_agua": "Preferencia por proximidad a fuentes de agua (MEDIDO en Chiapas: la ocurrencia está influida por ello)"
     },
     "resiliencia_obligatoria": {
@@ -331,7 +444,15 @@
         { "mecanismo": "Reproducción densodependiente", "detalle": "La fecundidad sube a baja densidad" },
         { "mecanismo": "Límites duros", "detalle": "Mínimo y máximo poblacional por región" }
       ],
-      "instrumentacion": "Gráficas de población en tiempo real accesibles en depuración. Si no puedes ver el colapso, no puedes prevenirlo."
+      "instrumentacion": "Gráficas de población en tiempo real accesibles en depuración. Si no puedes ver el colapso, no puedes prevenirlo.",
+
+      "_AJUSTE_POR_EL_MULTIPLICADOR_x30": {
+        "nota": "Con la densidad de juego ×30, dos de estos mecanismos cambian de signo y uno gana importancia.",
+        "reproduccion_densodependiente": "OJO: está definida como 'la fecundidad sube a baja densidad'. Si el umbral de 'baja densidad' se dejó calibrado sobre 1-2 ind/km², a 45 ind/km² el sistema leerá SIEMPRE densidad alta y la fecundidad quedará permanentemente suprimida. El umbral debe escalarse por el mismo ×30, o el mecanismo se convierte en un freno constante en vez de un amortiguador.",
+        "limites_duros": "El máximo poblacional por región debe subir ×30 también. Si no, actuará como techo mucho antes de alcanzar la densidad objetivo y el mundo nunca llegará a verse poblado.",
+        "refugios_y_recolonizacion": "Ganan importancia, no la pierden. A mayor densidad, mayor presión de caza del jugador sobre la población: son justamente los amortiguadores que impiden el colapso tipo Ultima Online.",
+        "regla_general": "Todo umbral expresado en individuos/km² debe escalarse por el multiplicador. Los expresados en PROPORCIONES (fracción de la manada, tasas per cápita) no se tocan."
+      }
     }
   },
 

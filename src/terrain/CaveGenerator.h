@@ -2,6 +2,7 @@
 #define CAVE_GENERATOR_H
 
 #include "NoiseSystem.h"
+#include <cmath>   // cosf, para la onda que separa los niveles de cueva
 
 // ============================================================================
 // CAVE GENERATOR - ETAPA 9
@@ -48,6 +49,10 @@ private:
     int seedCheese()  const { return seed + 1961659; }
     int seedChamber() const { return seed + 2075417; }
     int seedWarp()    const { return seed + 2189173; }
+    // Ondula la altura de los pisos de cueva (ver IsCave).
+    int seedNivel()   const { return seed + 2303929; }
+    // Reparte las bocas naturales por el mundo (ver IsCaveEntrance).
+    int seedBoca()    const { return seed + 2417683; }
 
 public:
     // Altura maxima a la que pueden aparecer cuevas (bajo la superficie).
@@ -83,8 +88,58 @@ public:
         // el terreno quede como un queso gruyere justo bajo la hierba.
         const float depthRatio = Noise::clamp(
             (float)(surfaceHeight - y) / 60.0f, 0.0f, 1.0f);
-        const float depthFactor = Noise::smoothstep(0.0f, 0.45f, depthRatio);
+        float depthFactor = Noise::smoothstep(0.0f, 0.45f, depthRatio);
         if (depthFactor <= 0.01f) return false;
+
+        // --------------------------------------------------------------------
+        // ⭐ NIVELES DE CUEVA (pisos)
+        // --------------------------------------------------------------------
+        // Antes la densidad solo dependia de la profundidad, asi que el
+        // subsuelo era una nube de huecos homogenea: cavaras donde cavaras,
+        // todo se parecia. Ahora la red se organiza en PISOS horizontales
+        // separados por bancos de roca maciza.
+        //
+        // Es lo que hace una cueva real: el agua se estanca en el nivel
+        // freatico, excava en horizontal, el nivel baja y deja el piso viejo
+        // seco arriba. Un sistema karstico maduro tiene varios de esos pisos
+        // superpuestos -- en el Sistema Sac Actun (Quintana Roo) se
+        // reconocen varios niveles asociados a antiguos niveles del mar.
+        //
+        // COMO SE HACE: una onda coseno sobre la altura. Vale ~1 en el centro
+        // de cada piso y ~0 en la roca entre pisos, y se multiplica por el
+        // factor de profundidad. El resultado es que los tuneles se
+        // concentran en bandas y entre ellas queda techo y suelo de verdad.
+        //
+        // La banda NO es plana: se ondula con un ruido de muy baja frecuencia
+        // (`ondulacion`), asi que un piso sube y baja decenas de bloques a lo
+        // largo del mundo en vez de ser una loncha de laboratorio.
+        {
+            // Separacion entre pisos, en bloques. 26 deja bancos de roca
+            // gruesos entre niveles sin que descender de uno a otro sea una
+            // caminata.
+            constexpr float SEPARACION_PISOS = 26.0f;
+
+            // La ondulacion desplaza la altura de la banda por zona. +-9
+            // bloques es suficiente para que el piso se sienta natural y no
+            // tanto como para que dos pisos se fundan.
+            const float ondulacion = Noise::simplex3D(seedNivel(),
+                                                      x * 0.0035f, 0.0f, z * 0.0035f) * 9.0f;
+
+            const float fase = ((fy + ondulacion) / SEPARACION_PISOS) * 6.2831853f;
+            // cos -> [-1,1]; se lleva a [0,1].
+            const float banda = 0.5f + 0.5f * cosf(fase);
+
+            // ⚠️ NO se anula del todo entre pisos.
+            //
+            // Con un factor que llegue a 0 los niveles quedarian
+            // INCOMUNICADOS: cada piso seria una capa estanca sin forma de
+            // bajar al siguiente, que es peor que no tener niveles. El suelo
+            // de 0.35 deja pasar los pozos y chimeneas que conectan un piso
+            // con el de abajo -- justo lo que en una cueva real son los tiros
+            // verticales.
+            const float refuerzoNivel = 0.35f + 0.65f * banda;
+            depthFactor *= refuerzoNivel;
+        }
 
         // NOTA SOBRE OPTIMIZACION DESCARTADA:
         // Se probo un "rechazo temprano" con un campo simplex barato para
@@ -227,34 +282,173 @@ public:
     // la superficie. Sin esto las cuevas serian inaccesibles.
     // Se usa un ruido de frecuencia muy baja y umbral estricto, de modo que
     // las entradas son escasas y parecen simas o bocas naturales.
+    // Profundidad maxima a la que puede bajar un pozo de entrada.
+    //
+    // ⭐ ANTES ERAN 22 BLOQUES, Y ESE ERA EL FALLO.
+    //
+    // Medido sobre 160.000 columnas: de las que tenian boca, solo el 28.7%
+    // llegaba a tocar la galeria. Las otras dos terceras partes eran hoyos que
+    // morian en roca maciza, con una media de 6.86 bloques de piedra entre el
+    // fondo del pozo y el techo de la cueva -- y un 27% con mas de diez.
+    //
+    // El motivo: la boca bajaba una distancia FIJA desde la superficie, pero
+    // la galeria esta donde la ponga el sistema de pisos (ver la banda coseno
+    // de IsCave), que ondula decenas de bloques a lo largo del mundo. Una
+    // distancia fija no puede alcanzar un objetivo movil.
+    //
+    // Con 56 el pozo llega a cualquier piso alto. El embudo sigue cerrandolo
+    // por su cuenta mucho antes en la mayoria de los casos: esto es el tope,
+    // no la profundidad tipica.
+    static constexpr int ENTRADA_MAX_HONDURA = 56;
+
     bool IsCaveEntrance(float x, int y, float z, int surfaceHeight) const {
-        if (y > surfaceHeight - 1) return false;
-        if (y < surfaceHeight - 18) return false;
+        // El pozo arranca EN la superficie -- no un bloque por debajo.
+        //
+        // Con `y > surfaceHeight - 1` la columna de superficie sobrevivia, asi
+        // que sobre cada boca quedaba una tapa de pasto o de arena: el agujero
+        // estaba, pero tapado. Es justo lo que se pidio quitar.
+        if (y > surfaceHeight) return false;
+        if (y < surfaceHeight - ENTRADA_MAX_HONDURA) return false;
 
         const float fy = (float)y;
 
-        const float entrance = Noise::fbmSimplex3D(seedCheese() + 5501,
-                                                   x * 0.020f, fy * 0.020f, z * 0.020f, 3);
-
-        // ⭐ MAS BOCAS: del ~2% de las columnas a alrededor del ~8%.
+        // --------------------------------------------------------------------
+        // ⭐ DONDE HAY BOCA: SE DECIDE EN 2D, NO EN 3D
+        // --------------------------------------------------------------------
+        // Antes la boca salia de un ruido 3D, asi que su forma variaba con la
+        // altura y quedaban perforaciones irregulares -- mas agujeros de gusano
+        // que simas.
         //
-        // De poco sirve llenar el subsuelo de galerias si no hay por donde
-        // entrar. Bajar este umbral es lo que convierte "hay muchas cuevas"
-        // en "me encuentro cuevas paseando".
-        if (entrance > 0.58f) {
-            // Estrechamiento hacia arriba: la boca es mas angosta que la
-            // galeria, como una sima real.
-            const float narrowing = (float)(surfaceHeight - y) / 18.0f;
-            const float required = Noise::lerp(0.68f, 0.58f, narrowing);
-            return entrance > required;
-        }
-        return false;
+        // Ahora el SITIO de la boca lo decide un campo 2D (solo x,z): es una
+        // propiedad de la COLUMNA, como lo es en el mundo real. Una sima esta
+        // en un punto del mapa, y desde ahi baja. Eso hace que la entrada sea
+        // un pozo reconocible que se ve desde lejos, y no una grieta que
+        // aparece y desaparece segun la altura a la que se mire.
+        const float campoBoca = Noise::fbmSimplex2D(seedBoca(),
+                                                    x * 0.018f, z * 0.018f, 3);
+
+        // ⚠️ UMBRAL CALIBRADO CONTRA EL RANGO REAL DEL RUIDO, NO A OJO.
+        //
+        // fbmSimplex2D con 3 octavas NO llega a 1.0: medido sobre 160.000
+        // columnas da min -0.43, max 0.42, media 0.00. Un umbral de 0.52 --que
+        // es lo que pedia la version 3D anterior-- es sencillamente
+        // inalcanzable, y dejaba CERO bocas en todo el mundo.
+        //
+        // Reparto medido de este campo:
+        //     > 0.30  ->  2.1 % de las columnas
+        //     > 0.20  -> 11.4 %
+        //     > 0.10  -> 28.1 %
+        //
+        // Se toma 0.22: deja ~8 % de columnas candidatas, que tras el embudo
+        // de abajo se queda en bocas separadas y encontrables paseando.
+        constexpr float UMBRAL_BOCA = 0.22f;
+        if (campoBoca <= UMBRAL_BOCA) return false;
+
+        // --------------------------------------------------------------------
+        // FORMA DE EMBUDO
+        // --------------------------------------------------------------------
+        // Una sima real es un cono invertido: ancha arriba, donde el techo se
+        // ha desplomado, y estrecha abajo, donde engancha con la galeria.
+        //
+        // `hondura` va de 0 en la superficie a 1 en el fondo de la boca. El
+        // umbral SUBE con la hondura, asi que cuanto mas abajo, menos columnas
+        // siguen abiertas: eso es el embudo.
+        // ⚠️ EL EMBUDO, RECALIBRADO CONTRA DATOS MEDIDOS.
+        //
+        // Es lo que le da al pozo su forma de cono invertido: ancho arriba,
+        // donde el techo se desplomo, y estrecho abajo.
+        //
+        // EL PROBLEMA QUE TENIA: se repartia sobre 22 bloques y llegaba a
+        // exigir 0.34 sobre un campo cuyo maximo real es 0.42. Medido sobre
+        // 90.000 columnas, eso CERRABA EL 93.7% DE LOS POZOS antes de que
+        // llegaran a ninguna parte: la bajada media era de 10.9 bloques.
+        //
+        // Y las galerias no estan ahi. Medida su hondura en las mismas
+        // columnas:
+        //
+        //     0-4    ->     0        20-24  ->   898
+        //     5-9    ->   955        25-29  ->   467
+        //     10-14  ->  2300  <--   30-34  ->   193
+        //     15-19  ->  1750  <--   35-44  ->   136
+        //
+        // El grueso esta entre 10 y 20 de hondura, justo donde el embudo ya
+        // habia estrangulado el pozo. La boca se abria y moria en roca.
+        //
+        // DOS CAMBIOS, los dos calibrados contra ese reparto:
+        //
+        //   1. El tramo pasa de 22 a 34 bloques, que cubre el 90% de las
+        //      galerias medidas. El pozo se estrecha mas despacio y llega.
+        //
+        //   2. El cuello afloja de 0.34 a 0.25. Con 0.34 sobre un maximo real
+        //      de 0.42 solo sobrevivia el 1% superior del campo.
+        //
+        // Sigue habiendo cono: arriba entra cualquier columna por encima de
+        // 0.22 y abajo solo las de 0.25. Lo que cambia es que el
+        // estrechamiento acompaña al pozo hasta la galeria en vez de ahogarlo
+        // a la tercera parte del camino.
+        //
+        // RESULTADO MEDIDO sobre las mismas 160.000 columnas:
+        //
+        //                          antes  22/0.34   ->   ahora  34/0.25
+        //     columnas con boca          7.79%           8.92%
+        //     abiertas en superficie     0%    (*)       8.92%  (todas)
+        //     CONECTAN con la galeria    2.13%           6.44%
+        //       de las que hay boca     27.3%           72.2%
+        //     hueco de roca medio        7.47 bl         3.33 bl
+        //
+        //  (*) ninguna: la columna de superficie sobrevivia y las tapaba.
+        //
+        // O sea: TRIPLE de entradas utiles (2.13% -> 6.44% de las columnas)
+        // con solo un punto mas de bocas totales. El mundo no queda mas
+        // agujereado; lo que cambia es que casi tres de cada cuatro bocas
+        // llevan a alguna parte, en vez de una de cada cuatro.
+        constexpr float TRAMO_EMBUDO = 34.0f;
+        constexpr float CUELLO       = 0.25f;
+        const float hondura = Noise::clamp(
+            (float)(surfaceHeight - y) / TRAMO_EMBUDO, 0.0f, 1.0f);
+
+        const float requerido = Noise::lerp(UMBRAL_BOCA, CUELLO, hondura);
+        if (campoBoca <= requerido) return false;
+
+        // --------------------------------------------------------------------
+        // BORDE IRREGULAR
+        // --------------------------------------------------------------------
+        // Sin esto el pozo es un cilindro perfecto y se nota que lo hizo una
+        // formula. Un ruido 3D de frecuencia media muerde el contorno para que
+        // el borde sea dentado y las paredes tengan repisas.
+        const float mordida = Noise::simplex3D(seedCheese() + 5501,
+                                               x * 0.085f, fy * 0.070f, z * 0.085f);
+
+        // ⚠️ LA MORDIDA NO TOCA LA COLUMNA DE SUPERFICIE.
+        //
+        // La mordida varia con la ALTURA (entra fy en el ruido), asi que puede
+        // recortar justo el bloque de arriba y dejar una tapa sobre un pozo
+        // que por lo demas esta abierto. Medido: le pasaba al 1.1% de las
+        // bocas (38 de 3.480) -- pocas, pero cada una es un agujero tapado que
+        // el jugador no encuentra.
+        //
+        // En la cota de superficie se salta el recorte. El borde dentado se
+        // sigue viendo en todo lo demas del pozo, que es donde se aprecia.
+        if (y >= surfaceHeight) return true;
+
+        // Solo recorta (nunca abre de mas). La resta es 0.02, proporcional al
+        // rango real del campo (~0.42): con el 0.05 de una escala 0-1 se
+        // habria comido casi una cuarta parte del margen util.
+        return campoBoca - 0.02f * (0.5f + 0.5f * mordida) > requerido;
     }
 
     // ========================================================================
-    // LAGOS DE LAVA SUBTERRANEOS
+    // LAGOS DE LAVA SUBTERRANEOS -- RETIRADOS
     // ========================================================================
-    // Nivel bajo el cual las cuevas se inundan de lava.
+    // ⚠️ YA NO SE USA. El generador dejo de inundar el fondo de las cuevas
+    // (ver ChunkGenerator.h, etapa 9): la lava hacia intransitable la parte
+    // baja y convertia el descenso en una carrera de obstaculos.
+    //
+    // La constante se conserva -- no se borra -- porque volver a activar los
+    // lagos es una sola linea en ChunkGenerator, y este es el numero que hay
+    // que poner. Hoy no la usa nadie mas (comprobado con grep sobre src/ y
+    // tests/): si se decide que la lava no vuelve, se puede borrar sin tocar
+    // nada mas.
     static constexpr int LAVA_LEVEL = 11;
 };
 

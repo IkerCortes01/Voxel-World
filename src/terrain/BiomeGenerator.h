@@ -53,8 +53,35 @@ private:
     static constexpr float OCEAN_MAX        = 0.47f; // < esto = oceano
     static constexpr float COAST_MAX        = 0.54f; // zona costera
 
-    static constexpr float DESERT_TEMP_MIN  = 0.62f;
-    static constexpr float DESERT_HUMID_MAX = 0.32f;
+    // ⭐ EL DESIERTO, AMPLIADO (medido, no a ojo).
+    //
+    // Estaba en 0.62/0.32, que pedia a la vez temperatura muy alta Y humedad
+    // muy baja. La interseccion de dos extremos es un area pequeña: salia el
+    // 8.3 % de la tierra firme, o sea que se podia jugar mucho rato sin ver
+    // uno -- y con el la biznaga y el agave azul, que solo viven ahi.
+    //
+    // Aflojando las dos condiciones a 0.54/0.40 el desierto pasa al 15.0 % de
+    // la tierra: casi el doble. Se encuentra sin buscarlo pero sigue siendo
+    // minoria clara frente al bosque (52 %) y las planicies (33 %).
+    //
+    // Medido sobre 1.000.000 de columnas con el generador real:
+    //
+    //     umbral        desierto (de la tierra firme)
+    //     0.62 / 0.32     8.3 %   <- antes
+    //     0.58 / 0.36    11.4 %
+    //     0.54 / 0.40    15.0 %   <- ahora
+    //     0.52 / 0.42    17.3 %
+    //     0.50 / 0.44    19.7 %   <- ya empieza a comerse las planicies
+    //
+    // Se para en 0.54/0.40 a proposito: el reparto sigue siendo un mundo
+    // templado con desiertos dentro, no un mundo de arena con parches verdes.
+    //
+    // ⚠️ NO se toca FOREST_HUMID_MIN. El bosque se selecciona DESPUES del
+    // desierto, asi que ampliar este ya le quita a las planicies lo justo; si
+    // ademas se moviera aquel, el reparto cambiaria por dos sitios a la vez y
+    // seria imposible atribuir el resultado.
+    static constexpr float DESERT_TEMP_MIN  = 0.54f;
+    static constexpr float DESERT_HUMID_MAX = 0.40f;
 
     static constexpr float FOREST_HUMID_MIN = 0.50f;
 

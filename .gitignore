@@ -52,3 +52,7 @@ external/glfw/docs/html/
 
 # Configuracion local de Claude Code (especifica de cada maquina)
 .claude/settings.local.json
+
+# Los ZIP que genera tools/empaquetar.bat. Son un derivado del propio
+# repositorio: versionarlos seria guardar el proyecto dentro del proyecto.
+dist/

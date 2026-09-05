@@ -119,6 +119,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "ui/ItemTextureManager.h"
 #include "ui/UIRenderer.h"
 #include "ui/ItemIconRenderer.h"
+#include "ui/IconoAnimal3D.h"
 
 // ============================================================================
 // VBO FUNCTION LOADER
@@ -290,7 +291,14 @@ struct Vec3i {
 // Fisica de caida (densidades reales, gravedad, arrastre del aire).
 // Va aqui arriba porque la lista de bloques cayendo se declara pronto.
 #include "FisicaCaida.h"
+// Los cristales que salen de la roca: su forma por especie y la ley del
+// bloque (cuanto mineral da al picarlo).
+#include "CristalMineral.h"
+// Los mechones de aciculas del ocote: la hoja del pino no es un cubo, es un
+// fasciculo de agujas que sale radialmente de la ramilla.
+#include "AciculaOcote.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
+#include "render/MallaChunk.h"  // geometria de chunk SIN OpenGL (movible entre hilos)
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "BloqueCompuesto.h" // bloques con estado y varias partes en un voxel
 #include "WorldName.h"
@@ -337,6 +345,19 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
     // Una celda mixta toma el color de su capa de abajo.
     if (esMixto(type)) type = mixtoBase(type);
+
+    // ⭐ UN BLOQUE COMPUESTO TOMA EL COLOR DE SU PLANTA
+    //
+    // Sin esto caia al default (blanco puro), asi que romper un maguey
+    // soltaba una nube de particulas BLANCAS en vez de verdes -- se veia como
+    // si estuviera hecho de nieve.
+    if (Compuesto::esCompuesto(type)) {
+        if (Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY) {
+            // El verde azulado del agave, mas apagado que la hierba.
+            r = 0.28f; g = 0.45f; b = 0.26f;
+            return;
+        }
+    }
     switch (type) {
         case BLOCK_GRASS:     r = 0.3f; g = 0.8f; b = 0.2f; break;
         case BLOCK_DIRT:      r = 0.6f; g = 0.4f; b = 0.2f; break;
@@ -347,6 +368,16 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_LEAVES_ENCINO: r = 0.25f; g = 0.55f; b = 0.18f; break;
         case BLOCK_WOOD_OYAMEL:   r = 0.35f; g = 0.22f; b = 0.12f; break;
         case BLOCK_LEAVES_OYAMEL: r = 0.16f; g = 0.45f; b = 0.28f; break;
+        // Ocote: corteza cafe oscuro en placas y acicula verde azulada.
+        case BLOCK_WOOD_OCOTE:        r = 0.30f; g = 0.19f; b = 0.11f; break;
+        case BLOCK_WOOD_OCOTE_DENTRO: r = 0.72f; g = 0.52f; b = 0.26f; break;
+        case BLOCK_LEAVES_OCOTE:
+        case BLOCK_LEAVES_OCOTE_RAMA: r = 0.20f; g = 0.44f; b = 0.32f; break;
+        // El ocote CHINO: corteza mas rojiza y corte mas oscuro y cerrado.
+        case BLOCK_WOOD_OCOTE_CHINO:        r = 0.34f; g = 0.17f; b = 0.10f; break;
+        case BLOCK_WOOD_OCOTE_CHINO_DENTRO: r = 0.55f; g = 0.33f; b = 0.19f; break;
+        case BLOCK_LEAVES_OCOTE_CHINO:
+        case BLOCK_LEAVES_OCOTE_CHINO_RAMA: r = 0.17f; g = 0.40f; b = 0.27f; break;
         case BLOCK_SAND:      r = 0.9f; g = 0.85f; b = 0.6f; break;
         case BLOCK_WATER:     r = 0.2f; g = 0.4f; b = 0.8f; break;
         case BLOCK_TALLGRASS: r = 0.4f; g = 0.9f; b = 0.3f; break;
@@ -359,6 +390,7 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_PLANKS:    r = 0.6f; g = 0.4f; b = 0.2f; break;    // Marrón claro
         case BLOCK_PLANKS_ENCINO: r = 0.55f; g = 0.36f; b = 0.18f; break; // Encino - algo más oscuro
         case BLOCK_PLANKS_OYAMEL: r = 0.68f; g = 0.50f; b = 0.30f; break; // Oyamel - más claro
+        case BLOCK_PLANKS_OCOTE:  r = 0.74f; g = 0.55f; b = 0.28f; break; // Ocote - ámbar resinoso
         case BLOCK_LIMESTONE: r = 0.85f; g = 0.83f; b = 0.75f; break;  // Caliza - crema
         case BLOCK_CLAY_DIRT: r = 0.52f; g = 0.40f; b = 0.28f; break;  // Tierra arcillosa
         case BLOCK_CLAY_SAND: r = 0.80f; g = 0.72f; b = 0.55f; break;  // Arena arcillosa
@@ -376,7 +408,8 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_NOPAL_CLADODIO_DIAG: r = 0.35f; g = 0.62f; b = 0.30f; break; // Verde nopal
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
-        case BLOCK_RAMA_OYAMEL: r = 0.34f; g = 0.22f; b = 0.12f; break; // Corteza
+        case BLOCK_RAMA_OYAMEL:
+        case BLOCK_RAMA_OCOTE: r = 0.34f; g = 0.22f; b = 0.12f; break; // Corteza
         case BLOCK_RAIZ_PEQUENA:
         case BLOCK_RAIZ_MEDIANA:
         case BLOCK_RAIZ_GRANDE:
@@ -463,6 +496,17 @@ bool isCrossSprite(BlockType type) {
     if (isRama(type) || esRaiz(type)) return true;
     // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
+    // ⭐ LAS ACICULAS DEL OCOTE, LAS DOS ESPECIES.
+    //
+    // Dejaron de ser cubos: ahora son mechones 2.5D repartidos por la celda
+    // (ver AciculaOcote.h). Como cualquier sprite, no llenan el voxel, no
+    // tapan las caras del vecino y se atraviesan -- que es lo que hace que una
+    // copa de pino deje pasar la luz en vez de ser una pared verde.
+    //
+    // Las variantes _RAMA ya entraban por esCompartido(), pero se nombran
+    // igual: quien lea esto no tiene por que saber ese detalle.
+    if (Acicula::esAciculaOcote(type)) return true;
+
     return type == BLOCK_TALLGRASS ||
            // Del ixtle solo la HOJA y la PUNTA son sprites. El TALLO es el
            // SUELO de la mata: un bloque macizo con sus seis caras.
@@ -483,6 +527,24 @@ bool isCrossSprite(BlockType type) {
            type == BLOCK_MAGUEY_HUECO ||
            type == BLOCK_AGUAMIEL ||
            esTuna(type);
+}
+
+// ⭐ PUENTE PARA LA FISICA DE CAIDA
+//
+// FisicaCaida.h declara Fisica::isCrossSprite porque esSueloFirme() la
+// necesita para excluir la vegetacion, pero no puede incluir main.cpp. El
+// JUEGO la resuelve aqui, reenviando a la de arriba; los TESTS aportan la
+// suya (ver tests/test_derrumbe.cpp).
+//
+// Es una linea de reenvio y no un `using` porque la declaracion vive dentro
+// del namespace: el enlazador busca el simbolo Fisica::isCrossSprite y aqui
+// es donde se le da cuerpo.
+namespace Fisica {
+    bool isCrossSprite(BlockType type) { return ::isCrossSprite(type); }
+
+    // Mismo puente para las ramas: aplastablePorArbol() las necesita para no
+    // machacar el ramaje del propio arbol al aterrizar.
+    bool esRamaParaFisica(BlockType type) { return ::isRama(type); }
 }
 
 // Suelos en los que arraiga el NOPAL: cualquier terreno natural blando.
@@ -533,6 +595,13 @@ bool esSueloParaNopal(BlockType type) {
         case BLOCK_PLANKS:
         case BLOCK_PLANKS_ENCINO:
         case BLOCK_PLANKS_OYAMEL:
+        // El ocote, igual: un nopal no arraiga en madera. Va aqui porque el
+        // `default` de abajo dice que si, asi que olvidar una especie la
+        // convierte en maceta.
+        case BLOCK_WOOD_OCOTE:
+        case BLOCK_WOOD_OCOTE_DENTRO:
+        case BLOCK_LEAVES_OCOTE:
+        case BLOCK_PLANKS_OCOTE:
         case BLOCK_BRICKS:
         case BLOCK_GLASS:
             return false;
@@ -646,6 +715,37 @@ inline double horaDelMundo() {
     return t * 24.0;
 }
 
+// ============================================================================
+// EL ESTADO QUE MUEVE LAS HOJAS
+// ============================================================================
+// El follaje del ocote se dobla con la brisa y se aparta cuando el jugador lo
+// atraviesa (ver Acicula::DesplazarHoja). Las dos cosas dependen de datos que
+// el mesher no tiene a mano: el reloj y donde esta el jugador.
+//
+// ⚠️ POR QUE SON GLOBALES Y NO PARAMETROS.
+//
+// La deformacion se aplica DENTRO de buildChunkMesh, a 6.000 lineas de
+// distancia de quien conoce esos dos datos, y en una rama que ya recibe una
+// docena de valores por captura. Pasarlos por la cadena entera obligaria a
+// tocar firmas por todo el mesher para transportar dos floats que no cambian
+// durante la construccion de una malla.
+//
+// El motor ya resuelve asi lo equivalente: `g_horaDelMundoSegundos` alimenta
+// el color de la luz por el mismo camino.
+//
+// ⚠️ Y POR QUE SON SEGUROS DE LEER DESDE UN WORKER.
+//
+// El mallado puede correr fuera del hilo principal. Estos dos valores se
+// escriben una vez por frame desde el bucle principal y se leen sin sincronizar
+// -- lo que en el peor caso da un valor un frame viejo. Para una hoja que
+// oscila eso es INVISIBLE: la diferencia entre dos frames consecutivos es una
+// fraccion de milimetro. No hay estructura que corromper porque son escalares,
+// no punteros ni contenedores.
+float g_hojaTiempo = 0.0f;                     // reloj de la oscilacion, en s
+float g_hojaJugadorX = 0.0f;                   // donde esta el jugador...
+float g_hojaJugadorY = 0.0f;
+float g_hojaJugadorZ = 0.0f;
+
 // Cuanta luz del sol hay, de 0 (noche cerrada) a 1 (mediodia).
 //
 // No es un interruptor: el sol sube y baja, asi que entre las 5 y las 7 de la
@@ -746,6 +846,62 @@ int  g_recargaFrames = 0;
 
 // Un minuto de juego.
 constexpr double PASTO_MUERE_SEG = 60.0;
+
+// ============================================================================
+// LAS HOJAS SEPARADAS DEL ARBOL SE PUDREN
+// ============================================================================
+// Una hoja no se sostiene sola en el aire: vive del tronco. Al talar un arbol,
+// la copa que queda flotando se va deshaciendo poco a poco y suelta lo que
+// dejaria una hoja rota.
+//
+// ----------------------------------------------------------------------------
+// COMO SE DECIDE QUE UNA HOJA ESTA SEPARADA
+// ----------------------------------------------------------------------------
+// No basta con mirar los seis vecinos: una copa entera desconectada del suelo
+// seguiria sosteniendose a si misma, hoja contra hoja, para siempre.
+//
+// La regla es la del genero: la hoja busca un TRONCO siguiendo cadenas de
+// HOJAS, hasta HOJA_ALCANCE bloques de distancia. Si lo encuentra, esta viva;
+// si no, se pudre. Asi:
+//
+//   - Una copa intacta nunca se cae sola: cada hoja tiene su tronco cerca.
+//   - Talado el tronco, la copa entera se queda sin referencia y se deshace.
+//   - Y una hoja colocada a mano lejos de un arbol tampoco aguanta.
+//
+// ----------------------------------------------------------------------------
+// POR QUE CON RETARDO Y NO DE GOLPE
+// ----------------------------------------------------------------------------
+// Un arbol grande tiene cientos de hojas. Romperlas todas en el mismo frame
+// es un pico de trabajo (cada rotura toca el mundo, marca el chunk para
+// remallar y puede soltar un item) justo en el momento en que el jugador
+// acaba de talar, que es cuando menos se perdona un tiron.
+//
+// Cada hoja recibe un plazo repartido entre HOJA_PUDRIR_MIN y _MAX, sacado de
+// un hash de su posicion. Ademas de repartir el coste, se VE mejor: la copa
+// se deshace en cascada en vez de desaparecer de una pieza.
+struct HojaPudriendose {
+    int x, y, z;
+    double t0;          // cuando se quedo sin soporte
+    double plazo;       // cuanto aguanta esta hoja en concreto
+};
+std::vector<HojaPudriendose> g_hojasPudriendose;
+
+// A cuantos bloques puede estar el tronco, siguiendo hojas.
+//
+// 4 es el valor del genero y encaja con la copa de este motor: los generadores
+// reparten las hojas en radios de 2 a 4 bloques alrededor del eje, asi que
+// con 4 toda copa sana se sostiene y ninguna copa huerfana sobrevive.
+constexpr int HOJA_ALCANCE = 4;
+
+// Reparto del plazo, en segundos de juego. La copa tarda unos 4 segundos en
+// deshacerse del todo: se ve caer, sin que el jugador tenga que esperar.
+constexpr double HOJA_PUDRIR_MIN = 1.0;
+constexpr double HOJA_PUDRIR_MAX = 4.0;
+
+// Tope de hojas en cola. Un arbol grande ronda las 300; con 4096 caben varios
+// arboles talados a la vez y aun asi la lista no puede dispararse si alguien
+// arrasa un bosque.
+constexpr size_t MAX_HOJAS_PUDRIENDOSE = 4096;
 
 // ¿Este bloque ahoga al pasto?
 //
@@ -986,7 +1142,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
                b != BLOCK_TALLGRASS && !isNopal(b) && !isRama(b) &&
                !esRaiz(b) &&
                b != BLOCK_LEAVES && b != BLOCK_LEAVES_ENCINO &&
-               b != BLOCK_LEAVES_OYAMEL;
+               b != BLOCK_LEAVES_OYAMEL && b != BLOCK_LEAVES_OCOTE;
     };
     const bool apoyoAbajo  = esApoyo(get( 0,-1, 0));
     const bool apoyoArriba = esApoyo(get( 0, 1, 0));
@@ -1578,36 +1734,51 @@ inline void cajaDePiezaN(BlockType compuesto, int i,
             const Compuesto::Componente c =
                 Compuesto::componenteN(compuesto, i);
 
+            // ⭐ LAS MEDIDAS SALEN DE BloqueCompuesto.h.
+            //
+            // Antes estaban copiadas aqui a mano, y las mismas formulas se
+            // repetian en el mesher: tres copias que habia que cambiar a la
+            // vez. Ahora hay una sola definicion, asi que lo que se dibuja y
+            // lo que se selecciona no pueden separarse.
+            namespace MG = Compuesto::Maguey;
+            const float altHoja = MG::altoHoja(esc);
+
             if (c == Compuesto::COMP_FLUIDO) {
-                // El jugo, dentro del cuenco. Es la caja mas alta y la mas
-                // cercana al ojo cuando te asomas por arriba, asi que mirar
-                // dentro selecciona el liquido -- que es lo que se quiere
-                // recoger.
-                const float cR = 0.20f, cP = 0.06f;
+                // El jugo, dentro del cuenco. Es la caja mas cercana al ojo
+                // cuando te asomas por arriba, asi que mirar dentro
+                // selecciona el liquido -- que es lo que se quiere recoger.
+                const float cy0 = MG::alturaCajete(esc);
+                const float cR  = MG::radioCajete(esc);
+                const float cP  = 0.05f;
+                const float cH  = MG::hondoCajete(esc);
                 x0 = 0.5f - cR + cP;  x1 = 0.5f + cR - cP;
-                y0 = 0.55f + cP;      y1 = 0.78f;
+                y0 = cy0 + cP;        y1 = cy0 + cH;
                 z0 = 0.5f - cR + cP;  z1 = 0.5f + cR - cP;
                 return;
             }
 
             if (c == Compuesto::COMP_ADORNO) {
-                // La corona de puntas: el anillo exterior por donde asoman.
-                const float rad = 0.16f + 0.12f * esc + 0.05f;
+                // La corona de espinas: el anillo por donde asoman, que nace
+                // en la PUNTA DE LAS HOJAS y no a media altura.
+                const float rad = 0.17f + 0.15f * esc + 0.05f;
                 float m = rad;  if (m > 0.5f) m = 0.5f;
                 x0 = 0.5f - m;  x1 = 0.5f + m;
-                y0 = 0.10f + 0.22f * esc;
+                y0 = MG::alturaEspina(esc);
                 y1 = 1.0f;
                 z0 = 0.5f - m;  z1 = 0.5f + m;
                 return;
             }
 
-            // El CUERPO: el tronco y la base de las hojas. Se queda dentro
-            // del voxel para que el jugador pueda pasar al lado de la planta.
-            const float m = 0.16f + 0.10f * esc;
-            const float mm = (m > 0.5f) ? 0.5f : m;
+            // El CUERPO: la roseta entera, desde el SUELO. Arrancar en y=0 es
+            // lo que hace que la planta este conectada al terreno y no
+            // flotando: el jugador la selecciona apuntando a su base, como a
+            // cualquier mata.
+            //
+            // El ancho se queda dentro del voxel para poder pasar al lado.
+            const float mm = MG::medioAnchoCuerpo(esc);
             x0 = 0.5f - mm;  x1 = 0.5f + mm;
             y0 = 0.0f;
-            y1 = 0.30f + 0.55f * esc;  if (y1 > 1.0f) y1 = 1.0f;
+            y1 = altHoja;
             z0 = 0.5f - mm;  z1 = 0.5f + mm;
             return;
         }
@@ -1829,21 +2000,112 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         return true;
     }
 
-    // --- MAGUEY COMPUESTO: LA CAJA DEL CUERPO ---
+    // --- MAGUEY COMPUESTO: LA CAJA DE LA ROSETA ---
     //
-    // Lo que frena al jugador es el TRONCO, no la corona de puntas ni el
-    // jugo: se puede pasar rozando las hojas, como en una planta de verdad.
-    // Las medidas son las mismas que usa el mesher para el cuerpo.
+    // Lo que frena al jugador es el CUERPO de la mata, no la corona de puntas
+    // ni el jugo: se puede pasar rozando las espinas, como en una planta de
+    // verdad.
+    //
+    // ⚠️ LA CAJA NO PUEDE SEGUIR A LA SILUETA. AQUI ESTABA EL BUG.
+    //
+    // La version anterior derivaba la caja de las medidas del DIBUJO: radio
+    // del anillo exterior, alto del central. Suena razonable, pero desde que
+    // la planta se sale del voxel a proposito (un ejemplar viejo mide 3
+    // bloques de alto) esas cuentas superan siempre el bloque, se topaban a
+    // 0.5 x 1.0 y la caja acababa siendo EL VOXEL ENTERO.
+    //
+    // Resultado: el jugador chocaba contra un cubo macizo donde veia una
+    // roseta abierta -- y con la textura de la hoja encima, se leia como si
+    // el maguey fuese un bloque solido de hojas.
+    //
+    // Una hitbox NO PUEDE salirse de su celda: el motor la consulta voxel a
+    // voxel, asi que lo que se declare fuera no existe para la fisica. Lo
+    // unico que se puede hacer es describir la parte de la planta QUE ESTA
+    // DENTRO de este bloque.
+    //
+    // Y esa parte es el COGOLLO: el tronco central del que salen las hojas.
+    // Las hojas se abren hacia fuera y hacia arriba, cruzando a los vecinos,
+    // pero son laminas de 2 px -- no frenan a nadie, igual que no frena la
+    // hierba alta. Lo que de verdad estorba al andar es el corazon de la
+    // mata, y eso es lo que se declara aqui.
     if (Compuesto::esCompuesto(type)) {
         if (Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY) {
             const float esc = Compuesto::Maguey::escalaDeEtapa(
                 Compuesto::Maguey::etapaDe(type));
-            const float m = 0.16f + 0.10f * esc;
-            const float mm = (m > 0.5f) ? 0.5f : m;
-            minX = 0.5f - mm;  maxX = 0.5f + mm;
-            minY = 0.0f;
-            maxY = 0.30f + 0.55f * esc;  if (maxY > 1.0f) maxY = 1.0f;
-            minZ = 0.5f - mm;  maxZ = 0.5f + mm;
+
+            // El cogollo: estrecho y proporcional a la mata, pero SIEMPRE
+            // dentro del voxel. Una mata pequeña casi no estorba; una grande
+            // ocupa la mitad del bloque, que es lo que se siente al pasar
+            // junto a un agave hecho.
+            // ⚠️ LA CAJA SALE DE LAS MISMAS MEDIDAS QUE EL DIBUJO.
+            //
+            // Antes se calculaba con `escalaDeEtapa`, que ya NO es de donde
+            // el mesher saca su geometria: el modelo se rehizo sobre
+            // alturaReal()/radioDeCeldas() y la caja se quedo con la formula
+            // vieja. Resultado: se apuntaba a un sitio y se seleccionaba
+            // otro, y el jugador chocaba donde no veia nada.
+            //
+            // Ahora las dos leen de BloqueCompuesto.h, asi que no pueden
+            // desincronizarse: cambiar la planta cambia su caja.
+            namespace MG = Compuesto::Maguey;
+            const int   celdas = MG::celdasDeEtapa(MG::etapaDe(type));
+            const float radioPlanta = MG::radioDeCeldas(celdas);
+            const float altoPlanta  = MG::alturaReal(celdas);
+
+            // LA PIÑA es lo que frena. En el mesher su radio es
+            // RADIO * 0.52 y su altura altoHoja(esc) * 0.30 (buscar
+            // "LA PIÑA" en buildChunkMesh).
+            //
+            // Las HOJAS no frenan a proposito: asoman de la celda y el motor
+            // consulta la colision celda a celda, asi que lo que se declare
+            // fuera no existe. Y tampoco debe frenar -- en el campo se pasa
+            // rozando las pencas de un agave, lo que no se atraviesa es su
+            // corazon. Se cruzan como la hierba alta.
+            float r = radioPlanta * 0.52f;
+            // Sin salirse de la celda: la colision no puede.
+            if (r > 0.46f) r = 0.46f;
+
+            // Alto de la piña, con la misma cuenta que el dibujo. Se le suma
+            // el arranque de las hojas para que el jugador se apoye en el
+            // cogollo entero y no solo en el bulbo.
+            float alto = MG::altoHoja(esc) * 0.30f + altoPlanta * 0.16f;
+            if (alto > 0.96f) alto = 0.96f;
+
+            // ⭐ LAS CELDAS DE ARRIBA DE UNA PLANTA ALTA.
+            //
+            // Una mata grande ocupa varias celdas. Las de arriba son hojas
+            // abiertas, no el cogollo: estorban menos y ademas el jugador
+            // tiene que poder meterse entre ellas. Se estrechan con la
+            // altura, y la de mas arriba casi no frena.
+            const uint16_t seg = Compuesto::Maguey::segmentoDe(type);
+            if (seg > 0) {
+                r *= (0.72f - 0.14f * (float)(seg - 1));
+                if (r < 0.06f) r = 0.06f;
+                alto = 1.0f;   // la hoja cruza la celda entera
+            }
+
+            // ⭐ LA CAJA BAJA CON EL DIBUJO.
+            //
+            // El modelo se posa sobre el nivel parcial que tenga debajo (ver
+            // POSADA en el mesher). Si la caja no bajara igual, el jugador
+            // chocaria contra aire por arriba y atravesaria la planta por
+            // abajo: se veria una mata pero se sentiria otra.
+            //
+            // Solo la celda BASE: las de arriba van pegadas a ella.
+            float posada = 0.0f;
+            if (seg == 0) {
+                const BlockType abajo = get(wx, wy - 1, wz);
+                if (abajo != BLOCK_AIR) {
+                    const float h = alturaDe(abajo);
+                    if (h > 0.0f && h < 1.0f) posada = 1.0f - h;
+                }
+            }
+
+            minX = 0.5f - r;   maxX = 0.5f + r;
+            // La caja puede empezar bajo el suelo de su celda: es donde de
+            // verdad se apoya la planta.
+            minY = -posada;    maxY = alto - posada;
+            minZ = 0.5f - r;   maxZ = 0.5f + r;
             return true;
         }
 
@@ -2115,7 +2377,8 @@ FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
 bool isRama(BlockType type) {
     return type == BLOCK_RAMA_PINO ||
            type == BLOCK_RAMA_ENCINO ||
-           type == BLOCK_RAMA_OYAMEL;
+           type == BLOCK_RAMA_OYAMEL ||
+           type == BLOCK_RAMA_OCOTE;
 }
 
 // Una rama enlaza con otras ramas, con el tronco y CON LAS HOJAS: asi la
@@ -2123,7 +2386,9 @@ bool isRama(BlockType type) {
 bool ramaEncadena(BlockType b) {
     return isRama(b) ||
            b == BLOCK_WOOD || b == BLOCK_WOOD_ENCINO || b == BLOCK_WOOD_OYAMEL ||
-           b == BLOCK_LEAVES || b == BLOCK_LEAVES_ENCINO || b == BLOCK_LEAVES_OYAMEL;
+           b == BLOCK_WOOD_OCOTE || b == BLOCK_WOOD_OCOTE_DENTRO ||
+           b == BLOCK_LEAVES || b == BLOCK_LEAVES_ENCINO ||
+           b == BLOCK_LEAVES_OYAMEL || b == BLOCK_LEAVES_OCOTE;
 }
 
 // Una RAIZ enlaza con otras raices, con el tronco del que nace y CON EL SUELO
@@ -2134,7 +2399,8 @@ bool ramaEncadena(BlockType b) {
 // Con las HOJAS no encadena: una raiz esta bajo tierra, no toca la copa.
 bool raizEncadena(BlockType b) {
     if (esRaiz(b)) return true;
-    if (b == BLOCK_WOOD || b == BLOCK_WOOD_ENCINO || b == BLOCK_WOOD_OYAMEL)
+    if (b == BLOCK_WOOD || b == BLOCK_WOOD_ENCINO || b == BLOCK_WOOD_OYAMEL ||
+        b == BLOCK_WOOD_OCOTE || b == BLOCK_WOOD_OCOTE_DENTRO)
         return true;
     // Suelo en el que se agarra.
     return b == BLOCK_DIRT || b == BLOCK_GRASS || b == BLOCK_SAND ||
@@ -2154,6 +2420,13 @@ bool isBlockSolid(BlockType type) {
     // un escalon en vez de atravesarlos.
     // Una celda MIXTA llega hasta arriba: frena como un bloque entero.
     if (esNivelParcial(type) || esMixto(type)) return true;
+
+    // ⭐ EL AGUA CON VOLUMEN SE ATRAVIESA.
+    //
+    // Va ANTES de la regla de los compuestos: el agua vive en el rango
+    // compuesto (para heredar el guardado del nivel), pero es un liquido y no
+    // frena. Sin esta linea el jugador caminaria por encima del mar.
+    if (Compuesto::Agua::esAgua(type)) return false;
 
     // ⭐ EL MAGUEY COMPUESTO: SOLIDO, pero solo donde hay planta.
     //
@@ -2203,7 +2476,8 @@ bool isBlockOpaque(BlockType type) {
     // se ve el fondo, asi que no puede tapar las caras de sus vecinos.
     if (Compuesto::esCompuesto(type)) return false;
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA && type != BLOCK_ORANGE_FLOWER && type != BLOCK_TALLGRASS
-        && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL;
+        && type != BLOCK_LEAVES && type != BLOCK_LEAVES_ENCINO && type != BLOCK_LEAVES_OYAMEL
+        && type != BLOCK_LEAVES_OCOTE;
 }
 
 // ============================================================================
@@ -2238,10 +2512,16 @@ inline bool esBloqueMacizoOpaco(BlockType type) {
 
 // Obtener tiempo de rotura de un bloque en segundos (como Minecraft)
 float getBlockBreakTime(BlockType type) {
+    // El AGUA no se rompe: se atraviesa. Va antes de la regla de los
+    // compuestos porque vive en su rango, y sin esto se "picaria" como si
+    // fuera una planta de 0.6 s.
+    if (esAguaCualquiera(type)) return 0.0f;
     // Un bloque COMPUESTO cuesta lo que su planta: el maguey es fibra, no
     // roca, asi que se corta rapido. Sin esto caeria al default y se
     // comportaria como un bloque cualquiera.
     if (Compuesto::esCompuesto(type)) return 0.6f;
+    // La tierra empapada cuesta lo mismo que la seca: mojarse no la endurece.
+    if (estaMojado(type)) type = versionSeca(type);
     // Un nivel parcial cuesta lo mismo que su bloque entero.
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
     // En una celda mixta lo que se pica es el RELLENO (la capa de arriba),
@@ -2301,7 +2581,8 @@ float getBlockBreakTime(BlockType type) {
         // Ramas: madera fina, se parten rapido.
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
-        case BLOCK_RAMA_OYAMEL: return 0.8f;
+        case BLOCK_RAMA_OYAMEL:
+        case BLOCK_RAMA_OCOTE: return 0.8f;
         // Raices: madera, y cuanto mas gruesa mas cuesta.
         case BLOCK_RAIZ_PEQUENA: return 0.6f;
         case BLOCK_RAIZ_MEDIANA: return 0.9f;
@@ -2309,10 +2590,21 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_RAIZ_ENORME:  return 1.8f;
         case BLOCK_LEAVES:    return 0.2f;   // Hojas - muy rápido
         case BLOCK_LEAVES_ENCINO: return 0.2f;
-        case BLOCK_LEAVES_OYAMEL: return 0.2f;
+        case BLOCK_LEAVES_OYAMEL:
+        case BLOCK_LEAVES_OCOTE:
+        // La celda con rama dentro del blanco: sigue siendo follaje.
+        case BLOCK_LEAVES_OCOTE_RAMA:
+        // Las del chino, y su celda con rama dentro: sigue siendo follaje.
+        case BLOCK_LEAVES_OCOTE_CHINO:
+        case BLOCK_LEAVES_OCOTE_CHINO_RAMA: return 0.2f;
         case BLOCK_WOOD:      return 2.0f;   // Madera - medio (ver nota abajo)
         case BLOCK_WOOD_ENCINO:   return 2.0f;
         case BLOCK_WOOD_OYAMEL:   return 2.0f;
+        case BLOCK_WOOD_OCOTE:
+        case BLOCK_WOOD_OCOTE_DENTRO: return 2.0f;
+        // El ocote chino: misma madera de pino, misma dureza.
+        case BLOCK_WOOD_OCOTE_CHINO:
+        case BLOCK_WOOD_OCOTE_CHINO_DENTRO: return 2.0f;
         case BLOCK_STONE:     return 1.5f;   // Piedra - medio-lento
         case BLOCK_BEDROCK:   return 999.0f; // Bedrock - irrompible
         case BLOCK_WATER:     return 0.0f;   // Agua - no se puede romper
@@ -2327,7 +2619,8 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_COBBLESTONE: return 2.0f; // Piedra labrada - medio
         case BLOCK_PLANKS:    return 2.0f;   // Tablones - medio
         case BLOCK_PLANKS_ENCINO: return 2.0f;
-        case BLOCK_PLANKS_OYAMEL: return 2.0f;
+        case BLOCK_PLANKS_OYAMEL:
+        case BLOCK_PLANKS_OCOTE:  return 2.0f;
         case BLOCK_LIMESTONE: return 1.6f;   // caliza - mas blanda que la piedra
         case BLOCK_CLAY_DIRT: return 0.65f;  // tierra arcillosa - como la arcilla
         case BLOCK_CLAY_SAND: return 0.55f;  // arena arcillosa - blanda
@@ -2428,6 +2721,46 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
     // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
     const bool isSurvival = (gameMode != 1);
 
+    // ========================================================================
+    // ⭐ EN CREATIVO SE ROMPE AL INSTANTE -- MENOS EL AGUA
+    // ========================================================================
+    // El creativo es para CONSTRUIR, asi que esperar a que caiga un bloque no
+    // aporta nada: estorba. Antes esta funcion se saltaba todas las reglas de
+    // herramienta (correcto) pero acababa devolviendo `getBlockBreakTime`, que
+    // es el tiempo normal del material -- 2 s para la madera, 1,5 para la
+    // piedra. O sea que en creativo se rompia mas rapido, pero no al instante.
+    //
+    // ⚠️ EL AGUA ES LA EXCEPCION, Y NO ES UN CAPRICHO.
+    //
+    // El agua de este motor no se "rompe": se RECOGE con un tazon o se
+    // desplaza colocando un bloque dentro. Su volumen es finito y se conserva
+    // -- mover agua es restar de una celda y sumar en otra (ver
+    // updateWaterFlow). Dejar que un clic la borre al instante seria la unica
+    // via del juego capaz de DESTRUIR agua, y con ella la invariante de que
+    // un oceano no se puede vaciar a golpes.
+    //
+    // Devolviendo un tiempo enorme el agua queda fuera del alcance del pico
+    // sin necesidad de un caso especial en updateMining: el jugador
+    // simplemente ve que no pasa nada, que es el comportamiento correcto.
+    if (!isSurvival) {
+        if (esAguaCualquiera(type)) return HERRAMIENTA_MAL_USADA_BREAK_TIME;
+
+        // ⭐ INSTANTANEO AL TOCAR, PERO CON RITMO AL MANTENER.
+        //
+        // Aqui se devuelve 0: el bloque al que apuntas cae en cuanto haces
+        // clic, que es lo que hace comodo construir.
+        //
+        // Lo que evita que mantener pulsado abra un tunel incontrolado NO es
+        // este numero, sino el `breakCooldown` de updateMining: un intervalo
+        // entre roturas. Se hace asi, y no alargando el tiempo de rotura,
+        // porque son dos cosas distintas -- una es "cuanto cuesta este
+        // bloque" y la otra "cada cuanto puedo romper".
+        //
+        // Si fuera al reves (tiempo de rotura largo) el PRIMER clic tambien
+        // tardaria, y eso se siente como lag.
+        return 0.0f;
+    }
+
     // --- CON UNA HERRAMIENTA EN LA MANO ---
     // Manda sobre todo lo demás, porque la herramienta es justo lo que cambia
     // las reglas. En creativo no aplica: ahí se construye y todo es rápido.
@@ -2441,6 +2774,29 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
         return (herramienta == BLOCK_HACHA_PEDERNAL)
                    ? HACHA_ORGANICO_BREAK_TIME
                    : HERRAMIENTA_MAL_USADA_BREAK_TIME;
+    }
+
+    // ⭐ EL MAGUEY COMPUESTO CUESTA SEGUN LO GRANDE QUE SEA
+    //
+    // BUG QUE ESTO CORRIGE: la regla de arriba solo mira el bloque VIEJO
+    // (BLOCK_MAGUEY_PUNTA), asi que el maguey nuevo se rompia con cualquier
+    // cosa en 0,6 s -- incluso a mano y siendo un ejemplar de cinco años. Se
+    // habia perdido la mecanica de "necesitas el hacha buena".
+    //
+    // Ahora vuelve, pero graduada por etapa, que es lo justo: un brote se
+    // arranca con la mano, y solo los ejemplares hechos exigen hacha.
+    if (isSurvival && Compuesto::esCompuesto(type) &&
+        Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY) {
+        const uint16_t e = Compuesto::Maguey::etapaDe(type);
+
+        // Brote y joven: tiernos, se arrancan con la mano.
+        if (e <= Compuesto::Maguey::JOVEN) return 0.6f;
+
+        // De adulto en adelante la fibra ya es dura: hace falta un hacha.
+        // La de pedernal va fina; la de piedra tambien sirve, pero cuesta.
+        if (herramienta == BLOCK_HACHA_PEDERNAL) return HACHA_ORGANICO_BREAK_TIME;
+        if (esHacha(herramienta))                return HACHA_ORGANICO_BREAK_TIME * 2.0f;
+        return HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
 
     if (isSurvival && esHacha(herramienta)) {
@@ -2457,7 +2813,9 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
     // mano debe ser inviable con cualquier especie.
     if (isSurvival && (type == BLOCK_WOOD ||
                        type == BLOCK_WOOD_ENCINO ||
-                       type == BLOCK_WOOD_OYAMEL)) {
+                       type == BLOCK_WOOD_OYAMEL ||
+                       type == BLOCK_WOOD_OCOTE ||
+                       type == BLOCK_WOOD_OCOTE_DENTRO)) {
         return SURVIVAL_WOOD_BREAK_TIME;
     }
 
@@ -2482,27 +2840,36 @@ bool shouldRenderFace(BlockType currentBlock, BlockType neighborBlock) {
     // El propio sprite no emite caras de cubo (lo gestiona el mesher aparte).
     if (isCrossSprite(currentBlock)) return false;
 
-    // Agua: renderizar todas las caras excepto si el vecino también es agua
-    if (currentBlock == BLOCK_WATER) {
-        return neighborBlock != BLOCK_WATER;
+    // Agua: renderizar todas las caras excepto si el vecino también es agua.
+    //
+    // ⭐ Con niveles hay una excepcion: dos celdas de agua a DISTINTA altura
+    // si necesitan la cara que las separa, o el escalon entre una celda llena
+    // y una a medias se veria como un corte transparente al vacio.
+    if (esAguaCualquiera(currentBlock)) {
+        if (!esAguaCualquiera(neighborBlock)) return true;
+        return Compuesto::Agua::alturaVisual(currentBlock) !=
+               Compuesto::Agua::alturaVisual(neighborBlock);
     }
 
     // Si el vecino es agua y el bloque actual es sólido, renderizar
-    if (neighborBlock == BLOCK_WATER && isBlockOpaque(currentBlock)) return true;
+    if (esAguaCualquiera(neighborBlock) && isBlockOpaque(currentBlock)) return true;
 
-    // ⭐ TODAS LAS CARAS SE DIBUJAN
+    // ⭐ LAS CARAS TAPADAS NO SE DIBUJAN (face culling)
     //
-    // Antes se descartaban las caras tapadas por un vecino opaco: la que
-    // separa dos bloques de tierra no se ve nunca, asi que emitirla era
-    // trabajo tirado. Es la optimizacion clasica de un motor de voxeles.
+    // La cara que separa dos bloques de tierra no se ve nunca, asi que
+    // emitirla es trabajo tirado: memoria de vertices, tiempo de mallado y
+    // pixeles dibujados para nada. Es la optimizacion clasica de un motor de
+    // voxeles, y sin ella un bloque enterrado pasa de 0 caras a 6.
     //
-    // Se ha pedido dibujarlas todas, asi que aqui se devuelve `true` sin
-    // mas. Consecuencia a tener en cuenta: la geometria del mundo crece
-    // mucho -- un bloque enterrado pasa de 0 caras a 6 -- y con ella el
-    // gasto de memoria y de dibujado. Si el juego va a tirones, este es el
-    // sitio donde revertirlo: basta con restaurar las cuatro lineas de
-    // abajo.
+    // (Hubo una epoca en que esto devolvia `true` sin mas y se dibujaba todo.
+    // El comentario que lo explicaba sobrevivio al cambio y decia lo
+    // contrario de lo que hace el codigo; queda corregido.)
     //
+    // Las cuatro reglas, en orden:
+    //   1. Dos bloques IGUALES no necesitan la cara entre ellos.
+    //   2. Si YO no soy opaco (agua, hojas, cristal), mi cara se ve: va.
+    //   3. Si mi VECINO es opaco, me tapa: fuera.
+    //   4. En cualquier otro caso, se dibuja.
     if (currentBlock == neighborBlock) return false;
     if (!isBlockOpaque(currentBlock)) return true;
     if (isBlockOpaque(neighborBlock)) return false;
@@ -2702,7 +3069,9 @@ public:
         // Madera
         else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS ||
                  blockType == BLOCK_WOOD_ENCINO || blockType == BLOCK_WOOD_OYAMEL ||
-                 blockType == BLOCK_PLANKS_ENCINO || blockType == BLOCK_PLANKS_OYAMEL) {
+                 blockType == BLOCK_PLANKS_ENCINO || blockType == BLOCK_PLANKS_OYAMEL ||
+                 blockType == BLOCK_WOOD_OCOTE || blockType == BLOCK_WOOD_OCOTE_DENTRO ||
+                 blockType == BLOCK_PLANKS_OCOTE) {
             soundName = "footstep_wood";
         }
         // Arena
@@ -2746,12 +3115,15 @@ public:
         // Madera
         else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS ||
                  blockType == BLOCK_WOOD_ENCINO || blockType == BLOCK_WOOD_OYAMEL ||
-                 blockType == BLOCK_PLANKS_ENCINO || blockType == BLOCK_PLANKS_OYAMEL) {
+                 blockType == BLOCK_PLANKS_ENCINO || blockType == BLOCK_PLANKS_OYAMEL ||
+                 blockType == BLOCK_WOOD_OCOTE || blockType == BLOCK_WOOD_OCOTE_DENTRO ||
+                 blockType == BLOCK_PLANKS_OCOTE) {
             soundName = "break_wood";
         }
         // Hojas (sonido único)
         else if (blockType == BLOCK_LEAVES || blockType == BLOCK_LEAVES_ENCINO ||
-                 blockType == BLOCK_LEAVES_OYAMEL) {
+                 blockType == BLOCK_LEAVES_OYAMEL ||
+                 blockType == BLOCK_LEAVES_OCOTE) {
             soundName = "break_leaves";
         }
         // Arena
@@ -2842,6 +3214,21 @@ SoundManager* g_soundManager = nullptr;
 // TerrainGenerator (+ Mountain/Ocean/Beach/Decoration) -> CaveGenerator ->
 // ChunkGenerator -> WorldGeneratorAAA
 #include "terrain/WorldGeneratorAAA.h"
+
+// ============================================================================
+// FAUNA — PECARI DE COLLAR (Dicotyles tajacu)
+// ============================================================================
+// El primer animal del motor. Cuatro capas, todas header-only y todas
+// testeables sin arrancar OpenGL:
+//
+//   PecariSpawn.h       donde viven las manadas (Poisson determinista)
+//   PecariRepoblacion.h grupos de rescate al recargar chunks
+//   PecariEntidad.h     estado, movimiento en manada y cuerpo 3D
+//   PecariMundo.h       el registro que lo une todo
+//
+// Los datos biologicos salen de AI simulator/Mamiferos/, con cada numero
+// marcado MEDIDO / DERIVADO / INFERIDO / ESTIMADO.
+#include "fauna/PecariMundo.h"
 
 // ============================================================================
 // PerlinNoise (LEGACY)
@@ -4688,6 +5075,56 @@ public:
     // solo entonces, en vez de hacerlo todos los frames.
     int getHornoFrameIndex() const { return currentHornoFrame; }
 
+    // ========================================================================
+    // EL AGUAMIEL SE MUEVE
+    // ========================================================================
+    // El jugo del cajete es un liquido ESPESO, y su textura es un GIF con el
+    // vaiven ya dibujado ("Aguamiel en el maguei.gif").
+    //
+    // Hasta ahora se pedia con getTexture(), que de un GIF solo devuelve el
+    // PRIMER cuadro: el aguamiel se veia congelado. Aqui se cargan todos los
+    // cuadros y se van sirviendo por turno, igual que hace el fuego del horno.
+    //
+    // Va MAS DESPACIO que el fuego a proposito: el aguamiel es denso, casi
+    // almibar, y una animacion rapida lo haria parecer agua. Se fuerza un
+    // minimo de 180 ms por cuadro aunque el GIF pida menos.
+    std::vector<GLuint> aguamielFrames;
+    int currentAguamielFrame = 0;
+    double aguamielAnimTimer = 0.0;
+    double aguamielFrameDelay = 0.18;
+
+    void loadAguamielAnimation() {
+        // Idempotencia: esto puede llamarse mas de una vez y cada llamada
+        // pediria texturas nuevas a OpenGL sin soltar las viejas.
+        if (!aguamielFrames.empty()) return;
+        currentAguamielFrame = 0;
+        aguamielAnimTimer = 0.0;
+        aguamielFrames = cargarGifAnimado("Aguamiel en el maguei.gif",
+                                          aguamielFrameDelay);
+        // Un liquido espeso se mueve despacio.
+        if (aguamielFrameDelay < 0.18) aguamielFrameDelay = 0.18;
+    }
+
+    void updateAguamielAnimation(double deltaTime) {
+        if (aguamielFrames.empty()) return;
+        aguamielAnimTimer += deltaTime;
+        if (aguamielAnimTimer >= aguamielFrameDelay) {
+            aguamielAnimTimer = 0.0;
+            currentAguamielFrame =
+                (currentAguamielFrame + 1) % (int)aguamielFrames.size();
+        }
+    }
+
+    GLuint getCurrentAguamielFrame() {
+        if (aguamielFrames.empty())
+            return getTexture("Aguamiel en el maguei.gif");
+        return aguamielFrames[currentAguamielFrame];
+    }
+
+    // Igual que el horno: el bucle compara este indice para remallar SOLO
+    // cuando el cuadro cambia, no en cada frame.
+    int getAguamielFrameIndex() const { return currentAguamielFrame; }
+
     // ANIMACIÓN: Cargar texturas de destrucción de bloques (grietas)
     void loadDestroyStageTextures() {
         // ⭐⭐⭐ GUARDA DE IDEMPOTENCIA — CORRIGE LA FUGA PRINCIPAL DE VRAM
@@ -4796,6 +5233,21 @@ public:
         loadTexture("Tronco de Oyame.png");
         loadTexture("Tronco de Oyame por dentro.png");
         loadTexture("Hojas de Oyame.png");
+        // El ocote (Pinus montezumae): corteza en placas, corte resinoso y
+        // las aciculas largas de cinco en cinco.
+        loadTexture("Pinus montezumae tronco.png");
+        loadTexture("Pinus montezumae tronco por dentro.png");
+        loadTexture("Pinus montezumae hojas.png");
+        // El ocote CHINO (Pinus leiophylla): corteza rojiza, corte cerrado y
+        // aciculas finas.
+        //
+        // Su copa usa UNA sola textura de hoja: los mechones de aciculas son
+        // sprites orientados en todas direcciones, asi que no hay "cara de
+        // arriba" que necesite una imagen aparte (ver AciculaOcote.h).
+        loadTexture("tronco de Ocote Chino.png");
+        loadTexture("tronco de Ocote chino por dentro.png");
+        loadTexture("Hojas de ocote chino.png");
+        loadTexture("Madera de Ocote chino.png");
 
         // Texturas de pasto (múltiples)
         // Sol y luna del ciclo de dia y noche.
@@ -4827,12 +5279,24 @@ public:
         loadTexture("Tablones de Madera de Pino.png");   // BLOCK_PLANKS
         loadTexture("Tablones de Madera Encino.png");    // BLOCK_PLANKS_ENCINO
         loadTexture("Tablones de Madera de Oyame.png");  // BLOCK_PLANKS_OYAMEL
+        loadTexture("ocote blanco en tablones de madera.png");  // BLOCK_PLANKS_OCOTE
         loadTexture("Piedra caliza.png");                // BLOCK_LIMESTONE
         // Nopal de Castilla (la base tiene una variante por tipo de suelo)
         loadTexture("Tallo de Nopal de Castilla.png");
         loadTexture("Cladodio de Nopal de Castilla.png");
         loadTexture("Penca Nopal de Castilla conectado al  Cladodio.png");
         loadTexture("../Items/Penca de Nopal de Castilla.png");
+
+        // ⭐ Los que se dibujan como BLOQUE usando su textura de item.
+        //
+        // Sin cargarlas aqui, getBlockTexture las pide y no las encuentra, asi
+        // que caen al `default` -- que devuelve piedra. Es exactamente el fallo
+        // silencioso que hacia que el barro y los tazones con aguamiel se
+        // vieran como montones de piedra gris.
+        loadTexture("../Items/Pedazo de barro.png");
+        loadTexture("../Items/Tazon de madera pino con aguamiel.png");
+        loadTexture("../Items/Tazon de Encino con aguamiel.png");
+        loadTexture("../Items/Tazon de madera de oyame con aguamiel.png");
         // Corazones del HUD de vida
         loadTexture("../Entitys/Player/corazon del jugador.png");
         // "a la mitad" y "vacio" aun no estan en el resourcepack; se cargaran
@@ -5368,6 +5832,32 @@ public:
         // del switch y saldria una textura equivocada o ninguna.
         if (esMixto(type)) type = mixtoBase(type);
 
+        // ⭐ EL AGUA CON NIVEL
+        //
+        // Usa la MISMA textura que el agua de siempre: lo que cambia con el
+        // nivel es la geometria (lo alto que llega), no el dibujo. Asi el
+        // agua a medias y la llena se ven del mismo material, que es lo
+        // correcto -- media celda de agua no es otro liquido.
+        //
+        // Va aqui arriba por lo mismo que la biznaga: su ID vive fuera del
+        // enum y no puede ser un `case` del switch.
+        if (Compuesto::Agua::esAgua(type)) {
+            type = BLOCK_WATER;
+        }
+
+        // ⭐ LA TIERRA MOJADA usa la textura de la tierra SECA.
+        //
+        // No hay archivo de textura para el suelo empapado, y no hace falta:
+        // lo que distingue a la tierra mojada de verdad es que se ve mas
+        // OSCURA, no que tenga otro dibujo. Ese oscurecido se aplica en el
+        // mesher (ver el tinte de humedad), asi que aqui basta con devolver
+        // la textura del bloque del que viene.
+        //
+        // Sin esta linea los tres bloques mojados caerian al `default` del
+        // switch y saldrian con textura de PIEDRA -- el mismo bug que tuvo la
+        // biznaga.
+        if (estaMojado(type)) type = versionSeca(type);
+
         // ⭐ LA BIZNAGA
         //
         // Va ANTES del switch porque su ID vive fuera del enum (es un bloque
@@ -5381,6 +5871,60 @@ public:
             if (face == 0 || face == 1)
                 return getTexture("Biznaga up y down.png");
             return getTexture("Biznaga.png");
+        }
+
+        // ⭐ NINGUN COMPUESTO PUEDE ACABAR SIENDO PIEDRA
+        //
+        // El `default` de este switch devuelve Piedra.png, y para un bloque
+        // del enum es un fallback razonable. Para un COMPUESTO no lo es: su
+        // ID esta cientos de miles por encima del enum, asi que si su familia
+        // no tiene caso arriba, cae al default y la planta entera se dibuja
+        // con textura de roca.
+        //
+        // Eso es lo que paso con la biznaga: se generaba en el desierto y
+        // salia como parches grises de piedra sobre el terreno. Un fallback
+        // de PLANTA deja el fallo a la vista como una planta rara, no como
+        // terreno corrupto, y no vuelve a confundirse con un bug del mundo.
+        // ⭐ EL MAGUEY: SUS TEXTURAS PROPIAS
+        //
+        // El mesher pide la textura de CADA PARTE por separado (la hoja, la
+        // espina, el cajete), asi que normalmente no llega aqui con el ID del
+        // compuesto. Pero medio motor si lo hace -- las particulas al romper,
+        // la niebla, el icono del inventario -- y sin esta rama caia al
+        // fallback de abajo.
+        if (Compuesto::esCompuesto(type) &&
+            Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY) {
+            return getTexture("Maguey.png");
+        }
+
+        // ⭐ EL AGAVE TEQUILANA AZUL
+        //
+        // Misma red que el maguey: el mesher pide cada parte por separado
+        // (penca, punta, piña, quiote), pero medio motor -- particulas al
+        // romper, niebla, icono del inventario -- llega aqui con el ID del
+        // compuesto entero. La textura que se devuelve depende de la FASE,
+        // porque una planta jimada ya no tiene hojas azules que mostrar.
+        if (Compuesto::esCompuesto(type) &&
+            Compuesto::familiaDe(type) == Compuesto::FAM_AGAVE_AZUL) {
+            namespace A = Compuesto::AgaveAzul;
+            switch (A::faseDe(type)) {
+                case A::PINA:
+                    return getTexture("Maguei por dentro.png");
+                case A::QUIOTE_F:
+                    return getTexture("Maguey de Tequilana azul.png");
+                default:
+                    return getTexture("Maguey de Tequilana azul.png");
+            }
+        }
+
+        // ⭐ NINGUN COMPUESTO PUEDE ACABAR SIENDO PIEDRA
+        //
+        // Red de seguridad para las familias que aun no tienen caso propio.
+        // El `default` del switch devuelve Piedra.png, que para un bloque del
+        // enum es razonable pero para una PLANTA no: se dibujaria como roca y
+        // parece terreno corrupto, no un fallo de textura.
+        if (Compuesto::esCompuesto(type)) {
+            return getTexture("Maguey.png");
         }
 
         switch (type) {
@@ -5401,11 +5945,44 @@ public:
             // dentro. El hueco usa la textura del maguey por dentro, que es
             // justo lo que se ve al cortar la punta.
             case BLOCK_MAGUEY_PUNTA:
-                return getTexture("Puntas de Maguei.png");
+                return getTexture("Puntas de Maguey.png");
             case BLOCK_MAGUEY_HUECO:
                 return getTexture("Maguei por dentro.png");
             case BLOCK_AGUAMIEL:
                 return getTexture("Aguamiel en el maguei.gif");
+
+            // ⭐ LAS PIEZAS DEL AGAVE TEQUILANA AZUL
+            //
+            // La penca y la punta tienen textura PROPIA: son las dos que
+            // definen la especie (el azul plateado de la cera y la espina
+            // terminal oscura).
+            case BLOCK_AGAVE_AZUL_PENCA:
+            // La penca suelta, ya cortada, usa la misma imagen: es la misma
+            // hoja azul plateada, solo que en la mano en vez de en la planta.
+            case BLOCK_PENCA_AGAVE_AZUL:
+                return getTexture("Maguey de Tequilana azul.png");
+            case BLOCK_AGAVE_AZUL_PUNTA:
+                return getTexture("punta de Maguey de Tequilana azul.png");
+
+            // ⚠️ LAS TRES DE ABAJO AUN NO TIENEN TEXTURA PROPIA.
+            //
+            // Se reutiliza la mas parecida de las que ya hay, para que la
+            // planta se vea entera desde el primer momento en vez de salir
+            // con el fallback. Cuando existan sus PNG, basta cambiar el
+            // nombre aqui: el modelo 3D no cambia.
+            //
+            //   PIÑA   -> "Maguei por dentro.png" es justo el corte del
+            //             tallo central: fibroso y claro, que es como se ve
+            //             la piña recien jimada.
+            //   QUIOTE -> el tallo comparte la cera azulada de la planta.
+            //   FLOR   -> el amarillo aun no existe en el pack; se usa la
+            //             hoja de encino como marcador visible.
+            case BLOCK_AGAVE_AZUL_PINA:
+                return getTexture("Maguei por dentro.png");
+            case BLOCK_AGAVE_AZUL_QUIOTE:
+                return getTexture("Maguey de Tequilana azul.png");
+            case BLOCK_AGAVE_AZUL_FLOR:
+                return getTexture("Hojas de Encino.png");
 
             case BLOCK_NOPAL_SECO:
                 return getTexture("../Items/Penca de Nopal de Castilla seco sin espinas.png");
@@ -5453,6 +6030,100 @@ public:
             case BLOCK_LEAVES_OYAMEL:
                 return getTexture("Hojas de Oyame.png");
 
+            // ⭐ EL OCOTE (Pinus montezumae)
+            //
+            // A diferencia de las otras especies, su corte tiene ID PROPIO
+            // (BLOCK_WOOD_OCOTE_DENTRO) en vez de resolverse por la cara. Eso
+            // permite que el generador lo coloque donde toca -- el tocon que
+            // queda al talar, por ejemplo -- en vez de depender de que se mire
+            // el tronco desde arriba.
+            //
+            // Aun asi el tronco entero sigue mostrando el corte por arriba y
+            // por abajo, como las demas: es lo que hace que una columna de
+            // troncos se lea como un arbol y no como un poste.
+            case BLOCK_WOOD_OCOTE:
+                if (face == 0 || face == 1)
+                    return getTexture("Pinus montezumae tronco por dentro.png");
+                else
+                    return getTexture("Pinus montezumae tronco.png");
+
+            case BLOCK_WOOD_OCOTE_DENTRO:
+                // El corte visto por todas sus caras: la madera resinosa.
+                return getTexture("Pinus montezumae tronco por dentro.png");
+
+            // ================================================================
+            // ⭐ LAS ACICULAS DEL OCOTE BLANCO: DOS TEXTURAS, UNA POR CARA
+            // ================================================================
+            // Una copa de pino vista DESDE ARRIBA no se parece a la misma copa
+            // vista de lado: arriba se ven los manojos de aciculas apuntando
+            // al cielo, de lado se ve la masa del follaje.
+            //
+            //   cara 0 (arriba, el "polo norte")  -> "hojas up.png"
+            //   los cuatro lados                   -> "hojas.png"
+            //   cara 1 (abajo, el "polo sur")      -> NO SE DIBUJA
+            //
+            // ⚠️ LA CARA DE ABAJO SE SUPRIME EN EL MESHER, NO AQUI.
+            //
+            // Aqui se devuelve la textura de los lados por si algun camino del
+            // motor la pide de todos modos: devolver 0 haria que el mesher
+            // marcara el chunk como "le falta una textura" y lo reintentara
+            // sin fin, 60 veces por segundo, para siempre.
+            //
+            // Es la misma regla que ya sigue el ocote chino.
+            // ⭐ UNA SOLA TEXTURA, SIN CARA DE ARRIBA.
+            //
+            // Antes habia una textura distinta para la cara superior. Ya no
+            // tiene sentido: las aciculas dejaron de ser un cubo y pasaron a
+            // ser MECHONES sueltos (ver AciculaOcote.h), que no tienen "cara
+            // de arriba" -- son sprites orientados en todas direcciones y
+            // todos usan la misma imagen.
+            //
+            // Ademas ese archivo ya no esta en disco, y pedirlo devolvia 0:
+            // el mesher lo lee como "textura aun no cargada", marca el chunk
+            // para reintentar y lo remalla 60 veces por segundo para siempre.
+            case BLOCK_LEAVES_OCOTE:
+            case BLOCK_LEAVES_OCOTE_RAMA:
+                return getTexture("Pinus montezumae hojas.png");
+
+            // ================================================================
+            // ⭐ EL OCOTE CHINO (Pinus leiophylla)
+            // ================================================================
+            // El tronco muestra el CORTE por arriba y por abajo, y la corteza
+            // por los cuatro lados. Es la misma regla que el ocote blanco: lo
+            // que hace que una columna de troncos se lea como un arbol y no
+            // como un poste.
+            case BLOCK_WOOD_OCOTE_CHINO:
+                if (face == 0 || face == 1)
+                    return getTexture("tronco de Ocote chino por dentro.png");
+                else
+                    return getTexture("tronco de Ocote Chino.png");
+
+            case BLOCK_WOOD_OCOTE_CHINO_DENTRO:
+                // El corte visto por todas sus caras.
+                return getTexture("tronco de Ocote chino por dentro.png");
+
+            // ================================================================
+            // ⭐ LAS HOJAS: ARRIBA SI, ABAJO NADA
+            // ================================================================
+            // La copa se ve desde arriba como una masa de acicula apretada
+            // ("Hojas de ocote chino up.png") y desde los lados como el
+            // follaje suelto, con huecos entre manojos.
+            //
+            // Y por DEBAJO no se dibuja nada: mirando hacia arriba desde el
+            // pie del arbol se ve el INTERIOR de la copa -- el ramaje entre
+            // las hojas -- en vez de un techo liso. Es lo que se pidio, y
+            // ademas es lo que se ve de verdad bajo un pino.
+            //
+            // La cara de abajo se suprime en el mesher (ver shouldRenderFace);
+            // aqui se devuelve la textura de los lados por si algun camino
+            // del motor la pide de todos modos: devolver 0 haria que el
+            // mesher marcara el chunk para reintentar sin fin.
+            // Mismo caso que el ocote blanco: una sola textura. Los mechones
+            // no tienen cara de arriba, y el archivo "up" ya no esta en disco.
+            case BLOCK_LEAVES_OCOTE_CHINO:
+            case BLOCK_LEAVES_OCOTE_CHINO_RAMA:
+                return getTexture("Hojas de ocote chino.png");
+
             case BLOCK_LEAVES:
                 return getTexture("Hojas de Pino.png");
 
@@ -5490,6 +6161,9 @@ public:
             case BLOCK_PLANKS_OYAMEL:
                 return getTexture("Tablones de Madera de Oyame.png");
 
+            case BLOCK_PLANKS_OCOTE:
+                return getTexture("ocote blanco en tablones de madera.png");
+
             // --- NOPAL DE CASTILLA ---
             // Las BASES son bloques COMPLETOS y su textura ya lleva el
             // terreno incrustado, por eso hay una por tipo de suelo.
@@ -5524,6 +6198,8 @@ public:
                 return getTexture("Tronco de Encino.png");
             case BLOCK_RAMA_OYAMEL:
                 return getTexture("Tronco de Oyame.png");
+            case BLOCK_RAMA_OCOTE:
+                return getTexture("Pinus montezumae tronco.png");
 
             // --- RAICES: corteza de encino ---
             // Es la mas oscura y neutra de las tres, y una raiz bajo tierra
@@ -5616,6 +6292,44 @@ public:
             case BLOCK_PYRITE_ORE:
                 return getTexture("Pirita.png");
 
+            // ================================================================
+            // ⭐ LOS QUE CAIAN AL FALLBACK DE PIEDRA
+            // ================================================================
+            // El `default` de este switch devuelve "Piedra.png", asi que un
+            // bloque sin su `case` NO da error: sale como un monton de piedra
+            // gris. Es un fallo silencioso, y estos siete lo sufrian.
+            //
+            // Los detecta ahora un test (test_creativo_completo.cpp) que lee
+            // este mismo switch y avisa si un bloque nuevo se queda fuera.
+
+            // --- Barro y tazones con aguamiel: tienen textura propia ---
+            case BLOCK_PEDAZO_BARRO:
+                return getTexture("../Items/Pedazo de barro.png");
+            case BLOCK_TAZON_PINO_AGUAMIEL:
+                return getTexture("../Items/Tazon de madera pino con aguamiel.png");
+            case BLOCK_TAZON_ENCINO_AGUAMIEL:
+                return getTexture("../Items/Tazon de Encino con aguamiel.png");
+            case BLOCK_TAZON_OYAMEL_AGUAMIEL:
+                return getTexture("../Items/Tazon de madera de oyame con aguamiel.png");
+
+            // --- La tierra que ha bebido agua ---
+            //
+            // No tienen PNG propio, y no hace falta: un bloque mojado es el
+            // MISMO material, solo que saturado. Reutiliza la textura de su
+            // version seca y el motor lo oscurece por color (ver getBlockColor),
+            // que es como se ve la tierra humeda de verdad.
+            //
+            // Antes salian como piedra gris, que es justo lo contrario de lo
+            // que son.
+            case BLOCK_DIRT_MOJADA:
+                return getTexture("Tierra.png");
+            case BLOCK_SAND_MOJADA:
+                return getTexture("Arena.png");
+            case BLOCK_GRASS_MOJADA:
+                if (face == 0) return getTexture("Bloque de pasto up.png");
+                if (face == 1) return getTexture("Tierra.png");
+                return getTexture("Bloque de pasto.png");
+
             case BLOCK_PEDAZO_PIEDRA:
                 // La textura de PIEDRA, no la del item. El item es el
                 // monton dibujado sobre fondo transparente -- sirve para el
@@ -5629,18 +6343,18 @@ public:
                 return getTexture("Piedra.png");
 
             case BLOCK_IXTLE_TALLO:
-                return getTexture("Tallo de Maguei en Pasto.png");
+                return getTexture("Tallo de Maguey en Pasto.png");
             case BLOCK_IXTLE_TALLO_ARENA:
                 // El maguey en arena tiene su propia textura de base, con el
                 // terreno arenoso incrustado en vez del pasto.
-                return getTexture("Tallo de Maguei en arena.png");
+                return getTexture("Tallo de Maguey en arena.png");
             case BLOCK_IXTLE_HOJA:
             case BLOCK_IXTLE_PEQUENA:
             case BLOCK_IXTLE_GRANDE:
             case BLOCK_IXTLE_ENORME:
-                return getTexture("Maguei.png");
+                return getTexture("Maguey.png");
             case BLOCK_IXTLE_PUNTA:
-                return getTexture("Puntas de Maguei.png");
+                return getTexture("Puntas de Maguey.png");
 
             // Celdas COMPARTIDAS: llevan una hoja de ixtle dentro, asi que
             // usan su textura. La pieza acompanante la dibuja el mesher con
@@ -5648,7 +6362,7 @@ public:
             case BLOCK_IXTLE_CON_HIERBA:
             case BLOCK_IXTLE_CON_FLOR:
             case BLOCK_IXTLE_DOBLE:
-                return getTexture("Maguei.png");
+                return getTexture("Maguey.png");
 
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
@@ -5944,6 +6658,7 @@ public:
         switch (tipo) {
             case BLOCK_LEAVES_ENCINO: base = "Hojas de Encino.png"; break;
             case BLOCK_LEAVES_OYAMEL: base = "Hojas de Oyame.png";  break;
+            case BLOCK_LEAVES_OCOTE:  base = "Pinus montezumae hojas.png"; break;
             default:                  base = "Hojas de Pino.png";   break;
         }
         unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wy * 19349663)
@@ -6135,10 +6850,23 @@ struct Chunk {
     int buildRetries;  // ⭐⭐⭐ Contador de reintentos de construcción
     int framesConCandado;  // Frames seguidos con isUpdatingMesh puesto y sin mesh
 
+    // ⭐ ¿HAY FOLLAJE DE OCOTE AQUI DENTRO?
+    //
+    // Lo pone el mesher al construir la malla, que es cuando ya esta
+    // recorriendo los bloques de todas formas: enterarse sale GRATIS ahi y
+    // costaria 32.768 lecturas preguntarlo aparte.
+    //
+    // Sirve para que el refresco del follaje (ver actualizarHojasQueSeMueven)
+    // pueda descartar de un vistazo los chunks sin una sola acicula, que en un
+    // mundo normal son casi todos. Sin esto, andar por el desierto remallaria
+    // nueve chunks por paso para no cambiar ni un vertice.
+    bool tieneAciculas;
+
     Chunk(Vec3i pos) : position(pos),
                        needsRebuild(true), isGenerated(false), needsLightUpdate(false),
                        isUpdatingMesh(false), waitingForNeighbors(false), isModified(false),
-                       isBeingGenerated(false), buildRetries(0), framesConCandado(0) {
+                       isBeingGenerated(false), buildRetries(0), framesConCandado(0),
+                       tieneAciculas(false) {
         // ⭐ INICIALIZAR SUBCHUNKS CON PALETAS (todos empiezan con BLOCK_AIR)
         subchunks.reserve(SUBCHUNKS_PER_CHUNK);
         for (int i = 0; i < SUBCHUNKS_PER_CHUNK; i++) {
@@ -6303,7 +7031,8 @@ struct Chunk {
     static bool isFoliage(BlockType b) {
         return b == BLOCK_LEAVES ||
                b == BLOCK_LEAVES_ENCINO ||
-               b == BLOCK_LEAVES_OYAMEL;
+               b == BLOCK_LEAVES_OYAMEL ||
+               b == BLOCK_LEAVES_OCOTE;
     }
 
     // Coste de atravesar este bloque, en niveles de luz.
@@ -6326,6 +7055,26 @@ struct Chunk {
     // una rama proyecta la sombra de una rama, no la de un cubo.
     static uint8_t lightCost(BlockType b) {
         if (isFoliage(b)) return LEAF_ATTENUATION;
+
+        // ⭐ EL MAGUEY DA SOMBRA SEGUN LO GRANDE QUE SEA
+        //
+        // Sin esto caia al final y se trataba como aire (coste 1): un
+        // productor de dos metros no proyectaba mas sombra que un brote
+        // recien salido, y se veia raro tener una planta enorme encima de un
+        // suelo a plena luz.
+        //
+        // Como la roseta es abierta -- entre hoja y hoja se ve el cielo -- no
+        // llega a cortar el sol del todo ni siquiera la mas grande: atenua,
+        // que es lo que hace una planta de verdad.
+        if (Compuesto::esCompuesto(b)) {
+            if (Compuesto::familiaDe(b) == Compuesto::FAM_MAGUEY) {
+                const uint16_t e = Compuesto::Maguey::etapaDe(b);
+                if (e >= Compuesto::Maguey::MADURO) return 3;  // copa densa
+                if (e >= Compuesto::Maguey::ADULTO) return 2;
+                return 1;                                      // brote y joven
+            }
+            return 1;
+        }
 
         // Rama: 4x4 pixeles de seccion. Ocupa tan poco que la luz la rodea
         // casi por completo; atenua 1, como el aire.
@@ -6640,10 +7389,24 @@ struct ItemEntity {
     bool isBeingAttracted;   // ⭐ Si está siendo atraído por el jugador
     float floatOffset;       // ⭐ Offset para animación de flotación
 
-    ItemEntity(Vec3 pos, BlockType type)
+    // ⭐ VIDA DE LA HERRAMIENTA QUE VIAJA EN EL SUELO, en medios puntos.
+    //
+    // Un hacha con 3 golpes de vida que se tira al suelo y se recoge tiene
+    // que seguir teniendo 3 golpes. Antes no: el item suelto solo llevaba el
+    // TIPO, asi que al recogerlo entraba al inventario como recien fabricada
+    // y la durabilidad se reiniciaba sola. Tirar y recoger era una forma
+    // gratuita de reparar cualquier herramienta.
+    //
+    // Se usa el mismo convenio que InventorySlot::vidaMedios para que el
+    // valor se pueda pasar de uno a otro sin traducirlo: enteros en medios
+    // puntos (el desgaste se cuenta en pasos de 0.5) y 0 = "sin estrenar",
+    // que quien la reciba interpreta como vida completa.
+    int vidaMedios;
+
+    ItemEntity(Vec3 pos, BlockType type, int vida = 0)
         : position(pos), velocity(0, 0, 0), blockType(type),
           lifetime(0), pickupDelay(0.5f), onGround(false),
-          isBeingAttracted(false), floatOffset(0) {}
+          isBeingAttracted(false), floatOffset(0), vidaMedios(vida) {}
 
     void update(float deltaTime, Vec3 playerPos) {
         lifetime += deltaTime;
@@ -7097,6 +7860,18 @@ public:
             recipe.pattern[0] = BLOCK_WOOD_OYAMEL;
             recipes.push_back(recipe);
         }
+        // El ocote da los suyos, y tambien desde el tronco ya cortado: al
+        // talar quedan los dos IDs y seria raro que uno no sirviera.
+        {
+            CraftingRecipe recipe(BLOCK_PLANKS_OCOTE, 6, true);
+            recipe.pattern[0] = BLOCK_WOOD_OCOTE;
+            recipes.push_back(recipe);
+        }
+        {
+            CraftingRecipe recipe(BLOCK_PLANKS_OCOTE, 6, true);
+            recipe.pattern[0] = BLOCK_WOOD_OCOTE_DENTRO;
+            recipes.push_back(recipe);
+        }
 
         // 1 Nopal mojado = 4 tiras de nopal.
         //
@@ -7134,7 +7909,8 @@ public:
         // Los tablones de encino y oyamel sirven igual que los de pino para
         // palos y hoz. Las recetas comparan el bloque exacto, asi que cada
         // especie necesita su propia entrada.
-        for (BlockType tablon : { BLOCK_PLANKS_ENCINO, BLOCK_PLANKS_OYAMEL }) {
+        for (BlockType tablon : { BLOCK_PLANKS_ENCINO, BLOCK_PLANKS_OYAMEL,
+                                  BLOCK_PLANKS_OCOTE }) {
             {
                 CraftingRecipe recipe(BLOCK_STICK, 8, false);
                 recipe.pattern[1] = tablon;
@@ -7384,7 +8160,11 @@ private:
     // chunks desconectados del mundo (gracias a GenContext no tocan nada
     // compartido) y el hilo principal los integra en el mapa, que es donde
     // además hay que crear los VBOs porque OpenGL no es multihilo.
-    struct GenResult { Vec3i pos; Chunk* chunk; };
+    // `fallido` marca un chunk cuya generacion lanzo una excepcion. El worker
+    // NO puede liberarlo el mismo (deallocateChunk toca OpenGL, que es del
+    // hilo principal), asi que lo entrega marcado y el hilo principal lo
+    // devuelve al pool sin integrarlo en el mundo.
+    struct GenResult { Vec3i pos; Chunk* chunk; bool fallido = false; };
 
     std::deque<Vec3i> genQueue;              // hilo principal -> workers
     std::mutex genQueueMutex;
@@ -7415,15 +8195,71 @@ private:
             }
 
             Chunk* chunk = nullptr;
+            bool generado = false;
+
+            // ================================================================
+            // ⭐ NADA PUEDE ESCAPAR DE ESTE HILO
+            // ================================================================
+            // BUG QUE ESTO CORRIGE: el juego se cerraba solo, de forma
+            // intermitente (~1 de cada 6 arranques), justo al entrar al mundo.
+            // Salia con codigo 3 y SIN mensaje de cierre en el log -- o sea,
+            // abort(), no una salida ordenada.
+            //
+            // La causa: este `catch` solo cogia `std::exception`. Cualquier
+            // otra cosa lanzada dentro de generateChunk -- un `throw` de otro
+            // tipo, o una excepcion de una libreria -- escapaba de la funcion
+            // del hilo. Y una excepcion que sale de un std::thread NO se
+            // propaga a nadie: llama a std::terminate(), que llama a abort().
+            //
+            // Es intermitente porque depende de que la generacion tropiece, y
+            // eso a su vez depende del orden en que los dos workers cojan
+            // chunks -- de ahi que no se reproduzca siempre.
+            //
+            // El `catch (...)` cierra la puerta: pase lo que pase, el hilo
+            // sobrevive y el juego sigue.
             try {
                 chunk = allocateChunk(pos);   // usa poolMutex, no toca OpenGL
                 inWorkerThread = true;
                 generateChunk(chunk);
                 inWorkerThread = false;
+                generado = true;
             } catch (const std::exception& e) {
                 inWorkerThread = false;
                 std::cerr << "[GenWorker] Error generando chunk (" << pos.x << "," << pos.z
                           << "): " << e.what() << std::endl;
+            } catch (...) {
+                // Lo que no es std::exception. Antes esto mataba el proceso.
+                inWorkerThread = false;
+                std::cerr << "[GenWorker] Error DESCONOCIDO generando chunk ("
+                          << pos.x << "," << pos.z << ")" << std::endl;
+            }
+
+            // ⚠️ UN CHUNK A MEDIO GENERAR NO SE INTEGRA.
+            //
+            // Si generateChunk lanzo, `chunk` NO es nulo -- viene de
+            // allocateChunk -- asi que se estaba metiendo en el mundo un chunk
+            // con terreno incompleto, marcado como valido. El resultado es un
+            // agujero en el mapa que ademas se guarda en disco.
+            //
+            // Se encola `nullptr`, que integrateGeneratedChunks ya sabe
+            // descartar (libera su hueco en genInFlight para que se pueda
+            // reintentar mas tarde).
+            //
+            // ⚠️ NO SE LLAMA A deallocateChunk DESDE AQUI.
+            //
+            // Esa funcion hace glDeleteBuffers, y OpenGL SOLO se puede tocar
+            // desde el hilo principal: llamarla en un worker cambiaria un
+            // crash por otro, y encima uno mas dificil de diagnosticar.
+            //
+            // El chunk se marca como fallido poniendo `chunk = nullptr` en lo
+            // que se encola, y el objeto en si se entrega al hilo principal
+            // por la via de siempre para que lo libere el.
+            if (!generado && chunk) {
+                std::lock_guard<std::mutex> lock(genDoneMutex);
+                // Se encola el puntero real pero marcado como fallido, para
+                // que el hilo principal pueda devolverlo al pool con seguridad.
+                genDone.push_back({pos, chunk, /*fallido=*/true});
+                continue;
             }
 
             std::lock_guard<std::mutex> lock(genDoneMutex);
@@ -7454,82 +8290,6 @@ public:
             it->second->needsRebuild = true;
     }
 
-    // ========================================================================
-    // PRODUCCION DE LOS BLOQUES COMPUESTOS (aguamiel del maguey)
-    // ========================================================================
-    // Recorre los magueyes CARGADOS y les sube el jugo un punto. No hay lista
-    // de plantas que mantener ni entidades: el estado vive en el propio ID, y
-    // este barrido lo lee del chunk.
-    //
-    // Eso evita de raiz el problema que si tiene g_magueyesManando (y antes
-    // waterLevels): una lista paralela que hay que purgar al descargar un
-    // chunk, y que si no se purga crece toda la sesion y devuelve datos
-    // rancios al volver a la zona.
-    //
-    // Coste: se llama UNA vez por tick de produccion (minutos, no frames), y
-    // solo mira los subchunks cuya paleta contiene algun maguey -- que son
-    // casi ninguno. Un chunk sin magueyes se descarta con 8 comparaciones.
-    //
-    // Devuelve cuantas plantas han cambiado, para saber si hay que remallar.
-    int producirCompuestos() {
-        int cambiados = 0;
-
-        for (auto& par : chunks) {
-            Chunk* c = par.second;
-            if (!c || !c->isGenerated) continue;
-
-            for (int si = 0; si < SUBCHUNKS_PER_CHUNK; ++si) {
-                const PalettedSubChunk& sub = c->subchunks[si];
-
-                // ⭐ ATAJO POR PALETA: si en este subchunk no hay ni un
-                // maguey que produzca, no se recorren sus 4096 bloques.
-                // La paleta ya sabe que tipos hay dentro.
-                bool hayMaguey = false;
-                if (sub.isUniform()) {
-                    const BlockType u = sub.getUniformBlock();
-                    hayMaguey = Compuesto::esCompuesto(u) &&
-                                Compuesto::familiaDe(u) == Compuesto::FAM_MAGUEY;
-                } else {
-                    for (size_t p = 0; p < sub.getPaletteSize(); ++p) {
-                        const BlockType b = sub.tipoDePaleta(p);
-                        if (Compuesto::esCompuesto(b) &&
-                            Compuesto::familiaDe(b) == Compuesto::FAM_MAGUEY) {
-                            hayMaguey = true;
-                            break;
-                        }
-                    }
-                }
-                if (!hayMaguey) continue;
-
-                for (int ly = 0; ly < SUBCHUNK_HEIGHT; ++ly)
-                for (int lz = 0; lz < CHUNK_SIZE; ++lz)
-                for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
-                    const int wy = si * SUBCHUNK_HEIGHT + ly;
-                    const BlockType b = c->getBlock(lx, wy, lz);
-
-                    if (!Compuesto::esCompuesto(b)) continue;
-                    if (Compuesto::familiaDe(b) != Compuesto::FAM_MAGUEY) continue;
-
-                    namespace M = Compuesto::Maguey;
-                    const uint16_t est = Compuesto::estadoDe(b);
-                    if (!M::produce(est)) continue;          // aun no da
-
-                    const uint16_t tope = M::capacidad(M::etapaDe(b));
-                    const uint16_t hoy  = M::aguamielDe(b);
-                    if (hoy >= tope) continue;               // ya esta lleno
-
-                    // Sube UN punto por tick: el llenado es gradual, nunca
-                    // aparece de golpe.
-                    c->setBlock(lx, wy, lz, M::conAguamiel(b, (uint16_t)(hoy + 1)));
-                    ++cambiados;
-                }
-            }
-
-            if (cambiados > 0) c->needsRebuild = true;
-        }
-
-        return cambiados;
-    }
 
     // ========================================================================
     // RECARGA MANUAL (tecla R): REHACER LAS MALLAS, NO EL MUNDO
@@ -7749,6 +8509,12 @@ public:
     // cambio se ve gradual y nunca hay dos remallados seguidos.
     float luzYaMallada = -1.0f;
 
+    // Estado del refresco del follaje (ver actualizarHojasQueSeMueven). Se
+    // arranca muy lejos para que la primera pasada siempre entre.
+    float hojasUltimaX = -1e9f;
+    float hojasUltimaZ = -1e9f;
+    float hojasUltimoRefresco = -1e9f;
+
     void actualizarLuzDelCielo(const Vec3& posJugador) {
         const float ahora = luzSolar();
 
@@ -7781,6 +8547,89 @@ public:
         constexpr size_t POR_PASO = 24;
         const size_t n = cerca.size() < POR_PASO ? cerca.size() : POR_PASO;
         for (size_t i = 0; i < n; ++i) cerca[i].second->needsRebuild = true;
+    }
+
+    // ========================================================================
+    // ⭐ QUE EL FOLLAJE SE MUEVA: REMALLAR LO QUE EL JUGADOR ROZA
+    // ========================================================================
+    // La deformacion de la hoja se calcula en el mesher (ver quadLibre), asi
+    // que para que se VEA moverse hay que rehacer la malla. Esto decide cuando
+    // y de que chunks, y es donde se controla el coste entero del efecto.
+    //
+    // ----------------------------------------------------------------------
+    // POR QUE NO SE REMALLA SIEMPRE NI DE TODO
+    // ----------------------------------------------------------------------
+    // Remallar un chunk cuesta milisegundos. Hacerlo de los ~113 cargados en
+    // cada frame es sencillamente imposible dentro del presupuesto. Pero es
+    // que ademas no hace falta, por dos razones que se ven en el juego:
+    //
+    //   1. EL EMPUJE SOLO LLEGA A 1.6 BLOQUES. Un chunk a 40 bloques no tiene
+    //      una sola hoja dentro del radio del jugador: rehacerlo daria una
+    //      malla identica a la que ya tiene.
+    //   2. LA BRISA ES DE 4 CENTIMETROS. A distancia no se distingue, y lo que
+    //      no se distingue no se paga.
+    //
+    // Asi que se remalla un anillo corto alrededor del jugador --RADIO_HOJAS
+    // chunks-- y solo cuando el jugador se ha MOVIDO de verdad.
+    //
+    // ----------------------------------------------------------------------
+    // EL UMBRAL DE MOVIMIENTO ES LO QUE HACE QUE ESTO SEA BARATO
+    // ----------------------------------------------------------------------
+    // Un jugador quieto no mueve nada, asi que no se remalla NADA: mirar
+    // alrededor sin andar cuesta cero. Solo se paga mientras se camina, que es
+    // justo cuando el efecto se ve.
+    //
+    // Y la brisa se refresca a un ritmo suelto (INTERVALO_BRISA) para que el
+    // follaje no se quede congelado del todo estando parado.
+    void actualizarHojasQueSeMueven(const Vec3& posJugador, float ahora) {
+        // Radio, en CHUNKS, del anillo que se refresca. Con 1 se cubren los 9
+        // chunks alrededor del jugador: 24 bloques de lado, muy por encima de
+        // los 1.6 del empuje, con margen para que una hoja no aparezca ya
+        // apartada al cruzar una frontera de chunk.
+        constexpr int RADIO_HOJAS = 1;
+
+        // Cuanto tiene que andar el jugador para que se rehaga el follaje.
+        // Medio bloque: por debajo de eso el cambio en el arco de la hoja es
+        // de milimetros y no se ve, pero se pagaria igual.
+        constexpr float PASO_MINIMO = 0.5f;
+
+        // Cada cuanto se refresca la brisa aunque nadie se mueva.
+        constexpr float INTERVALO_BRISA = 0.35f;
+
+        const float dx = posJugador.x - hojasUltimaX;
+        const float dz = posJugador.z - hojasUltimaZ;
+        const float movido2 = dx * dx + dz * dz;
+
+        const bool seMovio = movido2 >= PASO_MINIMO * PASO_MINIMO;
+        const bool tocaBrisa = (ahora - hojasUltimoRefresco) >= INTERVALO_BRISA;
+
+        if (!seMovio && !tocaBrisa) return;
+
+        hojasUltimaX = posJugador.x;
+        hojasUltimaZ = posJugador.z;
+        hojasUltimoRefresco = ahora;
+
+        const int cjx = (int)floorf(posJugador.x / (float)CHUNK_SIZE);
+        const int cjz = (int)floorf(posJugador.z / (float)CHUNK_SIZE);
+
+        for (int ox = -RADIO_HOJAS; ox <= RADIO_HOJAS; ++ox)
+            for (int oz = -RADIO_HOJAS; oz <= RADIO_HOJAS; ++oz) {
+                auto it = chunks.find(Vec3i(cjx + ox, 0, cjz + oz));
+                if (it == chunks.end()) continue;
+                Chunk* c = it->second;
+                if (!c || !c->isGenerated || c->needsRebuild) continue;
+
+                // ⭐ SOLO SI ESTE CHUNK TIENE FOLLAJE DE OCOTE.
+                //
+                // Sin esta comprobacion se remallarian los 9 chunks siempre,
+                // incluso caminando por un desierto donde no hay una sola
+                // acicula. La respuesta se cachea en el propio chunk al
+                // mallarlo (ver tieneAciculas), asi que preguntar es leer un
+                // bool -- no recorrer los 32.768 bloques.
+                if (!c->tieneAciculas) continue;
+
+                c->needsRebuild = true;
+            }
     }
 
     void startGenerationWorkers() {
@@ -7831,6 +8680,20 @@ private:
         for (GenResult& r : done) {
             genInFlight.erase(r.pos);
             if (!r.chunk) continue;
+
+            // ⚠️ CHUNK A MEDIO GENERAR: SE TIRA, NO SE INTEGRA.
+            //
+            // Su generacion lanzo una excepcion, asi que su terreno esta
+            // incompleto. Integrarlo meteria un agujero en el mapa que ademas
+            // se guardaria en disco como si fuera bueno.
+            //
+            // El worker no pudo liberarlo el mismo (deallocateChunk toca
+            // OpenGL), por eso llega hasta aqui. Al borrarlo de genInFlight
+            // -- justo arriba -- la posicion queda libre y se reintentara.
+            if (r.fallido) {
+                deallocateChunk(r.chunk);
+                continue;
+            }
 
             // Si mientras tanto el chunk apareció por otra vía, descartar el nuestro
             if (chunks.find(r.pos) != chunks.end()) {
@@ -8078,6 +8941,20 @@ private:
     }
 
     void evictLRUChunk() {
+        // ⚠️ HACE FALTA SABER SI SE ENCONTRO CANDIDATO, NO SOLO CUAL.
+        //
+        // Antes esto era `Vec3i oldestPos;` a secas. Vec3i se construye por
+        // defecto en (0,0,0), asi que cuando el bucle NO encontraba ningun
+        // chunk no-pinned --que pasa siempre que el jugador esta quieto, porque
+        // updateCachePinning pinnea todo lo que tiene cerca-- se caia al final
+        // con oldestPos = (0,0,0) y se BORRABA DEL CACHE EL CHUNK DEL SPAWN,
+        // que no tenia nada que ver.
+        //
+        // Eso rompe la invariante que el propio proyecto declara obligatoria:
+        // el cache guarda punteros a chunks que viven en `chunks`, y las dos
+        // estructuras tienen que ir a la par. Desincronizarlas es el camino a
+        // los chunks duplicados y la doble liberacion que ya se sufrio una vez.
+        bool hallado = false;
         Vec3i oldestPos;
         uint64_t oldestTime = UINT64_MAX;
 
@@ -8086,8 +8963,14 @@ private:
             if (!pair.second.isPinned && pair.second.lastAccessTime < oldestTime) {
                 oldestTime = pair.second.lastAccessTime;
                 oldestPos = pair.first;
+                hallado = true;
             }
         }
+
+        // Si TODOS estan pinned no hay nada que desalojar. Se sale sin tocar
+        // nada, que es lo correcto: el cache crecera un poco por encima del
+        // tope hasta que el jugador se mueva y algo se despinnee.
+        if (!hallado) return;
 
         // Eliminar del caché (pero mantener en chunks si está ahí)
         auto it = chunkCache.find(oldestPos);
@@ -8131,6 +9014,37 @@ public:
     }
 
     int getSeed() const { return seed; }
+
+    // ⭐ Acceso al generador para sistemas que necesitan CONSULTAR el terreno
+    // sin generarlo: la fauna pregunta altura, bioma y pendiente para decidir
+    // donde puede vivir. Solo lectura; nadie mas debe escribir por aqui.
+    TerrainGen::WorldGeneratorAAA* getWorldGen() const { return worldGen; }
+
+    // ⭐ Chunks cargados, solo lectura. La fauna los recorre para saber que
+    // zonas del mundo estan activas y poblarlas. No permite modificarlos.
+    const std::map<Vec3i, Chunk*>& getChunks() const { return chunks; }
+
+    // ⭐ Nivel de luz (0-15) en una posicion del mundo.
+    //
+    // Lo necesitan las entidades para iluminarse como el terreno: un animal
+    // de noche o dentro de una cueva tiene que verse oscuro. Sin esto, la
+    // fauna saldria con su color de mediodia a cualquier hora, que es el
+    // fallo tipico al meter entidades en un motor de voxeles.
+    //
+    // Si el chunk no esta cargado devuelve luz plena en vez de 0: es mejor
+    // que un animal al borde del mundo cargado se vea de mas que verlo como
+    // una silueta negra.
+    uint8_t getLightAt(int x, int y, int z) const {
+        if (y < 0 || y >= CHUNK_HEIGHT) return 15;
+
+        const int cx = (x >= 0) ? (x / CHUNK_SIZE) : ((x - CHUNK_SIZE + 1) / CHUNK_SIZE);
+        const int cz = (z >= 0) ? (z / CHUNK_SIZE) : ((z - CHUNK_SIZE + 1) / CHUNK_SIZE);
+
+        auto it = chunks.find(Vec3i(cx, 0, cz));
+        if (it == chunks.end() || it->second == nullptr) return 15;
+
+        return it->second->getLightLevel(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE);
+    }
 
     // ⭐⭐⭐ NUEVO: Establecer semilla del mundo (para cargar mundos guardados)
     void setSeed(int newSeed) {
@@ -8496,9 +9410,13 @@ public:
         Chunk* chunk;
         explicit ChunkVoxelWriter(Chunk* c) : chunk(c) {}
 
-        // ⭐ 16 bits: el enum ya pasa de 255 IDs, y con uint8_t cualquier
-        // bloque nuevo se truncaba aqui en silencio. Tiene que coincidir con
-        // Blocks::Id (ver BiomeTypes.h).
+        // ⭐ El tipo sale de Blocks::Id (ver BiomeTypes.h), que hoy son 32
+        // bits. Tiene que ser EL MISMO: si aqui se estrechara, el generador
+        // podria escribir un ID que este Set trunca en silencio -- que es
+        // exactamente como desaparecio la pirita del mundo entero.
+        //
+        // 32 bits es lo que permite que el generador escriba AGUA CON NIVEL,
+        // cuyos IDs viven por encima de 100.000.
         inline void Set(int lx, int y, int lz, TerrainGen::Blocks::Id block) {
             if (lx < 0 || lx >= CHUNK_SIZE) return;
             if (y  < 0 || y  >= CHUNK_HEIGHT) return;
@@ -8785,6 +9703,8 @@ public:
                         case TerrainGen::TREE_MOUNTAIN:  tipoArbol = 6; break;
                         case TerrainGen::TREE_ENCINO:    tipoArbol = 7; break;
                         case TerrainGen::TREE_OYAMEL:    tipoArbol = 8; break;
+                        case TerrainGen::TREE_OCOTE:     tipoArbol = 9; break;
+                        case TerrainGen::TREE_OCOTE_CHINO: tipoArbol = 10; break;
                         default: break;
                     }
 
@@ -8831,60 +9751,211 @@ public:
                         generarNopal(worldX, surfaceY + 1, worldZ);
                     }
                 }
-
-                // ---- IXTLE (LECHUGUILLA) ----
-                // Muy comun, como se pidio, y ademas por una razon real: la
-                // lechuguilla es el agave DOMINANTE del Desierto Chihuahuense
-                // y sus poblaciones "cubren vastas extensiones" del Altiplano.
+                // ---- MAGUEY / LECHUGUILLA ----
                 //
-                // No brota suelta: se reproduce por RIZOMA, echando hijuelos
-                // que forman COLONIAS CLONALES. Por eso no se tira un dado
-                // por columna, sino que se siembra un FOCO y de el sale una
-                // mancha de matas. Eso da el aspecto de la planta real:
-                // manchones densos con claros entre ellos, no puntos sueltos
-                // repartidos por igual.
+                // El agave dominante del Altiplano. No brota suelto: se
+                // reproduce por RIZOMA, echando hijuelos que forman COLONIAS
+                // CLONALES. Por eso no se tira un dado por columna, sino que
+                // se siembra un FOCO y de el sale una mancha de matas --
+                // manchones densos con claros entre ellos, que es como se ve
+                // en el campo.
                 if (esSueloParaNopal(ground) &&
                     chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
-                    // El foco de la colonia: una rejilla de 12x12 bloques.
-                    // Cada celda de la rejilla tiene su propio foco, y las
-                    // matas salen alrededor de el.
-                    const int fx = (worldX >= 0 ? worldX : worldX - 11) / 12;
-                    const int fz = (worldZ >= 0 ? worldZ : worldZ - 11) / 12;
+                    // El foco de la colonia: rejilla de 16x16 bloques.
+                    const int fx = (worldX >= 0 ? worldX : worldX - 15) / 16;
+                    const int fz = (worldZ >= 0 ? worldZ : worldZ - 15) / 16;
                     unsigned hf = (unsigned)(fx * 374761393) ^
                                   (unsigned)(fz * 668265263);
                     hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
 
-                    // 2 de cada 5 celdas tienen colonia: comun de verdad,
-                    // pero deja claros para que no sea un tapiz uniforme.
-                    if ((hf % 5u) < 2u) {
-                        // Centro del manchon dentro de su celda.
-                        const int cx = fx * 12 + (int)((hf >> 3) % 12u);
-                        const int cz = fz * 12 + (int)((hf >> 11) % 12u);
+                    // 1 de cada 4 celdas tiene colonia: se encuentran sin
+                    // buscar, pero dejan claros de sobra.
+                    if ((hf % 4u) == 0u) {
+                        const int cx = fx * 16 + (int)((hf >> 3) % 16u);
+                        const int cz = fz * 16 + (int)((hf >> 11) % 16u);
                         const int dx = worldX - cx;
                         const int dz = worldZ - cz;
                         const int d2 = dx * dx + dz * dz;
-
-                        // Radio del manchon: de 2 a 5 bloques.
-                        const int radio = 2 + (int)((hf >> 19) % 4u);
+                        const int radio = 2 + (int)((hf >> 19) % 3u);
 
                         if (d2 <= radio * radio) {
-                            // Dentro del manchon la densidad baja hacia el
-                            // borde: tupido en el centro, disperso fuera.
                             unsigned hm = (unsigned)(worldX * 4517) ^
                                           (unsigned)(worldZ * 8291) ^ 0x5bf03635u;
                             hm ^= hm >> 13; hm *= 2246822519u; hm ^= hm >> 16;
 
                             const int borde = radio * radio;
-                            // 100% en el centro, ~35% en el borde.
-                            const unsigned prob = 100u -
-                                (unsigned)((65 * d2) / (borde > 0 ? borde : 1));
+                            // Denso en el centro, disperso hacia el borde.
+                            const unsigned prob = 55u -
+                                (unsigned)((40 * d2) / (borde > 0 ? borde : 1));
                             if ((hm % 100u) < prob) {
-                                generarIxtle(worldX, surfaceY + 1, worldZ);
+                                // La ETAPA sale del hash de la posicion, asi
+                                // que una mata concreta nace siempre igual.
+                                const unsigned d100 = (hm >> 7) % 100u;
+                                uint16_t etapa;
+                                if      (d100 < 30u) etapa = Compuesto::Maguey::BROTE;
+                                else if (d100 < 55u) etapa = Compuesto::Maguey::JOVEN;
+                                else if (d100 < 78u) etapa = Compuesto::Maguey::ADULTO;
+                                else if (d100 < 93u) etapa = Compuesto::Maguey::MADURO;
+                                else                 etapa = Compuesto::Maguey::PRODUCTOR;
+
+                                const uint16_t giro = (uint16_t)((hm >> 17) & 3u);
+
+                                // ⭐ LA PLANTA ENTERA, NO SOLO SU BASE.
+                                //
+                                // Un maguey mide de 1 a 4 celdas segun su
+                                // etapa. Esta rama sembraba SOLO la de abajo,
+                                // asi que los grandes salian decapitados: la
+                                // base dibujaba su trozo y encima no habia
+                                // nada que dibujara el resto.
+                                //
+                                // (La otra via de generacion, generarIxtle,
+                                // ya apilaba bien; esta se quedo atras.)
+                                namespace MG = Compuesto::Maguey;
+                                const BlockType planta = MG::nuevo(etapa, giro);
+                                const int celdas = MG::celdasDeEtapa(etapa);
+
+                                // Solo hasta donde haya hueco: si topa con
+                                // algo, la mata se queda mas baja en vez de
+                                // atravesarlo.
+                                for (int dy = 0; dy < celdas; ++dy) {
+                                    const int yy = surfaceY + 1 + dy;
+                                    if (yy >= CHUNK_HEIGHT) break;
+                                    if (chunk->getBlock(x, yy, z) != BLOCK_AIR) break;
+                                    chunk->setBlock(x, yy, z,
+                                        MG::conSegmento(planta, (uint16_t)dy));
+                                }
                             }
                         }
                     }
                 }
+                // ================================================================
+                // ---- AGAVE TEQUILANA AZUL ----
+                // ================================================================
+                // El agave del tequila. Se siembra aparte del pulquero porque
+                // NO crece igual ni en el mismo sitio:
+                //
+                //   DONDE. El tequilana es planta de tierra seca y soleada de
+                //   ladera -- los llanos de Jalisco. Va en DESIERTO y en las
+                //   laderas de MONTAÑA, no en el pasto del Altiplano donde
+                //   sale la lechuguilla. Asi las dos especies se reparten el
+                //   mundo en vez de pisarse, y encontrar un agave azul
+                //   significa que estas en otra parte.
+                //
+                //   COMO. En el campo el tequilana se planta en HILERAS: es
+                //   un cultivo, no maleza. Pero un mundo generado no tiene
+                //   agricultores, asi que se siembra como lo que seria antes
+                //   de que lo domesticaran -- colonias por rizoma, igual que
+                //   el pulquero, pero MAS DISPERSAS y con focos mas amplios:
+                //   rejilla de 24 en vez de 16, 1 de cada 6 celdas en vez de
+                //   1 de cada 4. Se ven manchones azules separados, no un
+                //   tapiz.
+                //
+                // El hash lleva una constante distinta de la del maguey
+                // (0x9d2c5681) para que las dos colonias no caigan siempre en
+                // las mismas coordenadas: con la misma semilla saldrian
+                // superpuestas, que es justo lo que se quiere evitar.
+                {
+                    const bool tierraDeTequila =
+                        (col.biome == TerrainGen::BIOME_DESERT) ||
+                        (col.biome == TerrainGen::BIOME_MOUNTAINS);
 
+                    if (tierraDeTequila &&
+                        esSueloParaNopal(ground) &&
+                        chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
+
+                        // Foco de la colonia: rejilla de 24x24 bloques.
+                        const int fx = (worldX >= 0 ? worldX : worldX - 23) / 24;
+                        const int fz = (worldZ >= 0 ? worldZ : worldZ - 23) / 24;
+                        unsigned hf = (unsigned)(fx * 2654435761u) ^
+                                      (unsigned)(fz * 2246822519u) ^ 0x9d2c5681u;
+                        hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
+
+                        if ((hf % 6u) == 0u) {
+                            const int cx = fx * 24 + (int)((hf >> 3) % 24u);
+                            const int cz = fz * 24 + (int)((hf >> 11) % 24u);
+                            const int dx = worldX - cx;
+                            const int dz = worldZ - cz;
+                            const int d2 = dx * dx + dz * dz;
+                            const int radio = 2 + (int)((hf >> 19) % 3u);
+
+                            if (d2 <= radio * radio) {
+                                unsigned ha = (unsigned)(worldX * 6151) ^
+                                              (unsigned)(worldZ * 7919) ^ 0x85ebca6bu;
+                                ha ^= ha >> 13; ha *= 2246822519u; ha ^= ha >> 16;
+
+                                const int borde = radio * radio;
+                                // Denso en el centro, disperso hacia el borde.
+                                // Mas bajo que el pulquero: una roseta de
+                                // tequilana mide 3 m de ancho y si se siembran
+                                // pegadas se solapan en un bulto azul.
+                                const unsigned prob = 40u -
+                                    (unsigned)((30 * d2) / (borde > 0 ? borde : 1));
+                                if ((ha % 100u) < prob) {
+                                    namespace AG = Compuesto::AgaveAzul;
+
+                                    // La ETAPA sale del hash de la posicion:
+                                    // una mata concreta nace siempre igual.
+                                    //
+                                    // El reparto favorece las plantas hechas
+                                    // porque el tequilana tarda de 7 a 12 años
+                                    // en hacerse: un campo real esta lleno de
+                                    // plantas grandes y solo unos pocos
+                                    // hijuelos recientes al pie de ellas.
+                                    const unsigned d100 = (ha >> 7) % 100u;
+                                    uint16_t etapa;
+                                    if      (d100 < 18u) etapa = AG::HIJUELO;
+                                    else if (d100 < 36u) etapa = AG::JOVEN;
+                                    else if (d100 < 58u) etapa = AG::MEDIA;
+                                    else if (d100 < 82u) etapa = AG::HECHA;
+                                    else                 etapa = AG::MADURA;
+
+                                    // Ocho giros: con hojas rigidas y radiales
+                                    // cuatro se notarian repetidos.
+                                    const uint16_t giro = (uint16_t)((ha >> 17) & 7u);
+
+                                    // ⭐ EL QUIOTE: LA PLANTA QUE NADIE COSECHO.
+                                    //
+                                    // Un agave que llega a viejo sin que lo
+                                    // jimen levanta su eje floral de 5 m y
+                                    // muere. En un mundo sin agricultores eso
+                                    // pasa de verdad, asi que unas pocas matas
+                                    // maduras nacen ya espigadas: son el hito
+                                    // que se ve desde lejos en el llano.
+                                    //
+                                    // Raro a proposito (1 de cada 12 maduras):
+                                    // si fuera comun, el candelabro dejaria de
+                                    // ser un hallazgo.
+                                    BlockType planta = AG::nuevo(etapa, giro);
+                                    if (etapa == AG::MADURA &&
+                                        ((ha >> 23) % 12u) == 0u) {
+                                        planta = AG::espigada(planta);
+                                        // El quiote nace ya crecido del todo y
+                                        // florecido: una planta a medio espigar
+                                        // sin nadie que la vea crecer solo
+                                        // pareceria un tallo cortado.
+                                        for (int i = 0; i < AG::QUIOTE_CELDAS_MAX; ++i)
+                                            planta = AG::quioteCrecido(planta);
+                                        planta = AG::quioteCrecido(planta);  // abre flores
+                                    }
+
+                                    // La planta ENTERA, no solo su base: la
+                                    // roseta ocupa hasta 2 celdas y el quiote
+                                    // 5 mas encima. Sembrar solo la de abajo
+                                    // dejaria la planta decapitada, que es el
+                                    // bug que ya se corrigio en el pulquero.
+                                    const int celdas = AG::celdasDe(planta);
+                                    for (int dy = 0; dy < celdas; ++dy) {
+                                        const int yy = surfaceY + 1 + dy;
+                                        if (yy >= CHUNK_HEIGHT) break;
+                                        if (chunk->getBlock(x, yy, z) != BLOCK_AIR) break;
+                                        chunk->setBlock(x, yy, z,
+                                            AG::conSegmento(planta, (uint16_t)dy));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 // ================================================================
                 // ---- BIZNAGAS ----
                 // ================================================================
@@ -8958,12 +10029,26 @@ public:
                     const bool enRio     = col.isRiverBed ||
                                            (col.riverStrength > 0.25f);
 
-                    // Frecuencia del guijarro: 1 de cada 25 columnas en
-                    // terreno normal, 1 de cada 8 donde de verdad se
-                    // acumulan piedras -- al pie de un risco, en la orilla y
-                    // en el cauce, que es donde el agua y la gravedad las
-                    // juntan.
-                    const unsigned cada = (enMontana || enPlaya || enRio) ? 8u : 25u;
+                    // Frecuencia del guijarro: 1 de cada 60 columnas en terreno
+                    // normal, 1 de cada 22 donde de verdad se acumulan piedras
+                    // -- al pie de un risco, en la orilla y en el cauce, que es
+                    // donde el agua y la gravedad las juntan.
+                    //
+                    // ⭐ BAJADO DE 25/8 A 60/22.
+                    //
+                    // Con 1 de cada 25 el suelo se veia SEMBRADO de guijarros:
+                    // en un chunk de 16x16 salian ~10, o sea que casi nunca se
+                    // podia mirar al suelo sin ver dos o tres. Eso mata dos
+                    // cosas a la vez -- el espacio (el terreno pierde su
+                    // superficie limpia) y el valor de encontrarlos, porque un
+                    // material que esta en todas partes deja de ser un hallazgo.
+                    //
+                    // Con 1 de cada 60 caen ~4 por chunk: siguen apareciendo al
+                    // pasear, pero como algo que se ve y se recoge, no como una
+                    // alfombra. La proporcion entre terreno normal y zonas de
+                    // acumulacion se mantiene (~3x), asi que el risco y la
+                    // orilla siguen siendo notoriamente mas ricos.
+                    const unsigned cada = (enMontana || enPlaya || enRio) ? 22u : 60u;
 
                     if ((hpd % cada) == 0u) {
                         // ⭐ DE QUE ES EL GUIJARRO
@@ -9120,10 +10205,19 @@ public:
                                   (unsigned)(worldZ * 668265263u) ^ 0x9e3779b9u;
                     hc ^= hc >> 15; hc *= 2246822519u; hc ^= hc >> 13;
 
-                    // 1 de cada 6 columnas con cueva deja un guijarro: en una
-                    // galeria de veinte bloques de largo salen tres o cuatro,
-                    // que es "muy comun" sin llegar a alfombra.
-                    if ((hc % 6u) == 0u) {
+                    // 1 de cada 14 columnas con cueva deja un guijarro: en una
+                    // galeria de veinte bloques de largo sale uno o dos.
+                    //
+                    // ⭐ BAJADO DE 6 A 14, pero MENOS que en la superficie
+                    // (que paso de 25 a 60, o sea a la mitad larga).
+                    //
+                    // Es deliberado: bajo tierra la roca esta partida y
+                    // expuesta, asi que es el sitio donde de verdad se
+                    // recogian cobre y pedernal. Que la cueva siga siendo la
+                    // fuente buena es lo que hace que bajar merezca la pena --
+                    // si se recortara igual que la superficie, explorar dejaria
+                    // de compensar y daria lo mismo quedarse arriba.
+                    if ((hc % 14u) == 0u) {
                         for (int cy = TerrainGen::CaveGenerator::CAVE_MIN_Y + 1; cy < techo; ++cy) {
                             if (chunk->getBlock(x, cy, z) != BLOCK_AIR) continue;
 
@@ -10641,6 +11735,224 @@ public:
     }
 
     // ========================================================================
+    // OCOTE (Pinus montezumae) -- el pino de Moctezuma
+    // ========================================================================
+    // Es la tercera conifera del motor y NO se parece a las otras dos. La
+    // diferencia se ve de lejos y sale toda de la descripcion botanica:
+    //
+    //   COPA. "Densa, amplia y REDONDEADA o conica ancha, situada
+    //   principalmente en la PARTE SUPERIOR del arbol". O sea lo contrario del
+    //   oyamel, que es un cono estrecho que empieza a media altura: el ocote
+    //   lleva un fuste largo y limpio y toda la masa arriba, como una escoba.
+    //
+    //   TRONCO. "Recto, grueso y MONOPODICO" -- un solo eje bien definido que
+    //   llega hasta arriba. Por eso el tronco sube entero hasta la punta y no
+    //   se disuelve dentro de la copa.
+    //
+    //   RAMAS. "Horizontales y fuertes", en pisos. Son las que sostienen los
+    //   penachos de aciculas.
+    //
+    //   HOJAS. Aciculas de 30-35 cm agrupadas de CINCO en cinco, finas y
+    //   flexibles, que CUELGAN. Ahi esta la clave del modelo: en el oyamel las
+    //   hojas forman placas planas; aqui forman penachos que se descuelgan por
+    //   debajo de cada rama. Eso se consigue colgando hojas HACIA ABAJO desde
+    //   cada piso, con la longitud del mechon decidida por la posicion -- que
+    //   es lo que da los "niveles" de la copa.
+    // `chino` elige la ESPECIE. Las dos comparten estructura --tronco
+    // monopodico, ramas en pisos y aciculas colgando de cada una-- porque son
+    // dos pinos del mismo grupo; lo que cambia son los bloques y lo tupida
+    // que queda la copa.
+    //
+    // Se parametriza en vez de duplicar la funcion: son ~130 lineas de
+    // geometria fina, y dos copias se habrian separado al primer retoque.
+    void generarOcote(int worldX, int baseY, int worldZ, int altura,
+                      bool chino = false) {
+        // Es un pino grande: mas alto que el oyamel y bastante mas que el pino
+        // comun. Los ejemplares hechos pasan de los 20 m.
+        //
+        // El CHINO se queda algo mas bajo: Pinus leiophylla no alcanza el
+        // porte del montezumae.
+        if (chino) {
+            if (altura < 9)  altura = 9;
+            if (altura > 17) altura = 17;
+        } else {
+            if (altura < 11) altura = 11;
+            if (altura > 21) altura = 21;
+        }
+
+        // Los bloques de esta especie. Todo lo demas es comun.
+        const BlockType TRONCO = chino ? BLOCK_WOOD_OCOTE_CHINO
+                                       : BLOCK_WOOD_OCOTE;
+        const BlockType HOJA   = chino ? BLOCK_LEAVES_OCOTE_CHINO
+                                       : BLOCK_LEAVES_OCOTE;
+        // ⭐ AHORA LAS DOS ESPECIES LLEVAN LA RAMA DENTRO DEL FOLLAJE.
+        //
+        // Antes solo el chino: el ocote blanco usaba BLOCK_RAMA_OCOTE, un
+        // bloque de rama SUELTO que ocupaba su propia celda. Eso dejaba la
+        // copa del blanco como hoja maciza sin nada que la sostuviera por
+        // dentro, y gastaba el doble de bloques para el mismo ramaje.
+        //
+        // Con la celda compartida las dos piezas viven en el MISMO voxel: el
+        // mesher dibuja las dos y el jugador ve el ramaje entre las aciculas.
+        // Y como la cara de abajo no se dibuja, al mirar la copa desde abajo
+        // se ve ese interior en vez de una tapa lisa.
+        //
+        // ⭐ La rama del chino va DENTRO del follaje, en la misma celda. Por
+        // eso su "bloque de rama" es la celda compartida: el mesher dibuja
+        // las dos piezas y el jugador ve el ramaje entre las hojas.
+        const BlockType RAMA   = chino ? BLOCK_LEAVES_OCOTE_CHINO_RAMA
+                                       : BLOCK_LEAVES_OCOTE_RAMA;
+
+        const int topY = baseY + altura - 1;
+
+        // --- EL TRONCO, RECTO Y MONOPODICO ---
+        // Sube entero hasta la punta: es el eje unico que pide la descripcion.
+        for (int i = 0; i < altura; ++i) {
+            setBlock(worldX, baseY + i, worldZ, TRONCO);
+        }
+
+        // Hoja, solo si hay hueco: nunca pisa tronco ni rama.
+        auto hoja = [&](int x, int y, int z) {
+            if (y <= baseY || y > topY + 2) return;
+            if (getBlock(x, y, z) != BLOCK_AIR) return;
+            setBlock(x, y, z, HOJA);
+        };
+
+        // ⭐ EL PENACHO QUE CUELGA
+        //
+        // Es lo que hace que este pino se lea como un ocote y no como otro
+        // arbol de navidad. Desde el extremo de cada rama caen aciculas: en
+        // vez de rellenar un disco macizo, se cuelgan mechones de longitud
+        // decreciente hacia afuera, que es como se ve un penacho de hojas de
+        // 30 cm vencido por su propio peso.
+        //
+        // `largo` es cuantos bloques baja el mechon. Los de dentro cuelgan
+        // mas (estan mas cargados); los de la punta, menos.
+        auto mechon = [&](int x, int y, int z, int largo) {
+            for (int k = 0; k < largo; ++k) hoja(x, y - k, z);
+        };
+
+        // --- LA COPA: SOLO EN LA MITAD SUPERIOR ---
+        // "Ubicada principalmente en la parte superior del arbol": el fuste
+        // limpio se lleva la mitad de abajo, mas que en ninguna otra especie
+        // del motor. Es la silueta de escoba del ocote adulto.
+        const int copaIni = baseY + altura / 2;
+        const int copaAlto = topY - copaIni;
+        if (copaAlto < 3) {                 // ejemplar joven: solo un penacho
+            for (int dx = -1; dx <= 1; ++dx)
+                for (int dz = -1; dz <= 1; ++dz)
+                    if (dx || dz) mechon(worldX + dx, topY, worldZ + dz, 2);
+            hoja(worldX, topY + 1, worldZ);
+            return;
+        }
+
+        // Pisos de ramas, separados de 2 en 2 para que el tronco se vea entre
+        // ellos: son "horizontales y fuertes", no una masa continua.
+        const int PASO = 2;
+        const int nPisos = copaAlto / PASO;
+
+        for (int i = 0; i < nPisos; ++i) {
+            const int y = copaIni + i * PASO;
+            // p recorre 0..1 de abajo arriba de la copa.
+            const float p = (nPisos > 1) ? (float)i / (float)(nPisos - 1) : 0.0f;
+
+            // ⭐ PERFIL REDONDEADO, NO CONICO.
+            //
+            // El oyamel decrece en linea recta (cono). Aqui el radio sigue una
+            // curva que engorda en la zona media y se cierra arriba: es lo que
+            // da la copa "redondeada o conica ancha". El maximo cae sobre el
+            // 45 % de la copa, no en su base.
+            //
+            // radio = 4 en el vientre, 2 en los extremos.
+            const float d = (p - 0.45f) / 0.55f;        // 0 en el vientre
+            int radio = (int)(4.5f - 2.6f * d * d + 0.5f);
+            if (radio < 2) radio = 2;
+            if (radio > 5) radio = 5;
+
+            // Las ramas salen en cruz y en diagonal, alternando el giro por
+            // piso para que no queden alineadas en columnas.
+            const bool diagonal = (i % 2) == 1;
+
+            for (int r = 1; r <= radio; ++r) {
+                // Rama horizontal: madera hasta media rama, hojas al final.
+                // Asi la rama se ve, que es lo que pide "ramas fuertes".
+                const bool esMadera = (r <= radio / 2) && (r <= 2);
+
+                const int rectas[4][2]  = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+                const int diagos[4][2]  = { {1,1}, {1,-1}, {-1,1}, {-1,-1} };
+                const int (*dirs)[2] = diagonal ? diagos : rectas;
+
+                for (int k = 0; k < 4; ++k) {
+                    const int x = worldX + dirs[k][0] * r;
+                    const int z = worldZ + dirs[k][1] * r;
+                    // En diagonal la distancia real es mayor: se recorta para
+                    // que la planta salga redonda y no en estrella.
+                    if (diagonal && r > radio - 1) continue;
+
+                    if (esMadera && getBlock(x, y, z) == BLOCK_AIR) {
+                        setBlock(x, y, z, RAMA);
+                    } else {
+                        hoja(x, y, z);
+                    }
+
+                    // ⭐ LAS ACICULAS CUELGAN DE LA RAMA.
+                    //
+                    // Cuanto mas adentro, mas largo el mechon: hasta 3 bloques
+                    // cerca del tronco y 1 en la punta. Eso crea los NIVELES
+                    // de la copa -- capas de hojas a distintas alturas en vez
+                    // de discos planos -- y deja ver el esqueleto de ramas por
+                    // entre ellas.
+                    const int largo = (r <= 1) ? 3 : (r <= 3 ? 2 : 1);
+                    mechon(x, y - 1, z, largo);
+
+                    // ⭐ Y TAMBIEN BROTAN POR ENCIMA Y A LOS LADOS.
+                    //
+                    // Antes la rama solo tenia follaje DEBAJO (el mechon
+                    // colgante) y en su propia celda. Pero un fasciculo sale
+                    // RADIALMENTE de la ramilla: hacia arriba tambien. Sin
+                    // esto, la cara superior de cada piso quedaba pelada y la
+                    // copa se leia como una pila de discos separados en vez
+                    // de una masa continua de aguja.
+                    //
+                    // Solo un bloque por encima: mas subiria a chocar con el
+                    // piso siguiente (que esta a PASO=2) y rellenaria el hueco
+                    // que deja ver el tronco entre pisos, que es justo lo que
+                    // da la silueta escalonada del ocote.
+                    hoja(x, y + 1, z);
+
+                    // Las dos celdas laterales de la rama, para que el brazo
+                    // tenga grosor de follaje y no sea una linea de un bloque.
+                    // Perpendiculares a la direccion en la que va la rama.
+                    hoja(x + dirs[k][1], y, z + dirs[k][0]);
+                    hoja(x - dirs[k][1], y, z - dirs[k][0]);
+                }
+            }
+
+            // Relleno de las cuatro esquinas interiores: sin esto la copa se
+            // ve como una cruz desde arriba en vez de redonda.
+            if (radio >= 3) {
+                for (int dx = -1; dx <= 1; dx += 2)
+                    for (int dz = -1; dz <= 1; dz += 2) {
+                        hoja(worldX + dx, y, worldZ + dz);
+                        mechon(worldX + dx, y - 1, worldZ + dz, 2);
+                    }
+            }
+        }
+
+        // --- LA PUNTA ---
+        // El eje monopodico remata en un penacho apretado, no en pico agudo:
+        // la copa del ocote es redondeada tambien por arriba.
+        for (int dx = -1; dx <= 1; ++dx)
+            for (int dz = -1; dz <= 1; ++dz) {
+                if (abs(dx) + abs(dz) > 1) continue;   // cruz, sin esquinas
+                if (dx == 0 && dz == 0) continue;
+                hoja(worldX + dx, topY, worldZ + dz);
+                mechon(worldX + dx, topY - 1, worldZ + dz, 2);
+            }
+        hoja(worldX, topY + 1, worldZ);
+    }
+
+    // ========================================================================
     // NOPAL DE CASTILLA
     // ========================================================================
     // Estructura de la planta real:
@@ -10752,24 +12064,9 @@ public:
         // Ahora todas son BLOCK_IXTLE_HOJA. El tamano NO se pierde: se
         // deduce de la POSICION al dibujar, asi que siguen viendose matas
         // de cuatro tamanos pero todas son el mismo bloque.
-        const BlockType cuerpo = BLOCK_IXTLE_HOJA;
-        const int alturaPunta = -1;   // la espina va en la propia roseta
-
-        // Hueco que hay que reservar: hasta donde llega la pieza mas alta.
-        const int BLOQUES_HOJA = (alturaPunta > 0) ? alturaPunta : 0;
-
-        // Hace falta sitio libre para que la mata quepa entera. Si no lo
-        // hay (una cueva baja, un saliente), la mata no crece: mejor eso
-        // que una hoja atravesando la roca.
-        bool cabe = true;
-        for (int dy = 1; dy <= BLOQUES_HOJA; ++dy) {
-            if (getBlock(worldX, baseY + dy, worldZ) != BLOCK_AIR) {
-                cabe = false;
-                break;
-            }
-        }
-
-        if (!cabe) return;
+        // Ya no se reserva altura: el maguey es UNA celda con estado y su
+        // modelo 3D vive dentro de ella. Lo que antes eran bloques de hoja y
+        // de punta apilados es ahora geometria del propio modelo.
 
         // ====================================================================
         // ⭐ EL MAGUEY, COMO BLOQUE COMPUESTO
@@ -10805,37 +12102,52 @@ public:
             // copias calcadas.
             const uint16_t giro = (uint16_t)((dado >> 7) & 3u);
 
-            setBlock(worldX, baseY, worldZ,
-                     Compuesto::Maguey::nuevo(etapa, giro));
+            // ⭐ LOS MAGUEYES TIENEN TAMAÑOS DISTINTOS, COMO EN EL CAMPO.
+            //
+            // Un retoño no levanta del suelo; un ejemplar viejo se ve desde
+            // lejos. La planta ocupa VARIAS celdas en vertical segun su
+            // etapa (1 el brote, hasta 4 el productor).
+            //
+            // No son plantas distintas apiladas: es UNA planta repartida.
+            // La celda de abajo lleva el estado bueno y manda; las de arriba
+            // solo prolongan la roseta, y lo declaran en su SEGMENTO.
+            const BlockType planta = Compuesto::Maguey::nuevo(etapa, giro);
+            const int celdas = Compuesto::Maguey::celdasDeEtapa(etapa);
+
+            // Solo crece hasta donde haya sitio: si topa con roca o con un
+            // saliente, se queda mas baja. Mejor una mata pequeña que una
+            // planta atravesando el terreno.
+            int libres = 1;
+            for (int dy = 1; dy < celdas; ++dy) {
+                if (getBlock(worldX, baseY + dy, worldZ) != BLOCK_AIR) break;
+                ++libres;
+            }
+
+            for (int dy = 0; dy < libres; ++dy) {
+                setBlock(worldX, baseY + dy, worldZ,
+                         Compuesto::Maguey::conSegmento(planta, (uint16_t)dy));
+            }
         }
 
-        // ⭐ LA PUNTA VA UN BLOQUE MAS ABAJO
+        // ⭐ AQUI ESTABA LA "CAPA EXTRA" QUE TAPABA EL MAGUEY.
         //
-        // Antes se colocaba en el techo de la mata (baseY + BLOQUES_HOJA),
-        // asi que en las matas grandes quedaba flotando por encima de las
-        // hojas: la roseta se dibuja abierta y sus hojas ya no llegan tan
-        // arriba, de modo que la espina se veia despegada de la planta.
+        // Antes, cuando la mata eran dos bloques (cuerpo abajo, espina
+        // arriba), este trozo RELLENABA el hueco entre los dos con bloques
+        // BLOCK_IXTLE_HOJA. Y BLOCK_IXTLE_HOJA es un bloque CUBICO NORMAL,
+        // texturado con Maguey.png.
         //
-        // Bajandola un bloque cae justo donde terminan las hojas, que es
-        // donde de verdad remata una lechuguilla. Se aplica a TODOS los
-        // tamaños por igual.
+        // O sea: encima de la planta quedaba un cubo entero con la textura de
+        // la hoja. Eso es exactamente la "especie de capa extra" que se veia
+        // -- no era un fallo del renderer ni de las caras, era generacion
+        // colocando un bloque de mas.
         //
-        // La espina, un bloque por debajo de donde iba antes. En las matas
-        // de un solo bloque va dentro de la propia roseta.
-        if (alturaPunta > 0) {
-            // ⭐ NADA DE PUNTAS FLOTANDO
-            //
-            // Si la espina queda separada del cuerpo por aire, la mata se ve
-            // CORTADA: un trozo de planta abajo y la punta suelta arriba.
-            // Se rellena el hueco con hojas, que son el cuerpo de la propia
-            // hoja, de modo que la silueta sube entera hasta la espina.
-            for (int dy = 1; dy < alturaPunta; ++dy) {
-                if (getBlock(worldX, baseY + dy, worldZ) == BLOCK_AIR) {
-                    setBlock(worldX, baseY + dy, worldZ, cuerpo);
-                }
-            }
-            setBlock(worldX, baseY + alturaPunta, worldZ, BLOCK_IXTLE_PUNTA);
-        }
+        // Ya no hace falta nada de esto: el maguey es UNA celda con estado, y
+        // sus puntas son geometria de su propio modelo (ver la rama del
+        // maguey en buildChunkMesh), no bloques aparte.
+        //
+        // Se borra el relleno Y la punta suelta. Si algun dia la planta
+        // vuelve a ocupar varias celdas, se hara con bloques COMPUESTOS que
+        // sepan dibujarse, nunca con cubos de relleno.
     }
 
     // ========================================================================
@@ -11400,6 +12712,33 @@ public:
             generarRaicesArbol(worldX, baseY, worldZ, altura, 388);
             generarRamasArbol(worldX, baseY, worldZ, altura,
                               BLOCK_RAMA_OYAMEL, BLOCK_LEAVES_OYAMEL, 303);
+        } else if (tipoArbol == 9) {
+            // ⭐ OCOTE (Pinus montezumae): fuste largo y copa redondeada
+            //
+            // Es el pino grande del centro de Mexico: pasa de los 20 m.
+            int altura = 12 + (seed % 8);   // 12-19 bloques
+            generarOcote(worldX, baseY, worldZ, altura);
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 571);
+
+            // ⚠️ NO se llama a generarRamasArbol.
+            //
+            // A diferencia de las otras especies, generarOcote ya coloca SUS
+            // ramas y sus penachos colgantes: la copa y el ramaje son la misma
+            // estructura, porque las aciculas cuelgan de cada rama. Llamar
+            // ademas al generador generico superpondria una segunda copa con
+            // otra silueta y se perderia justo lo que distingue a este pino.
+        } else if (tipoArbol == 10) {
+            // ⭐ OCOTE CHINO (Pinus leiophylla)
+            //
+            // Misma estructura que el blanco pero mas bajo y con la copa mas
+            // tupida. Su ramaje va DENTRO del follaje (celda compartida), asi
+            // que la copa se ve con las ramas asomando entre las aciculas.
+            int altura = 10 + (seed % 6);   // 10-15 bloques
+            generarOcote(worldX, baseY, worldZ, altura, /*chino=*/true);
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 733);
+
+            // Mismo motivo que el ocote blanco: generarOcote ya pone sus
+            // ramas y sus penachos. No se llama al generador generico.
         }
     }
 
@@ -11575,10 +12914,31 @@ public:
             return;
         }
 
-        // ⭐ PROTECCIÓN: Verificar que el chunk se creó correctamente
-        Chunk* chunk = getOrCreateChunk(chunkPos);
+        // ====================================================================
+        // ⭐ NO SE RESUCITAN CHUNKS DESCARGADOS
+        // ====================================================================
+        // Llegados aqui NO estamos generando (el caso `t_gen` ya salio arriba),
+        // asi que esto es una escritura del JUEGO EN MARCHA: el jugador
+        // colocando un bloque, el agua fluyendo, un arbol cayendo.
+        //
+        // Y si el chunk no esta cargado, escribir ahi es SIEMPRE un error. Lo
+        // que hacia getOrCreateChunk era regenerarlo entero --terreno,
+        // vegetacion, minerales-- fuera del radio de render, para nadie. Peor:
+        // inserta en `chunks`, de modo que si esto pasa mientras alguien
+        // recorre ese mapa, lo invalida en mitad de la iteracion. Ese era el
+        // crash que cerraba el juego en pleno mundo.
+        //
+        // Quien tenga coordenadas guardadas de una sesion anterior (las colas
+        // de fluidos, los temporizadores de las plantas) tiene que comprobar
+        // antes si su chunk sigue ahi. Esto es la red por si alguno se olvida.
+        //
+        // ⚠️ SE USA getChunk, NO getOrCreateChunk. Es toda la diferencia.
+        Chunk* chunk = getChunk(chunkPos);
         if (!chunk) {
-            std::cerr << "⚠️ WARNING: No se pudo crear chunk en (" << chunkPos.x << ", " << chunkPos.z << ")" << std::endl;
+            // Silencio a proposito: no es una anomalia digna de log. Ocurre de
+            // forma normal cada vez que algo con memoria larga apunta a una
+            // zona que el jugador ya dejo atras, y avisarlo llenaria el
+            // archivo de ruido.
             return;
         }
 
@@ -11681,8 +13041,49 @@ private:
     std::queue<std::tuple<int, int, int>> waterUpdateQueue;
     const int MAX_WATER_UPDATES_PER_TICK = 50;  // ⭐ AUMENTADO: 50 bloques por tick para flujo rápido y fluido
 
-    // ⭐ Sistema de niveles de agua (0 = fuente, 1-7 = flujo decreciente)
-    std::map<std::tuple<int, int, int>, int> waterLevels;
+    // ========================================================================
+    // ⭐ LAS OLAS: COLA PROPIA, PRESUPUESTO PROPIO
+    // ========================================================================
+    // Las celdas de orilla se mueven SOLAS y sin parar -- que es justo lo
+    // contrario de la regla que sostiene el rendimiento del agua ("nadie
+    // despierta al mar", ver updateWaterFlow).
+    //
+    // ⚠️ POR ESO NO COMPARTEN COLA CON EL AGUA NORMAL.
+    //
+    // Si las olas entraran en `waterUpdateQueue`, una playa de 200 celdas
+    // saturaria sola el presupuesto de 50/tick y el resto del agua del mundo
+    // -- un tazon derramado, un rio que abriste -- dejaria de simularse. Con
+    // dos colas separadas, cada sistema tiene su cuota y ninguno puede ahogar
+    // al otro por muy larga que sea la costa cargada.
+    // (Estas viven en la seccion privada donde se declaran; los metodos que
+    // las usan se exponen mas abajo.)
+    std::vector<Vec3i> celdasOrilla;         // las que oscilan, sin duplicados
+    std::set<Vec3i>    orillaRegistrada;     // para no registrar dos veces
+    const size_t MAX_CELDAS_ORILLA = 3000;   // techo duro de coste
+
+    // Cuantas celdas de orilla se actualizan por tick. Es independiente del
+    // presupuesto del agua normal.
+    const int MAX_OLAS_POR_TICK = 220;
+
+    // Por donde va el barrido de la orilla, para repartir el trabajo entre
+    // ticks en vez de hacer las 3000 de golpe.
+    size_t cursorOrilla = 0;
+
+    // ⭐ EL NIVEL DEL AGUA YA NO VIVE AQUI.
+    //
+    // Antes habia un `std::map<tuple<x,y,z>, int> waterLevels` con el nivel de
+    // cada celda. Se borro, y con el tres fallos de raiz:
+    //
+    //   1. NO SE GUARDABA. El mapa vive en RAM y el save solo escribe IDs de
+    //      bloque: al recargar el mundo toda el agua volvia a ser fuente.
+    //   2. NO SE PURGABA al descargar chunks (apuntado en PENDIENTES 3-bis):
+    //      crecia toda la sesion, y al volver a una zona devolvia el nivel
+    //      rancio de antes.
+    //   3. UN OCEANO NO CABIA: millones de nodos de mapa con su asignacion.
+    //
+    // Ahora el nivel viaja DENTRO del ID del bloque
+    // (Compuesto::Agua, en BloqueCompuesto.h), igual que el estado del maguey.
+    // Se guarda solo, se descarga con su chunk y no ocupa memoria aparte.
 
     // ========================================================================
     // SISTEMA DE LAVA
@@ -11709,152 +13110,471 @@ private:
     static const int LAVA_MAX_SPREAD = 3;
 
 public:
-    // Obtener nivel de agua en una posición
+    // ========================================================================
+    // NIVELES DE AGUA: LEER Y ESCRIBIR CUANTA HAY
+    // ========================================================================
+    // El nivel va en octavos: 8 es una celda llena y 1 la lamina mas fina.
+    // Se lee del propio ID del bloque, no de una tabla lateral.
+    //
+    // Se conserva el nombre getWaterLevel/setWaterLevel para no tocar los
+    // sitios que ya los llamaban, pero la ESCALA se invirtio: antes 0 era la
+    // fuente y 7 el hilo mas fino; ahora mas numero es mas agua. El sentido
+    // nuevo es el que permite sumar y restar niveles conservando el volumen,
+    // que es de lo que depende que el mar no se drene solo.
+
+    // Cuanta agua hay aqui, en octavos. 0 = no hay agua.
     int getWaterLevel(int x, int y, int z) {
-        auto key = std::make_tuple(x, y, z);
-        auto it = waterLevels.find(key);
-        if (it != waterLevels.end()) {
-            return it->second;
-        }
-        return -1; // No hay agua
+        return (int)Compuesto::Agua::nivelDe(getBlock(x, y, z));
     }
 
-    // Establecer nivel de agua
-    void setWaterLevel(int x, int y, int z, int level) {
-        if (level < 0) {
-            waterLevels.erase(std::make_tuple(x, y, z));
-        } else {
-            waterLevels[std::make_tuple(x, y, z)] = level;
-        }
-    }
-
-    // ⭐⭐⭐ Detectar si hay una fuente infinita (2x2 de agua)
-    bool isInfiniteSource(int x, int y, int z) {
-        // Contar bloques de agua adyacentes (no diagonales)
-        int waterCount = 0;
-        int directions[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-
-        for (int i = 0; i < 4; i++) {
-            int nx = x + directions[i][0];
-            int nz = z + directions[i][1];
-
-            if (getBlock(nx, y, nz) == BLOCK_WATER) {
-                int neighborLevel = getWaterLevel(nx, y, nz);
-                if (neighborLevel == 0) {  // Solo fuentes cuentan
-                    waterCount++;
-                }
+    // Dejar esta celda con este nivel de agua. Nivel 0 la seca (la deja en
+    // aire), que es lo que hace que un charco desaparezca del todo.
+    void setWaterLevel(int x, int y, int z, int nivel) {
+        if (nivel <= 0) {
+            if (Compuesto::Agua::esAgua(getBlock(x, y, z))) {
+                setBlock(x, y, z, BLOCK_AIR);
             }
+            return;
         }
+        if (nivel > (int)Compuesto::Agua::LLENA) nivel = Compuesto::Agua::LLENA;
+        setBlock(x, y, z, Compuesto::Agua::nuevo((uint16_t)nivel));
+    }
 
-        // Si hay 2+ fuentes adyacentes, esta posición es fuente infinita
-        return waterCount >= 2;
+    // ¿Hay agua aqui? Reconoce tanto el agua con volumen como el BLOCK_WATER
+    // de los mundos viejos, que se sigue leyendo como una celda llena.
+    bool esCeldaDeAgua(BlockType b) const {
+        return Compuesto::Agua::esAgua(b) || b == BLOCK_WATER;
+    }
+    bool hayAgua(int x, int y, int z) {
+        return esCeldaDeAgua(getBlock(x, y, z));
+    }
+
+    // Cuanta agua tiene una celda, contando el agua vieja como celda llena.
+    //
+    // Esto es lo que hace que los mundos guardados ANTES de este sistema
+    // sigan funcionando: sus mares son BLOCK_WATER, y aqui valen 8 octavos.
+    // No hay migracion que escribir: el agua vieja se convierte en agua con
+    // nivel la primera vez que el flujo la toca.
+    int aguaDe(int x, int y, int z) {
+        const BlockType b = getBlock(x, y, z);
+        if (b == BLOCK_WATER) return (int)Compuesto::Agua::LLENA;
+        return (int)Compuesto::Agua::nivelDe(b);
+    }
+
+    // ¿Puede el agua ocupar esta celda? Solo el aire y otra agua.
+    bool aguaPuedeEntrar(int x, int y, int z) {
+        const BlockType b = getBlock(x, y, z);
+        return b == BLOCK_AIR || esCeldaDeAgua(b);
     }
 
     // Añadir bloque de agua a la cola de actualización
+    // ========================================================================
+    // ⭐ ¿ESTA CARGADO EL CHUNK DE ESTA POSICION?
+    // ========================================================================
+    // ESTA FUNCION CIERRA EL CRASH QUE CERRABA EL JUEGO EN PLENO MUNDO.
+    //
+    // El problema, en tres pasos:
+    //
+    //   1. Las colas de fluidos guardan COORDENADAS, no punteros. Al
+    //      descargar un chunk por distancia, nadie las purga -- la descarga
+    //      borra de `chunks`, borra de `chunkCache` y devuelve al pool, pero
+    //      las coordenadas siguen en la cola.
+    //
+    //   2. Al llegarles el turno, el flujo llama a setBlock() con esas
+    //      coordenadas.
+    //
+    //   3. Y setBlock hace getOrCreateChunk(), que NO comprueba si el chunk
+    //      estaba cargado: lo REGENERA entero, con su generateChunk() y su
+    //      poblacion(). Fuera del radio de render, para nadie.
+    //
+    // El resultado era una cascada: el chunk resucitado se descarga otra vez
+    // al frame siguiente, vuelve a resucitar, y mientras tanto poblacion()
+    // llama a mas setBlock que crean MAS chunks. Peor aun, getOrCreateChunk
+    // inserta en `chunks`, asi que si esto ocurre mientras se esta recorriendo
+    // ese mapa, lo invalida en mitad de la iteracion.
+    //
+    // De ahi que el log se cortara justo despues de "Chunks descargados".
+    //
+    // La regla es simple: EL AGUA NO SIMULA DONDE NO HAY MUNDO. Un chunk
+    // descargado no tiene fisica; cuando el jugador vuelva, el agua se
+    // recalcula desde el estado guardado.
+    bool chunkCargadoEn(int x, int z) {
+        return getChunk(worldToChunkPos(Vec3((float)x, 0.0f, (float)z)))
+               != nullptr;
+    }
+
     void scheduleWaterUpdate(int x, int y, int z) {
+        // No se encola lo que ya no existe: evita que la cola se llene de
+        // posiciones muertas que luego resucitarian chunks.
+        if (!chunkCargadoEn(x, z)) return;
         if (waterUpdateQueue.size() < 5000) {  // Límite de cola aumentado
             waterUpdateQueue.push(std::make_tuple(x, y, z));
         }
     }
 
-    // ⭐⭐⭐ Actualizar flujo de agua mejorado (procesarcola)
+    // ========================================================================
+    // ⭐ EL FLUJO DEL AGUA: REPARTIR SIN CREAR NI DESTRUIR
+    // ========================================================================
+    // La regla de la que cuelga todo el sistema:
+    //
+    //     EL AGUA NO SE CREA NI SE DESTRUYE, SOLO SE REPARTE.
+    //
+    // Cada celda tiene de 1 a 8 octavos. Mover agua es RESTAR de una celda y
+    // SUMAR exactamente lo mismo a otra. Nunca se pone agua sin quitarla de
+    // algun sitio.
+    //
+    // Eso es lo que hace que un mar siga siendo un mar: no hay reglas de
+    // "esta celda es fuente infinita" ni de "seca si no encuentra apoyo". El
+    // oceano se sostiene porque tiene MUCHISIMA agua, no porque el motor lo
+    // este rellenando por detras. Y por lo mismo, el agua que el jugador
+    // coloca es finita: se reparte, baja de nivel y se acaba.
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE EL MAR NO SE VACIA, SI TODA EL AGUA ES FINITA
+    // ------------------------------------------------------------------------
+    // Son TRES cosas a la vez, y hacen falta las tres:
+    //
+    //   1. EL AGUA SOLO SE MUEVE CUESTA ABAJO, hacia una celda con menos agua
+    //      que ella. Dos celdas al mismo nivel no se intercambian nada, asi
+    //      que una superficie plana esta en equilibrio y el motor la deja
+    //      quieta. Sin esto el mar herviria eternamente moviendo agua de un
+    //      lado a otro, y se comeria el frame sin que se viera nada.
+    //
+    //   2. LA TIERRA SE SATURA. Absorber convierte el suelo en su version
+    //      mojada, que ya no bebe. Sin eso, la orilla de un mar -- millones de
+    //      celdas de agua tocando arena -- se tragaria el mar entero.
+    //
+    //   3. NADIE DESPIERTA AL MAR. Esta cola solo se llena cuando el JUGADOR
+    //      toca algo: coloca agua, rompe un bloque, llena un tazon. El agua
+    //      generada por el terreno no entra aqui sola, asi que un oceano
+    //      intacto no gasta ni un ciclo de CPU.
+    //
+    // La 3 es ademas lo que hace que esto escale: da igual que el mundo tenga
+    // millones de celdas de agua, porque solo se simulan las que se tocan.
+    //
+    // ------------------------------------------------------------------------
+    // EL ORDEN IMPORTA: PRIMERO ABAJO
+    // ------------------------------------------------------------------------
+    // La gravedad va antes que nada. Solo cuando no cabe mas agua abajo, lo
+    // que sobra se reparte a los lados. Al reves, el agua se extenderia en una
+    // lamina fina antes de caer por un agujero que tiene al lado.
+public:
+    // ========================================================================
+    // ⭐ REGISTRAR UNA CELDA DE ORILLA
+    // ========================================================================
+    // La llama el integrador de chunks al cargar terreno con playa. Es la
+    // unica puerta de entrada al sistema de olas.
+    void registrarOrilla(int x, int y, int z) {
+        if (celdasOrilla.size() >= MAX_CELDAS_ORILLA) return;
+        const Vec3i p(x, y, z);
+        if (orillaRegistrada.count(p)) return;
+        orillaRegistrada.insert(p);
+        celdasOrilla.push_back(p);
+    }
+
+    // Al descargar un chunk hay que olvidar sus celdas de orilla, o la lista
+    // crece toda la sesion y se simulan olas de playas que ya no existen --
+    // que es exactamente la fuga que sufre `lavaLevels`.
+    void olvidarOrillaDeChunk(const Vec3i& chunkPos) {
+        const int x0 = chunkPos.x * CHUNK_SIZE, x1 = x0 + CHUNK_SIZE;
+        const int z0 = chunkPos.z * CHUNK_SIZE, z1 = z0 + CHUNK_SIZE;
+
+        size_t escribe = 0;
+        for (size_t lee = 0; lee < celdasOrilla.size(); ++lee) {
+            const Vec3i& c = celdasOrilla[lee];
+            const bool dentro = (c.x >= x0 && c.x < x1 && c.z >= z0 && c.z < z1);
+            if (dentro) {
+                orillaRegistrada.erase(c);
+            } else {
+                celdasOrilla[escribe++] = c;
+            }
+        }
+        celdasOrilla.resize(escribe);
+        if (cursorOrilla > celdasOrilla.size()) cursorOrilla = 0;
+    }
+
+    // ========================================================================
+    // ⭐ LAS OLAS
+    // ========================================================================
+    // Cada celda de orilla sube y baja de nivel siguiendo una onda. Lo que se
+    // pidio: "que baje de niveles hasta el minimo, muy rapido, y pueda
+    // regresar".
+    //
+    // ------------------------------------------------------------------------
+    // COMO SE DECIDE EL NIVEL
+    // ------------------------------------------------------------------------
+    // No hay estado por celda: el nivel sale de una FUNCION del tiempo y de la
+    // posicion. Eso tiene tres ventajas sobre guardar la fase en cada celda:
+    //
+    //   1. No gasta memoria ni se guarda en disco.
+    //   2. Es determinista: dos jugadores verian la misma ola.
+    //   3. La ola AVANZA sola, porque la fase depende de la posicion: las
+    //      celdas vecinas van un pelo desfasadas y el ojo lee eso como una
+    //      cresta que se desplaza hacia la playa.
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE ESTO NO ROMPE LA CONSERVACION DEL AGUA
+    // ------------------------------------------------------------------------
+    // El resto del motor mueve agua REPARTIENDOLA (restar de una celda y sumar
+    // lo mismo en otra), y por eso el agua es finita. Las olas NO reparten:
+    // reescriben el nivel de una franja marcada.
+    //
+    // Es seguro porque esa franja es CERRADA y esta marcada por el generador:
+    // el agua de la ola nunca sale de ella (no fluye a celdas sin marca), y
+    // ninguna otra parte del motor le quita volumen (la arena no bebe de la
+    // orilla, ver absorberDebajo). O sea que la franja oscila entre sus
+    // propios limites sin intercambiar agua con el mar. El mar de al lado
+    // sigue siendo finito y conservado como siempre.
+    void updateOlas(double tiempo) {
+        if (celdasOrilla.empty()) return;
+        PROFILE_SCOPE("World::updateOlas");
+
+        namespace A = Compuesto::Agua;
+
+        // Periodo de la ola, en segundos. 3.4 s es el ritmo de una rompiente
+        // suave: lo bastante lento para que se lea el vaiven, lo bastante
+        // rapido para que la playa no parezca congelada.
+        constexpr double PERIODO = 3.4;
+        constexpr double DOS_PI  = 6.283185307;
+
+        // Cuantas celdas se tocan este tick. Reparte el trabajo: con 3000
+        // celdas y 220 por tick, la playa entera se refresca en ~14 ticks.
+        int quedan = MAX_OLAS_POR_TICK;
+        const size_t total = celdasOrilla.size();
+
+        while (quedan-- > 0 && total > 0) {
+            if (cursorOrilla >= total) cursorOrilla = 0;
+            const Vec3i c = celdasOrilla[cursorOrilla++];
+
+            const BlockType actual = getBlock(c.x, c.y, c.z);
+            // Si el jugador la tapo o la vacio, deja de ser orilla.
+            if (!A::esOrilla(actual)) continue;
+
+            // ⭐ LA FASE DEPENDE DE LA POSICION: ASI LA OLA AVANZA.
+            //
+            // Sin este termino todas las celdas subirian y bajarian a la vez y
+            // la playa entera pulsaria como un solo bloque. Con el, la cresta
+            // recorre la costa.
+            const double avance = (c.x * 0.35 + c.z * 0.35);
+            const double fase   = (tiempo / PERIODO) * DOS_PI + avance;
+
+            // Onda en [0,1].
+            const double onda = 0.5 + 0.5 * sin(fase);
+
+            // ⭐ BAJA HASTA EL MINIMO Y VUELVE, MAS RAPIDO AL RETIRARSE.
+            //
+            // Una ola real no es una sinusoide: sube deprisa al romper y se
+            // retira mas despacio, o al reves segun la playa. Aqui se eleva la
+            // onda a una potencia < 1, lo que aplasta la parte alta y alarga
+            // la baja: la celda pasa MAS tiempo con poca agua, que es lo que
+            // hace que se vea la arena entre ola y ola.
+            const double perfil = pow(onda, 0.65);
+
+            // Nivel resultante: de 1 (minimo visible, lamina mojada) a 8.
+            int nivel = 1 + (int)(perfil * 7.0 + 0.5);
+            if (nivel < 1) nivel = 1;
+            if (nivel > (int)A::LLENA) nivel = (int)A::LLENA;
+
+            if ((int)A::nivelDe(actual) == nivel) continue;   // ya esta asi
+
+            // Se conserva la marca de orilla: es lo que mantiene la celda en
+            // el sistema para el siguiente ciclo.
+            BlockType nueva = A::conNivel(actual, (uint16_t)nivel);
+            nueva = A::conOrilla(nueva, true);
+            setBlock(c.x, c.y, c.z, nueva);
+        }
+    }
+
+    // (Se mantiene la visibilidad publica que tenia esta seccion: el resto de
+    // main.cpp llama a notifyWaterPlaced/Removed y repartirAguaDesplazada.)
     void updateWaterFlow() {
         PROFILE_SCOPE("World::updateWaterFlow");
         try {
-            int updatesProcessed = 0;
+            int procesadas = 0;
 
-            while (!waterUpdateQueue.empty() && updatesProcessed < MAX_WATER_UPDATES_PER_TICK) {
+            while (!waterUpdateQueue.empty() &&
+                   procesadas < MAX_WATER_UPDATES_PER_TICK) {
                 auto pos = waterUpdateQueue.front();
                 waterUpdateQueue.pop();
 
-                int x = std::get<0>(pos);
-                int y = std::get<1>(pos);
-                int z = std::get<2>(pos);
+                const int x = std::get<0>(pos);
+                const int y = std::get<1>(pos);
+                const int z = std::get<2>(pos);
 
-                // Validar posición
                 if (y < 1 || y >= CHUNK_HEIGHT - 1) continue;
 
-                BlockType currentBlock = getBlock(x, y, z);
+                // ⭐ Y AQUI OTRA VEZ, QUE ES DONDE DE VERDAD IMPORTA.
+                //
+                // No basta con filtrar al ENCOLAR: entre que una posicion
+                // entra en la cola y le llega el turno pueden pasar muchos
+                // frames, y en ese rato el jugador puede haberse alejado y el
+                // chunk haberse descargado.
+                //
+                // Sin esta comprobacion, esa posicion rezagada llama a
+                // setBlock, que resucita el chunk entero. Es exactamente el
+                // camino que cerraba el juego.
+                if (!chunkCargadoEn(x, z)) continue;
 
-                // Solo procesar si es agua
-                if (currentBlock != BLOCK_WATER) {
-                    setWaterLevel(x, y, z, -1);  // Limpiar nivel
-                    continue;
+                // Cuanta agua hay aqui. El BLOCK_WATER de los mundos viejos
+                // cuenta como celda llena, asi que un mar guardado con el
+                // sistema anterior entra en el nuevo sin migracion.
+                int nivel = aguaDe(x, y, z);
+                if (nivel <= 0) continue;   // ya no hay agua que mover
+
+                procesadas++;
+
+                // ------------------------------------------------------------
+                // PASO 1: LA TIERRA BEBE
+                // ------------------------------------------------------------
+                // Antes de repartirse, el agua moja lo que tiene debajo. La
+                // tierra y la arena secas absorben un octavo y quedan
+                // humedas; una vez saturadas ya no beben mas.
+                //
+                // La absorcion NO destruye el agua: la guarda dentro del
+                // bloque mojado. Por eso un mar puede mojar toda su orilla
+                // sin perder volumen -- la orilla se satura y el mar se
+                // queda. Sin esta conservacion, un oceano se drenaria solo
+                // por su propia playa.
+                if (nivel > 0 && absorberDebajo(x, y, z)) {
+                    nivel--;
+                    setWaterLevel(x, y, z, nivel);
+                    if (nivel <= 0) {
+                        despertarVecinos(x, y, z);
+                        continue;
+                    }
                 }
 
-                int currentLevel = getWaterLevel(x, y, z);
-                if (currentLevel < 0) currentLevel = 0;  // Asumir fuente si no hay nivel
+                // ------------------------------------------------------------
+                // PASO 2: CAER
+                // ------------------------------------------------------------
+                // Todo lo que quepa abajo, baja. El agua que cae se marca como
+                // chorro para que el mesher la dibuje como una columna y no
+                // como un charco flotando.
+                if (aguaPuedeEntrar(x, y - 1, z)) {
+                    const int abajo = aguaDe(x, y - 1, z);
+                    const int hueco = (int)Compuesto::Agua::LLENA - abajo;
 
-                // ⭐ PASO 1: Verificar si es fuente infinita
-                if (isInfiniteSource(x, y, z)) {
-                    setWaterLevel(x, y, z, 0);  // Convertir en fuente
-                    currentLevel = 0;
-                }
+                    if (hueco > 0) {
+                        // ⭐ EL AGUA NO CAE COMO UN BLOQUE: ESCURRE.
+                        //
+                        // Antes bajaba TODO lo que cupiera de una vez
+                        // (min(nivel, hueco)), asi que una celda llena se
+                        // vaciaba entera en un solo tick y el agua se veia
+                        // "caer con gravedad", como si fuera un solido.
+                        //
+                        // Un liquido no hace eso: se descuelga poco a poco. Se
+                        // limita el trasvase a CAUDAL octavos por tick, de modo
+                        // que una columna tarda varios ticks en bajar y se ve
+                        // el hilo escurriendo en vez del salto de golpe.
+                        //
+                        // ⚠️ NO SE PIERDE NI SE CREA AGUA. Sigue siendo restar
+                        // de aqui y sumar abajo -- el mismo total. Lo unico que
+                        // cambia es CUANTA se mueve por tick, asi que la
+                        // conservacion del volumen (de la que depende que un
+                        // oceano no se vacie) queda intacta.
+                        //
+                        // 2 de 8 octavos por tick, con el tick a 0,5 s: una
+                        // celda llena tarda ~2 s en descolgarse del todo. Lo
+                        // bastante lento para verlo, lo bastante rapido para
+                        // que un derrame no se eternice.
+                        constexpr int CAUDAL_CAIDA = 2;
 
-                // ⭐ PASO 2: Caer hacia abajo (PRIORIDAD MÁXIMA - gravedad)
-                BlockType blockBelow = getBlock(x, y - 1, z);
-                if (blockBelow == BLOCK_AIR) {
-                    setBlock(x, y - 1, z, BLOCK_WATER);
-                    setWaterLevel(x, y - 1, z, 0);  // Agua que cae es fuente
-                    scheduleWaterUpdate(x, y - 1, z);
-                    updatesProcessed++;
-                    continue;  // No expandir horizontalmente si puede caer
-                }
+                        int baja = (nivel < hueco) ? nivel : hueco;
+                        if (baja > CAUDAL_CAIDA) baja = CAUDAL_CAIDA;
 
-                // ⭐ PASO 3: Expandir horizontalmente (solo si no puede caer)
-                if (blockBelow != BLOCK_AIR && currentLevel < 7) {
-                    int directions[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-                    int nextLevel = currentLevel + 1;
+                        // Restar de aqui y sumar abajo: mismo total.
+                        setBlock(x, y - 1, z,
+                                 Compuesto::Agua::nuevo(
+                                     (uint16_t)(abajo + baja), true));
+                        nivel -= baja;
+                        setWaterLevel(x, y, z, nivel);
 
-                    // Expandir en todas las direcciones simultáneamente
-                    for (int i = 0; i < 4; i++) {
-                        int nx = x + directions[i][0];
-                        int nz = z + directions[i][1];
+                        scheduleWaterUpdate(x, y - 1, z);
+                        if (nivel <= 0) {
+                            despertarVecinos(x, y, z);
+                            continue;
+                        }
 
-                        BlockType neighborBlock = getBlock(nx, y, nz);
-
-                        if (neighborBlock == BLOCK_AIR) {
-                            // Colocar agua con nivel reducido
-                            setBlock(nx, y, nz, BLOCK_WATER);
-                            setWaterLevel(nx, y, nz, nextLevel);
-                            scheduleWaterUpdate(nx, y, nz);
-                            updatesProcessed++;
-
-                            if (updatesProcessed >= MAX_WATER_UPDATES_PER_TICK) break;
-                        } else if (neighborBlock == BLOCK_WATER) {
-                            // Actualizar nivel si es menor
-                            int neighborLevel = getWaterLevel(nx, y, nz);
-                            if (neighborLevel > nextLevel) {
-                                setWaterLevel(nx, y, nz, nextLevel);
-                                scheduleWaterUpdate(nx, y, nz);
-                            }
+                        // ⭐ SEGUIR ESCURRIENDO EN EL PROXIMO TICK.
+                        //
+                        // Al limitar el caudal, esta celda se queda con agua
+                        // que todavia tiene que bajar. Si no se reencola, el
+                        // goteo se para tras el primer tick y el agua queda a
+                        // medias colgada -- que es peor que la caida de golpe
+                        // de antes.
+                        //
+                        // Solo mientras QUEDE hueco abajo: en cuanto se llena,
+                        // la celda deja de despertarse sola y el agua vuelve a
+                        // estar en reposo. Eso es lo que impide que un charco
+                        // ya asentado siga gastando CPU para siempre.
+                        if (aguaDe(x, y - 1, z) < (int)Compuesto::Agua::LLENA) {
+                            scheduleWaterUpdate(x, y, z);
                         }
                     }
                 }
 
-                // ⭐ PASO 4: Remover agua si no tiene fuente válida (nivel 7 sin soporte)
-                if (currentLevel >= 7 && !isInfiniteSource(x, y, z)) {
-                    bool hasSourceNearby = false;
-                    int directions[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                // ------------------------------------------------------------
+                // PASO 3: REPARTIRSE A LOS LADOS
+                // ------------------------------------------------------------
+                // Lo que no cupo abajo busca los vecinos con MENOS agua. Se
+                // reparte de octavo en octavo hacia el mas bajo de todos, que
+                // es lo que hace que el agua busque el hueco y no se extienda
+                // en abanico por celdas que ya estan igual de llenas.
+                //
+                // Una celda de un solo octavo NO se reparte: partirla en
+                // medios octavos no existe, y si se moviera entera estaria
+                // saltando de sitio en vez de fluyendo.
+                if (nivel >= 2) {
+                    const int dirs[4][2] = {{1,0}, {-1,0}, {0,1}, {0,-1}};
 
-                    for (int i = 0; i < 4; i++) {
-                        int nx = x + directions[i][0];
-                        int nz = z + directions[i][1];
+                    // Se repite mientras siga habiendo cuesta abajo, para que
+                    // un chorro fuerte llene el hueco de al lado de una vez y
+                    // no de un octavo por tick.
+                    bool movio = true;
+                    while (movio && nivel >= 2) {
+                        movio = false;
 
-                        if (getBlock(nx, y, nz) == BLOCK_WATER) {
-                            int neighborLevel = getWaterLevel(nx, y, nz);
-                            if (neighborLevel >= 0 && neighborLevel < currentLevel) {
-                                hasSourceNearby = true;
-                                break;
+                        // Buscar el vecino mas VACIO.
+                        int mejorX = 0, mejorZ = 0, mejorNivel = nivel;
+                        for (int i = 0; i < 4; i++) {
+                            const int nx = x + dirs[i][0];
+                            const int nz = z + dirs[i][1];
+                            if (!aguaPuedeEntrar(nx, y, nz)) continue;
+
+                            const int n = aguaDe(nx, y, nz);
+                            if (n < mejorNivel) {
+                                mejorNivel = n;
+                                mejorX = nx;
+                                mejorZ = nz;
                             }
                         }
-                    }
 
-                    // Si no hay fuente, secar este bloque
-                    if (!hasSourceNearby) {
-                        setBlock(x, y, z, BLOCK_AIR);
-                        setWaterLevel(x, y, z, -1);
-                        updatesProcessed++;
+                        // Solo se mueve CUESTA ABAJO, y solo si la diferencia
+                        // es de al menos 2: pasar un octavo a un vecino que
+                        // tiene uno menos los deja al reves e invierte el
+                        // desnivel, y las dos celdas se lo pasarian para
+                        // siempre. Con diferencia >= 2 el reparto converge.
+                        if (mejorNivel <= nivel - 2) {
+                            setBlock(mejorX, y, mejorZ,
+                                     Compuesto::Agua::nuevo(
+                                         (uint16_t)(mejorNivel + 1)));
+                            nivel--;
+                            setWaterLevel(x, y, z, nivel);
+                            scheduleWaterUpdate(mejorX, y, mejorZ);
+                            procesadas++;
+                            movio = true;
+
+                            if (procesadas >= MAX_WATER_UPDATES_PER_TICK) break;
+                        }
+                    }
+                }
+
+                // El agua que ya no cae deja de ser chorro: se asienta.
+                if (nivel > 0) {
+                    const BlockType aqui = getBlock(x, y, z);
+                    if (Compuesto::Agua::estaCayendo(aqui) &&
+                        !aguaPuedeEntrar(x, y - 1, z)) {
+                        setBlock(x, y, z, Compuesto::Agua::conCaida(aqui, false));
                     }
                 }
             }
@@ -11866,45 +13586,107 @@ public:
         }
     }
 
-    // Llamar cuando se coloca o destruye agua para iniciar propagación
-    void notifyWaterPlaced(int x, int y, int z) {
-        setWaterLevel(x, y, z, 0);  // Nueva agua es fuente (nivel 0)
-        scheduleWaterUpdate(x, y, z);
+    // ------------------------------------------------------------------------
+    // LA TIERRA BEBE: absorcion por el bloque de debajo
+    // ------------------------------------------------------------------------
+    // Devuelve true si el bloque de debajo absorbio un octavo de agua.
+    //
+    // El agua absorbida NO desaparece del mundo: queda DENTRO del bloque, que
+    // pasa a su version mojada. Un bloque mojado ya no bebe mas. Eso acota la
+    // absorcion: una orilla se satura y deja de robarle agua al mar.
+    //
+    // La piedra no bebe: es impermeable.
+    bool absorberDebajo(int x, int y, int z) {
+        // ⭐ EL AGUA DE ORILLA NO MOJA LA PLAYA.
+        //
+        // Una ola sube y baja sobre la arena decenas de veces por minuto. Si
+        // cada pasada absorbiera un octavo, la franja entera se saturaria en
+        // unos segundos: la playa se volveria arena mojada permanente y --
+        // peor -- el mar habria PERDIDO todo ese volumen, porque absorber
+        // resta nivel a la celda.
+        //
+        // La marca de orilla la pone el generador (ver Agua::ORILLA), asi que
+        // esto solo exime a la franja de vaiven; el resto del agua sigue
+        // mojando la tierra como siempre.
+        if (Compuesto::Agua::esOrilla(getBlock(x, y, z))) return false;
 
-        // Notificar vecinos para recalcular niveles
-        int directions[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-        for (int i = 0; i < 4; i++) {
-            int nx = x + directions[i][0];
-            int nz = z + directions[i][1];
-            if (getBlock(nx, y, nz) == BLOCK_WATER) {
-                scheduleWaterUpdate(nx, y, nz);
-            }
-        }
+        const BlockType b = getBlock(x, y - 1, z);
+        const BlockType mojado = versionMojada(b);
+        if (mojado == b) return false;      // no absorbe (o ya esta saturado)
 
-        // Notificar bloque superior y inferior
-        if (getBlock(x, y + 1, z) == BLOCK_WATER) {
-            scheduleWaterUpdate(x, y + 1, z);
-        }
-        if (getBlock(x, y - 1, z) == BLOCK_WATER) {
-            scheduleWaterUpdate(x, y - 1, z);
+        setBlock(x, y - 1, z, mojado);
+        return true;
+    }
+
+    // ------------------------------------------------------------------------
+    // ⭐ EL AGUA QUE DESPLAZA UN BLOQUE
+    // ------------------------------------------------------------------------
+    // Al meter un bloque en el agua, la que ocupaba esa celda tiene que ir a
+    // algun sitio. Se reparte a los vecinos que tengan hueco, de octavo en
+    // octavo, empezando por arriba (el agua desplazada sube: es lo que hace
+    // que el nivel de un estanque suba al tirar piedras dentro) y siguiendo
+    // por los lados.
+    //
+    // Lo que no cabe en ningun vecino se pierde, y es correcto que asi sea:
+    // el bloque la ha echado fuera. Es lo mismo que meter un ladrillo en un
+    // vaso lleno hasta el borde -- el agua que sobra acaba en la mesa.
+    void repartirAguaDesplazada(int x, int y, int z, int cantidad) {
+        if (cantidad <= 0) return;
+
+        // Arriba primero: el agua desplazada empuja hacia la superficie.
+        const int dirs[5][3] = {{0,1,0}, {1,0,0}, {-1,0,0}, {0,0,1}, {0,0,-1}};
+
+        for (int i = 0; i < 5 && cantidad > 0; i++) {
+            const int nx = x + dirs[i][0];
+            const int ny = y + dirs[i][1];
+            const int nz = z + dirs[i][2];
+
+            if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
+            if (!aguaPuedeEntrar(nx, ny, nz)) continue;
+
+            const int tiene = aguaDe(nx, ny, nz);
+            const int hueco = (int)Compuesto::Agua::LLENA - tiene;
+            if (hueco <= 0) continue;
+
+            const int pasa = (cantidad < hueco) ? cantidad : hueco;
+            setBlock(nx, ny, nz,
+                     Compuesto::Agua::nuevo((uint16_t)(tiene + pasa)));
+            cantidad -= pasa;
+            scheduleWaterUpdate(nx, ny, nz);
         }
     }
 
-    // Llamar cuando se destruye agua
-    void notifyWaterRemoved(int x, int y, int z) {
-        setWaterLevel(x, y, z, -1);
-
-        // Notificar todos los vecinos para que recalculen
-        int directions[6][3] = {{1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}};
+    // Despertar a los vecinos de una celda que acaba de cambiar, para que
+    // recalculen su reparto. Sin esto, el agua se queda a medias: nadie le
+    // dice al de al lado que ahora tiene un hueco al que fluir.
+    void despertarVecinos(int x, int y, int z) {
+        const int dirs[6][3] = {{1,0,0}, {-1,0,0}, {0,1,0},
+                                {0,-1,0}, {0,0,1}, {0,0,-1}};
         for (int i = 0; i < 6; i++) {
-            int nx = x + directions[i][0];
-            int ny = y + directions[i][1];
-            int nz = z + directions[i][2];
-
-            if (getBlock(nx, ny, nz) == BLOCK_WATER) {
-                scheduleWaterUpdate(nx, ny, nz);
-            }
+            const int nx = x + dirs[i][0];
+            const int ny = y + dirs[i][1];
+            const int nz = z + dirs[i][2];
+            if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
+            if (hayAgua(nx, ny, nz)) scheduleWaterUpdate(nx, ny, nz);
         }
+    }
+
+    // Llamar cuando se coloca agua para iniciar la propagación.
+    //
+    // Un cubo de agua colocado por el jugador entra LLENO (8 octavos) y a
+    // partir de ahi se reparte. Es finito: no se rellena solo, asi que al
+    // extenderse baja de nivel hasta acabarse.
+    void notifyWaterPlaced(int x, int y, int z) {
+        if (!Compuesto::Agua::esAgua(getBlock(x, y, z))) {
+            setBlock(x, y, z, Compuesto::Agua::nuevo(Compuesto::Agua::LLENA));
+        }
+        scheduleWaterUpdate(x, y, z);
+        despertarVecinos(x, y, z);
+    }
+
+    // Llamar cuando se destruye agua.
+    void notifyWaterRemoved(int x, int y, int z) {
+        despertarVecinos(x, y, z);
     }
 
     // ========================================================================
@@ -11922,6 +13704,8 @@ public:
     }
 
     void scheduleLavaUpdate(int x, int y, int z) {
+        // Mismo guardian que el agua: no encolar lo que ya no existe.
+        if (!chunkCargadoEn(x, z)) return;
         // Cola más pequeña que la del agua: la lava se mueve poco, y una cola
         // grande solo acumularía trabajo que tardaría minutos en drenarse.
         if (lavaUpdateQueue.size() < 1500) {
@@ -11944,6 +13728,10 @@ public:
                 const int z = std::get<2>(pos);
 
                 if (y < 1 || y >= CHUNK_HEIGHT - 1) continue;
+
+                // Mismo guardian que el agua: una posicion rezagada de un
+                // chunk ya descargado resucitaria ese chunk al escribir.
+                if (!chunkCargadoEn(x, z)) continue;
 
                 if (getBlock(x, y, z) != BLOCK_LAVA) {
                     setLavaLevel(x, y, z, -1);   // ya no hay lava aquí
@@ -12449,8 +14237,25 @@ public:
                     float lightColorR, lightColorG, lightColorB;
                     chunk->getLightColor(x, y, z, lightColorR, lightColorG, lightColorB);
 
+                    // ⭐ TIERRA MOJADA: la misma textura, mas oscura.
+                    //
+                    // Es lo que le pasa al suelo empapado de verdad: el agua
+                    // rellena los huecos entre granos y refleja menos luz, asi
+                    // que se ve mas oscuro y un poco mas frio. No hace falta
+                    // una textura nueva -- basta con bajarle el brillo a la
+                    // que ya tiene.
+                    //
+                    // Se aplica ANTES del tinte del agua para que las dos
+                    // cosas puedan coincidir en la misma celda sin pelearse.
+                    if (estaMojado(block)) {
+                        lightColorR *= 0.62f;
+                        lightColorG *= 0.64f;
+                        lightColorB *= 0.70f;   // menos al azul: queda frio
+                    }
+
                     // AGUA: Configurar color azulado
-                    bool isWater = (block == BLOCK_WATER);
+                    // Reconoce las DOS aguas: la clasica y la que lleva nivel.
+                    bool isWater = esAguaCualquiera(block);
                     bool isLava = (block == BLOCK_LAVA);
                     // La LAVA ya NO se agrupa con la flor naranja.
                     // Antes compartían la misma rama y la lava heredaba el
@@ -12504,20 +14309,77 @@ public:
                     // Los NIVELES entran por aqui (no llenan el voxel, asi
                     // que no valen para el greedy meshing), pero tienen su
                     // propia rama mas abajo con la caja de altura reducida.
-                    // ================================================
-                    // MAGUEY COMPUESTO: CUERPO + PUNTAS + JUGO EN UN VOXEL
-                    // ================================================
-                    // Las tres partes de la planta se dibujan aqui, en la
-                    // misma pasada y en los MISMOS batches de textura que el
-                    // resto del chunk. No hay una entidad por espina ni un
-                    // draw call por componente: son triangulos que se suman a
-                    // la malla del chunk como cualquier cara de terreno.
+                    // ============================================
+                    // LA BIZNAGA: EL BARRIL DEL DESIERTO
+                    // ============================================
+                    // BUG QUE ESTO CORRIGE: la biznaga se GENERABA, tenia su
+                    // textura y su caja de colision, pero NO tenia rama aqui.
                     //
-                    // Cuantas puntas hay, cuanto jugo lleva y de que tamaño es
-                    // la planta salen del ESTADO empaquetado en el ID (ver
-                    // BloqueCompuesto.h), asi que un maguey a medio llenar y
-                    // otro rebosante son el mismo bloque con distinto valor --
-                    // no dos bloques distintos.
+                    // Sin rama no llegaba al `continue` que salta el cubo, asi
+                    // que caia al camino generico y se dibujaba como un CUBO
+                    // ENTERO. Y como su ID vive fuera del enum, el switch de
+                    // getBlockTexture no la reconocia y devolvia su
+                    // `default: Piedra.png`.
+                    //
+                    // Resultado en pantalla: parches grises macizos tirados
+                    // sobre el pasto, con cuadros verdes incrustados donde
+                    // asomaban las caras del terreno de al lado. Parecia
+                    // terreno roto, pero era la planta dibujada como roca.
+                    //
+                    // Ademas el jugador la atravesaba a medias: chocaba con la
+                    // caja de la bola (que si estaba bien declarada) mientras
+                    // veia un cubo -- de ahi la sensacion de "no colisiona".
+                    //
+                    // Se dibuja con las MISMAS medidas que declara
+                    // nopalHitboxCon(), que es lo que hace que lo que se ve y
+                    // lo que se toca coincidan.
+                    // ================================================
+                    // EL MAGUEY: ROSETA DE PENCAS LANCEOLADAS
+                    // ================================================
+                    // Modelo hecho sobre fotos de agave real.
+                    //
+                    // ⭐ LA DIFERENCIA CLAVE CON EL MODELO ANTERIOR: cada
+                    // penca es un PRISMA ORIENTADO, no una cadena de cajas.
+                    //
+                    // Una caja esta alineada a los ejes del mundo, asi que una
+                    // penca que sale en diagonal se dibujaba ESCALONADA -- una
+                    // escalerita de cubos en vez de una hoja lisa. Con ocho
+                    // vertices colocados en la direccion real de la penca, la
+                    // hoja sale recta y afilada mire donde mire.
+                    //
+                    // Lo que se reproduce de las fotos:
+                    //
+                    //   LA PIÑA. Base compacta y abombada de donde nacen todas
+                    //   las pencas. Es el corazon donde se acumulan los
+                    //   azucares, y donde se abre el cajete al capar.
+                    //
+                    //   PENCAS LANCEOLADAS. Anchas en la base (7 px), se
+                    //   estrechan hasta acabar en punta. Carnosas: 3 px de
+                    //   canto, no laminas planas.
+                    //
+                    //   ESPIRAL AUREA. Cada penca gira 137.5 grados respecto a
+                    //   la anterior, que es el angulo real de las plantas: con
+                    //   el, ninguna hoja tapa a la de abajo y la roseta se ve
+                    //   densa y ordenada.
+                    //
+                    //   LA PUA. Espina dura y oscura rematando cada penca. Es
+                    //   lo que mas resalta en las fotos.
+                    // ⭐ GUARDA CONTRA LA GEOMETRIA FANTASMA
+                    //
+                    // Un compuesto de una familia que todavia no tiene mesher
+                    // no encaja en ninguna rama de abajo y CAERIA AL MESHER
+                    // CUBICO: saldria un cubo con una textura cualquiera.
+                    //
+                    // Eso es justo el "cubo fantasma". No se tapa ni se hace
+                    // transparente: NO SE EMITE NADA. La celda conserva su
+                    // estado (no se borra el bloque: un save de una version
+                    // mas nueva volveria a verse bien al actualizar el juego),
+                    // pero no ensucia la pantalla.
+                    if (Compuesto::esCompuesto(block) &&
+                        !Compuesto::puedeDibujarse(block)) {
+                        continue;   // sin geometria, sin cubo
+                    }
+
                     if (Compuesto::esCompuesto(block) &&
                         Compuesto::familiaDe(block) == Compuesto::FAM_MAGUEY) {
                         namespace M = Compuesto::Maguey;
@@ -12529,24 +14391,485 @@ public:
                         const bool     capado = M::capadoDe(block);
                         const float    esc    = M::escalaDeEtapa(etapa);
 
-                        auto tope1m = [](float v) { return v > 1.0f ? 1.0f : v; };
-                        const float lzm = faceLightFactor(x, y, z, 0, 1, 0);
-                        const float Rm = tope1m(lzm * lightColorR);
-                        const float Gm = tope1m(lzm * lightColorG);
-                        const float Bm = tope1m(lzm * lightColorB);
+                        // ================================================
+                        // ⭐ LA PLANTA PUEDE MEDIR VARIAS CELDAS
+                        // ================================================
+                        // Un maguey de verdad va de retoño a ejemplar de
+                        // varios metros, y eso no cabe en un voxel. La planta
+                        // ocupa CELDAS segun su etapa (1 el brote, 4 el
+                        // productor) y cada celda dibuja SU TROZO.
+                        //
+                        // Aqui NO se dibuja "un maguey pequeño por celda":
+                        // eso se veria como una torre de matas apiladas. Se
+                        // dibuja la planta ENTERA, grande, y cada celda emite
+                        // solo la parte que le cae dentro -- lo que sobra
+                        // hacia arriba lo pone la celda de encima.
+                        //
+                        // Asi la silueta es una sola planta continua aunque
+                        // se esten mallando cuatro bloques por separado.
+                        const int CELDAS = M::celdasDeEtapa(etapa);
+                        const int SEG    = (int)M::segmentoDe(block);
 
-                        // Caja cerrada de seis caras, en el batch de su
-                        // textura. Cerrarlas todas es lo que evita huecos sin
-                        // textura mirando desde abajo o de lado.
-                        auto cajaM = [&](GLuint tex,
-                                         float x0, float y0, float z0,
-                                         float x1, float y1, float z1,
-                                         float br) {
+                        // ====================================================
+                        // ⭐ LA PLANTA ENTERA SE DIBUJA DESDE SU CELDA BASE
+                        // ====================================================
+                        // BUG QUE ESTO CORRIGE: las pencas salian desconectadas
+                        // del cuerpo -- trozos de hoja flotando, huecos entre el
+                        // nucleo y las hojas, y hojas que empezaban en el aire.
+                        //
+                        // LA CAUSA NO ERA EL PUNTO DE NACIMIENTO. Ese ya estaba
+                        // bien: la penca nace a RADIO*0.34 y la piña llega a
+                        // RADIO*0.52, o sea que el arranque cae DENTRO del
+                        // volumen del nucleo en las cinco etapas (comprobado
+                        // etapa por etapa). El problema era otro:
+                        //
+                        // Cada celda dibujaba solo su franja vertical y tiraba
+                        // los quads que se salieran de ella:
+                        //
+                        //     if (hi < -0.02f || lo > 1.02f) continue;
+                        //
+                        // Pero una penca sale hacia ARRIBA y hacia AFUERA, asi
+                        // que cruza la frontera entre celdas EN DIAGONAL. Un
+                        // quad asi se sale por arriba en la celda de abajo y
+                        // por abajo en la de arriba: las DOS lo descartaban y
+                        // no lo dibujaba ninguna.
+                        //
+                        // Medido sobre la geometria real, se perdia:
+                        //     BROTE    (1 celda)   0 %   <- por eso se veia bien
+                        //     JOVEN    (2 celdas) 45 %
+                        //     ADULTO   (3 celdas) 59 %
+                        //     MADURO   (4 celdas) 68 %
+                        //     PRODUCTOR(4 celdas) 67 %
+                        //
+                        // O sea: cuanto mas grande la planta, mas rota. El
+                        // brote se veia perfecto y el productor era un amasijo
+                        // de trozos sueltos -- exactamente el sintoma.
+                        //
+                        // EL ARREGLO. La geometria se emite COMPLETA desde la
+                        // celda de abajo y las de arriba no dibujan nada. Un
+                        // quad no se parte nunca, asi que no hay frontera donde
+                        // perderse y la planta es una sola pieza continua:
+                        // suelo -> piña -> pencas, sin cortes.
+                        //
+                        // Cabe de sobra: la roseta mide como mucho 2.80 de alto
+                        // y 1.12 de radio, y el mesher alcanza todo el chunk.
+                        //
+                        // ⚠️ Las celdas altas SIGUEN existiendo en el mundo: son
+                        // las que dan la colision y las que ocupan el espacio.
+                        // Lo unico que cambia es quien las pinta.
+                        if (SEG != 0) continue;
+
+                        // ⭐ ALTO Y DIAMETRO, DEL MISMO NUMERO.
+                        //
+                        // La descripcion pide que la roseta sea tan ancha como
+                        // alta (1.5-3.0 m las dos cosas). La unica forma de
+                        // garantizarlo es sacar ambas del mismo dato: si se
+                        // calculan por separado, cualquier tope que salte en
+                        // una rompe la proporcion.
+                        //
+                        // Es lo que pasaba: el alto crecia con las celdas
+                        // mientras el radio se quedaba clavado en su maximo,
+                        // y salia un mastil de hojas (proporcion 1.79 cuando
+                        // toca 1.00).
+                        const float ALTO = M::alturaReal(CELDAS);
+
+                        // ⭐ Y A LO ANCHO CRECE IGUAL QUE A LO ALTO.
+                        //
+                        // La descripcion botanica es tajante: la roseta mide
+                        // 1.5-3.0 m de alto y 1.5-3.0 m de DIAMETRO. O sea
+                        // que es tan ancha como alta -- una media esfera.
+                        //
+                        // El modelo tenia el ancho topado en media celda
+                        // mientras subia hasta cuatro bloques: proporcion 4:1
+                        // donde toca 1:1. Por eso se veia como un mastil de
+                        // hojas y no como un maguey.
+                        //
+                        // Ahora el radio sale de las celdas que ocupa, asi que
+                        // diametro y alto van de la mano.
+                        const float RADIO = M::radioDeCeldas(CELDAS);
+
+                        // La geometria se calcula en coordenadas de la PLANTA
+                        // (0 = su suelo) y se baja por el segmento para caer
+                        // en la celda que se esta mallando.
+                        //
+                        // ⭐ Y SE POSA SOBRE EL SUELO QUE TENGA DEBAJO.
+                        //
+                        // El terreno tiene NIVELES PARCIALES: una capa de
+                        // tierra puede medir 3, 4, 5... de 16 px en vez del
+                        // bloque entero. La planta se coloca en la celda de
+                        // ENCIMA de esa capa, asi que si dibujara desde el
+                        // suelo de SU celda quedaria FLOTANDO -- sobre un
+                        // nivel 1 el hueco es de 13 px, casi un bloque
+                        // entero de aire entre la mata y la tierra.
+                        //
+                        // Se resuelve bajando el modelo justo lo que le falta
+                        // al bloque de abajo para ser entero. Asi la planta
+                        // se posa sobre la tierra, no sobre la reja invisible
+                        // de la cuadricula.
+                        //
+                        // Solo la celda BASE se baja: las de arriba van
+                        // pegadas a ella y la siguen solas por el DESP_Y.
+                        float POSADA = 0.0f;
+                        {
+                            const BlockType abajo =
+                                getNeighborBlockCached(x, y, z, 0, -1, 0);
+                            // alturaDe() ya traduce niveles y celdas mixtas.
+                            // Un bloque entero da 1.0 y no baja nada.
+                            if (abajo != BLOCK_AIR) {
+                                const float h = alturaDe(abajo);
+                                if (h > 0.0f && h < 1.0f) POSADA = 1.0f - h;
+                            }
+                        }
+
+                        // ⭐ EL MODELO SE LEVANTA UN POCO DEL SUELO.
+                        //
+                        // La piña arrancaba justo en y = 0, asi que su mitad
+                        // inferior quedaba METIDA en el bloque de abajo: por
+                        // fuera solo asomaba el casquete, y en los retoños
+                        // -- donde la piña mide 2 px -- practicamente no se
+                        // veia el modelo, solo las hojas saliendo del suelo.
+                        //
+                        // Subiendola un pelo, la cupula se ve entera y la
+                        // planta se lee como POSADA sobre la tierra en vez de
+                        // como enterrada en ella.
+                        //
+                        // ⚠️ ESTO ES SOLO VISUAL. DESP_Y lo usa unicamente el
+                        // mesher: la HITBOX la dan cajaDePiezaN y
+                        // nopalHitboxCon, que no miran esta variable. La
+                        // planta se sigue seleccionando y colisionando en su
+                        // celda, y sigue plantada en la tierra/arena.
+                        //
+                        // Es pequeño a proposito (1.5 px de 16). Mas alto
+                        // empezaria a verse FLOTANDO, que es el defecto
+                        // contrario y peor: una planta despegada del suelo.
+                        constexpr float ELEVADO = 1.5f / 16.0f;
+
+                        const float DESP_Y = -(float)SEG - POSADA + ELEVADO;
+
+                        const float lzm = faceLightFactor(x, y, z, 0, 1, 0);
+                        auto tope1 = [](float v) { return v > 1.0f ? 1.0f : v; };
+
+                        const GLuint texHoja = texSegura(BLOCK_IXTLE_HOJA, 0);
+                        const GLuint texPua  = texSegura(BLOCK_MAGUEY_PUNTA, 0);
+
+                        constexpr float PXL = 1.0f / 16.0f;
+                        const float CEN = 0.5f;
+
+                        // ---- LA PENCA: SUPERFICIE BARRIDA SOBRE UNA CURVA ----
+                        //
+                        // ⭐ NO ES UNA CAJA NI UN PRISMA. Es una superficie
+                        // generada recorriendo una CURVA y colocando en cada
+                        // paso una SECCION TRANSVERSAL EN V.
+                        //
+                        // Por que el modelo anterior se veia cubico, medido:
+                        // con escala 1.90 la penca llegaba a 0.44 de largo
+                        // pero 0.61 de ANCHO -- mas ancha que larga. Un
+                        // cuerpo asi es una caja, se le pongan los vertices
+                        // donde se le pongan. Ademas la piña eran literalmente
+                        // tres cajas apiladas en el centro de la silueta.
+                        //
+                        // Aqui la penca se define por:
+                        //
+                        //   P(s) = punto de la curva en s = 0..1
+                        //   w(s) = ancho en ese punto  (lanceolado)
+                        //   g(s) = grosor en ese punto (carnoso, se afila)
+                        //
+                        // y en cada s se emite un anillo de CINCO puntos que
+                        // forman una V abierta -- el canal central del agave:
+                        //
+                        //        0           4        <- bordes altos
+                        //         \         /
+                        //          1     3
+                        //             2             <- fondo del canal
+                        //
+                        // Al unir anillos consecutivos sale una superficie
+                        // acanalada y continua, con volumen real y bordes que
+                        // se estrechan hasta un PICO de verdad (en s = 1 el
+                        // ancho es 0 y los cinco puntos colapsan).
+                        //
+                        // Se emite en QUADS porque el motor dibuja GL_QUADS;
+                        // en el pico el quad degenera a triangulo, que es
+                        // exactamente lo que se quiere.
+                        constexpr int PASOS = 6;   // tramos por penca
+                        constexpr int LADOS = 4;   // quads por anillo (5 pts)
+
+                        auto pencaCurva = [&](GLuint tex,
+                                              float dirX, float dirZ,
+                                              float largo,      // alcance horizontal
+                                              float alto,       // altura que gana
+                                              float caida,      // cuanto se vence al final
+                                              float anchoMax,   // en su parte mas ancha
+                                              float grosor,
+                                              float torsion,    // giro sobre su eje
+                                              float y0,         // donde nace
+                                              float r0,         // a que radio nace
+                                              float br) {
                             if (tex == 0) return;
+
+                            const float lf = tope1(lzm) * br;
+                            const float cr = tope1(lf * lightColorR);
+                            const float cg = tope1(lf * lightColorG);
+                            const float cb = tope1(lf * lightColorB);
+
                             auto& V = verticesByTexture[tex];
                             auto& C = colorsByTexture[tex];
                             auto& U = uvsByTexture[tex];
-                            const float r = Rm * br, g = Gm * br, b = Bm * br;
+
+                            // Perpendicular horizontal: por ahi se ensancha.
+                            const float px = -dirZ, pz = dirX;
+
+                            // Un anillo de la seccion en V, en s.
+                            struct Pt { float x, y, z; };
+                            Pt anillo[2][LADOS + 1];
+                            float uAnt = 0.0f;
+
+                            for (int paso = 0; paso <= PASOS; ++paso) {
+                                const float s = (float)paso / (float)PASOS;
+
+                                // --- LA CURVA ---
+                                // Sube deprisa al principio y se vence al
+                                // final: es el perfil de una hoja de agave.
+                                // sin(s*PI/2) da esa subida que se aplana.
+                                const float subida = sinf(s * 1.5707963f);
+                                const float rad    = r0 + largo * s;
+                                const float cy     = y0 + alto * subida
+                                                   - caida * s * s * s;
+
+                                // --- ANCHO LANCEOLADO ---
+                                // Estrecha en la base, ancha al ~35%, y en
+                                // punta fina al final. sin(s*PI)^0.7 sube
+                                // rapido y baja despacio: la forma de lanza.
+                                float w = anchoMax
+                                        * powf(sinf(s * 3.14159265f), 0.62f);
+                                // Que no nazca de un hilo: la base tiene carne.
+                                if (s < 0.18f) {
+                                    const float k = s / 0.18f;
+                                    const float wb = anchoMax * 0.55f;
+                                    w = wb + (w - wb) * k;
+                                }
+                                if (paso == PASOS) w = 0.0f;   // PICO
+
+                                // --- GROSOR ---
+                                // Carnosa abajo, afilada arriba.
+                                const float g = grosor * (1.0f - 0.85f * s * s);
+
+                                // --- TORSION ---
+                                // La penca gira un poco sobre su eje segun
+                                // avanza. Es lo que hace que dos pencas
+                                // vecinas no se lean como copias.
+                                const float tw = torsion * s;
+                                const float ct = cosf(tw), st = sinf(tw);
+
+                                const float bx = CEN + dirX * rad;
+                                const float bz = CEN + dirZ * rad;
+
+                                const int cur = paso & 1;
+                                for (int i = 0; i <= LADOS; ++i) {
+                                    // q: -1 en un borde, +1 en el otro.
+                                    const float q = (float)i / (float)LADOS
+                                                  * 2.0f - 1.0f;
+                                    // CANAL EN V: los bordes suben y el
+                                    // centro se hunde. q*q hace la parabola.
+                                    const float hondo = (q * q - 0.5f) * g;
+
+                                    // Ancho y hondo, girados por la torsion.
+                                    const float lat = q * w * 0.5f;
+                                    const float lx = lat * ct - hondo * st;
+                                    const float ly = lat * st + hondo * ct;
+
+                                    // DESP_Y baja la geometria al segmento
+                                    // que le toca a esta celda: la planta se
+                                    // piensa entera y cada celda dibuja su
+                                    // franja.
+                                    anillo[cur][i].x = bx + px * lx;
+                                    anillo[cur][i].y = cy + ly + DESP_Y;
+                                    anillo[cur][i].z = bz + pz * lx;
+                                }
+
+                                if (paso == 0) { uAnt = 0.0f; continue; }
+
+                                const int ant = (paso - 1) & 1;
+
+                                // ⭐ LA TEXTURA SE ESTIRA EN LA BASE DE LA
+                                // PENCA.
+                                //
+                                // La V avanzaba con `s` a secas -- reparto
+                                // LINEAL a lo largo de la hoja -- pero la
+                                // penca NO es un rectangulo: es lanceolada,
+                                // asi que abajo mide `anchoMax * 0.55` y en
+                                // su parte mas ancha llega al `anchoMax`
+                                // entero.
+                                //
+                                // Con la V lineal, esa base estrecha recibe la
+                                // misma FRANJA de textura que la parte ancha,
+                                // pero tiene MENOS superficie donde ponerla:
+                                // el dibujo se comprime contra el arranque de
+                                // la hoja y deja ver el hueco entre la penca y
+                                // la piña -- los espacios vacios del modelo.
+                                //
+                                // Se arregla dandole a la base MAS textura de
+                                // la que le tocaria por longitud: se estira
+                                // hacia el arranque para que cubra hasta el
+                                // nacimiento de la hoja.
+                                //
+                                // s^ESTIRADO_BASE con el exponente < 1 empuja
+                                // la V hacia arriba: el primer tramo de la
+                                // hoja se queda con una porcion mayor del
+                                // mapa, que es justo estirar la textura donde
+                                // la penca es estrecha.
+                                constexpr float ESTIRADO_BASE = 0.68f;
+                                const float uAct = powf(s, ESTIRADO_BASE);
+
+                                for (int i = 0; i < LADOS; ++i) {
+                                    // El quad entre dos anillos.
+                                    const Pt& a = anillo[ant][i];
+                                    const Pt& b = anillo[ant][i + 1];
+                                    const Pt& c = anillo[cur][i + 1];
+                                    const Pt& d = anillo[cur][i];
+
+                                    // ⭐ SIN RECORTE POR CELDA.
+                                    //
+                                    // AQUI ESTABA EL HUECO. Este descarte
+                                    // tiraba el quad que cruzaba la frontera de
+                                    // celda en diagonal -- y una penca la cruza
+                                    // siempre, porque sale hacia arriba y hacia
+                                    // afuera a la vez. Ni la celda de abajo ni
+                                    // la de arriba lo dibujaban: hasta el 68 %
+                                    // de la hoja desaparecia en un MADURO.
+                                    //
+                                    // El motivo por el que existia era evitar
+                                    // que las cuatro celdas emitieran la planta
+                                    // entera y salieran cuatro magueyes
+                                    // encajados. Ese problema ya lo resuelve el
+                                    // `if (SEG != 0) continue` de arriba, que
+                                    // deja dibujar SOLO a la celda base -- y lo
+                                    // resuelve sin partir un solo quad.
+
+                                    // U de la textura: a lo ancho de la hoja.
+                                    const float u0 = (float)i / (float)LADOS;
+                                    const float u1 = (float)(i + 1) / (float)LADOS;
+
+                                    // Los bordes un pelin mas oscuros que el
+                                    // centro: da relieve al canal sin luz por
+                                    // pixel.
+                                    const float mid = fabsf((float)i
+                                                    / (float)LADOS - 0.5f);
+                                    const float sh  = 1.0f - 0.14f * (1.0f - mid * 2.0f);
+                                    const float qr = tope1(cr * sh);
+                                    const float qg = tope1(cg * sh);
+                                    const float qb = tope1(cb * sh);
+
+                                    const float PX_[4] = { a.x, b.x, c.x, d.x };
+                                    const float PY_[4] = { a.y, b.y, c.y, d.y };
+                                    const float PZ_[4] = { a.z, b.z, c.z, d.z };
+                                    const float TU[4]  = { u0, u1, u1, u0 };
+                                    const float TV[4]  = { uAnt, uAnt, uAct, uAct };
+
+                                    // Se emite POR LAS DOS CARAS: una hoja es
+                                    // una superficie, no un solido, y sin el
+                                    // reverso desapareceria segun el angulo.
+                                    for (int i2 = 0; i2 < 4; ++i2) {
+                                        V.push_back(wx + PX_[i2]);
+                                        V.push_back(wy + PY_[i2]);
+                                        V.push_back(wz + PZ_[i2]);
+                                        C.push_back(qr); C.push_back(qg);
+                                        C.push_back(qb); C.push_back(1.0f);
+                                        U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                    }
+                                    for (int i2 = 3; i2 >= 0; --i2) {
+                                        V.push_back(wx + PX_[i2]);
+                                        V.push_back(wy + PY_[i2]);
+                                        V.push_back(wz + PZ_[i2]);
+                                        C.push_back(qr * 0.82f);
+                                        C.push_back(qg * 0.82f);
+                                        C.push_back(qb * 0.82f);
+                                        C.push_back(1.0f);
+                                        U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                    }
+                                }
+                                uAnt = uAct;
+                            }
+                        };
+
+                        // ---- LA PUA: CONO DE VERDAD ----
+                        //
+                        // Una piramide de base cuadrada que se afila a un
+                        // punto. No es una caja escalada: los cuatro vertices
+                        // de arriba colapsan en el pico.
+                        auto pua = [&](GLuint tex,
+                                       float bx, float by, float bz,
+                                       float tx, float ty, float tz,
+                                       float radio, float br) {
+                            if (tex == 0) return;
+                            const float lf = tope1(lzm) * br;
+                            const float cr = tope1(lf * lightColorR);
+                            const float cg = tope1(lf * lightColorG);
+                            const float cb = tope1(lf * lightColorB);
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
+
+                            // Base circular de 5 puntos alrededor de (bx,by,bz).
+                            constexpr int N = 5;
+                            float BX[N], BY[N], BZ[N];
+                            // Eje de la pua.
+                            float ex = tx - bx, ey = ty - by, ez = tz - bz;
+                            const float el = sqrtf(ex*ex + ey*ey + ez*ez);
+                            if (el < 1e-5f) return;
+                            ex /= el; ey /= el; ez /= el;
+                            // Dos perpendiculares al eje.
+                            float ux = -ez, uy = 0.0f, uz = ex;
+                            const float ul = sqrtf(ux*ux + uz*uz);
+                            if (ul > 1e-5f) { ux /= ul; uz /= ul; }
+                            else { ux = 1.0f; uz = 0.0f; }
+                            const float vx2 = ey*uz - ez*uy;
+                            const float vy2 = ez*ux - ex*uz;
+                            const float vz2 = ex*uy - ey*ux;
+
+                            for (int i = 0; i < N; ++i) {
+                                const float a = 6.2831853f * (float)i / (float)N;
+                                const float ca = cosf(a) * radio;
+                                const float sa = sinf(a) * radio;
+                                BX[i] = bx + ux*ca + vx2*sa;
+                                BY[i] = by + uy*ca + vy2*sa;
+                                BZ[i] = bz + uz*ca + vz2*sa;
+                            }
+                            for (int i = 0; i < N; ++i) {
+                                const int j = (i + 1) % N;
+                                // Quad degenerado: los dos ultimos puntos son
+                                // el pico. Sale un triangulo.
+                                const float PX_[4] = { BX[i], BX[j], tx, tx };
+                                const float PY_[4] = { BY[i], BY[j], ty, ty };
+                                const float PZ_[4] = { BZ[i], BZ[j], tz, tz };
+                                const float TU[4] = { 0.2f, 0.8f, 0.5f, 0.5f };
+                                const float TV[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+                                for (int k = 0; k < 4; ++k) {
+                                    V.push_back(wx + PX_[k]);
+                                    V.push_back(wy + PY_[k]);
+                                    V.push_back(wz + PZ_[k]);
+                                    C.push_back(cr); C.push_back(cg);
+                                    C.push_back(cb); C.push_back(1.0f);
+                                    U.push_back(TU[k]); U.push_back(TV[k]);
+                                }
+                            }
+                        };
+
+                        // Caja recta, para la piña y el cajete (que si son
+                        // formas alineadas a los ejes).
+                        auto caja = [&](GLuint tex,
+                                        float x0, float y0, float z0,
+                                        float x1, float y1, float z1,
+                                        float br) {
+                            if (tex == 0) return;
+                            if (x1-x0 < 0.002f || y1-y0 < 0.002f || z1-z0 < 0.002f)
+                                return;
+                            const float lf = tope1(lzm) * br;
+                            const float r = tope1(lf * lightColorR);
+                            const float g = tope1(lf * lightColorG);
+                            const float b = tope1(lf * lightColorB);
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
                             const float P[6][4][3] = {
                               {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}},
                               {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}},
@@ -12575,154 +14898,2053 @@ public:
                                 }
                         };
 
-                        // ---- COMPONENTE 1: EL CUERPO ----
-                        // La roseta de hojas. Se dibuja como el ixtle de
-                        // siempre (misma geometria de prismas), pero con la
-                        // escala que le toca por ETAPA: un brote es pequeño y
-                        // un productor, el doble de grande.
-                        const GLuint texHoja = texSegura(BLOCK_IXTLE_HOJA, 0);
-
-                        // Semilla estable por posicion + giro del estado: dos
-                        // magueyes vecinos no se ven calcados, y el mismo
-                        // siempre se dibuja igual.
+                        // Semilla estable: la misma planta se dibuja igual
+                        // siempre, y dos vecinas no salen calcadas.
                         unsigned hm = (unsigned)((int)wx * 73856093)
                                     ^ (unsigned)((int)wy * 19349663)
                                     ^ (unsigned)((int)wz * 83492791)
                                     ^ (unsigned)(giro * 2654435761u);
                         hm ^= hm >> 13; hm *= 1274126177u; hm ^= hm >> 16;
+                        auto dado = [&](unsigned sal) {
+                            unsigned v = hm ^ (sal * 2654435761u);
+                            v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
+                            v *= 3266489917u; v ^= v >> 16;
+                            return v;
+                        };
 
-                        // El cuerpo: un tronco central del que salen las
-                        // hojas. Alto y ancho segun la etapa.
-                        {
-                            const float alto  = 0.30f + 0.55f * esc;
-                            const float medio = 0.10f + 0.06f * esc;
-                            cajaM(texHoja,
-                                  0.5f - medio, 0.0f, 0.5f - medio,
-                                  0.5f + medio, (alto < 1.0f ? alto : 1.0f),
-                                  0.5f + medio, 1.0f);
+                        // ---- TAMAÑO ----
+                        // (CELDAS, SEG, ALTO, RADIO y DESP_Y se calculan mas
+                        // arriba, antes de las lambdas que los usan.)
 
-                            // Las hojas: cuatro tandas alrededor, cada una
-                            // inclinada. Con la escala crecen y se separan.
-                            const int nHojas = 4 + (int)(esc * 2.0f);
-                            for (int h = 0; h < nHojas; ++h) {
-                                const float ang = (float)h / (float)nHojas
-                                                * 6.2831853f
-                                                + (float)giro * 0.4f;
-                                const float rad = 0.14f + 0.13f * esc;
-                                const float hx = 0.5f + cosf(ang) * rad;
-                                const float hz = 0.5f + sinf(ang) * rad;
-                                const float hy = 0.10f + 0.30f * esc;
-                                const float gr = 0.045f + 0.02f * esc;
+                        // ---- LA PIÑA: CUPULA, NO CUBOS ----
+                        //
+                        // ⭐ AQUI ESTABA EL BUG MAS VISIBLE. La piña eran
+                        // TRES CAJAS APILADAS, y estan justo en el centro de
+                        // la silueta: lo primero que ve el ojo. Por muy bien
+                        // que salieran las hojas, el corazon de la planta era
+                        // literalmente un monton de cubos.
+                        //
+                        // Ahora es una cupula de revolucion: anillos de radio
+                        // decreciente segun un cuarto de circulo, unidos en
+                        // quads. Redonda de verdad y desde cualquier angulo.
+                        // ⭐ SOLO EN LA CELDA DE ABAJO. La piña es el corazon
+                        // de la planta y esta a ras de suelo; las celdas de
+                        // arriba solo llevan hojas.
+                        if (SEG == 0) {
+                            // ⚠️ LA PIÑA TIENE QUE SER GORDA.
+                            //
+                            // Era 0.085 + 0.05*esc: entre 0.11 y 0.18 de
+                            // radio, o sea 1.8-2.9 px. Un boton diminuto en
+                            // el centro de una planta de cuatro bloques -- por
+                            // eso las hojas parecian no salir de ningun sitio
+                            // y la mata se veia "no conectada".
+                            //
+                            // La piña de un maguey pulquero es un cuerpo
+                            // macizo del que arrancan TODAS las pencas: es el
+                            // corazon que se cuece para el mezcal. Tiene que
+                            // leerse como tal, y ademas darles a las hojas una
+                            // base ancha de la que nacer.
+                            const float pr = RADIO * 0.52f;
+                            const float ph = M::altoHoja(esc) * 0.30f;
+                            constexpr int ANI  = 4;   // anillos en altura
+                            constexpr int SEGS = 8;   // segmentos alrededor
 
-                                float ax0 = hx - gr, ax1 = hx + gr;
-                                float az0 = hz - gr, az1 = hz + gr;
-                                // Se recorta al voxel: una hoja que se saliera
-                                // se cruzaria con el bloque de al lado.
-                                if (ax0 < 0.0f) ax0 = 0.0f;
-                                if (az0 < 0.0f) az0 = 0.0f;
-                                if (ax1 > 1.0f) ax1 = 1.0f;
-                                if (az1 > 1.0f) az1 = 1.0f;
-                                if (ax1 <= ax0 || az1 <= az0) continue;
+                            for (int k = 0; k < ANI; ++k) {
+                                const float t0 = (float)k / (float)ANI;
+                                const float t1 = (float)(k + 1) / (float)ANI;
+                                // Cuarto de circulo: radio = cos, altura = sin.
+                                // Da el perfil abombado de la piña.
+                                const float r0 = pr * cosf(t0 * 1.5707963f);
+                                const float r1 = pr * cosf(t1 * 1.5707963f);
+                                // POSADA baja la piña hasta el suelo real: si
+                                // debajo hay un nivel parcial, se hunde lo que
+                                // le falta a esa capa para ser bloque entero.
+                                // + ELEVADO: la piña sube lo mismo que las
+                                // hojas (que lo llevan dentro de DESP_Y). Si
+                                // solo subieran las hojas, quedarian
+                                // despegadas del cuerpo del que nacen.
+                                //
+                                // ⭐ Y EL ARRANQUE SE HUNDE EN LA TIERRA.
+                                //
+                                // La piña es una CUPULA: abierta por abajo, sin
+                                // tapa. Con ELEVADO subiendola 1.5 px quedaba un
+                                // hueco entre su borde y el suelo, y desde un
+                                // angulo bajo se veia POR DEBAJO de la planta --
+                                // el hueco entre la mata y el terreno.
+                                //
+                                // Se resuelve arrancando el primer anillo por
+                                // DEBAJO del suelo (SOTERRADO). Como el terreno
+                                // lo tapa, no se ve hundida: se ve plantada. Es
+                                // la pequeña interseccion tecnica que hace falta
+                                // para que no queden gaps.
+                                //
+                                // Solo afecta al anillo de abajo (t0 == 0): el
+                                // resto de la cupula conserva su perfil.
+                                constexpr float SOTERRADO = 2.5f / 16.0f;
+                                const float hundido = (t0 <= 0.0f) ? SOTERRADO : 0.0f;
+                                const float y0 = ph * sinf(t0 * 1.5707963f)
+                                               - POSADA + ELEVADO - hundido;
+                                const float y1 = ph * sinf(t1 * 1.5707963f) - POSADA + ELEVADO;
+                                const float brk = 0.80f + 0.14f * t0;
 
-                                cajaM(texHoja, ax0, 0.02f, az0,
-                                      ax1, (hy < 0.98f ? hy : 0.98f), az1,
-                                      0.90f);
+                                for (int s = 0; s < SEGS; ++s) {
+                                    const float a0 = 6.2831853f * (float)s / (float)SEGS;
+                                    const float a1 = 6.2831853f * (float)(s+1) / (float)SEGS;
+                                    const float c0 = cosf(a0), n0 = sinf(a0);
+                                    const float c1 = cosf(a1), n1 = sinf(a1);
+
+                                    const float PX_[4] = {
+                                        CEN + c0*r0, CEN + c1*r0,
+                                        CEN + c1*r1, CEN + c0*r1 };
+                                    const float PY_[4] = { y0, y0, y1, y1 };
+                                    const float PZ_[4] = {
+                                        CEN + n0*r0, CEN + n1*r0,
+                                        CEN + n1*r1, CEN + n0*r1 };
+
+                                    const float lf = tope1(lzm) * brk;
+                                    const float qr = tope1(lf * lightColorR);
+                                    const float qg = tope1(lf * lightColorG);
+                                    const float qb = tope1(lf * lightColorB);
+                                    auto& V = verticesByTexture[texHoja];
+                                    auto& C = colorsByTexture[texHoja];
+                                    auto& U = uvsByTexture[texHoja];
+                                    if (texHoja == 0) break;
+                                    const float TU[4] = {
+                                        (float)s/(float)SEGS, (float)(s+1)/(float)SEGS,
+                                        (float)(s+1)/(float)SEGS, (float)s/(float)SEGS };
+                                    const float TV[4] = { t0, t0, t1, t1 };
+                                    for (int i2 = 0; i2 < 4; ++i2) {
+                                        V.push_back(wx + PX_[i2]);
+                                        V.push_back(wy + PY_[i2]);
+                                        V.push_back(wz + PZ_[i2]);
+                                        C.push_back(qr); C.push_back(qg);
+                                        C.push_back(qb); C.push_back(1.0f);
+                                        U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                    }
+                                }
                             }
                         }
 
-                        // ---- COMPONENTE 2: LAS PUNTAS ----
-                        // NO son un bloque por combinacion ni una entidad por
-                        // espina: es un CONTADOR en el estado, y aqui se
-                        // reparten alrededor de la planta con el hash de la
-                        // posicion. Asi 0..7 puntas salen de un solo ID.
-                        if (nPunt > 0) {
-                            const GLuint texPta = texSegura(BLOCK_MAGUEY_PUNTA, 0);
-                            for (uint16_t p = 0; p < nPunt; ++p) {
-                                unsigned v = hm ^ (p * 2246822519u);
-                                v ^= v >> 15; v *= 3266489917u; v ^= v >> 13;
+                        // ---- LAS PENCAS ----
+                        //
+                        // En espiral aurea: cada una gira 137.5 grados sobre
+                        // la anterior, que es el angulo real de las plantas.
+                        // Con el, ninguna hoja tapa a la de abajo.
+                        //
+                        // ⚠️ LA PROPORCION ES LO QUE HACE QUE PAREZCA UNA
+                        // PLANTA Y NO UNA CAJA.
+                        //
+                        // El modelo anterior fallaba aqui, y se puede medir:
+                        // con escala 1.90 la penca alcanzaba 0.44 de largo
+                        // pero 0.61 de ANCHO. Una hoja mas ancha que larga es
+                        // una caja, da igual como se emitan sus vertices.
+                        //
+                        // Regla nueva: el ancho es una FRACCION del recorrido
+                        // real de la penca, nunca un valor suelto. Asi la
+                        // esbeltez esta garantizada por construccion y no
+                        // depende de acertar constantes a mano.
+                        // ⚠️ EL NUMERO DE HOJAS DECIDE SI SE VE LA LUZ.
+                        //
+                        // Se pidio expresamente que quedara hueco entre las
+                        // pencas, y eso se puede medir: sumando el angulo que
+                        // tapa cada hoja a su altura media. Con 12..18 hojas
+                        // esa suma daba 10.15 radianes contra los 6.28 del
+                        // circulo -- se solapaban vez y media y la roseta se
+                        // cerraba en un bulto macizo. Repartiendolas entre
+                        // las celdas de la planta se abre: se ve el fondo
+                        // entre hoja y hoja, que es lo que la hace leerse
+                        // como vegetacion y no como un volumen solido.
+                        //
+                        // ⭐ MAS PENCAS CUANTO MAS GRANDE.
+                        //
+                        // Sale de la etapa, no de la escala: es un dato de
+                        // diseño de la planta (7 en el brote, 26 en el
+                        // productor) y vive junto al resto de sus medidas.
+                        //
+                        // Como la planta ahora es ALTA, esas pencas se
+                        // reparten en varias celdas: no se amontonan todas en
+                        // el mismo bloque, asi que la roseta sigue dejando
+                        // pasar la luz aunque tenga muchas mas.
+                        const int NPENCAS = M::pencasDeEtapa(etapa);
+                        constexpr float ANG_ORO = 2.39996f;   // 137.5 grados
 
-                                // Repartidas en circulo, con una variacion
-                                // por punta para que no queden en rejilla.
-                                const float ang = (float)p / (float)nPunt
-                                                * 6.2831853f
-                                                + (float)(v % 100u) * 0.004f;
-                                const float rad = 0.16f + 0.12f * esc;
-                                const float px = 0.5f + cosf(ang) * rad;
-                                const float pz = 0.5f + sinf(ang) * rad;
+                        for (int p = 0; p < NPENCAS; ++p) {
+                            const unsigned d = dado((unsigned)p);
 
-                                // Alto y grosor propios: unas asoman mas que
-                                // otras, como en una planta de verdad.
-                                const float alt = (0.22f + 0.30f * esc)
-                                                * (0.7f + (float)(v % 7u) * 0.06f);
-                                const float gr  = 0.035f + 0.015f * esc;
+                            const float ang = (float)giro * 1.5707963f
+                                            + ANG_ORO * (float)p;
+                            const float dx = cosf(ang), dz = sinf(ang);
 
-                                // Base de la punta: donde arranca sobre el
-                                // cuerpo.
-                                const float y0 = 0.10f + 0.22f * esc;
-                                float y1 = y0 + alt;
-                                if (y1 > 1.0f) y1 = 1.0f;
-                                if (y1 <= y0) continue;
+                            // t = 0 la mas interior (vertical, joven), 1 la
+                            // mas exterior (tumbada, vieja).
+                            const float t = (float)p / (float)(NPENCAS - 1);
 
-                                float qx0 = px - gr, qx1 = px + gr;
-                                float qz0 = pz - gr, qz1 = pz + gr;
-                                if (qx0 < 0.0f) qx0 = 0.0f;
-                                if (qz0 < 0.0f) qz0 = 0.0f;
-                                if (qx1 > 1.0f) qx1 = 1.0f;
-                                if (qz1 > 1.0f) qz1 = 1.0f;
-                                if (qx1 <= qx0 || qz1 <= qz0) continue;
+                            // Variacion por hoja: ni dos iguales, pero todas
+                            // deterministas -- la misma planta se redibuja
+                            // igual siempre.
+                            const float var  = 0.86f + (float)(d % 28u) * 0.01f;
+                            const float var2 = 0.90f + (float)((d>>8) % 20u) * 0.01f;
 
-                                // Dos escalones: gruesa abajo, fina arriba.
-                                const float ym = (y0 + y1) * 0.5f;
-                                cajaM(texPta, qx0, y0, qz0, qx1, ym, qz1, 1.0f);
-                                const float f = 0.5f;
-                                cajaM(texPta,
-                                      px - gr*f, ym, pz - gr*f,
-                                      px + gr*f, y1, pz + gr*f, 0.95f);
+                            // ⭐ REALISMO: NO TODAS LAS HOJAS TIENEN LA MISMA
+                            // EDAD.
+                            //
+                            // Un agave de verdad no es un abanico regular: en
+                            // la misma mata conviven hojas nuevas -- cortas y
+                            // erguidas, apretadas en el cogollo -- con hojas
+                            // viejas largas y vencidas, y alguna reseca.
+                            //
+                            // Sin esto, la roseta sale de una regularidad de
+                            // molde: todas las hojas separadas el mismo
+                            // angulo, con el mismo largo por posicion. Se lee
+                            // como geometria, no como planta.
+                            //
+                            // Una de cada cinco es VIEJA: se alarga, se
+                            // tumba mas y pierde color.
+                            const bool vieja = ((d >> 20) % 5u) == 0u;
+                            // Y una de cada nueve se quedo pequeña, como si
+                            // hubiera brotado tarde.
+                            const bool tardia = ((d >> 24) % 9u) == 0u;
+
+                            // --- RECORRIDO DE LA PENCA ---
+                            // Las de dentro suben mucho y se abren poco; las
+                            // de fuera se abren mucho y suben poco.
+                            // ⚠️ LAS HOJAS NO LLEGAN AL TECHO DE LA PLANTA.
+                            //
+                            // Era `ALTO * 0.94` para la mas interior, o sea
+                            // que una hoja subia 3.5 de los 3.72 que mide un
+                            // maduro. Con el ancho topado eso da un 10:1, y
+                            // ademas amontona todas las puas en la punta.
+                            //
+                            // Un agave es una ROSETA: las hojas salen en
+                            // abanico desde la piña, no en columna. La altura
+                            // de la planta es la que alcanza la hoja mas
+                            // erguida al INCLINARSE, no un mastil.
+                            //
+                            // Bajando el reparto a 0.80..0.30 la roseta se
+                            // abre y las proporciones caen al 4-6:1 real.
+                            // El reparto de la roseta: las de dentro suben
+                            // casi rectas, las de fuera se abren. Ninguna se
+                            // tumba del todo -- una penca de agave se arquea,
+                            // no se echa al suelo -- asi que la de fuera
+                            // conserva un tercio de su altura.
+                            // Donde nace la hoja, medido desde el centro:
+                            // pegada a la piña.
+                            //
+                            // ⚠️ NACE DENTRO DE LA PIÑA, NO FUERA DE ELLA.
+                            //
+                            // La piña tiene radio RADIO*0.52. Si la hoja
+                            // arranca mas afuera, queda un anillo de aire
+                            // entre el cuerpo y las hojas: la planta se ve
+                            // desmembrada. Arrancando por dentro del bulbo, la
+                            // union queda tapada y las hojas SALEN de el.
+                            //
+                            // M::ARRANQUE es el MISMO numero con el que
+                            // radioDeCeldas() reparte el techo entre el
+                            // arranque y el recorrido de la hoja. Si los dos
+                            // se separan, el radio deja de caber y vuelven a
+                            // faltar pencas: por eso se lee de alli en vez de
+                            // repetir el 0.34 a mano.
+                            const float r0 = RADIO * M::ARRANQUE;
+
+                            // ⚠️ `largo` ES EL RECORRIDO DESDE r0, NO EL
+                            // ALCANCE DESDE EL CENTRO.
+                            //
+                            // Aqui estaba el doble conteo que dejaba las
+                            // rosetas grandes sin pencas exteriores. La
+                            // formula daba el ALCANCE total desde el eje de
+                            // la planta, pero la geometria lo usa como la
+                            // longitud A PARTIR de donde nace la hoja:
+                            //
+                            //     rad = r0 + largo * s        (en pencaCurva)
+                            //
+                            // asi que r0 se sumaba DOS VECES. En un MADURO
+                            // eso son 0.476 de mas -- un tercio del radio
+                            // entero -- y por eso el acotado al voxel tenia
+                            // que recortar 13 de 21 pencas: no es que no
+                            // cupieran, es que se pedia mas sitio del que la
+                            // hoja necesita de verdad.
+                            //
+                            // Restando r0, `largo` pasa a ser lo que dice
+                            // ser, y el alcance final (r0 + largo) vuelve a
+                            // cuadrar con el RADIO que toca por etapa.
+                            float largo = RADIO * (M::ARRANQUE
+                                                 + t * (1.0f - M::ARRANQUE))
+                                        * var - r0;
+                            if (largo < 0.02f) largo = 0.02f;   // nunca nula
+                            float alto  = ALTO  * (0.86f - t * 0.42f) * var2;
+
+                            // Las viejas se alargan y se vencen; las tardias
+                            // se quedan cortas y erguidas.
+                            if (vieja)  { largo *= 1.12f; alto *= 0.80f; }
+                            if (tardia) { largo *= 0.62f; alto *= 0.72f; }
+
+                            // ⭐ EL RETOÑO NO ES UN ADULTO EN MINIATURA.
+                            //
+                            // Los manuales de agave lo describen igual: la
+                            // fase juvenil es "una roseta compacta de hojas
+                            // CORTAS Y GRUESAS", y la adulta "una roseta
+                            // abierta de hojas alargadas". No es la misma
+                            // planta a otra escala: cambia la FORMA.
+                            //
+                            // El modelo anterior solo encogia al adulto, y por
+                            // eso el brote salia como un manojo de pelillos
+                            // verticales de 1 px -- se perdia contra el pasto.
+                            //
+                            // Un retoño de verdad se ve como una piñita
+                            // achaparrada: hojas cortas, anchas para lo que
+                            // miden, y ABIERTAS hacia los lados en vez de
+                            // apuntando al cielo.
+                            // ⚠️ Sin pasarse: si se achata demasiado deja de
+                            // ser una hoja y se lee como un boton. Se busca
+                            // que quede CHAPARRO, no aplastado.
+                            if (etapa == M::BROTE) {
+                                largo *= 1.30f;   // se abre a los lados
+                                alto  *= 0.80f;   // y levanta poco
+                            } else if (etapa == M::JOVEN) {
+                                largo *= 1.15f;
+                                alto  *= 0.90f;
+                            }
+
+                            // Las de fuera se vencen por su propio peso.
+                            //
+                            // ⚠️ ACOTADA AL SUELO. La caida se resta de la
+                            // altura, y si supera a donde nace la hoja, la
+                            // punta se HUNDE BAJO EL BLOQUE: se veria salir
+                            // del terreno por debajo. Pasaba en el brote, con
+                            // caida 0.20*ALTO contra un nacimiento a
+                            // 0.10*ALTO.
+                            //
+                            // El tope deja siempre un dedo de margen sobre el
+                            // suelo de la celda.
+                            // ⚠️ NACE EN LA PIÑA, NO A UN DECIMO DE LA PLANTA.
+                            //
+                            // Era `ALTO * 0.10`, y ALTO es la altura de la
+                            // planta ENTERA. En un maguey de cuatro celdas eso
+                            // son 0.37: las hojas arrancaban a mas de un
+                            // tercio de bloque por encima de la piña, o sea
+                            // DESPEGADAS del cuerpo. Es parte de lo que se
+                            // veia como "no conectado".
+                            //
+                            // Las hojas salen de la piña, que esta a ras de
+                            // suelo, asi que su arranque depende de la piña,
+                            // no de lo alta que llegue a ser la planta.
+                            const float y0 = M::altoHoja(esc) * 0.08f;
+                            float caida = ALTO * t * t * 0.20f;
+                            if (caida > y0 * 0.80f) caida = y0 * 0.80f;
+
+                            // Donde nace, medido desde el centro: pegada a la
+                            // piña. Hace falta ya aqui porque el acotado al
+                            // voxel (mas abajo) lo descuenta del sitio
+                            // disponible.
+                            // ⚠️ NACE DENTRO DE LA PIÑA, NO FUERA DE ELLA.
+                            //
+                            // (r0 se declara ARRIBA, antes de `largo`: este lo
+                            // descuenta para no contar dos veces el radio de
+                            // nacimiento. Ver la nota alli.)
+
+                            // Recorrido total, para sacar de ahi el ancho.
+                            const float recorrido = sqrtf(largo*largo + alto*alto);
+
+                            // --- ANCHO: SIEMPRE ESBELTA ---
+                            // Como mucho, un cuarto de lo que mide de largo.
+                            // Un agave real anda por 1:6; aqui se deja algo
+                            // mas ancha porque a esta escala una hoja de 1:6
+                            // se veria como un hilo.
+                            // ⚠️⚠️ AQUI ESTABA EL BUG DE "MUY DELGADO".
+                            //
+                            // El ancho salia de `recorrido * 0.26`, o sea: se
+                            // deducia de LO LARGA que era la hoja. Suena
+                            // razonable y es justo lo que rompe el modelo,
+                            // porque desde que la planta es ALTA el recorrido
+                            // se dispara mientras el ancho topa en 0.15.
+                            //
+                            // Medido en el modelo anterior:
+                            //
+                            //   hoja interior de un MADURO -> 3.50 de alto
+                            //   por 0.0825 de ancho = ratio 42:1
+                            //
+                            // Un agave real (Agave salmiana, el pulquero) mide
+                            // 100-200 cm de largo por 25-36 cm de ancho: ratio
+                            // 4:1 a 6:1. O sea que el modelo era SIETE VECES
+                            // mas estrecho de lo que debe. A eso se le suma un
+                            // grosor de 0.22-1.08 px -- menos de un pixel de
+                            // textura -- y el resultado es lo que se veia:
+                            // hilos que desaparecen segun el angulo.
+                            //
+                            // LA REGLA NUEVA: el ancho sale del TAMAÑO DE LA
+                            // PLANTA (su radio de roseta), no de lo larga que
+                            // sea la hoja. Asi una mata grande tiene hojas
+                            // anchas aunque sean largas, que es como funciona
+                            // de verdad.
+                            // ⭐ EL ANCHO DE LA PENCA, DE LA DESCRIPCION:
+                            //
+                            //   "de 1 a 2 m de largo y de 15 a 25 cm de
+                            //    ancho, siendo muy gruesas y carnosas"
+                            //
+                            // A escala 1 bloque = 1 metro eso es 0.15-0.25 de
+                            // bloque, o sea 2.4 a 4.0 px de textura. Se
+                            // reparte con el tamaño de la mata: un retoño se
+                            // queda en el minimo y un ejemplar viejo llega al
+                            // maximo.
+                            constexpr float ANCHO_REAL_MIN = 0.15f;
+                            constexpr float ANCHO_REAL_MAX = 0.25f;
+                            const float fracEtapa = (float)(CELDAS - 1) / 3.0f;
+                            float anchoMax = ANCHO_REAL_MIN
+                                           + (ANCHO_REAL_MAX - ANCHO_REAL_MIN)
+                                           * fracEtapa;
+
+                            // Y no mas ancha que un cuarto de lo que mide:
+                            // el ratio real de la penca es 4:1 a 13:1, asi que
+                            // 4:1 es el limite rechoncho.
+                            const float ANCHO_MAX_RATIO = recorrido * 0.25f;
+                            if (anchoMax > ANCHO_MAX_RATIO) anchoMax = ANCHO_MAX_RATIO;
+
+                            // Suelo duro: por debajo de 2.4 px (los 15 cm
+                            // reales) la hoja se pierde contra el fondo. Es lo
+                            // que hacia desaparecer los retoños.
+                            constexpr float ANCHO_MINIMO = 2.4f / 16.0f;
+                            if (anchoMax < ANCHO_MINIMO) anchoMax = ANCHO_MINIMO;
+
+                            // ⚠️ LAS DE DENTRO, ALGO MAS ESTRECHAS.
+                            //
+                            // Una hoja interior es CORTA, y una hoja corta
+                            // tapa mucho angulo aunque sea estrecha: esta
+                            // cerca del centro, donde el circulo es pequeño.
+                            // Sin afinarlas, la roseta se cierra en un bulto.
+                            //
+                            // Pero MUCHO menos que antes (0.80 en vez de
+                            // 0.55): afinarlas tanto era parte de por que el
+                            // cogollo se veia como un manojo de hilos.
+                            anchoMax *= 0.80f + 0.20f * t;
+
+                            // --- GROSOR: CARNOSA, NO PLANA ---
+                            // Un tercio del ancho: es lo que da el canal en V
+                            // sin que la hoja se lea como un tronco.
+                            //
+                            // ⭐ Y ENGORDA CON LA EDAD. Es la parte de
+                            // "que el ancho y el grosor se multipliquen" que
+                            // SI se puede cumplir: a lo ancho la roseta topa
+                            // en su celda, pero cada hoja puede ser mas
+                            // carnosa sin invadir a nadie.
+                            //
+                            // ⚠️ CON TOPE. Si el grosor pasa de la mitad del
+                            // ancho, la hoja deja de leerse como hoja y pasa
+                            // a verse como un PALO -- que es volver al
+                            // problema de los cubos por otra puerta.
+                            //
+                            // Con engrosado 1.75 la cuenta daba 0.595 del
+                            // ancho: por encima del limite. Se topa en 0.45,
+                            // que es carnoso de verdad pero todavia plano.
+                            const float gordo = M::engrosado(etapa);
+                            float grosor = anchoMax * 0.34f * gordo;
+                            const float TOPE_GROSOR = anchoMax * 0.45f;
+                            if (grosor > TOPE_GROSOR) grosor = TOPE_GROSOR;
+
+                            // ⚠️ SUELO DURO: 1.5 px DE CANTO COMO MINIMO.
+                            //
+                            // El modelo anterior daba grosores de 0.22 a 1.08
+                            // px. Una hoja de menos de un pixel de canto NO
+                            // SE VE de perfil: desaparece al girar la camara,
+                            // y eso es exactamente lo que se veia en los
+                            // retoños -- "solo desaparecen su textura".
+                            //
+                            // Un agave es una planta SUCULENTA: sus hojas son
+                            // gruesas y carnosas, no laminas. El minimo tiene
+                            // que garantizar que siempre haya canto visible.
+                            // ⚠️ EL ORDEN IMPORTA: primero el tope relativo,
+                            // DESPUES el suelo absoluto.
+                            //
+                            // Al reves, el tope volvia a bajar el canto por
+                            // debajo del minimo en las hojas mas estrechas
+                            // (el brote se quedaba en 0.96 px) y volvia a
+                            // desaparecer de perfil, que es justo lo que este
+                            // minimo existe para impedir.
+                            //
+                            // Con este orden el suelo SIEMPRE gana: mas vale
+                            // una hoja un pelo gorda que una invisible.
+                            if (grosor > anchoMax * 0.5f) grosor = anchoMax * 0.5f;
+                            constexpr float GROSOR_MINIMO = 1.5f / 16.0f;
+                            if (grosor < GROSOR_MINIMO) grosor = GROSOR_MINIMO;
+
+                            // ================================================
+                            // ⚠️ EL ACOTADO AL VOXEL, POR CONSTRUCCION
+                            // ================================================
+                            // "El maguey ocupa UNA SOLA CELDA" es la regla
+                            // firme, y no basta con topar RADIO y ALTO: esos
+                            // topan la LINEA CENTRAL de la hoja, pero encima
+                            // se suman el medio ancho (la hoja asoma de lado)
+                            // y la variacion por planta (var, hasta 1.13).
+                            //
+                            // Medido: con solo los topes de antes, una penca
+                            // de un adulto llegaba a 0.65 desde el centro
+                            // (limite 0.5) y la cima a 1.17 (limite 1.0). O
+                            // sea, se metia en la celda del vecino -- que es
+                            // justo el "bloque raro al lado del maguey" que
+                            // se lleva persiguiendo varias iteraciones.
+                            //
+                            // Aqui se le da la vuelta: en vez de confiar en
+                            // que los numeros salgan, se calcula lo que la
+                            // hoja NECESITA y se recorta a lo que HAY. Asi la
+                            // garantia no depende de acertar constantes.
+                            {
+                                // Margen para no rozar la cara del bloque.
+                                constexpr float BORDE = 0.02f;
+
+                                // ⭐ A LO ANCHO: HASTA EL RADIO REAL DE LA
+                                // ROSETA, que puede pasar de la celda.
+                                //
+                                // Antes el tope era 0.5 -- media celda -- y
+                                // eso es lo que aplastaba la planta contra su
+                                // columna. La descripcion pide un diametro
+                                // igual al alto, o sea 1.5-3 bloques, que no
+                                // cabe en una celda por definicion.
+                                //
+                                // Asomar es correcto y no rompe nada: el
+                                // recorte del dibujado es por CHUNK (16
+                                // bloques), no por celda. Lo unico que tiene
+                                // que quedarse dentro es la COLISION, y esa
+                                // la da la piña, no las hojas -- se atraviesan
+                                // como la hierba alta.
+                                // ⭐⭐ LA PENCA SE ADAPTA AL TAMAÑO, NO SE
+                                // TRUNCA.
+                                //
+                                // ⚠️ AQUI FALTABAN PENCAS EN LAS MATAS
+                                // GRANDES. Medido, con el recorte anterior:
+                                //
+                                //   ADULTO ......  3 de 16 pencas recortadas
+                                //   MADURO ...... 13 de 21
+                                //   PRODUCTOR ... 16 de 26   (el 62%)
+                                //
+                                // El motivo: `dispoR` se mide contra
+                                // radioMaximoReal() (1.40), que es el tope de
+                                // la planta MAS GRANDE. Pero en un MADURO
+                                // RADIO ya vale 1.40, asi que r0 (0.476) y el
+                                // medio ancho se comen el presupuesto y solo
+                                // quedan 0.78 de los 1.40 que la hoja pide.
+                                //
+                                // Y como el recorte era un TOPE DURO
+                                // (largo = dispoR), todas las pencas de fuera
+                                // se quedaban clavadas en el MISMO alcance
+                                // (~1.26): la roseta perdia su abanico
+                                // exterior y se veia truncada, con las hojas
+                                // largas cortadas de golpe a media longitud.
+                                //
+                                // LA REGLA NUEVA: si la penca no cabe, se
+                                // ESCALA ENTERA -- largo Y alto en la misma
+                                // proporcion -- en vez de cortarle el largo.
+                                // Asi conserva su forma y su direccion, la
+                                // roseta mantiene el abanico completo, y
+                                // ninguna hoja desaparece ni se queda a medias.
+                                //
+                                // Es la diferencia entre "recortar la hoja" y
+                                // "dibujar la hoja mas pequeña": lo segundo es
+                                // lo que hace una planta de verdad cuando
+                                // crece en un sitio justo.
+                                // ⚠️ LA PENCA NACE EN r0 Y LLEGA A r0+largo.
+                                //
+                                // Lo que tiene que caber en el tope es esa
+                                // SUMA, no `largo` a secas. Comparar solo el
+                                // largo contra un presupuesto al que ya se le
+                                // habia restado r0 descontaba el arranque dos
+                                // veces, y dejaba el limite mas corto de lo
+                                // que la planta da de si.
+                                //
+                                // ⭐⭐ Y EL TOPE CRECE CON LA MATA.
+                                //
+                                // Medido, el alcance que PIDE la penca de
+                                // fuera de cada etapa:
+                                //
+                                //   BROTE 0.37 | JOVEN 0.87 | ADULTO 1.41
+                                //   MADURO 1.88 | PRODUCTOR 1.88
+                                //
+                                // ...contra un tope FIJO de 1.40. O sea que a
+                                // partir del ADULTO la planta se define mas
+                                // grande que su propio limite, y de ahi que
+                                // faltaran pencas justo en las matas grandes
+                                // (16 de 26 en un PRODUCTOR) y en ninguna
+                                // pequeña.
+                                //
+                                // El tope sale ahora del RADIO de ESTA planta,
+                                // que es de donde sale su geometria, mas el
+                                // arranque en la piña. Asi cada etapa tiene el
+                                // sitio que su propio modelo necesita y la
+                                // roseta sale COMPLETA en todos los tamaños.
+                                //
+                                // Se conserva radioMaximoReal() como techo
+                                // duro de seguridad: es lo que impide que una
+                                // hoja cruce el borde del CHUNK, donde el
+                                // recorte del dibujado si corta.
+                                const float alcancePide = r0 + RADIO;
+                                const float techoDuro   = M::radioMaximoReal();
+                                const float alcanceMax  =
+                                    ((alcancePide < techoDuro) ? alcancePide
+                                                               : techoDuro)
+                                    - BORDE - anchoMax * 0.5f;
+                                const float dispoR = alcanceMax - r0;
+                                if (largo > dispoR && largo > 0.0001f) {
+                                    // Factor <1 que hace que la penca quepa.
+                                    const float k = (dispoR > 0.0f)
+                                                  ? (dispoR / largo) : 0.0f;
+                                    largo *= k;
+                                    // El alto sigue al largo: la penca se
+                                    // encoge, no se aplasta. Sin esto la hoja
+                                    // se quedaria igual de alta pero mas
+                                    // corta, o sea MAS VERTICAL que sus
+                                    // vecinas -- se romperia el abanico.
+                                    alto  *= k;
+                                    // Y la caida, que se mide sobre el alto.
+                                    caida *= k;
+                                }
+
+                                // A lo ALTO: hasta el techo de la PLANTA, que
+                                // son sus celdas. Una mata de cuatro celdas
+                                // puede levantar cuatro bloques; lo que no
+                                // puede es pasarse de ahi.
+                                const float techo = (float)CELDAS - BORDE;
+                                const float dispoY = techo - y0 - grosor;
+                                if (alto > dispoY) alto = dispoY > 0.0f
+                                                        ? dispoY : 0.0f;
+                            }
+
+                            // Torsion: cada hoja gira un poco sobre su eje.
+                            const float torsion = ((float)((d>>16) % 21u) - 10.0f)
+                                                * 0.022f;
+
+
+                            // Las de fuera, mas oscuras: profundidad sin luz
+                            // por pixel.
+                            float br = 1.0f - 0.18f * t;
+
+                            // ⭐ REALISMO: EL TONO NO ES PLANO.
+                            //
+                            // Un agave no es de un solo verde. El cogollo
+                            // nuevo sale claro, las hojas expuestas se
+                            // decoloran con el sol y las viejas tiran a
+                            // pajizo. Ademas cada hoja lleva una capa cerosa
+                            // que le da un velo azulado y desigual.
+                            //
+                            // Con un tono unico la mata se ve de plastico:
+                            // es lo que mas delata a una planta hecha por
+                            // ordenador. Basta con romper la uniformidad.
+                            br *= 0.90f + (float)((d >> 12) % 21u) * 0.01f;
+                            // Las viejas, mas apagadas y resecas.
+                            if (vieja) br *= 0.82f;
+                            // Las nuevas del centro, un punto mas claras.
+                            if (t < 0.25f) br *= 1.06f;
+
+                            pencaCurva(texHoja, dx, dz,
+                                       largo, alto, caida,
+                                       anchoMax, grosor, torsion,
+                                       y0, r0, br);
+
+                            // ---- LA PUA ----
+                            //
+                            // Espina dura rematando la penca, siguiendo su
+                            // direccion. Solo la llevan las que le quedan a la
+                            // planta: nPunt sale del ESTADO, asi que
+                            // arrancarlas se ve.
+                            // ⭐⭐ AQUI ESTABAN LAS "ESPINAS VOLANDO ARRIBA".
+                            //
+                            // Era `p < nPunt`: las espinas iban a las
+                            // PRIMERAS pencas. Y las primeras son las
+                            // INTERIORES, que son las que mas suben -- en un
+                            // maduro rematan a 2.95-3.57 de altura, todas
+                            // amontonadas en la punta de la planta.
+                            //
+                            // Como esas hojas ademas eran hilos de 1 px que
+                            // apenas se veian, el resultado en pantalla era
+                            // justo lo descrito: un puñado de espinas sueltas
+                            // flotando arriba, sin planta visible que las
+                            // sujete.
+                            //
+                            // En un agave real TODA hoja acaba en pua. Lo que
+                            // cuenta nPunt es cuantas le QUEDAN sin arrancar,
+                            // asi que se reparten por la roseta entera en vez
+                            // de amontonarse en las de dentro: se quitan
+                            // empezando por fuera, que son las que el jugador
+                            // alcanza.
+                            bool llevaPua = false;
+                            if (nPunt > 0) {
+                                const int tope = M::puntasDeEtapa(etapa);
+                                if (tope <= 0 || nPunt >= (uint16_t)tope) {
+                                    // Intacta: todas las hojas con su pua.
+                                    llevaPua = true;
+                                } else {
+                                    // Le arrancaron algunas. Se pierden las de
+                                    // FUERA (las que se alcanzan de pie), y
+                                    // las de dentro conservan la suya.
+                                    const float frac = (float)nPunt / (float)tope;
+                                    llevaPua = (t <= frac);
+                                }
+                            }
+                            if (llevaPua) {
+                                // El pico de la hoja, con la misma curva que
+                                // usa pencaCurva en s = 1.
+                                //
+                                // DESP_Y lleva dentro el segmento Y la posada
+                                // sobre el nivel de abajo: sin el, la espina
+                                // se quedaria flotando donde estaba la hoja
+                                // antes de bajarla.
+                                const float ex = CEN + dx * (r0 + largo);
+                                const float ey = y0 + alto - caida + DESP_Y;
+                                const float ez = CEN + dz * (r0 + largo);
+                                const float alt = (0.045f + 0.05f * esc) * var;
+
+                                // Sigue la tangente de la hoja: hacia fuera y
+                                // un poco hacia abajo si la hoja se vencia.
+                                const float ty = alt * (0.55f - t * 0.65f);
+                                pua(texPua,
+                                    ex, ey, ez,
+                                    ex + dx * alt * 0.85f,
+                                    ey + ty,
+                                    ez + dz * alt * 0.85f,
+                                    grosor * 0.55f, 1.0f);
+
+                                // ---- LOS DIENTES DEL BORDE ----
+                                //
+                                // ⭐ LO QUE MAS DELATA A UN AGAVE DE CERCA.
+                                //
+                                // El borde de la penca no es liso: lleva una
+                                // fila de dientes ganchudos, y es de las
+                                // primeras cosas que se reconocen al mirar la
+                                // planta. Sin ellos la hoja parece una hoja
+                                // cualquiera, no un maguey.
+                                //
+                                // Van solo en las plantas HECHAS (adulto para
+                                // arriba) y en las hojas de fuera: en un
+                                // brote no se aprecian, y ponerlos en todas
+                                // multiplicaria los triangulos sin que se
+                                // noten.
+                                if (etapa >= M::ADULTO && t > 0.35f) {
+                                    // Perpendicular a la hoja: por ahi salen.
+                                    const float mx = -dz, mz = dx;
+                                    // Dos o tres dientes por borde, segun el
+                                    // tamaño de la planta.
+                                    const int nD = (etapa >= M::MADURO) ? 3 : 2;
+
+                                    for (int k = 0; k < nD; ++k) {
+                                        // Repartidos por la mitad exterior de
+                                        // la hoja, que es donde estan de
+                                        // verdad (cerca de la base no hay).
+                                        const float s = 0.45f + 0.42f
+                                                      * ((float)(k + 1)
+                                                       / (float)(nD + 1));
+                                        // Punto de la hoja en ese avance,
+                                        // siguiendo la misma curva.
+                                        const float rr = r0 + largo * s;
+                                        const float yy = y0 + alto
+                                                       * sinf(s * 1.5707963f)
+                                                       - caida * s * s * s
+                                                       + DESP_Y;
+                                        // Medio ancho de la hoja ahi.
+                                        const float ww = anchoMax * 0.5f
+                                            * powf(sinf(s * 3.14159265f), 0.62f);
+                                        const float dl = grosor * 0.42f;
+
+                                        for (int lado = -1; lado <= 1; lado += 2) {
+                                            const float bx = CEN + dx * rr
+                                                           + mx * ww * (float)lado;
+                                            const float bz = CEN + dz * rr
+                                                           + mz * ww * (float)lado;
+                                            // El diente apunta hacia fuera y
+                                            // hacia la punta: es GANCHUDO,
+                                            // como el de verdad.
+                                            pua(texPua, bx, yy, bz,
+                                                bx + mx * dl * 2.2f * (float)lado
+                                                   + dx * dl * 1.1f,
+                                                yy + dl * 0.5f,
+                                                bz + mz * dl * 2.2f * (float)lado
+                                                   + dz * dl * 1.1f,
+                                                dl * 0.55f, 0.95f);
+                                        }
+                                    }
+                                }
                             }
                         }
 
-                        // ---- COMPONENTE 3: EL JUGO ----
-                        // Solo si esta CAPADO y tiene algo dentro. La altura
-                        // del liquido sale de cuanto lleve acumulado, asi que
-                        // el jugador ve de un vistazo si ya merece la pena
-                        // acercarse con el tazon.
-                        if (capado) {
-                            const GLuint texCaj =
-                                texSegura(BLOCK_MAGUEY_HUECO, 0);
+                        // ---- EL CAJETE Y EL AGUAMIEL ----
+                        //
+                        // Capar es cortarle el cogollo: queda un cuenco
+                        // abierto EN LA PIÑA, que es donde se acumulan los
+                        // azucares. El jugo se junta ahi.
+                        // ⭐ SOLO EN LA CELDA DE ABAJO. El cajete se abre en la
+                        // piña, que esta a ras de suelo: es donde se junta el
+                        // jugo y donde el jugador mete el tazon.
+                        if (capado && SEG == 0) {
+                            const GLuint texCaj = texSegura(BLOCK_MAGUEY_HUECO, 0);
 
-                            // El cajete: el cuenco abierto en lo alto del
-                            // tallo, donde se junta el aguamiel.
-                            const float cy0 = 0.55f;
-                            const float cP  = 0.06f;   // grosor de la pared
-                            const float cR  = 0.20f;   // medio ancho del cuenco
+                            const float cR  = M::radioCajete(esc);
+                            const float cP  = 0.035f;
+                            // Sobre la altura de SU celda, no la de la planta
+                            // entera: el cuenco esta abajo del todo. Y baja
+                            // con la planta si esta posada sobre un nivel.
+                            // + ELEVADO como la piña: el cajete se abre EN
+                            // ella, asi que tiene que subir con ella o el
+                            // cuenco quedaria hundido dentro del cuerpo.
+                            const float cy0 = M::altoHoja(esc) * 0.20f - POSADA + ELEVADO;
+                            const float cH  = M::hondoCajete(esc);
 
-                            // Fondo y cuatro paredes.
-                            cajaM(texCaj, 0.5f-cR, cy0, 0.5f-cR,
-                                          0.5f+cR, cy0+cP, 0.5f+cR, 0.95f);
-                            cajaM(texCaj, 0.5f-cR, cy0, 0.5f-cR,
-                                          0.5f-cR+cP, cy0+0.22f, 0.5f+cR, 0.90f);
-                            cajaM(texCaj, 0.5f+cR-cP, cy0, 0.5f-cR,
-                                          0.5f+cR, cy0+0.22f, 0.5f+cR, 0.90f);
-                            cajaM(texCaj, 0.5f-cR+cP, cy0, 0.5f-cR,
-                                          0.5f+cR-cP, cy0+0.22f, 0.5f-cR+cP, 0.90f);
-                            cajaM(texCaj, 0.5f-cR+cP, cy0, 0.5f+cR-cP,
-                                          0.5f+cR-cP, cy0+0.22f, 0.5f+cR, 0.90f);
+                            caja(texCaj, CEN-cR, cy0, CEN-cR,
+                                         CEN+cR, cy0+cP, CEN+cR, 0.92f);
+                            caja(texCaj, CEN-cR, cy0, CEN-cR,
+                                         CEN-cR+cP, cy0+cH, CEN+cR, 0.86f);
+                            caja(texCaj, CEN+cR-cP, cy0, CEN-cR,
+                                         CEN+cR, cy0+cH, CEN+cR, 0.86f);
+                            caja(texCaj, CEN-cR+cP, cy0, CEN-cR,
+                                         CEN+cR-cP, cy0+cH, CEN-cR+cP, 0.86f);
+                            caja(texCaj, CEN-cR+cP, cy0, CEN+cR-cP,
+                                         CEN+cR-cP, cy0+cH, CEN+cR, 0.86f);
 
                             if (jugo > 0) {
-                                const GLuint texJug =
-                                    texSegura(BLOCK_AGUAMIEL, 0);
-                                // La lamina sube con lo acumulado: de un dedo
-                                // de fondo a casi el borde.
+                                const GLuint texJug = texSegura(BLOCK_AGUAMIEL, 0);
                                 const float frac = (float)jugo / 15.0f;
                                 const float jy0 = cy0 + cP;
-                                const float jy1 = jy0 + 0.02f + 0.16f * frac;
-                                cajaM(texJug, 0.5f-cR+cP, jy0, 0.5f-cR+cP,
-                                              0.5f+cR-cP, jy1, 0.5f+cR-cP, 1.0f);
+                                const float jy1 = jy0 + (cH - cP)
+                                                * (0.15f + 0.80f * frac);
+                                caja(texJug, CEN-cR+cP, jy0, CEN-cR+cP,
+                                             CEN+cR-cP, jy1, CEN+cR-cP, 1.0f);
                             }
                         }
 
                         continue;   // no emitir las caras del cubo
                     }
+
+                    // ================================================
+                    // EL AGAVE TEQUILANA AZUL: TRES SILUETAS
+                    // ================================================
+                    // La misma planta se dibuja de tres formas distintas
+                    // segun su FASE, que es lo que pide la descripcion:
+                    //
+                    //   ROSETA  corona de pencas rigidas y erectas, azul
+                    //           plateado mate, borde aserrado y espina
+                    //           terminal. Mas ANCHA que alta (3 m x 2 m).
+                    //
+                    //   PIÑA    al jimarla queda el tallo central: una bola
+                    //           fibrosa blanca y verde claro, con las
+                    //           cicatrices de las pencas cortadas.
+                    //
+                    //   QUIOTE  si no se cosecha, levanta un eje vertical de
+                    //           hasta 5 m que se abre arriba en candelabro
+                    //           con racimos de flores amarillas.
+                    //
+                    // ⚠️ LA DIFERENCIA DE SILUETA CON EL PULQUERO ES LO QUE
+                    // HAY QUE VER DE LEJOS. El maguey pulquero arquea sus
+                    // pencas (sube y se vence); este las lleva RIGIDAS, casi
+                    // rectas, como espadas. Por eso su `caida` es una
+                    // decima parte de la del pulquero, y no un valor
+                    // parecido: si se acercan, las dos especies se
+                    // confunden y el trabajo de modelarlas aparte se pierde.
+                    if (Compuesto::esCompuesto(block) &&
+                        Compuesto::familiaDe(block) == Compuesto::FAM_AGAVE_AZUL) {
+                        namespace A = Compuesto::AgaveAzul;
+
+                        const uint16_t fase  = A::faseDe(block);
+                        const uint16_t etapa = A::etapaDe(block);
+                        const uint16_t giro  = A::giroDe(block);
+                        const int      SEG   = (int)A::segmentoDe(block);
+
+                        // ====================================================
+                        // ⭐ LA PLANTA ENTERA SE DIBUJA DESDE SU CELDA BASE
+                        // ====================================================
+                        // BUG QUE ESTO CORRIGE: la roseta salia agujereada, con
+                        // trozos de penca que faltaban en pleno aire.
+                        //
+                        // LA CAUSA. Antes cada celda de la planta dibujaba solo
+                        // "su" franja vertical, descartando los quads que se
+                        // salian de ella (hi < -0.02 || lo > 1.02). Eso funciona
+                        // para una columna -- el tallo del quiote -- pero NO
+                        // para una roseta: sus pencas salen hacia arriba Y hacia
+                        // afuera, asi que cruzan la frontera entre celdas EN
+                        // DIAGONAL. Un quad que la atraviesa se sale por arriba
+                        // en la celda de abajo y por abajo en la de arriba, o
+                        // sea que las DOS lo descartaban y no lo dibujaba nadie.
+                        // De ahi los huecos, y de ahi que aparecieran justo a la
+                        // altura del salto de celda.
+                        //
+                        // EL ARREGLO. Lo mismo que ya hace el maguey pulquero,
+                        // que no tiene este problema: la geometria se emite
+                        // COMPLETA desde la celda de abajo y las de arriba no
+                        // dibujan nada. Un quad no se parte nunca, asi que no
+                        // hay frontera donde perderse.
+                        //
+                        // Se puede hacer porque la planta cabe de sobra en el
+                        // alcance del mesher: 2 celdas de roseta y hasta 5 de
+                        // quiote, todas dentro del mismo chunk (el radio esta
+                        // topado a 1.45 justo para eso).
+                        //
+                        // ⚠️ Las celdas altas SIGUEN existiendo en el mundo: son
+                        // las que dan la colision y las que ocupan el espacio.
+                        // Lo unico que cambia es quien las pinta.
+                        if (SEG != 0) continue;
+
+                        // Celdas que ocupa SOLO la roseta. El quiote se
+                        // cuenta aparte porque sale por encima de ella.
+                        const int CELDAS = A::celdasDeEtapa(etapa);
+
+                        // ⭐ ALTO Y ANCHO NO SALEN DEL MISMO NUMERO.
+                        //
+                        // En el maguey pulquero si (es tan ancho como alto).
+                        // Aqui NO: la descripcion dice 2 m de alto por 3 m de
+                        // ancho, o sea 1:1.5. El radio se saca del alto con
+                        // ese factor, dentro de radioDeEtapa().
+                        const float ALTO  = A::alturaReal(etapa);
+                        const float RADIO = A::radioDeEtapa(etapa);
+
+                        // Se posa sobre el suelo real, igual que el maguey:
+                        // si debajo hay un nivel parcial, la planta baja lo
+                        // que le falta a esa capa para ser bloque entero.
+                        float POSADA = 0.0f;
+                        {
+                            const BlockType abajo =
+                                getNeighborBlockCached(x, y, z, 0, -1, 0);
+                            if (abajo != BLOCK_AIR) {
+                                const float h = alturaDe(abajo);
+                                if (h > 0.0f && h < 1.0f) POSADA = 1.0f - h;
+                            }
+                        }
+                        constexpr float ELEVADO = 1.5f / 16.0f;
+                        // Ya no resta SEG: aqui SEG siempre es 0 porque solo la
+                        // celda base llega a dibujar (ver el `continue` de
+                        // arriba). Se deja la expresion completa para que siga
+                        // siendo correcta si algun dia se reparte otra vez.
+                        const float DESP_Y = -(float)SEG - POSADA + ELEVADO;
+
+                        const float lzm = faceLightFactor(x, y, z, 0, 1, 0);
+                        auto tope1 = [](float v) { return v > 1.0f ? 1.0f : v; };
+
+                        // ⭐ NINGUNA PIEZA DESAPARECE POR FALTA DE TEXTURA.
+                        //
+                        // `quad` y `revolucion` empiezan con `if (tex == 0)
+                        // return`, asi que una textura que no cargue no deja un
+                        // cuadro raro: deja un AGUJERO, que es el sintoma que
+                        // se estaba persiguiendo y el mas dificil de atribuir
+                        // (no hay nada que mirar para saber que falta).
+                        //
+                        // La penca es la unica pieza imprescindible: si ella
+                        // falla, `texSegura` ya devuelve la textura de reserva
+                        // del gestor y ademas marca el chunk para reintento.
+                        // Las demas se apoyan en ella antes que no dibujarse:
+                        // un quiote con el azul de la hoja es tolerable; un
+                        // quiote invisible es el bug.
+                        const GLuint texPenca  = texSegura(BLOCK_AGAVE_AZUL_PENCA, 0);
+                        auto oPenca = [&](GLuint t) { return t != 0 ? t : texPenca; };
+                        const GLuint texPunta  = oPenca(texSegura(BLOCK_AGAVE_AZUL_PUNTA, 0));
+                        const GLuint texPina   = oPenca(texSegura(BLOCK_AGAVE_AZUL_PINA, 0));
+                        const GLuint texQuiote = oPenca(texSegura(BLOCK_AGAVE_AZUL_QUIOTE, 0));
+                        const GLuint texFlor   = oPenca(texSegura(BLOCK_AGAVE_AZUL_FLOR, 0));
+
+                        const float CEN = 0.5f;
+
+                        // Semilla estable: la misma planta se dibuja igual
+                        // siempre, y dos vecinas no salen calcadas.
+                        unsigned ha = (unsigned)((int)wx * 73856093)
+                                    ^ (unsigned)((int)wy * 19349663)
+                                    ^ (unsigned)((int)wz * 83492791)
+                                    ^ (unsigned)(giro * 2654435761u);
+                        ha ^= ha >> 13; ha *= 1274126177u; ha ^= ha >> 16;
+                        auto dadoA = [&](unsigned sal) {
+                            unsigned v = ha ^ (sal * 2654435761u);
+                            v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
+                            v *= 3266489917u; v ^= v >> 16;
+                            return v;
+                        };
+
+                        // ---- QUAD SUELTO, en coordenadas de la celda ----
+                        // Lo usan las piezas que no son ni penca ni caja: los
+                        // dientes del borde y los petalos.
+                        auto quad = [&](GLuint tex,
+                                        const float PX_[4], const float PY_[4],
+                                        const float PZ_[4], float br) {
+                            if (tex == 0) return;
+                            const float lf = tope1(lzm) * br;
+                            const float cr = tope1(lf * lightColorR);
+                            const float cg = tope1(lf * lightColorG);
+                            const float cb = tope1(lf * lightColorB);
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
+                            const float TU[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
+                            const float TV[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+                            // Por las dos caras: son superficies, no solidos.
+                            for (int i = 0; i < 4; ++i) {
+                                V.push_back(wx + PX_[i]);
+                                V.push_back(wy + PY_[i]);
+                                V.push_back(wz + PZ_[i]);
+                                C.push_back(cr); C.push_back(cg);
+                                C.push_back(cb); C.push_back(1.0f);
+                                U.push_back(TU[i]); U.push_back(TV[i]);
+                            }
+                            for (int i = 3; i >= 0; --i) {
+                                V.push_back(wx + PX_[i]);
+                                V.push_back(wy + PY_[i]);
+                                V.push_back(wz + PZ_[i]);
+                                C.push_back(cr * 0.82f); C.push_back(cg * 0.82f);
+                                C.push_back(cb * 0.82f); C.push_back(1.0f);
+                                U.push_back(TU[i]); U.push_back(TV[i]);
+                            }
+                        };
+
+                        // ---- CUERPO DE REVOLUCION ----
+                        // Una superficie girada alrededor del eje Y, definida
+                        // por su perfil: radio(t) y altura(t) con t = 0..1.
+                        // Con ella se hacen la piña (media esfera achatada) y
+                        // el tallo del quiote (cono muy alargado), que son las
+                        // dos formas redondas de esta planta.
+                        //
+                        // Se hace asi y no con cajas por lo mismo que el
+                        // maguey aprendio a la fuerza: una bola hecha de
+                        // cubos apilados se ve como cubos apilados, y la piña
+                        // es literalmente el centro de la silueta.
+                        auto revolucion = [&](GLuint tex, int anillos, int lados,
+                                              float y0, float y1,
+                                              const std::function<float(float)>& radio,
+                                              float br0, float br1) {
+                            if (tex == 0) return;
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
+
+                            for (int k = 0; k < anillos; ++k) {
+                                const float t0 = (float)k / (float)anillos;
+                                const float t1 = (float)(k + 1) / (float)anillos;
+                                const float r0 = radio(t0);
+                                const float r1 = radio(t1);
+                                const float cy0 = y0 + (y1 - y0) * t0 + DESP_Y;
+                                const float cy1 = y0 + (y1 - y0) * t1 + DESP_Y;
+
+                                // Sin recorte: la planta entera se emite desde
+                                // la celda base, asi que el quiote sube sus 5
+                                // metros de una pieza. Antes cada anillo que
+                                // caia fuera de la celda se perdia, y el tallo
+                                // salia a trozos.
+
+                                const float br = br0 + (br1 - br0) * t0;
+                                const float lf = tope1(lzm) * br;
+                                const float cr = tope1(lf * lightColorR);
+                                const float cg = tope1(lf * lightColorG);
+                                const float cb = tope1(lf * lightColorB);
+
+                                for (int s = 0; s < lados; ++s) {
+                                    const float a0 = 6.2831853f * (float)s / (float)lados;
+                                    const float a1 = 6.2831853f * (float)(s+1) / (float)lados;
+                                    const float c0 = cosf(a0), n0 = sinf(a0);
+                                    const float c1 = cosf(a1), n1 = sinf(a1);
+
+                                    const float PX_[4] = {
+                                        CEN + c0*r0, CEN + c1*r0,
+                                        CEN + c1*r1, CEN + c0*r1 };
+                                    const float PY_[4] = { cy0, cy0, cy1, cy1 };
+                                    const float PZ_[4] = {
+                                        CEN + n0*r0, CEN + n1*r0,
+                                        CEN + n1*r1, CEN + n0*r1 };
+                                    const float U0 = (float)s / (float)lados;
+                                    const float U1 = (float)(s+1) / (float)lados;
+                                    const float TU[4] = { U0, U1, U1, U0 };
+                                    const float TV[4] = { t0, t0, t1, t1 };
+
+                                    for (int i = 0; i < 4; ++i) {
+                                        V.push_back(wx + PX_[i]);
+                                        V.push_back(wy + PY_[i]);
+                                        V.push_back(wz + PZ_[i]);
+                                        C.push_back(cr); C.push_back(cg);
+                                        C.push_back(cb); C.push_back(1.0f);
+                                        U.push_back(TU[i]); U.push_back(TV[i]);
+                                    }
+                                }
+                            }
+                        };
+
+                        // ================================================
+                        // SILUETA 1: LA ROSETA
+                        // ================================================
+                        if (fase == A::ROSETA) {
+                            // ---- LA PENCA RIGIDA ----
+                            //
+                            // Misma tecnica que el pulquero -- superficie
+                            // barrida con seccion en V, que es lo que da el
+                            // canal central del agave -- pero con el perfil
+                            // de ESTA especie:
+                            //
+                            //   * casi RECTA (caida minima): es rigida.
+                            //   * mas ESTRECHA en proporcion a su largo: la
+                            //     hoja del tequilana es lanceolada y afilada,
+                            //     no ancha como la del pulquero.
+                            //   * borde ASERRADO: dientes oscuros a los lados,
+                            //     que es la marca de la especie.
+                            constexpr int PASOS = 7;
+                            constexpr int LADOS = 4;
+
+                            const int NPENCAS = A::pencasDeEtapa(etapa);
+                            const float GRUESO = A::engrosado(etapa);
+                            const float CAIDA  = A::caidaDeEtapa(etapa);
+                            const int   NDIENTES = A::dientesDeEtapa(etapa);
+                            constexpr float ANG_ORO = 2.39996f;   // 137.5 grados
+
+                            for (int p = 0; p < NPENCAS; ++p) {
+                                const unsigned d = dadoA((unsigned)p);
+
+                                const float ang = (float)giro * 0.7853982f
+                                                + ANG_ORO * (float)p;
+                                const float dirX = cosf(ang), dirZ = sinf(ang);
+
+                                // t = 0 la mas interior (vertical), 1 la mas
+                                // exterior (abierta). En esta especie ni
+                                // siquiera la de fuera se tumba del todo:
+                                // conserva mas de la mitad de su altura.
+                                const float t = (float)p / (float)(NPENCAS - 1);
+
+                                const float var  = 0.88f + (float)(d % 24u) * 0.01f;
+                                const float var2 = 0.92f + (float)((d>>8) % 16u) * 0.01f;
+
+                                const float r0 = RADIO * A::ARRANQUE;
+                                float largo = RADIO * (A::ARRANQUE
+                                                     + t * (1.0f - A::ARRANQUE))
+                                            * var - r0;
+                                if (largo < 0.02f) largo = 0.02f;
+
+                                // ⭐ AQUI ESTA LO ERECTO.
+                                //
+                                // El reparto va de 0.95 (la interior, casi
+                                // vertical) a 0.55 (la exterior). En el
+                                // pulquero baja hasta 0.30: sus hojas de
+                                // fuera casi se tumban. Las de esta se
+                                // quedan claramente levantadas, que es la
+                                // silueta de espadas que se busca.
+                                float alto = ALTO * (0.95f - t * 0.40f) * var2;
+
+                                // ⭐ ESTRECHA Y AFILADA.
+                                //
+                                // El ancho es una FRACCION del recorrido, no
+                                // un valor suelto: asi la esbeltez esta
+                                // garantizada por construccion. 0.30 la deja
+                                // claramente mas larga que ancha.
+                                const float recorrido = r0 + largo;
+                                const float anchoMax = recorrido * 0.30f * GRUESO;
+                                const float grosor   = anchoMax * 0.34f;
+
+                                // Torsion minima: es rigida, apenas gira.
+                                const float torsion = ((float)((d>>16) % 9u) - 4.0f) * 0.03f;
+
+                                // Perpendicular horizontal: por ahi se ensancha.
+                                const float px = -dirZ, pz = dirX;
+
+                                struct Pt { float x, y, z; };
+                                Pt anillo[2][LADOS + 1];
+                                float uAnt = 0.0f;
+
+                                // Se guardan los bordes para colgar de ellos
+                                // los dientes del aserrado.
+                                float bordeX[PASOS + 1][2];
+                                float bordeY[PASOS + 1][2];
+                                float bordeZ[PASOS + 1][2];
+
+                                const float lf = tope1(lzm) * (0.86f + 0.12f * (1.0f - t));
+                                const float cr = tope1(lf * lightColorR);
+                                const float cg = tope1(lf * lightColorG);
+                                const float cb = tope1(lf * lightColorB);
+
+                                auto& V = verticesByTexture[texPenca];
+                                auto& C = colorsByTexture[texPenca];
+                                auto& U = uvsByTexture[texPenca];
+
+                                for (int paso = 0; paso <= PASOS; ++paso) {
+                                    const float s = (float)paso / (float)PASOS;
+
+                                    // LA CURVA. Casi recta: `subida` es s
+                                    // elevado a algo mayor que 1 para que
+                                    // suba sostenido en vez de aplanarse
+                                    // como el pulquero (que usa un seno).
+                                    const float subida = powf(s, 0.88f);
+                                    const float rad = r0 + largo * s;
+                                    const float cy  = alto * subida
+                                                    - CAIDA * s * s * s;
+
+                                    // ANCHO LANCEOLADO, con el punto mas
+                                    // ancho cerca de la base (0.45) porque
+                                    // la hoja se afila desde muy abajo.
+                                    float w = anchoMax
+                                            * powf(sinf(s * 3.14159265f), 0.55f);
+                                    if (s < 0.16f) {
+                                        const float k = s / 0.16f;
+                                        const float wb = anchoMax * 0.62f;
+                                        w = wb + (w - wb) * k;
+                                    }
+                                    if (paso == PASOS) w = 0.0f;   // PICO
+
+                                    // GROSOR: carnosa abajo, afilada arriba.
+                                    const float g = grosor * (1.0f - 0.80f * s * s);
+
+                                    const float tw = torsion * s;
+                                    const float ct = cosf(tw), st = sinf(tw);
+
+                                    const float bx = CEN + dirX * rad;
+                                    const float bz = CEN + dirZ * rad;
+
+                                    const int cur = paso & 1;
+                                    for (int i = 0; i <= LADOS; ++i) {
+                                        const float q = (float)i / (float)LADOS
+                                                      * 2.0f - 1.0f;
+                                        // Canal en V: bordes altos, centro
+                                        // hundido. Es el perfil real de la
+                                        // hoja de agave.
+                                        const float hondo = (q * q - 0.5f) * g;
+                                        const float lat = q * w * 0.5f;
+                                        const float lx = lat * ct - hondo * st;
+                                        const float ly = lat * st + hondo * ct;
+
+                                        anillo[cur][i].x = bx + px * lx;
+                                        anillo[cur][i].y = cy + ly + DESP_Y;
+                                        anillo[cur][i].z = bz + pz * lx;
+                                    }
+                                    // Bordes de este paso, para los dientes.
+                                    bordeX[paso][0] = anillo[cur][0].x;
+                                    bordeY[paso][0] = anillo[cur][0].y;
+                                    bordeZ[paso][0] = anillo[cur][0].z;
+                                    bordeX[paso][1] = anillo[cur][LADOS].x;
+                                    bordeY[paso][1] = anillo[cur][LADOS].y;
+                                    bordeZ[paso][1] = anillo[cur][LADOS].z;
+
+                                    if (paso == 0) { uAnt = 0.0f; continue; }
+
+                                    const int ant = (paso - 1) & 1;
+
+                                    // ⭐ LA TEXTURA SIGUE LA HOJA DE PUNTA A
+                                    // PUNTA, SIN COMPRIMIRSE.
+                                    //
+                                    // Antes era powf(s, 0.68f), una curva que
+                                    // amontonaba la textura contra el pico: los
+                                    // ultimos pasos de la hoja -- los mas
+                                    // estrechos -- se llevaban una tajada
+                                    // desproporcionada del mapa, asi que el
+                                    // patron se veia apelmazado ahi y estirado
+                                    // en la base.
+                                    //
+                                    // Con el reparto lineal, avanzar un tramo de
+                                    // hoja avanza el mismo tramo de textura. El
+                                    // dibujo va parejo en todo el recorrido, que
+                                    // es lo que hace que la penca se lea como
+                                    // una superficie continua y no como una
+                                    // imagen deformada sobre ella.
+                                    const float uAct = s;
+
+                                    for (int i = 0; i < LADOS; ++i) {
+                                        const Pt& a = anillo[ant][i];
+                                        const Pt& b = anillo[ant][i + 1];
+                                        const Pt& c = anillo[cur][i + 1];
+                                        const Pt& e2 = anillo[cur][i];
+
+                                        // ⭐ SIN RECORTE POR CELDA.
+                                        //
+                                        // Aqui estaba el hueco: este `continue`
+                                        // tiraba el quad que cruzaba la
+                                        // frontera de celda en diagonal, y
+                                        // ninguna de las dos celdas lo dibujaba.
+                                        // Ahora la planta entera sale de la
+                                        // celda base, asi que no hay franja que
+                                        // respetar: se emiten todos los quads.
+
+                                        const float u0 = (float)i / (float)LADOS;
+                                        const float u1 = (float)(i + 1) / (float)LADOS;
+
+                                        // Relieve del canal sin luz por pixel.
+                                        const float mid = fabsf((float)i
+                                                        / (float)LADOS - 0.5f);
+                                        const float sh = 1.0f - 0.14f * (1.0f - mid * 2.0f);
+                                        const float qr = tope1(cr * sh);
+                                        const float qg = tope1(cg * sh);
+                                        const float qb = tope1(cb * sh);
+
+                                        const float PX_[4] = { a.x, b.x, c.x, e2.x };
+                                        const float PY_[4] = { a.y, b.y, c.y, e2.y };
+                                        const float PZ_[4] = { a.z, b.z, c.z, e2.z };
+                                        const float TU[4]  = { u0, u1, u1, u0 };
+                                        const float TV[4]  = { uAnt, uAnt, uAct, uAct };
+
+                                        for (int i2 = 0; i2 < 4; ++i2) {
+                                            V.push_back(wx + PX_[i2]);
+                                            V.push_back(wy + PY_[i2]);
+                                            V.push_back(wz + PZ_[i2]);
+                                            C.push_back(qr); C.push_back(qg);
+                                            C.push_back(qb); C.push_back(1.0f);
+                                            U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                        }
+                                        for (int i2 = 3; i2 >= 0; --i2) {
+                                            V.push_back(wx + PX_[i2]);
+                                            V.push_back(wy + PY_[i2]);
+                                            V.push_back(wz + PZ_[i2]);
+                                            C.push_back(qr * 0.82f);
+                                            C.push_back(qg * 0.82f);
+                                            C.push_back(qb * 0.82f);
+                                            C.push_back(1.0f);
+                                            U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                        }
+                                    }
+                                    uAnt = uAct;
+                                }
+
+                                // ---- EL BORDE ASERRADO ----
+                                //
+                                // ⭐ ES LA MARCA DE LA ESPECIE, ASI QUE SE VE.
+                                //
+                                // La descripcion insiste: "bordes fuertemente
+                                // aserrados con espinas oscuras y afiladas".
+                                // No se sugiere con la textura -- se emite
+                                // geometria, un dientecillo por muesca a cada
+                                // lado de la hoja, con la textura OSCURA de
+                                // la punta para que contrasten contra el azul
+                                // plateado de la penca.
+                                //
+                                // Se cuelgan de los bordes que se acaban de
+                                // guardar, asi que siguen la hoja aunque esta
+                                // se curve o se tuerza.
+                                for (int di = 0; di < NDIENTES; ++di) {
+                                    // Repartidos por el tramo medio de la
+                                    // hoja: ni en el arranque (ahi la penca
+                                    // esta metida en la piña) ni en el pico
+                                    // (ahi manda la espina terminal).
+                                    const float sd = 0.22f + 0.62f
+                                                   * ((float)di / (float)(NDIENTES - 1));
+                                    const int paso = (int)(sd * PASOS);
+                                    if (paso < 1 || paso > PASOS - 1) continue;
+
+                                    for (int lado = 0; lado < 2; ++lado) {
+                                        const float ex = bordeX[paso][lado];
+                                        const float ey = bordeY[paso][lado];
+                                        const float ez = bordeZ[paso][lado];
+
+                                        // Sin recorte: la planta entera sale de
+                                        // la celda base. Antes este descarte
+                                        // dejaba hojas altas SIN dientes, que
+                                        // es la mitad del sintoma -- la penca
+                                        // se veia lisa justo donde cruzaba de
+                                        // celda.
+
+                                        // El diente apunta hacia afuera de la
+                                        // hoja y un poco hacia su punta: es
+                                        // como crecen de verdad, ganchudos
+                                        // hacia el apice.
+                                        const float sgn = (lado == 0) ? -1.0f : 1.0f;
+                                        const float dl = anchoMax * 0.30f;
+                                        const float tipX = ex + px * sgn * dl
+                                                         + dirX * dl * 0.55f;
+                                        const float tipY = ey + dl * 0.35f;
+                                        const float tipZ = ez + pz * sgn * dl
+                                                         + dirZ * dl * 0.55f;
+
+                                        // Triangulo (quad degenerado): base
+                                        // en el borde, vertice en la espina.
+                                        const float bw = anchoMax * 0.16f;
+                                        const float PX_[4] = {
+                                            ex - dirX * bw, ex + dirX * bw,
+                                            tipX,           tipX };
+                                        const float PY_[4] = { ey, ey, tipY, tipY };
+                                        const float PZ_[4] = {
+                                            ez - dirZ * bw, ez + dirZ * bw,
+                                            tipZ,           tipZ };
+                                        quad(texPunta, PX_, PY_, PZ_, 0.72f);
+                                    }
+                                }
+
+                                // ---- LA ESPINA TERMINAL ----
+                                //
+                                // "Terminando en una espina central muy dura
+                                // y picuda en la punta". Es lo que remata
+                                // CADA hoja, asi que va siempre, no solo en
+                                // las plantas grandes.
+                                {
+                                    const float sTip = 1.0f;
+                                    const float radTip = r0 + largo * sTip;
+                                    const float yTip = alto * powf(sTip, 0.88f)
+                                                     - CAIDA + DESP_Y;
+                                    // Sin recorte por celda: antes las pencas
+                                    // que remataban por encima del primer
+                                    // bloque perdian su espina terminal, y esta
+                                    // planta se reconoce justamente por acabar
+                                    // TODA hoja en pua.
+                                    {
+                                        const float bxT = CEN + dirX * radTip;
+                                        const float bzT = CEN + dirZ * radTip;
+                                        // La espina prolonga la hoja en su
+                                        // misma direccion: es su continuacion
+                                        // endurecida, no un adorno pegado.
+                                        const float len = anchoMax * 0.85f;
+                                        const float exT = bxT + dirX * len;
+                                        const float eyT = yTip + len * 0.30f;
+                                        const float ezT = bzT + dirZ * len;
+                                        const float hw = anchoMax * 0.20f;
+                                        const float PX_[4] = {
+                                            bxT - px * hw, bxT + px * hw, exT, exT };
+                                        const float PY_[4] = { yTip, yTip, eyT, eyT };
+                                        const float PZ_[4] = {
+                                            bzT - pz * hw, bzT + pz * hw, ezT, ezT };
+                                        quad(texPunta, PX_, PY_, PZ_, 0.68f);
+                                    }
+                                }
+                            }
+
+                            // ---- EL CORAZON, VISTO POR FUERA ----
+                            //
+                            // De aqui nacen todas las pencas. Solo en la
+                            // celda de abajo: es el cuerpo a ras de suelo.
+                            // Sin el, las hojas parecen salir de la nada.
+                            if (SEG == 0) {
+                                const float pr = RADIO * 0.34f;
+                                const float ph = ALTO * 0.20f;
+                                // Igual que la piña del pulquero: el cuerpo
+                                // arranca por DEBAJO del suelo para que no
+                                // quede hueco entre la planta y el terreno.
+                                // La cupula esta abierta por abajo, asi que sin
+                                // esto se ve por dentro desde un angulo rasante.
+                                constexpr float SOTERRADO = 2.5f / 16.0f;
+                                revolucion(texPenca, 4, 9,
+                                           -POSADA + ELEVADO - SOTERRADO,
+                                           ph - POSADA + ELEVADO,
+                                           [pr](float t) {
+                                               return pr * cosf(t * 1.5707963f);
+                                           },
+                                           0.78f, 0.92f);
+                            }
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
+                        // ================================================
+                        // SILUETA 2: LA PIÑA (planta jimada)
+                        // ================================================
+                        // "Este tallo esferico y fibroso se revela con un
+                        // aspecto identico al de una piña gigante de color
+                        // blanco y verde claro."
+                        //
+                        // Una bola achatada, mas ancha que alta, con las
+                        // cicatrices de las pencas cortadas alrededor.
+                        if (fase == A::PINA) {
+                            const float pr = A::radioPina(etapa);
+                            const float phh = A::altoPina(etapa);
+
+                            // El cuerpo: elipsoide achatado. El perfil usa un
+                            // seno completo para que sea redondo por ARRIBA y
+                            // por ABAJO -- una bola posada, no una cupula.
+                            revolucion(texPina, 6, 10,
+                                       -POSADA + ELEVADO,
+                                       phh - POSADA + ELEVADO,
+                                       [pr](float t) {
+                                           return pr * sinf(t * 3.14159265f) * 1.02f
+                                                + pr * 0.16f;
+                                       },
+                                       0.80f, 0.96f);
+
+                            // ---- LAS CICATRICES DE LA JIMA ----
+                            //
+                            // Lo que hace que se lea como PIÑA y no como una
+                            // roca: los tocones de las pencas cortadas,
+                            // repartidos en la misma espiral aurea que tenian
+                            // las hojas. Es la textura de escamas que da a la
+                            // piña su aspecto caracteristico.
+                            constexpr float ANG_ORO = 2.39996f;
+                            const int NCIC = 18;
+                            for (int c = 0; c < NCIC; ++c) {
+                                const float ang = (float)giro * 0.7853982f
+                                                + ANG_ORO * (float)c;
+                                const float dirX = cosf(ang), dirZ = sinf(ang);
+                                // Repartidas en altura, siguiendo la curva de
+                                // la bola: cada vuelta de espiral sube.
+                                const float tv = 0.18f + 0.64f
+                                               * ((float)c / (float)(NCIC - 1));
+                                const float rr = pr * sinf(tv * 3.14159265f) * 1.02f
+                                               + pr * 0.16f;
+                                const float cy = phh * tv - POSADA + ELEVADO;
+                                // Sin recorte por celda (ver la nota de arriba):
+                                // la piña se emite entera desde su celda base.
+
+                                const float bx = CEN + dirX * rr;
+                                const float bz = CEN + dirZ * rr;
+                                // Tocon: un triangulito que sobresale, como
+                                // la base de la penca que se corto.
+                                const float len = pr * 0.20f;
+                                const float hw  = pr * 0.15f;
+                                const float px2 = -dirZ, pz2 = dirX;
+                                const float PX_[4] = {
+                                    bx - px2 * hw, bx + px2 * hw,
+                                    bx + dirX * len, bx + dirX * len };
+                                const float PY_[4] = {
+                                    cy, cy, cy + len * 0.5f, cy + len * 0.5f };
+                                const float PZ_[4] = {
+                                    bz - pz2 * hw, bz + pz2 * hw,
+                                    bz + dirZ * len, bz + dirZ * len };
+                                quad(texPina, PX_, PY_, PZ_, 0.70f);
+                            }
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
+                        // ================================================
+                        // SILUETA 3: EL QUIOTE (floracion final)
+                        // ================================================
+                        // "Este eje floral crece verticalmente de forma
+                        // impresionante hasta alcanzar los 5 metros,
+                        // abriendose en la punta como si fuera un candelabro
+                        // con racimos de flores amarillas."
+                        //
+                        // La planta conserva su roseta abajo (el quiote sale
+                        // DE ella) y levanta el tallo por encima.
+                        if (fase == A::QUIOTE_F) {
+                            const int qCeldas = (int)A::quioteDe(block);
+
+                            // --- La roseta sigue ahi, en las celdas de abajo ---
+                            // Se dibuja igual que en fase ROSETA pero mas
+                            // apagada: la planta esta gastando todo en
+                            // florecer y las hojas se van secando.
+                            if (SEG < CELDAS) {
+                                constexpr int PASOS = 6;
+                                constexpr int LADOS = 4;
+                                const int NPENCAS = A::pencasDeEtapa(etapa);
+                                const float GRUESO = A::engrosado(etapa);
+                                constexpr float ANG_ORO = 2.39996f;
+
+                                for (int p = 0; p < NPENCAS; ++p) {
+                                    const unsigned d = dadoA((unsigned)p);
+                                    const float ang = (float)giro * 0.7853982f
+                                                    + ANG_ORO * (float)p;
+                                    const float dirX = cosf(ang), dirZ = sinf(ang);
+                                    const float t = (float)p / (float)(NPENCAS - 1);
+                                    const float var = 0.88f + (float)(d % 24u) * 0.01f;
+
+                                    const float r0 = RADIO * A::ARRANQUE;
+                                    float largo = RADIO * (A::ARRANQUE
+                                                         + t * (1.0f - A::ARRANQUE))
+                                                * var - r0;
+                                    if (largo < 0.02f) largo = 0.02f;
+                                    // Al florecer las hojas se vencen: la
+                                    // planta se esta muriendo.
+                                    float alto = ALTO * (0.80f - t * 0.45f);
+
+                                    const float recorrido = r0 + largo;
+                                    const float anchoMax = recorrido * 0.28f * GRUESO;
+                                    const float grosor = anchoMax * 0.32f;
+                                    const float px = -dirZ, pz = dirX;
+
+                                    struct Pt { float x, y, z; };
+                                    Pt anillo[2][LADOS + 1];
+                                    float uAnt = 0.0f;
+
+                                    // Mas apagada: la cera se pierde al secarse.
+                                    const float lf = tope1(lzm) * 0.74f;
+                                    const float cr = tope1(lf * lightColorR);
+                                    const float cg = tope1(lf * lightColorG);
+                                    const float cb = tope1(lf * lightColorB);
+                                    auto& V = verticesByTexture[texPenca];
+                                    auto& C = colorsByTexture[texPenca];
+                                    auto& U = uvsByTexture[texPenca];
+
+                                    for (int paso = 0; paso <= PASOS; ++paso) {
+                                        const float s = (float)paso / (float)PASOS;
+                                        const float rad = r0 + largo * s;
+                                        const float cy = alto * powf(s, 0.88f)
+                                                       - 0.22f * s * s * s;
+                                        float w = anchoMax
+                                                * powf(sinf(s * 3.14159265f), 0.55f);
+                                        if (paso == PASOS) w = 0.0f;
+                                        const float g = grosor * (1.0f - 0.80f * s * s);
+                                        const float bx = CEN + dirX * rad;
+                                        const float bz = CEN + dirZ * rad;
+
+                                        const int cur = paso & 1;
+                                        for (int i = 0; i <= LADOS; ++i) {
+                                            const float q = (float)i / (float)LADOS
+                                                          * 2.0f - 1.0f;
+                                            const float hondo = (q * q - 0.5f) * g;
+                                            const float lat = q * w * 0.5f;
+                                            anillo[cur][i].x = bx + px * lat;
+                                            anillo[cur][i].y = cy + hondo + DESP_Y;
+                                            anillo[cur][i].z = bz + pz * lat;
+                                        }
+                                        if (paso == 0) { uAnt = 0.0f; continue; }
+
+                                        const int ant = (paso - 1) & 1;
+                                        // Reparto lineal, igual que en la
+                                        // roseta: la textura avanza al ritmo de
+                                        // la hoja en vez de amontonarse en la
+                                        // punta.
+                                        const float uAct = s;
+                                        for (int i = 0; i < LADOS; ++i) {
+                                            const Pt& a = anillo[ant][i];
+                                            const Pt& b = anillo[ant][i + 1];
+                                            const Pt& c = anillo[cur][i + 1];
+                                            const Pt& e2 = anillo[cur][i];
+                                            // Sin recorte por celda: las pencas
+                                            // secas de la planta espigada
+                                            // tambien cruzaban en diagonal y
+                                            // perdian trozos.
+                                            const float u0 = (float)i / (float)LADOS;
+                                            const float u1 = (float)(i + 1) / (float)LADOS;
+                                            const float PX_[4] = { a.x, b.x, c.x, e2.x };
+                                            const float PY_[4] = { a.y, b.y, c.y, e2.y };
+                                            const float PZ_[4] = { a.z, b.z, c.z, e2.z };
+                                            const float TU[4] = { u0, u1, u1, u0 };
+                                            const float TV[4] = { uAnt, uAnt, uAct, uAct };
+                                            for (int i2 = 0; i2 < 4; ++i2) {
+                                                V.push_back(wx + PX_[i2]);
+                                                V.push_back(wy + PY_[i2]);
+                                                V.push_back(wz + PZ_[i2]);
+                                                C.push_back(cr); C.push_back(cg);
+                                                C.push_back(cb); C.push_back(1.0f);
+                                                U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                            }
+                                            for (int i2 = 3; i2 >= 0; --i2) {
+                                                V.push_back(wx + PX_[i2]);
+                                                V.push_back(wy + PY_[i2]);
+                                                V.push_back(wz + PZ_[i2]);
+                                                C.push_back(cr*0.82f); C.push_back(cg*0.82f);
+                                                C.push_back(cb*0.82f); C.push_back(1.0f);
+                                                U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                            }
+                                        }
+                                        uAnt = uAct;
+                                    }
+                                }
+                            }
+
+                            // --- EL TALLO ---
+                            //
+                            // Sube desde el centro de la roseta y atraviesa
+                            // todas las celdas del quiote. Cada celda dibuja
+                            // el tramo que le toca, igual que las pencas.
+                            //
+                            // `tGlobal` es la altura dentro del quiote
+                            // ENTERO (0 = donde nace, 1 = la punta), y de ahi
+                            // sale el grosor: por eso se afila de forma
+                            // continua aunque se malle celda a celda.
+                            {
+                                const float yNace = ALTO * 0.55f;
+                                const float alturaQuiote = (float)qCeldas;
+                                const int anillos = 3;
+
+                                for (int k = 0; k < anillos; ++k) {
+                                    const float f0 = (float)k / (float)anillos;
+                                    const float f1 = (float)(k + 1) / (float)anillos;
+                                    // Altura absoluta desde la base de la
+                                    // planta, luego bajada a esta celda.
+                                    const float ya = yNace + alturaQuiote * f0;
+                                    const float yb = yNace + alturaQuiote * f1;
+                                    const float cy0 = ya + DESP_Y;
+                                    const float cy1 = yb + DESP_Y;
+                                    // Sin recorte por celda: el candelabro
+                                    // remata a 5 m de altura y antes se perdia
+                                    // casi entero -- solo sobrevivia el tramo
+                                    // que caia justo dentro de una celda.
+
+                                    const float g0 = A::grosorQuiote(f0);
+                                    const float g1 = A::grosorQuiote(f1);
+
+                                    const float lf = tope1(lzm) * (0.80f + 0.12f * f0);
+                                    const float cr = tope1(lf * lightColorR);
+                                    const float cg = tope1(lf * lightColorG);
+                                    const float cb = tope1(lf * lightColorB);
+                                    auto& V = verticesByTexture[texQuiote];
+                                    auto& C = colorsByTexture[texQuiote];
+                                    auto& U = uvsByTexture[texQuiote];
+
+                                    constexpr int LADOS_Q = 7;
+                                    for (int s = 0; s < LADOS_Q; ++s) {
+                                        const float a0 = 6.2831853f * (float)s / (float)LADOS_Q;
+                                        const float a1 = 6.2831853f * (float)(s+1) / (float)LADOS_Q;
+                                        const float c0 = cosf(a0), n0 = sinf(a0);
+                                        const float c1 = cosf(a1), n1 = sinf(a1);
+                                        const float PX_[4] = {
+                                            CEN + c0*g0, CEN + c1*g0,
+                                            CEN + c1*g1, CEN + c0*g1 };
+                                        const float PY_[4] = { cy0, cy0, cy1, cy1 };
+                                        const float PZ_[4] = {
+                                            CEN + n0*g0, CEN + n1*g0,
+                                            CEN + n1*g1, CEN + n0*g1 };
+                                        const float U0 = (float)s / (float)LADOS_Q;
+                                        const float U1 = (float)(s+1) / (float)LADOS_Q;
+                                        const float TU[4] = { U0, U1, U1, U0 };
+                                        const float TV[4] = { f0, f0, f1, f1 };
+                                        for (int i = 0; i < 4; ++i) {
+                                            V.push_back(wx + PX_[i]);
+                                            V.push_back(wy + PY_[i]);
+                                            V.push_back(wz + PZ_[i]);
+                                            C.push_back(cr); C.push_back(cg);
+                                            C.push_back(cb); C.push_back(1.0f);
+                                            U.push_back(TU[i]); U.push_back(TV[i]);
+                                        }
+                                    }
+                                }
+
+                                // --- EL CANDELABRO ---
+                                //
+                                // "Abriendose en la punta como si fuera un
+                                // candelabro con racimos de flores
+                                // amarillas". Solo cuando el quiote ya llego
+                                // arriba: antes es un tallo desnudo que
+                                // todavia esta subiendo.
+                                if (A::florecidoDe(block)) {
+                                    const float yPunta = yNace + alturaQuiote;
+                                    for (int b = 0; b < A::BRAZOS_CANDELABRO; ++b) {
+                                        // Los brazos se reparten en espiral y
+                                        // bajan segun se alejan: los de abajo
+                                        // son mas largos, como un abeto
+                                        // invertido. Es la silueta del
+                                        // candelabro.
+                                        const float fb = (float)b
+                                                       / (float)(A::BRAZOS_CANDELABRO - 1);
+                                        const float ang = (float)giro * 0.7853982f
+                                                        + 2.39996f * (float)b;
+                                        const float dirX = cosf(ang), dirZ = sinf(ang);
+                                        // Los primeros brazos abajo y largos,
+                                        // los ultimos arriba y cortos.
+                                        const float yb = yPunta - 0.62f * (1.0f - fb);
+                                        const float largoB = 0.42f * (1.0f - fb * 0.55f);
+
+                                        const float cy = yb + DESP_Y;
+                                        if (cy < -0.10f || cy > 1.10f) continue;
+
+                                        // El brazo: un quad fino horizontal.
+                                        const float px2 = -dirZ, pz2 = dirX;
+                                        const float hw = 0.022f;
+                                        const float ex = CEN + dirX * largoB;
+                                        const float ez = CEN + dirZ * largoB;
+                                        const float ey = cy + 0.10f;   // se alza
+                                        {
+                                            const float PX_[4] = {
+                                                CEN - px2*hw, CEN + px2*hw,
+                                                ex + px2*hw,  ex - px2*hw };
+                                            const float PY_[4] = { cy, cy, ey, ey };
+                                            const float PZ_[4] = {
+                                                CEN - pz2*hw, CEN + pz2*hw,
+                                                ez + pz2*hw,  ez - pz2*hw };
+                                            quad(texQuiote, PX_, PY_, PZ_, 0.86f);
+                                        }
+
+                                        // EL RACIMO DE FLORES AMARILLAS, en
+                                        // la punta del brazo. Tres quads
+                                        // cruzados: desde cualquier angulo se
+                                        // ve una mata de flores, no una carta.
+                                        const float fr = 0.13f;
+                                        for (int q2 = 0; q2 < 3; ++q2) {
+                                            const float aq = 1.0471976f * (float)q2;
+                                            const float qx = cosf(aq) * fr;
+                                            const float qz = sinf(aq) * fr;
+                                            const float PX_[4] = {
+                                                ex - qx, ex + qx, ex + qx, ex - qx };
+                                            const float PY_[4] = {
+                                                ey - fr*0.5f, ey - fr*0.5f,
+                                                ey + fr,      ey + fr };
+                                            const float PZ_[4] = {
+                                                ez - qz, ez + qz, ez + qz, ez - qz };
+                                            quad(texFlor, PX_, PY_, PZ_, 1.0f);
+                                        }
+                                    }
+                                }
+                            }
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
+                        continue;   // fase desconocida: no dibujar cubo
+                    }
+
+                    // Y los bloques SUELTOS del sistema viejo del maguey: la
+                    // punta, el tocon capado y el aguamiel. Misma razon.
+                    //
+                    // ⭐ TAMBIEN LAS CELDAS COMPARTIDAS CON HOJA DE IXTLE.
+                    //
+                    // BLOCK_IXTLE_CON_HIERBA, _CON_FLOR y _DOBLE son celdas
+                    // que llevan una HOJA DE IXTLE dentro, mas un acompañante
+                    // (hierba, flor u otra hoja). Se colaban por el hueco que
+                    // dejaba esta limpieza: los sueltos si se borraban, pero
+                    // los compartidos no, asi que en un mundo viejo seguian
+                    // apareciendo hojas de ixtle sueltas junto a los
+                    // magueyes, ajenas al modelo 3D.
+                    //
+                    // esCompartido() las cubre a las tres. El AGUAMIEL
+                    // tambien es compartida, y ya estaba contemplado arriba.
+                    if (block == BLOCK_MAGUEY_PUNTA ||
+                        block == BLOCK_MAGUEY_HUECO ||
+                        block == BLOCK_AGUAMIEL ||
+                        esIxtleHoja(block) ||
+                        block == BLOCK_IXTLE_PUNTA ||
+                        esCompartido(block) ||
+                        esTalloIxtle(block)) {
+                        chunk->setBlock(x, y, z, BLOCK_AIR);
+                        chunk->needsRebuild = true;
+                        continue;   // no emitir las caras del cubo
+                    }
+
+                    if (Compuesto::esCompuesto(block) &&
+                        Compuesto::familiaDe(block) == Compuesto::FAM_BIZNAGA) {
+                        namespace B = Compuesto::Biznaga;
+
+                        const float esc = B::escalaDeEtapa(B::etapaDe(block));
+                        const int   nCost = B::costillasReales(block);
+
+                        auto tope1b = [](float v) { return v > 1.0f ? 1.0f : v; };
+                        const float lzb = faceLightFactor(x, y, z, 0, 1, 0);
+                        const float Rb = tope1b(lzb * lightColorR);
+                        const float Gb = tope1b(lzb * lightColorG);
+                        const float Bb = tope1b(lzb * lightColorB);
+
+                        // Los costados llevan la textura acanalada; la tapa,
+                        // la corona de espinas vista desde arriba. Son las dos
+                        // que ya declara getBlockTexture para esta familia.
+                        const GLuint texLado = texSegura(block, 2);
+                        const GLuint texTapa = texSegura(block, 0);
+
+                        auto cajaB = [&](GLuint tex,
+                                         float x0, float y0, float z0,
+                                         float x1, float y1, float z1,
+                                         float br) {
+                            if (tex == 0) return;
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
+                            const float r = Rb * br, g = Gb * br, b = Bb * br;
+                            const float P[6][4][3] = {
+                              {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}},
+                              {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}},
+                              {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}},
+                              {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}},
+                              {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}},
+                              {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}},
+                            };
+                            const float T[6][4][2] = {
+                              {{x0,z0},{x0,z1},{x1,z1},{x1,z0}},
+                              {{x0,z0},{x1,z0},{x1,z1},{x0,z1}},
+                              {{z0,1-y1},{z0,1-y0},{z1,1-y0},{z1,1-y1}},
+                              {{z0,1-y0},{z1,1-y0},{z1,1-y1},{z0,1-y1}},
+                              {{x0,1-y0},{x1,1-y0},{x1,1-y1},{x0,1-y1}},
+                              {{x0,1-y0},{x0,1-y1},{x1,1-y1},{x1,1-y0}},
+                            };
+                            // La tapa y el suelo van con su textura propia; el
+                            // resto, con la de los costados. Se emite cara a
+                            // cara para poder repartirlas entre dos batches.
+                            for (int cara = 0; cara < 6; ++cara) {
+                                const GLuint dest =
+                                    (cara <= 1 && texTapa != 0) ? texTapa : tex;
+                                auto& VV = verticesByTexture[dest];
+                                auto& CC = colorsByTexture[dest];
+                                auto& UU = uvsByTexture[dest];
+                                for (int i = 0; i < 4; ++i) {
+                                    VV.push_back(wx + P[cara][i][0]);
+                                    VV.push_back(wy + P[cara][i][1]);
+                                    VV.push_back(wz + P[cara][i][2]);
+                                    CC.push_back(r); CC.push_back(g);
+                                    CC.push_back(b); CC.push_back(1.0f);
+                                    UU.push_back(T[cara][i][0]);
+                                    UU.push_back(T[cara][i][1]);
+                                }
+                            }
+                            (void)V; (void)C; (void)U;
+                        };
+
+                        // Un Ferocactus es mas ancho que alto: mide en alto
+                        // ~0.75 de lo que mide de ancho. Mismos numeros que la
+                        // caja de colision.
+                        const float r    = esc * 0.5f;
+                        const float alto = esc * 0.75f;
+
+                        // El CUERPO: el barril, un pelo mas estrecho que su
+                        // caja para que las costillas sobresalgan de el.
+                        const float rc = r * 0.86f;
+                        cajaB(texLado, 0.5f - rc, 0.0f, 0.5f - rc,
+                                       0.5f + rc, alto, 0.5f + rc, 1.0f);
+
+                        // LAS COSTILLAS: los gajos verticales que recorren el
+                        // cactus de arriba abajo. Son lo que le da su silueta
+                        // acanalada en vez de parecer una caja.
+                        //
+                        // Se reparten en circulo, tantas como diga su estado
+                        // (13 a 20, fijadas al brotar). Se colocan por angulo,
+                        // asi que el numero real se ve en la planta.
+                        const float PI2 = 6.28318531f;
+                        for (int c = 0; c < nCost; ++c) {
+                            const float ang = (PI2 * (float)c) / (float)nCost;
+                            const float cx = 0.5f + cosf(ang) * rc;
+                            const float cz = 0.5f + sinf(ang) * rc;
+                            // Cada costilla es una lasca fina pegada al
+                            // cuerpo, del suelo a la corona.
+                            const float g = r * 0.13f;
+                            cajaB(texLado, cx - g, 0.0f, cz - g,
+                                           cx + g, alto * 0.97f, cz + g, 0.88f);
+                        }
+
+                        continue;   // no emitir las caras del cubo
+                    }
+
+                    // ================================================
+                    // ⭐ LOS CRISTALES DE MINERAL
+                    // ================================================
+                    // El mineral deja de ser una textura: de la roca SALEN
+                    // cristales hacia el hueco, con la forma de cada especie
+                    // (ver src/CristalMineral.h).
+                    //
+                    // ⚠️ EL BLOQUE SIGUE SIENDO UN CUBO.
+                    //
+                    // Aqui NO se hace `continue`: la roca se emite despues por
+                    // el greedy como siempre, y esto solo AÑADE los cristales
+                    // encima. Es la diferencia con la biznaga o el maguey, que
+                    // sustituyen el cubo por su modelo.
+                    //
+                    // Por eso los minerales SIGUEN en esGreedyBlock: si se
+                    // sacaran, la roca desapareceria y quedarian los cristales
+                    // flotando en el aire.
+                    if (Cristal::tieneCristales(block)) {
+                        const Cristal::Especie esp = Cristal::EspecieDe(block);
+                        const GLuint texCr = texSegura(block, 0);
+
+                        if (texCr != 0) {
+                            // Color base del bloque, realzado por el brillo de
+                            // la especie: los metales relucen, el carbon no.
+                            const float lf = faceLightFactor(x, y, z, 0, 1, 0);
+                            const float cr = lf * lightColorR * esp.brillo;
+                            const float cg = lf * lightColorG * esp.brillo;
+                            const float cb = lf * lightColorB * esp.brillo;
+
+                            auto& VC = verticesByTexture[texCr];
+                            auto& CC2 = colorsByTexture[texCr];
+                            auto& UC = uvsByTexture[texCr];
+
+                            // Un prisma: cuatro caras laterales que se juntan
+                            // en una punta. Se emite como piramide de base
+                            // cuadrada -- cuatro triangulos, pero en quads
+                            // degenerados para no mezclar primitivas (el
+                            // batch entero se dibuja con GL_QUADS).
+                            auto prisma = [&](float bx, float by_, float bz,
+                                              float nx, float ny, float nz,
+                                              float alto, float ancho) {
+                                // Ejes perpendiculares a la normal, para
+                                // construir la base del prisma sobre la cara.
+                                float ux, uy, uz, vx2, vy2, vz2;
+                                if (ny != 0.0f) {      // cara horizontal
+                                    ux = 1; uy = 0; uz = 0;
+                                    vx2 = 0; vy2 = 0; vz2 = 1;
+                                } else if (nx != 0.0f) {
+                                    ux = 0; uy = 1; uz = 0;
+                                    vx2 = 0; vy2 = 0; vz2 = 1;
+                                } else {
+                                    ux = 1; uy = 0; uz = 0;
+                                    vx2 = 0; vy2 = 1; vz2 = 0;
+                                }
+
+                                // La punta, separada de la cara.
+                                const float px = bx + nx * alto;
+                                const float py = by_ + ny * alto;
+                                const float pz = bz + nz * alto;
+
+                                // Las cuatro esquinas de la base.
+                                const float e[4][3] = {
+                                    { bx - ux*ancho - vx2*ancho,
+                                      by_ - uy*ancho - vy2*ancho,
+                                      bz - uz*ancho - vz2*ancho },
+                                    { bx + ux*ancho - vx2*ancho,
+                                      by_ + uy*ancho - vy2*ancho,
+                                      bz + uz*ancho - vz2*ancho },
+                                    { bx + ux*ancho + vx2*ancho,
+                                      by_ + uy*ancho + vy2*ancho,
+                                      bz + uz*ancho + vz2*ancho },
+                                    { bx - ux*ancho + vx2*ancho,
+                                      by_ - uy*ancho + vy2*ancho,
+                                      bz - uz*ancho + vz2*ancho },
+                                };
+
+                                // Cuatro caras: cada una va de una arista de
+                                // la base a la punta. El cuarto vertice repite
+                                // la punta, que es como se hace un triangulo
+                                // con un quad.
+                                static const float UV[4][2] = {
+                                    {0.15f,0.85f},{0.85f,0.85f},
+                                    {0.5f,0.1f},{0.5f,0.1f}
+                                };
+                                for (int c = 0; c < 4; ++c) {
+                                    const int d = (c + 1) & 3;
+                                    const float V[4][3] = {
+                                        { e[c][0], e[c][1], e[c][2] },
+                                        { e[d][0], e[d][1], e[d][2] },
+                                        { px, py, pz },
+                                        { px, py, pz },
+                                    };
+                                    for (int i = 0; i < 4; ++i) {
+                                        VC.push_back(wx + V[i][0]);
+                                        VC.push_back(wy + V[i][1]);
+                                        VC.push_back(wz + V[i][2]);
+                                        CC2.push_back(cr); CC2.push_back(cg);
+                                        CC2.push_back(cb); CC2.push_back(1.0f);
+                                        UC.push_back(UV[i][0]);
+                                        UC.push_back(UV[i][1]);
+                                    }
+                                    facesRendered++;
+                                }
+                            };
+
+                            // Las seis caras del voxel. Solo las que dan a un
+                            // hueco llevan cristal: en roca maciza no hay
+                            // sitio para que crezca, y ademas seria geometria
+                            // que nadie ve.
+                            static const int NRM[6][3] = {
+                                { 1,0,0}, {-1,0,0}, {0,1,0},
+                                {0,-1,0}, {0,0,1}, {0,0,-1}
+                            };
+                            for (int c = 0; c < 6; ++c) {
+                                const BlockType vec = getNeighborBlockCached(
+                                    x, y, z, NRM[c][0], NRM[c][1], NRM[c][2]);
+                                // Solo hacia el hueco: aire, agua o cueva.
+                                if (vec != BLOCK_AIR && !esAguaCualquiera(vec))
+                                    continue;
+
+                                const int n = Cristal::CuantosEn(
+                                    block,
+                                    (int)wx + NRM[c][0] * 7,
+                                    (int)wy + NRM[c][1] * 7,
+                                    (int)wz + NRM[c][2] * 7);
+
+                                for (int k = 0; k < n; ++k) {
+                                    // Reparto por hash: cada cristal en su
+                                    // sitio, siempre el mismo.
+                                    unsigned hk =
+                                        (unsigned)((int)wx * 6151) ^
+                                        (unsigned)((int)wy * 7919) ^
+                                        (unsigned)((int)wz * 5387) ^
+                                        (unsigned)((c * 31 + k) * 2654435761u);
+                                    hk ^= hk >> 13; hk *= 1274126177u;
+                                    hk ^= hk >> 16;
+
+                                    // Posicion sobre la cara, sin pegarse al
+                                    // borde (o el cristal asomaria al voxel
+                                    // de al lado).
+                                    const float a = 0.25f +
+                                        (float)(hk % 500u) / 1000.0f;
+                                    const float b2 = 0.25f +
+                                        (float)((hk >> 9) % 500u) / 1000.0f;
+                                    // Tamaño variable: ni todos iguales ni
+                                    // tan grandes que se salgan.
+                                    const float esc = 0.65f +
+                                        (float)((hk >> 18) % 700u) / 1000.0f;
+
+                                    // El punto de la cara donde nace.
+                                    float bx, by_, bz;
+                                    if (NRM[c][0] != 0) {
+                                        bx  = (NRM[c][0] > 0) ? 1.0f : 0.0f;
+                                        by_ = a; bz = b2;
+                                    } else if (NRM[c][1] != 0) {
+                                        by_ = (NRM[c][1] > 0) ? 1.0f : 0.0f;
+                                        bx  = a; bz = b2;
+                                    } else {
+                                        bz  = (NRM[c][2] > 0) ? 1.0f : 0.0f;
+                                        bx  = a; by_ = b2;
+                                    }
+
+                                    prisma(bx, by_, bz,
+                                           (float)NRM[c][0], (float)NRM[c][1],
+                                           (float)NRM[c][2],
+                                           esp.altura * esc,
+                                           esp.grosor * esc);
+                                }
+                            }
+                        }
+                        // Sin `continue`: la roca la sigue emitiendo el greedy.
+                    }
+
 
                     // ============================================
                     // LA PUNTA DEL MAGUEY: UNA ESPINA 3D GRUESA
@@ -13700,346 +17922,23 @@ public:
                             }
                         }
 
+                        // ============================================
+                        // IXTLE VIEJO: SE RETIRA DEL MUNDO
+                        // ============================================
+                        // Los mundos jugados antes de quitar el maguey tienen
+                        // estas matas guardadas en sus chunks. Ya no hay
+                        // modelo que las dibuje, asi que dejarlas produciria
+                        // bloques INVISIBLES CON COLISION -- peor que no
+                        // tenerlas.
+                        //
+                        // Se borran al mallar, que es cuando se sabe que el
+                        // bloque existe y esta cargado. Pasa una sola vez por
+                        // mata y el chunk queda limpio al guardarse.
                         if (esIxtleHoja(block) ||
                             block == BLOCK_IXTLE_PUNTA ||
                             esCompartido(block)) {
-                            constexpr float PXL = 1.0f / 16.0f;
-                            constexpr float EPS = 0.0005f;
-
-                            // Semilla estable por posicion: la misma mata
-                            // sale igual siempre que se recarga el chunk.
-                            unsigned hs = (unsigned)((int)wx * 73856093)
-                                        ^ (unsigned)((int)wy * 19349663)
-                                        ^ (unsigned)((int)wz * 83492791);
-                            hs ^= hs >> 13; hs *= 1274126177u; hs ^= hs >> 16;
-                            auto mezcla = [&](unsigned sal) {
-                                unsigned v = hs ^ (sal * 2654435761u);
-                                v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
-                                v *= 3266489917u; v ^= v >> 16;
-                                return v;
-                            };
-
-                            // Una celda compartida lleva una HOJA dentro,
-                            // asi que dibuja la roseta, no la cuspide.
-                            const bool punta = (block == BLOCK_IXTLE_PUNTA);
-
-                            // ⭐ LA PUNTA NO SE VE CORTADA
-                            //
-                            // Si debajo de la espina hay AIRE, la mata se ve
-                            // partida: un trozo de planta abajo y la punta
-                            // suelta arriba. Aqui se cuenta cuanto aire hay
-                            // hasta lo primero solido y se alargan las hojas
-                            // hacia abajo para cubrirlo.
-                            //
-                            // Se hace al DIBUJAR, no al generar, para que
-                            // tambien se arreglen las matas de los mundos ya
-                            // guardados con la version anterior.
-                            int huecoAbajo = 0;
-                            if (punta) {
-                                for (int d = 1; d <= 4; ++d) {
-                                    const BlockType b2 =
-                                        getNeighborBlockCached(x, y, z, 0, -d, 0);
-                                    if (b2 != BLOCK_AIR) break;
-                                    ++huecoAbajo;
-                                }
-                            }
-
-                            // ------------------------------------------------
-                            // LA ROSETA ES UNA PIRAMIDE
-                            // ------------------------------------------------
-                            // Medido sobre fotos reales de la planta: la mata
-                            // es MAS ANCHA QUE ALTA (relacion 1.3 a 2.0) y su
-                            // parte mas gruesa cae en el tercio inferior. No
-                            // es un manojo de lanzas verticales: es una copa.
-                            //
-                            // Se consigue con una sola idea: la inclinacion
-                            // depende de en que ANILLO esta la hoja.
-                            //
-                            //   anillo exterior -> casi tumbada, rozando el
-                            //                      suelo
-                            //   anillos medios  -> cada vez mas empinada
-                            //   anillo central  -> vertical: hace la PUNTA
-                            //
-                            // De ahi sale la silueta piramidal, y como cada
-                            // anillo se aleja mas del centro, las hojas
-                            // quedan bien separadas entre si.
-                            constexpr int ANILLOS = 4;
-
-                            // Hojas por anillo: muchas fuera, pocas dentro.
-                            // Es lo que da la base ancha y la cuspide fina.
-                            static const int PORANILLO[ANILLOS] = { 9, 7, 5, 3 };
-
-                            // 2 PX DE VOLUMEN: la hoja es un prisma, no un
-                            // plano. Ancha de frente y de 2 px de canto.
-                            constexpr float VOL = 2.0f * PXL;
-
-                            // Emite un prisma de 6 caras entre una base y una
-                            // punta, con el grosor VOL. Esto es lo que hace
-                            // que la hoja sea 3D de verdad.
-                            auto prisma = [&](float ax, float ay, float az,
-                                              float bx2, float by2, float bz2,
-                                              float anchoBase, float anchoAlto,
-                                              float dirX, float dirZ) {
-                                // Perpendicular horizontal a la direccion de
-                                // la hoja: define su cara ancha.
-                                const float pxn = -dirZ, pzn = dirX;
-
-                                // 8 vertices: 4 en la base y 4 en la punta.
-                                // La hoja se estrecha hacia la punta, como
-                                // una hoja lanceolada de agave.
-                                const float hb = anchoBase * 0.5f;
-                                const float ha = anchoAlto * 0.5f;
-                                const float v = VOL * 0.5f;
-
-                                // ⭐ SI ACABA EN PICO, EL CANTO TAMBIEN CIERRA
-                                // Con anchoAlto = 0 los cuatro vertices de
-                                // arriba seguian separados por el grosor, asi
-                                // que el remate era una ARISTA de 2 px: se
-                                // veia plano, cubico. Cerrando tambien el
-                                // canto, los cuatro caen en el mismo punto y
-                                // la espina acaba en un vertice de verdad.
-                                const float vAlto = (anchoAlto <= 0.0f)
-                                                  ? 0.0f : v;
-
-                                const float VX[8] = {
-                                    ax - pxn*hb - dirX*v, ax + pxn*hb - dirX*v,
-                                    ax + pxn*hb + dirX*v, ax - pxn*hb + dirX*v,
-                                    bx2 - pxn*ha - dirX*vAlto,
-                                    bx2 + pxn*ha - dirX*vAlto,
-                                    bx2 + pxn*ha + dirX*vAlto,
-                                    bx2 - pxn*ha + dirX*vAlto
-                                };
-                                const float VY[8] = {
-                                    ay, ay, ay, ay, by2, by2, by2, by2
-                                };
-                                const float VZ[8] = {
-                                    az - pzn*hb - dirZ*v, az + pzn*hb - dirZ*v,
-                                    az + pzn*hb + dirZ*v, az - pzn*hb + dirZ*v,
-                                    bz2 - pzn*ha - dirZ*vAlto,
-                                    bz2 + pzn*ha - dirZ*vAlto,
-                                    bz2 + pzn*ha + dirZ*vAlto,
-                                    bz2 - pzn*ha + dirZ*vAlto
-                                };
-
-                                // Las seis caras del prisma. Las dos anchas
-                                // (0-1-5-4 y 3-2-6-7) llevan la textura de
-                                // frente, que es por donde se mira la hoja.
-                                static const int CARA[6][4] = {
-                                    {0,1,5,4}, {2,3,7,6}, {1,2,6,5},
-                                    {3,0,4,7}, {4,5,6,7}, {3,2,1,0}
-                                };
-
-                                // ⭐ LA TEXTURA NO SE DEFORMA
-                                //
-                                // Antes las SEIS caras usaban las mismas UV
-                                // (0..1 en los dos ejes), asi que la imagen
-                                // de 16 px se estiraba sobre la cara que
-                                // tocase. En una cara ancha de 7 px eso ya
-                                // deformaba, pero en el CANTO -- que mide 2 --
-                                // el estiron era de 8x: por eso la punta se
-                                // veia emborronada.
-                                //
-                                // La solucion es dar a cada cara la porcion
-                                // de textura que le corresponde por su ancho
-                                // REAL, en vez de la imagen entera. Asi el
-                                // pixel sale cuadrado en todas.
-                                const float anchoCara[6] = {
-                                    anchoBase, anchoBase,   // las dos anchas
-                                    VOL, VOL,               // los dos cantos
-                                    anchoAlto, anchoBase    // tapa y fondo
-                                };
-                                // Referencia: la cara mas ancha usa la
-                                // textura entera y las demas, su fraccion.
-                                const float mayor = anchoBase > VOL
-                                                  ? anchoBase : VOL;
-
-                                for (int f = 0; f < 6; ++f) {
-                                    // Fraccion de textura de ESTA cara.
-                                    const float fr = mayor > 0.0f
-                                                   ? anchoCara[f] / mayor
-                                                   : 1.0f;
-                                    const float u0 = 0.5f - 0.5f * fr * (U1-U0);
-                                    const float u1 = 0.5f + 0.5f * fr * (U1-U0);
-
-                                    // V=0 en la base y V=1 en la punta: la
-                                    // textura sale derecha y la espina de
-                                    // "Puntas de Ixtle" queda ARRIBA.
-                                    const float U_[4] = { u0, u1, u1, u0 };
-                                    const float V_[4] = { U0, U0, U1, U1 };
-                                    for (int i = 0; i < 4; ++i) {
-                                        const int k = CARA[f][i];
-                                        verts.push_back(wx + VX[k]);
-                                        verts.push_back(wy + VY[k]);
-                                        verts.push_back(wz + VZ[k]);
-                                        cols.push_back(cr); cols.push_back(cg);
-                                        cols.push_back(cb); cols.push_back(ca);
-                                        uvCoords.push_back(U_[i]);
-                                        uvCoords.push_back(V_[i]);
-                                    }
-                                }
-                            };
-
-                            // ⭐ LA MATA SE APOYA EN LA CAPA DE ABAJO
-                            // Igual que los guijarros: si debajo hay una capa
-                            // parcial, la planta nace en su cara de arriba y
-                            // no flota.
-                            float apoyoMata = 0.0f;
-                            {
-                                const BlockType abajo =
-                                    getNeighborBlockCached(x, y, z, 0, -1, 0);
-                                if (esNivelParcial(abajo)) {
-                                    apoyoMata = alturaDe(abajo) - 1.0f;
-                                }
-                            }
-
-                            const float c = 0.5f;
-                            const float giro0 =
-                                (float)(mezcla(3) % 360u) * 3.14159265f / 180.0f;
-
-                            // Largo de la hoja. Es lo que abre la mata: una
-                            // hoja tumbada de este largo llega lejos, que es
-                            // lo que hace la planta mas ancha que alta.
-                            // 26 px de hoja dan una mata de 2.3 x 1.5
-                            // bloques: el tamano de un agave adulto, y con
-                            // la proporcion de las fotos.
-                            // El TAMAÑO de la mata sale de su propio ID:
-                            // pequeña, mediana, grande o enorme. Multiplica
-                            // el largo de la hoja, que es lo que hace crecer
-                            // la roseta entera manteniendo su forma.
-                            // EL TAMAÑO SALE DE LA POSICION, no del ID.
-                            //
-                            // Los cuatro tamanos se conservan -- una mata
-                            // sigue pudiendo ser un brote o un ejemplar
-                            // viejo -- pero ya no hacen falta cuatro bloques
-                            // distintos para eso: la escala se saca del hash
-                            // de la celda, igual que el numero de hojas o su
-                            // giro. Asi todas las matas son EL MISMO bloque y
-                            // se apilan entre si.
-                            const unsigned ht = mezcla(7u) % 100u;
-                            float escala =
-                                (ht < 30u) ? 0.45f :      // 30% brotes
-                                (ht < 70u) ? 1.00f :      // 40% medianas
-                                (ht < 92u) ? 1.40f        // 22% grandes
-                                           : 1.90f;       //  8% enormes
-
-                            // ============================================
-                            // ⭐ EL MAGUEY DE 5 AÑOS ES MUCHO MAS GRANDE
-                            // ============================================
-                            // Un maguey maduro se reconoce DESDE LEJOS: es el
-                            // doble de alto que una mata normal y bastante mas
-                            // ancho. Esa diferencia de tamaño es la pista que
-                            // tiene el jugador para saber a cual acercarse,
-                            // porque son los unicos que dan aguamiel.
-                            //
-                            // Se sabe que la mata es madura porque ENCIMA
-                            // tiene su punta gruesa -- o el cajete, si ya la
-                            // caparon. Se mira el vecino de arriba en vez de
-                            // guardarlo en el propio bloque: asi no hace falta
-                            // un ID nuevo ni tocar el formato de guardado, y
-                            // las matas de los mundos ya jugados crecen solas
-                            // al recargar el chunk.
-                            //
-                            // El factor 2.0 sale de lo pedido: doble de alto.
-                            // Como la roseta crece en proporcion, tambien se
-                            // ensancha (~1.4x de radio), que es justo la
-                            // silueta de un agave hecho.
-                            {
-                                const BlockType arriba =
-                                    getNeighborBlockCached(x, y, z, 0, 1, 0);
-                                if (arriba == BLOCK_MAGUEY_PUNTA ||
-                                    arriba == BLOCK_MAGUEY_HUECO ||
-                                    arriba == BLOCK_AGUAMIEL) {
-                                    escala *= 2.0f;
-                                }
-                            }
-
-                            float LARGO = 26.0f * PXL * escala;
-
-                            // Las hojas de la espina se alargan lo que haga
-                            // falta para llegar a lo que haya debajo.
-                            if (huecoAbajo > 0) {
-                                LARGO += (float)huecoAbajo * 1.0f;
-                            }
-
-                            for (int a = 0; a < ANILLOS; ++a) {
-                                // La PUNTA solo dibuja el anillo central: es
-                                // el remate de la piramide, no otra roseta.
-                                if (punta && a != ANILLOS - 1) continue;
-                                // Y la HOJA no dibuja el central, que es de
-                                // la punta: asi las dos piezas encajan sin
-                                // solaparse.
-                                if (!punta && a == ANILLOS - 1) continue;
-
-                                const int n = PORANILLO[a];
-
-                                // INCLINACION PROGRESIVA.
-                                // t = 0 en el anillo exterior, 1 en el
-                                // central. La hoja pasa de casi tumbada
-                                // (0.12) a casi vertical (0.95).
-                                const float t = (float)a / (float)(ANILLOS - 1);
-                                const float subida = 0.25f + t * 0.65f;
-                                // Lo que no sube, se va hacia fuera: una
-                                // hoja tumbada se aleja mucho del centro.
-                                //
-                                // El 0.85 esta medido: con el, la mata sale
-                                // con la proporcion ANCHO/ALTO de 1.5 que
-                                // tienen las fotos reales de la planta. Sin
-                                // el, la roseta salia demasiado aplastada
-                                // (llegaba a 2.9 de proporcion).
-                                const float salida = (1.0f - subida) * 0.85f;
-
-                                // Cada anillo gira un poco respecto al de
-                                // dentro, para que las hojas no se tapen
-                                // unas a otras y queden bien separadas.
-                                const float desfase = giro0 +
-                                    (float)a * 0.7f;
-
-                                for (int i = 0; i < n; ++i) {
-                                    const float ang = desfase +
-                                        6.28318531f * (float)i / (float)n;
-                                    const float dx = cosf(ang), dz = sinf(ang);
-
-                                    const unsigned mi =
-                                        mezcla(400u + (unsigned)(a*16 + i));
-                                    // Variacion por hoja: ni dos iguales.
-                                    const float var =
-                                        0.85f + (float)(mi % 30u) * 0.01f;
-
-                                    const float largo = LARGO * var;
-
-                                    // Arranque: todas nacen del cogollo, en
-                                    // el centro y a ras de suelo.
-                                    const float ax = c + dx * 1.5f * PXL;
-                                    const float az = c + dz * 1.5f * PXL;
-                                    // Con hueco debajo, la hoja nace mas
-                                    // abajo para tapar el aire. Y si la capa
-                                    // de abajo es parcial, arranca en su cara
-                                    // de arriba en vez de flotar.
-                                    const float ay = EPS + apoyoMata -
-                                        (float)huecoAbajo;
-
-                                    // Punta de la hoja: sube `subida` y sale
-                                    // `salida`. Esa mezcla es la piramide.
-                                    const float by2 = ay + largo * subida;
-                                    const float bx2 = ax + dx * largo * salida;
-                                    const float bz2 = az + dz * largo * salida;
-
-                                    // Ancha en la base y afilada en la punta,
-                                    // como una hoja de agave.
-                                    // ⭐ LA PUNTA ACABA EN PICO
-                                    // La espina terminal se cierra en un
-                                    // filo, no en un tope plano: con 2 px
-                                    // arriba se veia CUBICA, que es justo lo
-                                    // que habia que quitar. La hoja normal si
-                                    // conserva algo de ancho, porque su
-                                    // remate lo pone la pieza de PUNTA.
-                                    prisma(ax, ay, az, bx2, by2, bz2,
-                                           7.0f * PXL,
-                                           punta ? 0.0f : 2.0f * PXL,
-                                           dx, dz);
-                                }
-                            }
-
+                            chunk->setBlock(x, y, z, BLOCK_AIR);
+                            chunk->needsRebuild = true;
                             continue;   // no emitir las caras del cubo
                         }
 
@@ -14739,6 +18638,193 @@ public:
                                 uvZoom = 0.0f;   // el resto usa la textura entera
                             }
 
+                        } else if (Acicula::esAciculaOcote(block)) {
+                            // ================================================
+                            // ⭐ LOS MECHONES DE ACICULAS DEL OCOTE
+                            // ================================================
+                            // La hoja del pino no tapa una cara: es una AGUJA,
+                            // y no crece suelta sino en FASCICULOS -- manojos
+                            // de 5 abrazados por una vaina en la base.
+                            //
+                            // Asi que la celda no emite un sprite en cruz de
+                            // dos planos, sino VARIOS MECHONES repartidos de
+                            // forma RADIAL, que es la palabra que usa la
+                            // descripcion botanica: los fasciculos salen en
+                            // todas las direcciones alrededor de la ramilla.
+                            //
+                            // Cada mechon son dos quads cruzados en su propio
+                            // eje, asi que se ve desde cualquier angulo. Es
+                            // 2.5D: planos con textura que juntos se leen como
+                            // masa, dejando pasar la luz entre ellos -- que es
+                            // lo que hace un pino y no hacia un cubo opaco.
+                            //
+                            // Ver src/AciculaOcote.h para la biologia de la
+                            // que salen las proporciones.
+                            // Este chunk tiene follaje, asi que entra en el
+                            // refresco por cercania del jugador. Se anota aqui
+                            // porque es donde ya sabemos que hay una acicula:
+                            // preguntarlo aparte costaria recorrer el chunk.
+                            chunk->tieneAciculas = true;
+
+                            // El tope lo fija AciculaOcote.h, que es donde se
+                            // decide cuantos mechones puede pedir una celda.
+                            // Cuando estaba escrito a mano aqui (un 12
+                            // literal), subir la densidad en el header habria
+                            // dejado el array corto sin que nada avisara.
+                            Acicula::Mechon mech[Acicula::MAX_MECHONES];
+                            const int nMech = Acicula::MechonesDe(
+                                block, (int)wx, (int)wy, (int)wz,
+                                mech, Acicula::MAX_MECHONES);
+
+                            // Emite un quad plano orientado libremente. Es como
+                            // pushQuad pero sin obligar a que sea vertical: un
+                            // mechon apunta hacia donde le toca.
+                            // ⭐ LA HOJA SE DOBLA, Y SE DOBLA POR DONDE DEBE.
+                            //
+                            // Los cuatro vertices del quad NO son
+                            // intercambiables: A y B son la BASE del mechon --
+                            // donde el fasciculo nace de la ramilla -- y C y D
+                            // son la PUNTA libre. Por eso el desplazamiento se
+                            // aplica con t01 = 0 a los dos primeros y t01 = 1 a
+                            // los dos ultimos.
+                            //
+                            // Ese reparto es lo que produce el efecto pedido:
+                            // la hoja se VENCE en arco en vez de trasladarse
+                            // entera, porque su punto de anclaje se queda
+                            // exactamente donde estaba. Ver la nota sobre la
+                            // viga en voladizo en AciculaOcote.h.
+                            //
+                            // El vertice se deforma en coordenadas de MUNDO
+                            // (wx+P), que es donde vive el jugador: la hoja
+                            // tiene que reaccionar a donde esta el, no a su
+                            // posicion dentro del voxel.
+                            const float faseMech = m.fase;
+                            auto quadLibre = [&](float ax, float ay, float az,
+                                                 float bx, float by, float bz,
+                                                 float cx, float cy, float cz,
+                                                 float dx2, float dy2, float dz2) {
+                                const float P[4][3] = {
+                                    {ax,ay,az}, {bx,by,bz}, {cx,cy,cz}, {dx2,dy2,dz2}
+                                };
+                                // Cuanto de libre esta cada vertice: 0 pegado a
+                                // la rama, 1 en el extremo que ondea.
+                                const float LIBRE[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+                                const float T[4][2] = {
+                                    {U0,U0}, {U1,U0}, {U1,U1}, {U0,U1}
+                                };
+                                // Las dos caras: un mechon se ve por delante y
+                                // por detras, como cualquier sprite.
+                                for (int cara = 0; cara < 2; ++cara) {
+                                    for (int k = 0; k < 4; ++k) {
+                                        const int i = (cara == 0) ? k : (3 - k);
+                                        const float vx = wx + P[i][0];
+                                        const float vy = wy + P[i][1];
+                                        const float vz = wz + P[i][2];
+
+                                        float ddx, ddy, ddz;
+                                        Acicula::DesplazarHoja(
+                                            vx, vy, vz, LIBRE[i], faseMech,
+                                            g_hojaTiempo,
+                                            g_hojaJugadorX, g_hojaJugadorY,
+                                            g_hojaJugadorZ,
+                                            ddx, ddy, ddz);
+
+                                        verts.push_back(vx + ddx);
+                                        verts.push_back(vy + ddy);
+                                        verts.push_back(vz + ddz);
+                                        cols.push_back(cr); cols.push_back(cg);
+                                        cols.push_back(cb); cols.push_back(ca);
+                                        uvCoords.push_back(T[i][0]);
+                                        uvCoords.push_back(T[i][1]);
+                                    }
+                                    facesRendered++;
+                                }
+                            };
+
+                            for (int i = 0; i < nMech; ++i) {
+                                const Acicula::Mechon& m = mech[i];
+
+                                // La punta del mechon.
+                                const float px = m.ox + m.dx * m.largo;
+                                const float py = m.oy + m.dy * m.largo;
+                                const float pz = m.oz + m.dz * m.largo;
+
+                                // Dos ejes perpendiculares a la direccion, para
+                                // cruzar los planos alrededor de ella. Se toma
+                                // el eje del mundo menos alineado con la
+                                // direccion: asi el producto vectorial nunca
+                                // sale degenerado.
+                                float ux, uy, uz;
+                                if (std::fabs(m.dy) < 0.9f) {
+                                    ux = -m.dz; uy = 0.0f; uz = m.dx;   // d x Y
+                                } else {
+                                    ux = 1.0f;  uy = 0.0f; uz = 0.0f;
+                                }
+                                float ul = std::sqrt(ux*ux + uy*uy + uz*uz);
+                                if (ul > 1e-4f) { ux/=ul; uy/=ul; uz/=ul; }
+
+                                // El segundo eje: perpendicular a los otros dos.
+                                float vx2 = m.dy*uz - m.dz*uy;
+                                float vy2 = m.dz*ux - m.dx*uz;
+                                float vz2 = m.dx*uy - m.dy*ux;
+
+                                // ⭐ EL LADEO: GIRAR LOS DOS EJES ALREDEDOR DE
+                                //    LA DIRECCION DEL MECHON.
+                                //
+                                // Hasta aqui `u` salia siempre del producto
+                                // vectorial con el eje Y del mundo, asi que
+                                // TODOS los mechones cruzaban sus planos en la
+                                // misma orientacion relativa. Mirando la copa
+                                // se veia el patron: cruces alineadas entre si.
+                                //
+                                // Girar la pareja (u,v) sobre `d` no cambia que
+                                // sigan siendo perpendiculares a la direccion
+                                // --por eso el sprite no se deforma-- pero deja
+                                // cada mechon presentando su cara con un angulo
+                                // propio. Es el "ligeramente inclinado" que
+                                // convierte una rejilla en follaje.
+                                //
+                                // Como u y v ya son ortonormales y estan sobre
+                                // el plano perpendicular a d, la rotacion es la
+                                // de 2D de toda la vida sobre ese plano: no
+                                // hace falta Rodrigues ni una matriz.
+                                {
+                                    const float cs = std::cos(m.ladeo);
+                                    const float sn = std::sin(m.ladeo);
+                                    const float nux = ux*cs + vx2*sn;
+                                    const float nuy = uy*cs + vy2*sn;
+                                    const float nuz = uz*cs + vz2*sn;
+                                    vx2 = vx2*cs - ux*sn;
+                                    vy2 = vy2*cs - uy*sn;
+                                    vz2 = vz2*cs - uz*sn;
+                                    ux = nux; uy = nuy; uz = nuz;
+                                }
+
+                                const float a = m.ancho * 0.5f;
+
+                                // ⭐ EL MECHON SE ABRE HACIA LA PUNTA.
+                                //
+                                // En la base todas las aciculas salen juntas de
+                                // la vaina, y hacia el extremo se separan. Por
+                                // eso el quad es un TRAPECIO, estrecho abajo y
+                                // ancho arriba, en vez de un rectangulo.
+                                const float aBase = a * 0.25f;
+
+                                // Plano 1, sobre el eje u.
+                                quadLibre(
+                                    m.ox - ux*aBase, m.oy - uy*aBase, m.oz - uz*aBase,
+                                    m.ox + ux*aBase, m.oy + uy*aBase, m.oz + uz*aBase,
+                                    px   + ux*a,     py   + uy*a,     pz   + uz*a,
+                                    px   - ux*a,     py   - uy*a,     pz   - uz*a);
+
+                                // Plano 2, cruzado sobre el eje v.
+                                quadLibre(
+                                    m.ox - vx2*aBase, m.oy - vy2*aBase, m.oz - vz2*aBase,
+                                    m.ox + vx2*aBase, m.oy + vy2*aBase, m.oz + vz2*aBase,
+                                    px   + vx2*a,     py   + vy2*a,     pz   + vz2*a,
+                                    px   - vx2*a,     py   - vy2*a,     pz   - vz2*a);
+                            }
+
                         } else {
                             // Diagonal 1: esquina (lo,lo) -> (hi,hi)
                             pushQuad(lo, lo, hi, hi);
@@ -14755,6 +18841,25 @@ public:
                     // bucle solo siguen agua y lava, que tienen transparencia,
                     // animación y color propios y no se fusionan.
                     if (!isWater && !isLava) continue;
+
+                    // ========================================================
+                    // ⭐ LA ALTURA DEL AGUA: AQUI ES DONDE SE VE EL NIVEL
+                    // ========================================================
+                    // Una celda de agua ya no llena siempre el cubo: ocupa la
+                    // fraccion que le toca por su nivel (8/8 llena, 4/8 media,
+                    // 1/8 una lamina). Es lo que hace que el agua derramada se
+                    // vea BAJAR por escalones en vez de desaparecer de golpe.
+                    //
+                    // La lava sigue llenando el cubo entero: su sistema de
+                    // niveles es el viejo y no se toca aqui.
+                    const float altura = isWater
+                        ? Compuesto::Agua::alturaVisual(block)
+                        : 1.0f;
+
+                    // La cota de la superficie, en coordenadas de mundo. Todas
+                    // las caras la usan, asi que el techo y los cuatro lados no
+                    // pueden descuadrarse entre si.
+                    const float ySup = wy + altura;
 
                     // Variable para multiplicador de brillo por cara
                     float faceBrightness;
@@ -14776,19 +18881,19 @@ public:
                         auto& uvCoords = uvsByTexture[texture];
 
                         // Vértice 1
-                        verts.push_back(wx); verts.push_back(wy + 1); verts.push_back(wz);
+                        verts.push_back(wx); verts.push_back(ySup); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
                         // Vértice 2
-                        verts.push_back(wx); verts.push_back(wy + 1); verts.push_back(wz + 1);
+                        verts.push_back(wx); verts.push_back(ySup); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
                         // Vértice 3
-                        verts.push_back(wx + 1); verts.push_back(wy + 1); verts.push_back(wz + 1);
+                        verts.push_back(wx + 1); verts.push_back(ySup); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
                         // Vértice 4
-                        verts.push_back(wx + 1); verts.push_back(wy + 1); verts.push_back(wz);
+                        verts.push_back(wx + 1); verts.push_back(ySup); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
@@ -14797,7 +18902,30 @@ public:
 
                     // Bottom face (-Y) - face index 1
                     BlockType bottomNeighbor = getNeighborBlockCached(x, y, z, 0, -1, 0);
-                    if (shouldRenderFace(block, bottomNeighbor)) {
+
+                    // ⭐ LA COPA DE LOS OCOTES NO TIENE SUELO.
+                    //
+                    // ⚠️ ESTE ES EL SEGUNDO SITIO QUE HAY QUE TOCAR, Y ES EL
+                    // QUE SE OLVIDA.
+                    //
+                    // El mesher dibuja las caras por DOS caminos distintos:
+                    // este (cara a cara, para bloques que el greedy no fusiona)
+                    // y el greedy meshing de mas abajo. Suprimir la cara solo
+                    // en el greedy no basta: el follaje pasa por los dos, asi
+                    // que la cara inferior seguia saliendo por aqui.
+                    //
+                    // Que la cara NO SE EMITA es distinto de dibujarla negra o
+                    // transparente: no hay geometria, asi que se ve lo que hay
+                    // detras -- el interior del follaje y el ramaje. Una cara
+                    // transparente seguiria escribiendo en el buffer de
+                    // profundidad y taparia lo de dentro.
+                    const bool copaSinSuelo =
+                        (block == BLOCK_LEAVES_OCOTE ||
+                         block == BLOCK_LEAVES_OCOTE_RAMA ||
+                         block == BLOCK_LEAVES_OCOTE_CHINO ||
+                         block == BLOCK_LEAVES_OCOTE_CHINO_RAMA);
+
+                    if (!copaSinSuelo && shouldRenderFace(block, bottomNeighbor)) {
                         GLuint texture = texSegura(block, 1);
                         faceBrightness = 0.5f; // Bottom = más oscuro
                         const float lightFactor = faceLightFactor(x, y, z, 0, -1, 0);
@@ -14830,6 +18958,12 @@ public:
                         facesRendered++;
                     }
 
+                    // Las CUATRO CARAS LATERALES suben solo hasta ySup, no
+                    // hasta el techo del cubo. Si llegaran arriba se veria una
+                    // pared de agua por encima de su propia superficie: el
+                    // borde de un charco a medias se dibujaria como un vaso
+                    // transparente vacio.
+                    //
                     // North face (+Z) - face index 2
                     BlockType northNeighbor = getNeighborBlockCached(x, y, z, 0, 0, 1);
                     if (shouldRenderFace(block, northNeighbor)) {
@@ -14854,11 +18988,11 @@ public:
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx + 1); verts.push_back(wy + 1); verts.push_back(wz + 1);
+                        verts.push_back(wx + 1); verts.push_back(ySup); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
-                        verts.push_back(wx); verts.push_back(wy + 1); verts.push_back(wz + 1);
+                        verts.push_back(wx); verts.push_back(ySup); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
@@ -14889,11 +19023,11 @@ public:
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx); verts.push_back(wy + 1); verts.push_back(wz);
+                        verts.push_back(wx); verts.push_back(ySup); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
-                        verts.push_back(wx + 1); verts.push_back(wy + 1); verts.push_back(wz);
+                        verts.push_back(wx + 1); verts.push_back(ySup); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
@@ -14924,11 +19058,11 @@ public:
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx + 1); verts.push_back(wy + 1); verts.push_back(wz);
+                        verts.push_back(wx + 1); verts.push_back(ySup); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
-                        verts.push_back(wx + 1); verts.push_back(wy + 1); verts.push_back(wz + 1);
+                        verts.push_back(wx + 1); verts.push_back(ySup); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
@@ -14959,11 +19093,11 @@ public:
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx); verts.push_back(wy + 1); verts.push_back(wz + 1);
+                        verts.push_back(wx); verts.push_back(ySup); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
-                        verts.push_back(wx); verts.push_back(wy + 1); verts.push_back(wz);
+                        verts.push_back(wx); verts.push_back(ySup); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(1 + uvAnimOffset);
 
@@ -14995,6 +19129,12 @@ public:
                 GLuint tex = 0;
                 uint8_t light = 0;
                 bool visible = false;
+                /// El bloque tiene alguna cara oculta, asi que esta cara se
+                /// emite tambien invertida para verse desde dentro. Entra en
+                /// la comparacion del greedy: una cara con interior y otra sin
+                /// el no pueden fusionarse, o el quad resultante emitiria (o
+                /// se saltaria) gemelas que no le tocan.
+                bool interior = false;
             };
 
             // Órdenes de vértice y UV idénticos a las caras individuales de
@@ -15009,6 +19149,14 @@ public:
             // de arriba es la mas clara y la de abajo la mas oscura, que es
             // lo que da volumen -- pero ninguna cara se apaga.
             const float DIR_BRIGHT[6] = { 1.0f, 0.75f, 0.92f, 0.92f, 0.85f, 0.85f };
+
+            // Cuanto se oscurece la cara vista DESDE DENTRO respecto a la
+            // misma cara vista desde fuera. Sin este matiz, asomarse al hueco
+            // de un bloque se ve plano: las cinco caras interiores salen con
+            // el mismo brillo que las exteriores y el hueco no se lee como
+            // interior. 0.72 basta para que se note que estas dentro sin
+            // apagar la textura.
+            const float kInteriorDim = 0.72f;
             const int DIR_VEC[6][3] = {
                 { 0, 1, 0}, { 0,-1, 0},   // top, bottom
                 { 0, 0, 1}, { 0, 0,-1},   // north, south
@@ -15031,6 +19179,28 @@ public:
                 // Una celda MIXTA tampoco: son dos capas de materiales
                 // distintos, y el greedy solo sabe de cubos de un material.
                 if (esNivelParcial(b) || esMixto(b)) return false;
+
+                // ⭐⭐ AQUI ESTABA EL CUBO GIGANTE QUE TAPABA EL MAGUEY.
+                //
+                // Un BLOQUE COMPUESTO (maguey, biznaga) no es un cubo: es un
+                // modelo 3D que se emite en la pasada de arriba, la de
+                // geometria propia. Esa pasada acaba con `continue` para no
+                // sacar las caras cubicas... pero el `continue` solo sale de
+                // SU bucle. El greedy meshing es una pasada APARTE, mas
+                // abajo, y volvia a recorrer los mismos bloques.
+                //
+                // Como el compuesto no estaba excluido aqui, el greedy lo
+                // trataba como un cubo normal Y ADEMAS lo FUSIONABA con sus
+                // vecinos: las cuatro celdas de un maguey alto se unian en un
+                // unico bloque macizo con textura de hoja, dibujado encima
+                // del modelo. De ahi los dos cubos enormes de la captura, y
+                // de ahi que taparan la planta entera.
+                //
+                // No se arregla ocultando caras ni con transparencias: se
+                // saca del greedy, que es quien no deberia haberlo visto
+                // nunca. La geometria buena ya la pone la pasada de arriba.
+                if (Compuesto::esCompuesto(b)) return false;
+
                 return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
                        !isCrossSprite(b);
             };
@@ -15090,12 +19260,25 @@ public:
                 return (int)(h & 1u);
             };
 
+            // `interior`: ademas de la cara normal, emite su GEMELA con los
+            // vertices en orden inverso. El mundo se dibuja con
+            // GL_CULL_FACE(GL_BACK), asi que la normal solo se ve desde fuera
+            // y la gemela solo desde dentro. Es lo que permite asomarse por el
+            // hueco de una cara oculta y ver el interior del bloque en vez del
+            // vacio. Ver carasOcultas() en BlockType.h.
             auto emitQuad = [&](int dir, GLuint tex, uint8_t light,
-                                int layer, int u0, int v0, int w, int h) {
+                                int layer, int u0, int v0, int w, int h,
+                                bool interior = false) {
                 const float f = lightToFactor(light) * DIR_BRIGHT[dir];
                 auto& verts = verticesByTexture[tex];
                 auto& cols  = colorsByTexture[tex];
                 auto& uvs   = uvsByTexture[tex];
+
+                // Marca donde empieza esta cara: al terminar de escribirla se
+                // releen sus cuatro vertices para copiarlos al reves.
+                const size_t baseVert = verts.size();
+                const size_t baseCol  = cols.size();
+                const size_t baseUV   = uvs.size();
 
                 // ============================================================
                 // ROTACION NATURAL DE LA TEXTURA
@@ -15215,6 +19398,50 @@ public:
                         break;
                     }
                 }
+
+                // ============================================================
+                // GEMELA INTERIOR
+                // ============================================================
+                // La cara que se acaba de escribir se copia con los cuatro
+                // vertices en orden INVERSO. Al invertir el recorrido se
+                // invierte tambien el sentido en que OpenGL la ve, de modo que
+                // la copia pasa el culling justo cuando la original no: desde
+                // dentro del bloque.
+                //
+                // Se copian los vertices ya escritos en vez de recalcularlos:
+                // asi la gemela hereda exactamente la misma geometria, las
+                // mismas UV (con su rotacion ya aplicada) y el mismo tamano de
+                // quad greedy, sin repetir el switch de arriba ni arriesgarse
+                // a que las dos versiones se desincronicen.
+                if (interior) {
+                    // Se recorren los 4 vertices de atras hacia delante,
+                    // manteniendo el orden DENTRO de cada uno (x,y,z).
+                    for (int i = 3; i >= 0; --i) {
+                        const size_t v = baseVert + static_cast<size_t>(i) * 3;
+                        const size_t c = baseCol  + static_cast<size_t>(i) * 4;
+                        const size_t t = baseUV   + static_cast<size_t>(i) * 2;
+                        if (v + 2 >= verts.size() || c + 3 >= cols.size() ||
+                            t + 1 >= uvs.size())
+                            break;   // defensa: la cara no se escribio entera
+
+                        verts.push_back(verts[v]);
+                        verts.push_back(verts[v + 1]);
+                        verts.push_back(verts[v + 2]);
+
+                        // El interior se oscurece un poco respecto a la cara
+                        // exterior: sin esto, asomarse al hueco se ve plano y
+                        // el bloque no da sensacion de volumen hueco.
+                        cols.push_back(cols[c]     * kInteriorDim);
+                        cols.push_back(cols[c + 1] * kInteriorDim);
+                        cols.push_back(cols[c + 2] * kInteriorDim);
+                        cols.push_back(cols[c + 3]);   // alfa sin tocar
+
+                        uvs.push_back(uvs[t]);
+                        uvs.push_back(uvs[t + 1]);
+                    }
+                    facesRendered++;
+                }
+
                 facesRendered++;
             };
 
@@ -15247,6 +19474,28 @@ public:
                             const BlockType nb = getNeighborBlockCached(bx, by, bz, dx, dy, dz);
                             if (!shouldRenderFace(b, nb)) continue;
 
+                            // ================================================
+                            // ⭐ CARAS OCULTAS: EL BLOQUE SE VE POR DENTRO
+                            // ================================================
+                            // Un bloque puede declarar caras que no dibuja
+                            // (ver carasOcultas() en BlockType.h). La copa del
+                            // ocote, por ejemplo, no tiene suelo: mirando
+                            // hacia arriba desde el pie del arbol se ve el
+                            // INTERIOR de la copa --el ramaje entre el
+                            // follaje-- en vez de un techo liso.
+                            //
+                            // No se hace en shouldRenderFace porque esa
+                            // funcion no sabe QUE cara se le esta pidiendo:
+                            // solo recibe el bloque y su vecino. Aqui si, y
+                            // es el unico sitio del mesher que lo sabe.
+                            if (caraEstaOculta(b, dir)) continue;
+
+                            // Si el bloque tiene alguna cara oculta, ESTA cara
+                            // se emite tambien del reves, para que se vea
+                            // desde dentro por el hueco. Sin la gemela, el
+                            // culling la descarta y el bloque se ve vacio.
+                            cell.interior = muestraInterior(b);
+
                             cell.tex = texSegura(b, dir);
 
                             // ================================================
@@ -15266,7 +19515,8 @@ public:
                             // rompe la repeticion a la vista y se conserva la
                             // fusion dentro de cada zona.
                             if (b == BLOCK_LEAVES || b == BLOCK_LEAVES_ENCINO ||
-                                b == BLOCK_LEAVES_OYAMEL) {
+                                b == BLOCK_LEAVES_OYAMEL ||
+                                b == BLOCK_LEAVES_OCOTE) {
                                 const int gx = (chunk->position.x * CHUNK_SIZE + bx) >> 2;
                                 const int gy = by >> 2;
                                 const int gz = (chunk->position.z * CHUNK_SIZE + bz) >> 2;
@@ -15464,7 +19714,8 @@ public:
                             int h = 1;
                             while (v + h < maxV) {
                                 const FaceCell& n = mask[u][v + h];
-                                if (!n.visible || n.tex != c.tex || n.light != c.light) break;
+                                if (!n.visible || n.tex != c.tex || n.light != c.light ||
+                                    n.interior != c.interior) break;
                                 h++;
                             }
 
@@ -15474,7 +19725,8 @@ public:
                             while (grow && u + w < maxU) {
                                 for (int k = 0; k < h; k++) {
                                     const FaceCell& n = mask[u + w][v + k];
-                                    if (!n.visible || n.tex != c.tex || n.light != c.light) {
+                                    if (!n.visible || n.tex != c.tex || n.light != c.light ||
+                                        n.interior != c.interior) {
                                         grow = false;
                                         break;
                                     }
@@ -15484,7 +19736,7 @@ public:
 
                             // El quad usa (u,v) como (ancho, alto) según el eje:
                             // en caras verticales u=x/v=z; en laterales u=x|z, v=y.
-                            emitQuad(dir, c.tex, c.light, layer, u, v, w, h);
+                            emitQuad(dir, c.tex, c.light, layer, u, v, w, h, c.interior);
 
                             // Consumir el rectángulo
                             for (int du = 0; du < w; du++)
@@ -15498,39 +19750,47 @@ public:
             }
         }
 
-        // VBO BATCHING: Crear un batch por cada textura usada en este chunk
-        for (auto& pair : verticesByTexture) {
-            GLuint texture = pair.first;
-            auto& verts = pair.second;
-            auto& cols = colorsByTexture[texture];
-            auto& uvCoords = uvsByTexture[texture];
+        // ====================================================================
+        // ⭐ AQUI ACABA EL TRABAJO DE CPU Y EMPIEZA EL DE GPU
+        // ====================================================================
+        // Todo lo de arriba -- las ~5.600 lineas de geometria -- solo ha
+        // llenado tres mapas de floats. No ha tocado OpenGL ni una vez.
+        //
+        // Se empaqueta en un `Render::MallaChunk`, que es un contenedor SIN
+        // OpenGL y por tanto movible entre hilos. Ese es el paso que permite
+        // sacar el mallado del hilo principal: el worker produciria esta
+        // estructura y el hilo principal solo haria la subida de abajo.
+        //
+        // MEDIDO, que es de donde sale esto: durante la carga de mundo el
+        // mallado en el hilo principal se come 25.3 ms por frame y el FPS cae
+        // de 199 a 30. La generacion, en cambio, cuesta 0.06 ms -- por eso el
+        // problema no se arregla con mas hilos de generacion.
+        //
+        // De paso, la VALIDACION (tamaños coherentes, quads completos) vive
+        // ahora dentro de MallaChunk y esta cubierta por tests que corren sin
+        // arrancar OpenGL (ver tests/test_malla_chunk.cpp).
+        const Render::MallaChunk mallaCPU = Render::MallaChunk::desdeMapas(
+            verticesByTexture, colorsByTexture, uvsByTexture,
+            texturasTransparentes, texturasRecortadas, texturasFaltantes);
 
-            if (verts.empty()) continue; // Skip empty batches
+        // ---- SUBIDA A GPU (esto SI tiene que correr en el hilo principal) ----
+        for (const Render::BatchCPU& src : mallaCPU.batches) {
+            const GLuint texture = (GLuint)src.textura;
+            const std::vector<float>& verts    = src.vertices;
+            const std::vector<float>& cols     = src.colores;
+            const std::vector<float>& uvCoords = src.uvs;
 
-            // ⭐⭐⭐ VALIDACIÓN CRÍTICA: Verificar tamaños consistentes
-            size_t expectedVertCount = verts.size() / 3;
-            size_t expectedColorCount = expectedVertCount * 4;  // 4 componentes RGBA
-            size_t expectedUVCount = expectedVertCount * 2;     // 2 componentes UV
-
-            if (cols.size() != expectedColorCount) {
-                std::cerr << "❌ BATCH CORRUPTO: Tamaño de colores inconsistente. "
-                          << "verts=" << verts.size() << " cols=" << cols.size()
-                          << " (esperado=" << expectedColorCount << ")" << std::endl;
-                continue;
-            }
-
-            if (uvCoords.size() != expectedUVCount) {
-                std::cerr << "❌ BATCH CORRUPTO: Tamaño de UVs inconsistente. "
-                          << "verts=" << verts.size() << " uvs=" << uvCoords.size()
-                          << " (esperado=" << expectedUVCount << ")" << std::endl;
-                continue;
-            }
-
-            // ⭐⭐⭐ VALIDACIÓN: Verificar que vertexCount es múltiplo de 4 (GL_QUADS)
-            if (expectedVertCount % 4 != 0) {
-                std::cerr << "❌ BATCH CORRUPTO: vertexCount no es múltiplo de 4: " << expectedVertCount << std::endl;
-                continue;
-            }
+            // ⚠️ LAS VALIDACIONES DE TAMAÑO YA NO ESTAN AQUI.
+            //
+            // Comprobar que los tres vectores cuadran y que los quads estan
+            // completos es ahora trabajo de `BatchCPU::coherente()`, y
+            // `MallaChunk::desdeMapas` descarta lo que no pasa. O sea que
+            // cualquier batch que llegue a este bucle YA es coherente.
+            //
+            // No es solo mover codigo: esa validacion vive ahora en un header
+            // sin OpenGL, asi que se puede probar sin arrancar el juego --
+            // cosa que aqui era imposible. Ver tests/test_malla_chunk.cpp.
+            const size_t expectedVertCount = src.numVertices();
 
             // ⭐⭐⭐ VALIDACIÓN: Detectar NaN/Inf en vértices
             bool hasInvalidData = false;
@@ -15561,11 +19821,12 @@ public:
             // Crear nuevo batch
             Chunk::TextureBatch* batch = new Chunk::TextureBatch();
             batch->texture = texture;
-            batch->vertexCount = expectedVertCount;
-            batch->transparente =
-                (texturasTransparentes.find(texture) != texturasTransparentes.end());
-            batch->recortado =
-                (texturasRecortadas.find(texture) != texturasRecortadas.end());
+            batch->vertexCount = (int)expectedVertCount;
+            // Las marcas viajan YA resueltas dentro del batch de CPU, en vez
+            // de volver a consultar los sets aqui. Asi el dato de "en que pase
+            // se dibuja esto" se decide una sola vez, del lado del mallado.
+            batch->transparente = src.transparente;
+            batch->recortado    = src.recortado;
 
             // Generar VBOs para este batch
             glGenBuffers(1, &batch->vbo);
@@ -15807,7 +20068,15 @@ public:
         // Umbral medido: a 40 ms frenaba en CADA carga de chunk y se
         // quedaba clavado en 1 mesh por frame, con lo que el bajon duraba
         // mas. A 80 ms (12 FPS) solo frena ante un tiron de verdad.
-        if (deltaTime > 0.080f) {
+        //
+        // ⭐ BAJADO A 33 ms (30 FPS) al subir el objetivo a 120-200 FPS.
+        //
+        // Con el freno en 80 ms habia que caer por debajo de 12 FPS para que
+        // reaccionara: a ese nivel el tiron ya se ha visto y ha durado. 33 ms
+        // sigue siendo cuatro veces el frame objetivo -- o sea, solo salta
+        // ante un pico de verdad, no ante la carga normal de chunks -- pero
+        // corta el bajon mucho antes de que se note como un paron.
+        if (deltaTime > 0.033f) {
             MAX_CHUNKS_PER_FRAME = 1;
             MAX_MESHES_PER_FRAME_DYNAMIC = 1;
         }
@@ -15818,32 +20087,32 @@ public:
             framesSinceAdjust = 0;
 
             // ================================================================
-            // OBJETIVO: 100 FPS (10 ms por frame)
+            // OBJETIVO: 120-200 FPS (5 a 8,3 ms por frame)
             // ================================================================
             // Este regulador reparte el presupuesto del frame entre generar
             // chunks y mallarlos. La clave es que SUBE la carga mientras le
-            // sobre margen, asi que el umbral de subida ES el objetivo de FPS:
-            // el motor acaba estabilizandose justo ahi.
+            // sobre margen, asi que EL UMBRAL DE SUBIDA ES EL OBJETIVO DE FPS:
+            // el motor acaba estabilizandose justo ahi, ni mas ni menos.
             //
-            // Estaba calibrado para 50-60 FPS: subia carga con cualquier frame
-            // por debajo de 30 ms (33 FPS) y solo frenaba pasados los 38 ms
-            // (26 FPS). Con esos numeros el motor JAMAS llega a 100 aunque la
-            // maquina de para ello -- se gasta todo el margen en cargar mundo
-            // mas deprisa, que es exactamente lo que se le pedia.
+            // Por eso recalibrarlo es lo que de verdad mueve la cifra. Ha ido
+            // subiendo con el objetivo: primero 50-60 FPS, luego 100, y ahora
+            // 120-200. Con el liston en 100, el motor se gastaba todo el
+            // margen sobrante en cargar mundo mas deprisa y jamas pasaba de
+            // ahi aunque la maquina diera para mucho mas.
             //
-            // Ahora las tres zonas se refieren a 100 FPS:
-            //   < 8,5 ms  (>117 FPS) -> sobra margen: subir carga
-            //   8,5-11 ms (90-117)   -> en el objetivo: no tocar nada
-            //   > 11 ms   (<90 FPS)  -> se pierde el objetivo: bajar carga
+            // Las tres zonas, referidas a 120 FPS como suelo:
+            //   < 5,5 ms  (>180 FPS) -> sobra margen de verdad: subir carga
+            //   5,5-8,3   (120-180)  -> en el objetivo: no tocar nada
+            //   > 8,3 ms  (<120 FPS) -> se pierde el objetivo: bajar carga
             //
-            // La banda muerta entre 8,5 y 11 ms evita que oscile subiendo y
+            // La banda muerta entre 5,5 y 8,3 ms evita que oscile subiendo y
             // bajando en frames alternos.
-            if (performanceSmoothed < 0.0085f) {
+            if (performanceSmoothed < 0.0055f) {
                 if (MAX_CHUNKS_PER_FRAME < 2) MAX_CHUNKS_PER_FRAME++;
                 if (MAX_MESHES_PER_FRAME_DYNAMIC < 6) MAX_MESHES_PER_FRAME_DYNAMIC++;
             }
-            else if (performanceSmoothed < 0.011f) {
-                // Zona óptima (90-117 FPS) - mantener valores actuales
+            else if (performanceSmoothed < 0.0083f) {
+                // Zona óptima (120-180 FPS) - mantener valores actuales
             }
             else {
                 if (MAX_CHUNKS_PER_FRAME > 1) MAX_CHUNKS_PER_FRAME--;
@@ -15997,13 +20266,22 @@ public:
         }
 
         // ⭐⭐⭐ DESCARGA CIRCULAR: Descargar chunks fuera del círculo + buffer
+        //
+        // El radio se compara AL CUADRADO para no pagar una raiz cuadrada por
+        // chunk y por frame. Con ~113 chunks cargados eso eran 113 sqrtf en
+        // cada pasada, para obtener exactamente la misma respuesta: comparar
+        // d contra R es lo mismo que comparar d² contra R², y las dos
+        // cantidades son positivas.
+        const float limiteDescarga = RENDER_DISTANCE + 1.0f;
+        const float limiteDescarga2 = limiteDescarga * limiteDescarga;
+
         std::vector<Vec3i> chunksToRemove;
         for (auto& pair : chunks) {
             int dx = pair.first.x - playerChunk.x;
             int dz = pair.first.z - playerChunk.z;
 
             // ⭐ CLAVE: Distancia circular, no cuadrada
-            float distance = sqrtf((float)(dx*dx + dz*dz));
+            const float distance2 = (float)(dx*dx + dz*dz);
 
             // Descargar chunks que están más allá del radio + buffer
             // Margen bajado de +3 a +1.
@@ -16017,7 +20295,7 @@ public:
             // Con +1 quedan 113: sigue habiendo margen para que el
             // jugador se mueva sin recargar de golpe, pero sin arrastrar
             // el doble de mundo del que se ve.
-            if (distance > RENDER_DISTANCE + 1.0f) {
+            if (distance2 > limiteDescarga2) {
                 chunksToRemove.push_back(pair.first);
             }
         }
@@ -16149,46 +20427,93 @@ public:
         }
 
         // ⭐⭐⭐ ORDENAR POR DISTANCIA CON PRIORIDAD PARA CHUNKS MODIFICADOS
+        //
+        // Se ordena por distancia AL CUADRADO: la raiz cuadrada no cambia el
+        // orden (es monotona creciente) y costaba dos sqrtf por comparacion,
+        // o sea O(n log n) raices por frame para obtener exactamente la misma
+        // ordenacion. El umbral de "cerca" se compara tambien al cuadrado.
         std::sort(chunksToRebuild.begin(), chunksToRebuild.end(),
             [&playerChunk](Chunk* a, Chunk* b) {
-                // Calcular distancia euclidiana
-                int dxA = a->position.x - playerChunk.x;
-                int dzA = a->position.z - playerChunk.z;
-                int dxB = b->position.x - playerChunk.x;
-                int dzB = b->position.z - playerChunk.z;
+                const int dxA = a->position.x - playerChunk.x;
+                const int dzA = a->position.z - playerChunk.z;
+                const int dxB = b->position.x - playerChunk.x;
+                const int dzB = b->position.z - playerChunk.z;
 
-                float distA = sqrtf((float)(dxA*dxA + dzA*dzA));
-                float distB = sqrtf((float)(dxB*dxB + dzB*dzB));
+                const int distA2 = dxA*dxA + dzA*dzA;
+                const int distB2 = dxB*dxB + dzB*dzB;
 
-                // ⭐ PRIORIDAD EXTRA: Chunks modificados recientemente (muy cerca del jugador)
-                // Si están a distancia <= 2, tienen máxima prioridad
-                bool nearA = distA <= 2.0f;
-                bool nearB = distB <= 2.0f;
+                // ⭐ PRIORIDAD EXTRA: Chunks muy cerca del jugador (distancia
+                // <= 2, o sea distancia al cuadrado <= 4) van primero.
+                const bool nearA = distA2 <= 4;
+                const bool nearB = distB2 <= 4;
 
                 if (nearA && !nearB) return true;   // A tiene prioridad
                 if (!nearA && nearB) return false;  // B tiene prioridad
 
-                return distA < distB; // Ambos cerca o ambos lejos - usar distancia
+                return distA2 < distB2;
             });
 
-        // ⭐⭐⭐ CONSTRUIR MESHES: Con budget de tiempo estricto
+        // ====================================================================
+        // ⭐ CONSTRUIR MESHES: EL PRESUPUESTO MANDA SOBRE EL FRAME
+        // ====================================================================
+        // El mallado es el trabajo mas caro que ocurre en el hilo principal, y
+        // por tanto la fuente numero uno de TIRONES.
+        //
+        // EL PRESUPUESTO ERA DE 8 ms, Y ESO NO PODIA SALIR BIEN:
+        //
+        //   - Un frame a 120 FPS dura 8.3 ms ENTERO. Gastar 8 ms solo en
+        //     mallar deja 0.3 ms para fisica, render y swap, que necesitan
+        //     unos 7. Es decir: cada vez que habia chunks que mallar, el frame
+        //     se iba a ~16 ms o mas. Medido: picos de 64 a 88 ms y minimos de
+        //     11 FPS mientras la media rondaba los 120.
+        //
+        //   - El comentario decia "deja 8-12ms para el resto", que es el
+        //     presupuesto de un objetivo de 60 FPS (16.6 ms/frame). Para
+        //     120-200 FPS el frame entero mide entre 5 y 8.3 ms.
+        //
+        // AHORA: 2.5 ms. Es lo que cabe en un frame de 120 FPS dejando sitio
+        // al render (~4 ms) y al swap (~2 ms). Mallar tarda mas ratos, pero
+        // repartido en mas frames, que es exactamente lo que se quiere: es
+        // preferible que el terreno tarde medio segundo mas en aparecer a que
+        // el juego pegue un tiron cada vez que aparece.
+        const float MAX_MESH_BUILD_TIME_MS = 2.5f;
+
         int meshesBuiltThisFrame = 0;
         auto meshBuildStart = std::chrono::high_resolution_clock::now();
-        const float MAX_MESH_BUILD_TIME_MS = 8.0f;  // ⭐ Máximo 8ms para meshes (deja 8-12ms para resto)
 
         for (Chunk* chunk : chunksToRebuild) {
             // ⭐ Verificar límite de meshes
             if (meshesBuiltThisFrame >= MAX_MESHES_PER_FRAME_DYNAMIC) break;
 
-            // ⭐⭐⭐ BUDGET DE TIEMPO: Parar si ya usamos mucho tiempo este frame
+            // ⭐ BUDGET DE TIEMPO: se comprueba ANTES de construir, y se aplica
+            // tambien al primero.
+            //
+            // Antes la condicion llevaba `&& meshesBuiltThisFrame > 0`, que
+            // dejaba pasar SIEMPRE un mesh entero por frame pasara lo que
+            // pasara. Con un chunk pesado (mucha agua, mucha vegetacion) ese
+            // "uno gratis" es justo el que se come 30 ms y produce el tiron.
+            //
+            // Se conserva la garantia de progreso de otra forma: si el
+            // presupuesto se agota sin haber mallado nada, se malla UNO igual
+            // -- pero solo cuando de verdad no se ha hecho nada, no en cada
+            // frame. Asi el mallado nunca se detiene del todo y a la vez no
+            // hay un pico garantizado por frame.
             auto now = std::chrono::high_resolution_clock::now();
             float elapsedMs = std::chrono::duration<float, std::milli>(now - meshBuildStart).count();
-            if (elapsedMs > MAX_MESH_BUILD_TIME_MS && meshesBuiltThisFrame > 0) {
-                break;  // Ya gastamos suficiente tiempo este frame
+            if (elapsedMs > MAX_MESH_BUILD_TIME_MS) {
+                break;
             }
 
             buildChunkMesh(chunk);
             meshesBuiltThisFrame++;
+        }
+
+        // Garantia de progreso: si el frame venia tan cargado que no dio
+        // tiempo ni a empezar, se malla uno de todas formas. Sin esto, con el
+        // presupuesto agotado de forma sostenida el terreno dejaria de
+        // aparecer.
+        if (meshesBuiltThisFrame == 0 && !chunksToRebuild.empty()) {
+            buildChunkMesh(chunksToRebuild[0]);
         }
 
         // ⭐ RESULTADO DE LA RECARGA MANUAL (tecla R)
@@ -16497,6 +20822,9 @@ public:
         int chunksCulled = 0;
         int facesRendered = 0;
         int batchesRendered = 0;
+        // Batches que se recorren en el pase opaco y se descartan sin dibujar
+        // (son de agua/transparentes). Recorrerlos cuesta CPU igual.
+        int batchesVacios = 0;
 
         // ⭐ OPTIMIZACIÓN: Crear lista de chunks visibles con distancia para sorting
         struct ChunkRenderInfo {
@@ -16647,70 +20975,113 @@ public:
         glDisable(GL_ALPHA_TEST);
         bool alphaTestActivo = false;   // espejo del estado real de OpenGL
 
-        // Renderizar chunks visibles ordenados - BLOQUES OPACOS
-        for (const auto& info : visibleChunks) {
-            Chunk* chunk = info.chunk;
+        // ====================================================================
+        // ⭐ LOS BATCHES SE AGRUPAN POR TEXTURA, NO POR CHUNK
+        // ====================================================================
+        // MEDIDO: 930 batches por frame y `render` a 7.7 ms. Son ~8 us por
+        // batch, y eso es coste de CPU (cambiar de estado y llamar al driver),
+        // no de GPU: bajar la resolucion a la cuarta parte no cambio nada.
+        //
+        // EL PROBLEMA ERA EL ORDEN DEL RECORRIDO. Se iba chunk por chunk, y
+        // dentro de cada uno, sus texturas:
+        //
+        //     chunk A: tierra, piedra, pasto
+        //     chunk B: tierra, piedra, pasto     <- se rebindea todo otra vez
+        //     chunk C: tierra, piedra, pasto     <- y otra
+        //
+        // Los 52 chunks visibles repiten las mismas ~20 texturas, asi que el
+        // cache de bindOptimized() no servia de nada: cada batch cambiaba la
+        // textura respecto al anterior. Resultado: ~930 binds por frame.
+        //
+        // Agrupando por textura, el recorrido pasa a ser:
+        //
+        //     tierra: chunk A, chunk B, chunk C, ...   <- UN bind
+        //     piedra: chunk A, chunk B, chunk C, ...   <- UN bind
+        //
+        // De ~930 binds a ~20. Los draw calls siguen siendo los mismos (cada
+        // chunk tiene su VBO), pero el cambio de estado -- que es la parte
+        // cara en un driver viejo -- se paga una vez por textura.
+        //
+        // Ademas el orden agrupa por `recortado`, asi que el glEnable/
+        // glDisable del test de alfa tambien deja de alternar.
+        //
+        // El vector es static para no reservar memoria en cada frame; se vacia
+        // con clear(), que conserva la capacidad ya reservada.
+        {
+            // ⭐ Interruptor para comparar A/B sin recompilar.
+            //
+            // VOXELWORLD_AGRUPAR=0 vuelve al recorrido por chunk. Existe
+            // porque medir "antes y despues" recompilando da numeros que no
+            // se pueden comparar: el jugador acaba en sitios distintos y la
+            // carga cambia (se han visto de 250k a 460k caras entre dos
+            // arranques). Con el interruptor, las dos rutas se miden en la
+            // MISMA sesion y sobre la misma vista.
+            static const bool agrupar = []{
+                const char* v = getenv("VOXELWORLD_AGRUPAR");
+                return !(v && v[0] == '0');
+            }();
 
-            // VBO BATCHING: Renderizar cada batch con su textura
-            for (auto* batch : chunk->batches) {
-                // ⭐ PROTECCIÓN CRÍTICA: Validar puntero del batch
-                if (!batch) continue;
+            // Chunk::TextureBatch, cualificado: el tipo esta anidado en Chunk
+            // y aqui estamos en World, asi que sin el prefijo no se resuelve.
+            static std::vector<Chunk::TextureBatch*> opacosPorTextura;
+            opacosPorTextura.clear();
 
-                // ⭐⭐⭐ VALIDACIÓN EXHAUSTIVA: Detectar batches corruptos
-                // 1. VBOs válidos (no nulos)
-                if (batch->vbo == 0 || batch->colorVBO == 0 || batch->uvVBO == 0) continue;
+            for (const auto& info : visibleChunks) {
+                for (auto* batch : info.chunk->batches) {
+                    if (!batch) continue;
+                    if (batch->transparente) { batchesVacios++; continue; }
+                    opacosPorTextura.push_back(batch);
+                }
+            }
 
-                // 2. Vertex count razonable y múltiplo de 4 (GL_QUADS)
-                if (batch->vertexCount == 0 || batch->vertexCount > 1000000) continue;
+            // Ordenar por (recortado, textura): agrupa los dos cambios de
+            // estado que cuestan, y deja juntos los batches que comparten
+            // ambos.
+            //
+            // Sin agrupar, el orden es el de recorrido por chunk -- que es
+            // exactamente lo que hacia el codigo anterior.
+            if (agrupar) {
+                std::sort(opacosPorTextura.begin(), opacosPorTextura.end(),
+                    [](const Chunk::TextureBatch* a, const Chunk::TextureBatch* b) {
+                        if (a->recortado != b->recortado)
+                            return !a->recortado;   // primero los macizos
+                        return a->texture < b->texture;
+                    });
+            }
+
+            for (auto* batch : opacosPorTextura) {
+                // ⭐ VALIDACION EXHAUSTIVA: Detectar batches corruptos
+                if (batch->vbo == 0 || batch->colorVBO == 0 ||
+                    batch->uvVBO == 0) continue;
+                if (batch->vertexCount == 0 ||
+                    batch->vertexCount > 1000000) continue;
                 if (batch->vertexCount % 4 != 0) {
-                    std::cerr << "⚠️ BATCH CORRUPTO: vertexCount no es múltiplo de 4: " << batch->vertexCount << std::endl;
+                    std::cerr << "⚠️ BATCH CORRUPTO: vertexCount no es múltiplo de 4: "
+                              << batch->vertexCount << std::endl;
                     continue;
                 }
-
-                // 3. Textura válida
                 if (batch->texture == 0) {
                     std::cerr << "⚠️ BATCH CORRUPTO: textura nula" << std::endl;
                     continue;
                 }
 
-                // ⭐ PASE 1: Saltar agua, solo bloques opacos.
-                // Se usa la marca guardada al construir el mesh, no una
-                // comparacion de IDs de textura (ver TextureBatch::transparente).
-                if (batch->transparente) continue;
-
-                // ⭐ EL RECORTE POR ALFA, SOLO DONDE HACE FALTA
-                //
-                // El pase entra con GL_ALPHA_TEST apagado para que la GPU
-                // pueda descartar por early-Z (ver la nota al abrir el pase).
-                // Los batches con fondo recortado -- hierba, ramas, nopal --
-                // lo necesitan encendido o se les veria el cuadro del PNG.
-                //
-                // Se lleva la cuenta del estado actual para no llamar a
-                // glEnable/glDisable en cada batch: un cambio de estado de
-                // OpenGL no es gratis, y la inmensa mayoria de los batches del
-                // terreno son macizos y van seguidos.
+                // El recorte por alfa, solo donde hace falta (ver la nota de
+                // mas arriba). Con el orden nuevo esto cambia UNA vez.
                 if (batch->recortado != alphaTestActivo) {
                     if (batch->recortado) glEnable(GL_ALPHA_TEST);
                     else                  glDisable(GL_ALPHA_TEST);
                     alphaTestActivo = batch->recortado;
                 }
 
-                // Bind textura para este batch (optimizado con cache)
                 g_textureManager->bindOptimized(batch->texture);
 
-                // ⭐ PROTECCIÓN: Verificar funciones VBO antes de usar
-                if (!glBindBuffer) continue;  // glVertexPointer es estática (GL 1.1), no necesita chequeo
+                if (!glBindBuffer) continue;
 
-                // ⭐ UN bind y UNA llamada de punteros, en vez de seis.
-                // (ver la nota del buffer entrelazado en buildChunkMesh)
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
                 glInterleavedArrays(GL_T2F_C4F_N3F_V3F, 0, 0);
-
-                // Renderizar como GL_QUADS
                 glDrawArrays(GL_QUADS, 0, batch->vertexCount);
 
-                // Estadísticas
-                facesRendered += batch->vertexCount / 4;  // 4 vértices por cara
+                facesRendered += batch->vertexCount / 4;
                 batchesRendered++;
             }
         }
@@ -16813,6 +21184,7 @@ public:
                 std::cout << "[GPU] chunks=" << chunksRendered
                           << " culled=" << chunksCulled
                           << " batches=" << batchesRendered
+                          << " vacios=" << batchesVacios
                           << " caras=" << facesRendered << std::endl;
             }
         }
@@ -17793,11 +22165,15 @@ inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
         case BLOCK_PLANKS:
         case BLOCK_PLANKS_ENCINO:
         case BLOCK_PLANKS_OYAMEL:
+        case BLOCK_PLANKS_OCOTE:
         case BLOCK_WOOD_ENCINO:
         case BLOCK_WOOD_OYAMEL:
+        case BLOCK_WOOD_OCOTE:
+        case BLOCK_WOOD_OCOTE_DENTRO:
         case BLOCK_RAMA_PINO:
         case BLOCK_RAMA_ENCINO:
         case BLOCK_RAMA_OYAMEL:
+        case BLOCK_RAMA_OCOTE:
             return Audio::StepMaterial::Wood;
 
         case BLOCK_SNOW:
@@ -18069,6 +22445,107 @@ struct Button {
     }
 };
 
+// ============================================================================
+// ADAPTADOR DEL MUNDO PARA LA FAUNA
+// ============================================================================
+// Traduce las preguntas de la fauna a las consultas que el motor ya sabe
+// responder. Es la misma idea que EngineAdapter.h hace con la fisica del
+// jugador: una capa delgada para que el sistema de fauna NO conozca World.
+//
+// Gracias a esto, toda la fauna se testea contra un mundo sintetico sin
+// arrancar OpenGL — que es exactamente lo que pide 01_ARQUITECTURA con su
+// principio de inversion de dependencias.
+class AdaptadorMundoFauna : public Fauna::IPecariMundo {
+private:
+    TerrainGen::WorldGeneratorAAA* gen;
+    World* mundo;   // puede ser nullptr: ver esSolido
+
+public:
+    AdaptadorMundoFauna(TerrainGen::WorldGeneratorAAA* g, World* w = nullptr)
+        : gen(g), mundo(w) {}
+
+    float alturaSuelo(int x, int z) const override {
+        if (!gen) return 64.0f;
+        return (float)gen->GetTerrainHeight(x, z);
+    }
+
+    TerrainGen::BiomeType biomaEn(int x, int z) const override {
+        if (!gen) return TerrainGen::BIOME_PLAINS;
+        return gen->GetBiomeAt(x, z);
+    }
+
+    float pendienteEn(int x, int z) const override {
+        if (!gen) return 0.0f;
+        return gen->GetColumnData(x, z).slope;
+    }
+
+    // ========================================================================
+    // ⭐ ¿HAY ALGO SOLIDO AQUI? AHORA SE MIRA EL MUNDO DE VERDAD
+    // ========================================================================
+    // ESTE ERA EL BUG DE "EL PECARI ATRAVIESA LOS BLOQUES".
+    //
+    // Antes esto era una sola linea:
+    //
+    //     return (float)y < alturaSuelo(x, z);
+    //
+    // O sea: "es solido si esta por debajo de la superficie del TERRENO
+    // GENERADO". Eso convierte en invisible todo lo que no sea relieve base:
+    //
+    //   - Lo que construye el JUGADOR. Una casa de piedra no existia para el
+    //     animal: la cruzaba como si fuera aire.
+    //   - Los arboles, el nopal, el maguey: estan POR ENCIMA de la superficie.
+    //   - Y al reves, las CUEVAS daban falso positivo: un hueco bajo tierra se
+    //     reportaba como roca maciza.
+    //
+    // Ahora se consulta el chunk. Y con dos matices que el motor ya sabe y la
+    // fauna ignoraba por completo:
+    //
+    //   NIVELES PARCIALES. Una capa de tierra de 3/8 no es un cubo: si se
+    //   tratara como macizo, el animal chocaria contra una losa que en
+    //   pantalla le llega al tobillo.
+    //
+    //   VEGETACION. La hierba, las flores y las pencas se atraviesan. Que un
+    //   pecari no pueda cruzar un matojo seria peor que el bug original --
+    //   ademas de que el nopal es su comida.
+    //
+    // FUERA DE LOS CHUNKS CARGADOS se vuelve a la altura del terreno. No es
+    // una concesion: es lo unico que se puede contestar, porque ahi no hay
+    // bloques que mirar. Los animales lejanos siguen sin caerse del mundo, y
+    // los cercanos --que son los que el jugador ve-- chocan de verdad.
+    bool esSolido(int x, int y, int z) const override {
+        if (mundo != nullptr) {
+            const BlockType b = mundo->getBlock(x, y, z);
+
+            if (b != BLOCK_AIR) {
+                // Lo que se atraviesa no frena a nadie.
+                if (esAguaCualquiera(b) || b == BLOCK_LAVA) return false;
+                if (isCrossSprite(b)) return false;
+
+                // Una capa parcial solo estorba si es lo bastante alta. El
+                // corte en la mitad es el mismo criterio que usa el resto del
+                // motor para decidir si una loncha "cuenta" como suelo.
+                if (esNivelParcial(b)) return nivelDe(b) > 4;
+
+                return true;
+            }
+
+            // Aire de verdad DENTRO de un chunk cargado: no hay nada. Esto es
+            // lo que abre las cuevas y los interiores.
+            //
+            // Se distingue "aire de verdad" de "chunk que no esta cargado"
+            // porque getBlock devuelve AIRE en los dos casos, y confundirlos
+            // haria que el animal cayera por el mundo al asomarse al borde de
+            // lo cargado.
+            const Vec3i cp = mundo->worldToChunkPos(
+                Vec3((float)x, (float)y, (float)z));
+            if (mundo->getChunk(cp) != nullptr) return false;
+        }
+
+        // Sin mundo o fuera de lo cargado: el relieve base es lo unico que hay.
+        return (float)y < alturaSuelo(x, z);
+    }
+};
+
 struct GameState {
     Player player;
     World world;
@@ -18079,6 +22556,18 @@ struct GameState {
     InventorySlot craftingResult;   // ⭐⭐⭐ Slot de resultado del crafteo
     InventorySlot heldSlot;         // ⭐⭐⭐ Item que el jugador tiene en el cursor
     std::vector<ItemEntity> items;
+
+    // ------------------------------------------------------------------------
+    // FAUNA
+    // ------------------------------------------------------------------------
+    // Puntero y no valor porque necesita la seed del mundo, que no se conoce
+    // hasta cargar o crear la partida. Se construye en iniciarFauna().
+    std::unique_ptr<Fauna::MundoPecaries> pecaries;
+
+    // Acumulador de tiempo de juego, en segundos. Lo consume la ventana
+    // temporal de la repoblacion, que es lo que impide farmear pecaries
+    // recargando el mismo chunk.
+    double tiempoJuegoFauna = 0.0;
     bool keys[256];
     double lastMouseX;
     double lastMouseY;
@@ -18188,6 +22677,18 @@ struct GameState {
     float miningParticleTimer;  // Timer para partículas de minado
     bool mouseLeftPressed;
 
+    // ⭐ ¿Esta el golpe rearmado?
+    //
+    // El minado es continuo (mantener pulsado pica), pero ATACAR no puede
+    // serlo: a 120 fps, medio segundo con el boton dado seria medio centenar
+    // de golpes. Esto obliga a soltar entre golpe y golpe.
+    bool golpeSoltado = true;
+
+    // Alcance del golpe a un animal, en bloques. Algo mas corto que el de
+    // picar (5): hay que acercarse de verdad, y eso es lo que da la
+    // oportunidad de que el animal reaccione antes.
+    static constexpr float ALCANCE_GOLPE_FAUNA = 3.2f;
+
     // ⭐⭐⭐ Sistema de acumulación de items en hotbar
     int lastPressedSlot;        // Último slot presionado
     double lastSlotPressTime;   // Tiempo del último press
@@ -18256,6 +22757,17 @@ struct GameState {
 
     // ⭐ Determinar qué item debe caer cuando se rompe un bloque
     BlockType getDroppedItem(BlockType brokenBlock) {
+        // ⭐ LA TIERRA MOJADA SUELTA TIERRA NORMAL.
+        //
+        // Va antes del switch porque el bloque mojado no tiene que repetir
+        // cada caso de su version seca: se traduce y sigue. Sin esto, romper
+        // tierra empapada daria un item "tierra mojada" que se acumularia en
+        // el inventario como si fuera otro material.
+        if (estaMojado(brokenBlock)) brokenBlock = versionSeca(brokenBlock);
+
+        // ⭐ EL AGUA NO SE RECOGE A MANO. Se coge con un tazon.
+        if (esAguaCualquiera(brokenBlock)) return BLOCK_AIR;
+
         switch (brokenBlock) {
             case BLOCK_GRASS:
                 // El bloque de pasto suelta tierra
@@ -18305,6 +22817,7 @@ struct GameState {
             case BLOCK_RAMA_PINO:
             case BLOCK_RAMA_ENCINO:
             case BLOCK_RAMA_OYAMEL:
+            case BLOCK_RAMA_OCOTE:
                 return BLOCK_STICK;
 
             // La tuna se recoge entera: es fruta, se arranca y ya.
@@ -18313,10 +22826,41 @@ struct GameState {
             case BLOCK_TUNA_ROJA:
                 return brokenBlock;   // cada variedad se recoge tal cual
 
+            // ⭐ LAS HOJAS DE LAS CUATRO ESPECIES, CON LA MISMA REGLA
+            //
+            // Antes solo el PINO tenia caso propio: encino, oyamel y ocote
+            // caian al `default` y se soltaban SIEMPRE. O sea, tres de las
+            // cuatro especies daban hoja garantizada y una solo el 20% de las
+            // veces, sin ningun motivo -- es el sesgo tipico de anadir
+            // especies nuevas sin repasar las reglas viejas.
+            //
+            // Ahora las cuatro comparten la regla del pino. Vale igual si la
+            // rompe el jugador que si la hoja se pudre al quedarse sin arbol:
+            // las dos rutas pasan por aqui (ver spawnItem).
             case BLOCK_LEAVES:
-                // Las hojas pueden no soltar nada (20% de probabilidad de soltar)
+            case BLOCK_LEAVES_ENCINO:
+            case BLOCK_LEAVES_OYAMEL:
+            case BLOCK_LEAVES_OCOTE:
+            case BLOCK_LEAVES_OCOTE_CHINO:
                 if ((rand() % 100) < 20) {
-                    return BLOCK_LEAVES;
+                    return brokenBlock;   // su propia hoja, no la del pino
+                }
+                return BLOCK_AIR;
+
+            // La celda de hoja+rama del ocote chino suelta la HOJA, no la
+            // celda entera: un item "hojas con rama dentro" no tendria
+            // sentido en el inventario. La rama se pierde con el follaje,
+            // igual que pasa al romper cualquier copa.
+            case BLOCK_LEAVES_OCOTE_CHINO_RAMA:
+                if ((rand() % 100) < 20) {
+                    return BLOCK_LEAVES_OCOTE_CHINO;
+                }
+                return BLOCK_AIR;
+
+            // Lo mismo en el ocote blanco: suelta su hoja, no la celda.
+            case BLOCK_LEAVES_OCOTE_RAMA:
+                if ((rand() % 100) < 20) {
+                    return BLOCK_LEAVES_OCOTE;
                 }
                 return BLOCK_AIR;
 
@@ -18326,7 +22870,13 @@ struct GameState {
         }
     }
 
-    void spawnItem(Vec3 position, BlockType blockType) {
+    // ⭐ `vidaMedios` = la durabilidad que trae la herramienta que se suelta.
+    //
+    // Por defecto 0, que significa "sin estrenar" y es lo correcto para todo
+    // lo que cae de un bloque al picarlo: un pedazo de piedra no tiene vida
+    // que conservar. Solo el jugador tirando una herramienta de la mano pasa
+    // un valor aqui (ver dropSelectedItem).
+    void spawnItem(Vec3 position, BlockType blockType, int vidaMedios = 0) {
         // ⭐ Determinar qué item debe caer
         BlockType droppedItem = getDroppedItem(blockType);
 
@@ -18336,7 +22886,7 @@ struct GameState {
         }
 
         // Añadir pequeña velocidad aleatoria y spawn un poco más arriba
-        ItemEntity item(position, droppedItem);
+        ItemEntity item(position, droppedItem, vidaMedios);
         item.position.y += 0.3f;  // Spawn 0.3 bloques más arriba
         item.velocity = Vec3(
             (rand() % 100 - 50) / 100.0f,  // Más velocidad horizontal
@@ -18380,6 +22930,18 @@ struct GameState {
 
                 // ⭐ Radio de recogida final: 0.8 bloques (más pequeño que atracción)
                 if (dist < 0.8f) {
+                    // ⭐ UNA HERRAMIENTA VUELVE CON LA VIDA QUE TENIA.
+                    //
+                    // Va por camino aparte porque addItem() apila por tipo, y
+                    // apilar herramientas mezcla durabilidades: el slot solo
+                    // guarda un vidaMedios, asi que la del hacha recogida se
+                    // perderia. addHerramienta() le da su casilla.
+                    if (esHerramientaGastable(items[i].blockType)) {
+                        inventory.addHerramienta(items[i].blockType,
+                                                 items[i].vidaMedios);
+                        items.erase(items.begin() + i);
+                        continue;
+                    }
                     if (inventory.addItem(items[i].blockType, 1)) {
                         items.erase(items.begin() + i);
                         continue;
@@ -18388,6 +22950,129 @@ struct GameState {
             }
 
             i++;
+        }
+    }
+
+    // ========================================================================
+    // FAUNA — PECARI DE COLLAR
+    // ========================================================================
+
+    // Arranca (o reinicia) la poblacion. Se llama al entrar a un mundo, con
+    // la semilla ya fijada: la generacion de manadas es determinista respecto
+    // a ella, igual que el terreno.
+    void iniciarFauna() {
+        pecaries = std::make_unique<Fauna::MundoPecaries>(world.getSeed());
+        tiempoJuegoFauna = 0.0;
+    }
+
+    // Puebla un chunk recien cargado. La llama el motor una vez por chunk.
+    void poblarChunkConFauna(int chunkX, int chunkZ) {
+        if (!pecaries) return;
+        TerrainGen::WorldGeneratorAAA* gen = world.getWorldGen();
+        if (!gen) return;
+
+        AdaptadorMundoFauna adaptador(gen, &world);
+
+        // Distancia del centro del chunk al jugador. Es lo que hace cumplir
+        // la regla "no aparecer a la vista del jugador": la repoblacion se
+        // niega a instanciar nada dentro del radio visible.
+        const float centroX = (float)(chunkX * CHUNK_SIZE + CHUNK_SIZE / 2);
+        const float centroZ = (float)(chunkZ * CHUNK_SIZE + CHUNK_SIZE / 2);
+        const float dx = centroX - player.position.x;
+        const float dz = centroZ - player.position.z;
+        const float distancia = std::sqrt(dx*dx + dz*dz);
+
+        pecaries->alCargarChunk(chunkX, chunkZ, adaptador, distancia, tiempoJuegoFauna);
+    }
+
+    // Un paso de simulacion de toda la fauna.
+    void actualizarFauna(float deltaTime) {
+        if (!pecaries) return;
+        TerrainGen::WorldGeneratorAAA* gen = world.getWorldGen();
+        if (!gen) return;
+
+        tiempoJuegoFauna += (double)deltaTime;
+
+        // --- Poblar los chunks cargados ---
+        //
+        // Se hace aqui y no dentro de World porque World NO conoce GameState:
+        // esa separacion es deliberada y conviene no romperla por comodidad.
+        //
+        // PRESUPUESTO POR FRAME: se pueblan como mucho unos pocos chunks por
+        // frame. El motor ya trabaja asi en todas partes (MAX_CHUNKS_PER_FRAME
+        // para generacion, 4 ms de presupuesto para terreno), y sin este tope
+        // entrar a un mundo nuevo poblaria ~113 chunks de golpe en un solo
+        // frame, con el tiron correspondiente.
+        //
+        // Los chunks ya poblados se descartan solos dentro de alCargarChunk
+        // (lleva su propio registro), asi que repetir la pasada es barato.
+        constexpr int MAX_CHUNKS_FAUNA_POR_FRAME = 4;
+        int poblados = 0;
+        for (const auto& par : world.getChunks()) {
+            if (poblados >= MAX_CHUNKS_FAUNA_POR_FRAME) break;
+            if (par.second == nullptr || !par.second->isGenerated) continue;
+            poblarChunkConFauna(par.first.x, par.first.z);
+            ++poblados;
+        }
+
+        AdaptadorMundoFauna adaptador(gen, &world);
+        pecaries->actualizar(deltaTime, adaptador);
+
+        // Soltar los que quedaron muy lejos, para que la poblacion no crezca
+        // sin limite segun el jugador explora.
+        //
+        // El radio es generoso respecto a la distancia de carga de chunks
+        // (RENDER_DISTANCE * CHUNK_SIZE = 80 bloques) para que un animal no
+        // desaparezca justo al borde de lo visible.
+        pecaries->descargarLejos(player.position.x, player.position.z, 220.0f);
+
+        // ⭐ COLISION CON EL JUGADOR
+        //
+        // El pecari NO es un fantasma: tiene cuerpo y el jugador choca con el.
+        // La caja sale de la anatomia MEDIDA y se escala por la etapa vital,
+        // asi que un bebe estorba menos que un adulto.
+        //
+        // Se empuja al JUGADOR, no al animal: si se empujara al animal, el
+        // jugador podria arrastrar una manada entera por el mapa, y ademas la
+        // manada se descolocaria respecto a su centro.
+        {
+            // Medidas del jugador. El radio sale de su hitbox de colision.
+            constexpr float RADIO_JUGADOR  = 0.30f;
+            constexpr float ALTURA_JUGADOR = 1.80f;
+
+            // 1. El animal aparta al jugador.
+            float empujeX = 0.0f, empujeZ = 0.0f;
+            if (pecaries->empujeSobreJugador(player.position.x,
+                                             player.position.y,
+                                             player.position.z,
+                                             RADIO_JUGADOR, ALTURA_JUGADOR,
+                                             empujeX, empujeZ)) {
+                // Se aplica con suavizado para que el contacto no sea un
+                // rebote brusco: el jugador se apoya en el animal y resbala.
+                //
+                // El factor es BAJO (0.25) porque el jugador tambien empuja al
+                // animal justo debajo. Si los dos empujaran a tope, el
+                // contacto vibraria.
+                constexpr float SUAVIZADO = 0.25f;
+                player.position.x += empujeX * SUAVIZADO;
+                player.position.z += empujeZ * SUAVIZADO;
+            }
+
+            // 2. ⭐ Y EL JUGADOR APARTA AL ANIMAL.
+            //
+            // Es lo que hace que el contacto se sienta como dos cuerpos y no
+            // como chocar contra una pared. El reparto no es simetrico: se
+            // pondera por la MASA del animal, derivada de los pesos MEDIDOS
+            // (0.5 kg al nacer, 18.7 kg adulto).
+            //
+            // Resultado: una cria sale casi despedida, un adulto apenas cede,
+            // y en ambos casos el animal eriza la cresta — que es su respuesta
+            // de alarma MEDIDA.
+            pecaries->jugadorEmpuja(player.position.x,
+                                    player.position.y,
+                                    player.position.z,
+                                    RADIO_JUGADOR, ALTURA_JUGADOR,
+                                    0.85f);
         }
     }
 
@@ -18957,7 +23642,17 @@ struct BlockDrop {
     float chance;  // Probabilidad de drop (0.0 - 1.0)
 };
 
-std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
+// ⭐ La POSICION es opcional, y solo la usan los minerales.
+//
+// Hace falta porque la ley del bloque --cuanto mineral da-- depende de los
+// cristales que tenga, y esos salen de un hash de su posicion. Sin ella, un
+// bloque con veta rica daria lo mismo que uno con un cristal suelto, y la
+// diferencia que el jugador VE antes de picar no significaria nada.
+//
+// Por defecto (0,0,0) para no tocar las llamadas que no son de mineral: hay
+// cuatro repartidas por la rotura de columnas y la vegetacion.
+std::vector<BlockDrop> getBlockDrops(BlockType blockType,
+                                     int bx = 0, int by = 0, int bz = 0) {
     std::vector<BlockDrop> drops;
 
     // Un bloque COMPUESTO no suelta "un compuesto": lo que da lo decide la
@@ -18980,6 +23675,12 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
     // inventario. Si no, al picarlo saldria un item "horno encendido" que al
     // colocarlo ya vendria ardiendo sin combustible.
     if (blockType == BLOCK_HORNO_ENCENDIDO) blockType = BLOCK_HORNO;
+
+    // La tierra empapada se recoge SECA, por lo mismo: el agua que llevaba
+    // dentro se queda en el suelo, no viaja en el inventario. (Es la segunda
+    // tabla de drops del motor; la otra es getDroppedItem, y minar pasa por
+    // las dos, asi que las dos tienen que saberlo.)
+    if (estaMojado(blockType)) blockType = versionSeca(blockType);
 
     switch (blockType) {
         // ⭐ LOS GUIJARROS SUELTAN SU ITEM, NO EL BLOQUE
@@ -19004,15 +23705,55 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType) {
             drops.push_back({BLOCK_RAW_COPPER, 1, 1.0f});
             break;
 
+        // ====================================================================
+        // ⭐ LOS MINERALES: SE LLEVA LOS CRISTALES QUE PICO
+        // ====================================================================
+        // La cantidad NO es fija: sale de los cristales que tenia ese bloque
+        // (ver Cristal::LeyDelBloque). Un bloque con veta rica da mas que uno
+        // con un cristal suelto, y la diferencia se VE antes de picar -- el
+        // jugador puede elegir a que bloque dedicarle el pico.
+        //
+        // Antes esto era `1` siempre, asi que todos los bloques valian igual y
+        // los cristales eran decoracion. Ahora significan algo.
         case BLOCK_COAL_ORE:
-            // Carbón mineral → dropea 1 carbón item
-            drops.push_back({BLOCK_COAL_ITEM, 1, 1.0f});
+            drops.push_back({BLOCK_COAL_ITEM,
+                             Cristal::LeyDelBloque(blockType, bx, by, bz),
+                             1.0f});
             break;
 
-        case BLOCK_SCRAP_METAL:
-            // Desecho de metales → dropea zinc Y cobre crudo
-            drops.push_back({BLOCK_RAW_ZINC, 1, 1.0f});
-            drops.push_back({BLOCK_RAW_COPPER, 1, 1.0f});
+        case BLOCK_SCRAP_METAL: {
+            // El desecho da los dos metales, cada uno con su propia ley.
+            const int n = Cristal::LeyDelBloque(blockType, bx, by, bz);
+            drops.push_back({BLOCK_RAW_ZINC,   n, 1.0f});
+            drops.push_back({BLOCK_RAW_COPPER, n, 1.0f});
+            break;
+        }
+
+        // Los que hasta ahora se soltaban A SI MISMOS -- o sea, el jugador se
+        // llevaba un bloque de piedra con la veta dentro en vez del mineral.
+        // Ahora dan el metal, que es lo que se pico.
+        case BLOCK_PYRITE_ORE:
+            // La pirita es sulfuro de HIERRO: da hierro crudo. Es el guiño al
+            // "oro de los tontos" -- brilla como el oro y no lo es.
+            drops.push_back({BLOCK_PEDAZO_HEMATITE,
+                             Cristal::LeyDelBloque(blockType, bx, by, bz),
+                             1.0f});
+            break;
+
+        case BLOCK_GOLD_ORE:
+        case BLOCK_SILVER_ORE:
+        case BLOCK_IRON_ORE:
+        case BLOCK_DIAMOND_ORE:
+            // ⚠️ ESTOS TRES NO TIENEN ITEM PROPIO TODAVIA.
+            //
+            // No existe "pepita de oro" ni "diamante" como item en el enum, y
+            // crearlos es otra tarea (toca texturas, iconos y crafteo). Hasta
+            // entonces se sueltan a si mismos, como hacian antes, pero YA con
+            // la cantidad que marca su ley: el dia que existan los items,
+            // basta cambiar el tipo aqui.
+            drops.push_back({blockType,
+                             Cristal::LeyDelBloque(blockType, bx, by, bz),
+                             1.0f});
             break;
 
         // ⭐ EL AGUAMIEL NO SE COGE CON LA MANO
@@ -19076,7 +23817,93 @@ void updateMining(GameState* state, float deltaTime) {
         state->isMining = false;
         state->miningProgress = 0.0f;
         state->miningParticleTimer = 0.0f;
+        state->golpeSoltado = true;   // al soltar, se rearma el golpe
+        state->breakCooldown = 0.0f;  // y se puede romper de inmediato
         return;
+    }
+
+    // ========================================================================
+    // ⭐ EL RITMO DE EXCAVADO EN CREATIVO
+    // ========================================================================
+    // PROBLEMA QUE ESTO CORRIGE: en creativo el tiempo de rotura es
+    // practicamente cero, y este bucle NO tenia ningun freno entre bloque y
+    // bloque. Mientras el boton siguiera pulsado se rompia UNO POR FRAME.
+    //
+    // Medido: a 130 FPS eran 130 bloques por segundo. Un roce del raton abria
+    // un tunel de veinte bloques antes de poder reaccionar. Y ademas dependia
+    // de la maquina -- el mismo gesto rompia el doble en un PC rapido que en
+    // uno lento, porque el ritmo lo marcaba el framerate.
+    //
+    // La solucion NO es hacer el bloque mas lento de romper: es poner un
+    // intervalo entre roturas. Asi el PRIMER clic sigue siendo instantaneo --
+    // que es lo comodo de construir -- y mantenerlo pulsado excava a un ritmo
+    // constante y seguible con la vista.
+    //
+    // 0.13 s -> ~7-8 bloques por segundo. Bastante mas rapido que picar en
+    // supervivencia, pero se puede parar donde uno quiere.
+    if (state->breakCooldown > 0.0f) {
+        state->breakCooldown -= deltaTime;
+        if (state->breakCooldown > 0.0f) {
+            // Aun en espera: no se rompe nada este frame, pero se mantiene el
+            // estado de minado para que el bloque siga resaltado.
+            return;
+        }
+        state->breakCooldown = 0.0f;
+    }
+
+    // ========================================================================
+    // ⭐ PEGARLE A UN ANIMAL
+    // ========================================================================
+    // Va ANTES que el minado: si hay un pecari entre el jugador y el bloque,
+    // el golpe es para el animal. Lo contrario seria absurdo -- picar una
+    // pared a traves de un jabali.
+    //
+    // ⚠️ UN GOLPE POR CLIC, no uno por frame.
+    //
+    // El minado es continuo a proposito (mantener pulsado pica el bloque),
+    // pero un ataque no puede serlo: a 120 fps, mantener el boton medio
+    // segundo darian 60 golpes y cualquier animal moriria al instante. Se
+    // exige soltar el boton entre golpe y golpe, que es lo que hace
+    // `golpeSoltado`.
+    if (state->pecaries && state->golpeSoltado) {
+        const int idTocado = state->pecaries->pecariApuntado(
+            origin.x, origin.y, origin.z,
+            direction.x, direction.y, direction.z,
+            GameState::ALCANCE_GOLPE_FAUNA);
+
+        if (idTocado >= 0) {
+            state->golpeSoltado = false;   // consumido hasta que suelte
+
+            // El daño sale de lo que lleve en la mano. Un hacha corta mucho
+            // mas que un puño, que es lo que ya distingue el motor para los
+            // bloques.
+            const BlockType enMano = state->inventory.getSelectedBlock();
+            const int dano = esHacha(enMano)   ? 6
+                           : esPico(enMano)    ? 4
+                           : esHerramientaGastable(enMano) ? 3
+                                               : 2;   // a mano limpia
+
+            TerrainGen::WorldGeneratorAAA* gen = state->world.getWorldGen();
+            AdaptadorMundoFauna adaptador(gen, &state->world);
+
+            const bool murio = state->pecaries->recibirDano(
+                idTocado, dano,
+                state->player.position.x, state->player.position.z,
+                adaptador);
+
+            // Un poco de eco: polvo donde se dio el golpe.
+            state->particles.spawnBlockBreakParticles(
+                origin + direction * 1.5f,
+                murio ? BLOCK_DIRT : BLOCK_TALLGRASS);
+
+            if (g_soundManager)
+                g_soundManager->playBreakBlock(BLOCK_TALLGRASS, glfwGetTime());
+
+            // No se pica nada este frame.
+            state->isMining = false;
+            state->miningProgress = 0.0f;
+            return;
+        }
     }
 
     // ⭐⭐⭐ NUEVO: Si no hay bloque frente a nosotros, intentar romper bloque sobre la cabeza
@@ -19173,6 +24000,15 @@ void updateMining(GameState* state, float deltaTime) {
 
     // Si completamos el minado, romper el bloque
     if (state->miningProgress >= 1.0f) {
+        // ⭐ ARMA EL FRENO PARA EL SIGUIENTE BLOQUE (solo en creativo).
+        //
+        // En supervivencia no hace falta: el propio tiempo de rotura del
+        // material ya marca el ritmo. En creativo ese tiempo es casi cero, asi
+        // que sin esto se romperia un bloque por frame (ver la nota de arriba).
+        if (state->currentGameMode == 1) {
+            state->breakCooldown = 0.13f;
+        }
+
         // ⭐ LA HERRAMIENTA SE GASTA CON CADA BLOQUE DE LO SUYO
         //
         // Solo gasta si el bloque es de su terreno: el hacha con lo orgánico,
@@ -19233,9 +24069,44 @@ void updateMining(GameState* state, float deltaTime) {
                 namespace M = Compuesto::Maguey;
                 const uint16_t p = M::puntasDe(blockType);
                 if (p > 0) {
-                    state->world.setBlock(bx, by, bz,
-                        M::conPuntas(blockType, (uint16_t)(p - 1)));
-                    state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
+                    BlockType nuevo = M::conPuntas(blockType,
+                                                   (uint16_t)(p - 1));
+
+                    // ⭐ ARRANCAR LA PUNTA SUELTA EL AGUAMIEL ACUMULADO
+                    //
+                    // Cortar una penca de un maguey cargado lo desangra: el
+                    // jugo sale por el corte. Es una forma tosca de sacarlo
+                    // -- mas vale ordeñarlo con el tazon, que no gasta la
+                    // planta -- pero funciona, y es lo que pasaria de verdad.
+                    //
+                    // Se entrega en TAZONES DE PINO. Un liquido suelto no se
+                    // puede llevar en el inventario: BLOCK_AGUAMIEL existe
+                    // como bloque del mundo, no como objeto, y spawnearlo
+                    // daria un item que getDroppedItem descarta -- o sea,
+                    // nada. El tazon es el envase que el juego ya usa para
+                    // esto en la via buena.
+                    const uint16_t jugoQueTenia = M::aguamielDe(blockType);
+                    if (jugoQueTenia >= M::AGUAMIEL_PARA_TAZON) {
+                        // Solo si habia bastante para llenar algo. Un fondo de
+                        // jugo se pierde en el corte, que es lo justo: la via
+                        // tosca desperdicia.
+                        state->spawnItem(pos, BLOCK_TAZON_PINO_AGUAMIEL);
+                        nuevo = M::vaciado(nuevo);   // se ha derramado
+                    } else if (jugoQueTenia > 0) {
+                        // Poco jugo: se pierde entero al cortar.
+                        nuevo = M::vaciado(nuevo);
+                    }
+
+                    state->world.setBlock(bx, by, bz, nuevo);
+
+                    // ⭐ EL MAGUEY NO DA ESPINAS.
+                    //
+                    // Arrancarle una pua se ve en el modelo (la penca pierde
+                    // su remate), pero no entrega nada al inventario. Las
+                    // espinas de nopal siguen saliendo del NOPAL, que es de
+                    // donde vienen: son dos plantas distintas y mezclarlas
+                    // hacia que el maguey fuese una fuente facil de un
+                    // material que no es suyo.
                 }
                 if (g_soundManager)
                     g_soundManager->playBreakBlock(blockType, glfwGetTime());
@@ -19245,13 +24116,147 @@ void updateMining(GameState* state, float deltaTime) {
                 return;
             }
 
-            // El cuerpo: cae la planta entera. Suelta las espinas que le
-            // quedaran, que es lo que el jugador puede aprovechar de ella.
+            // El cuerpo: cae la planta entera.
+            //
+            // ⭐ Y NO SUELTA ESPINAS. Antes daba una por cada pua que le
+            // quedara -- hasta seis de golpe -- lo que convertia al maguey en
+            // la forma mas comoda de conseguir espinas de NOPAL, que es otra
+            // planta. Ahora la mata cae sin dejar material de espinas.
+
+            // ================================================================
+            // ⭐ LA COSECHA: PENCAS DE MAGUEY, SEGUN EL FILO Y EL TAMAÑO
+            // ================================================================
+            // Tumbar un maguey a mano no deja nada aprovechable: las pencas son
+            // fibrosas y correosas, y arrancarlas a tirones las destroza. Con
+            // FILO -- hacha de piedra o de pedernal afilado -- se cortan
+            // limpias y se las lleva uno.
+            //
+            // Es la misma regla que ya rige el ixtle en el campo: la penca se
+            // corta, no se arranca. Y encaja con como funciona ya el motor,
+            // donde la herramienta decide si un bloque entrega material
+            // (esOrganicoParaHacha / esRocaParaPico).
+            //
+            // CUANTAS. Salen de la ETAPA, porque una mata da lo que tiene: un
+            // brote a ras de suelo no tiene pencas que valgan y un ejemplar
+            // hecho tiene la roseta llena. El reparto sigue las celdas que
+            // ocupa la planta, que es la medida de tamaño que ya usa todo el
+            // motor (mesher, hitbox y seleccion leen de ahi):
+            //
+            //     BROTE      1 celda    -> 1 penca
+            //     JOVEN      2 celdas   -> 2
+            //     ADULTO     3 celdas   -> 3
+            //     MADURO     4 celdas   -> 4
+            //     PRODUCTOR  4 celdas   -> 4
+            //
+            // O sea de 1 a 4 segun el tamaño, que es justo lo que se pide.
+            //
+            // Las dos hachas dan lo MISMO. La de pedernal ya se distingue por
+            // donde importa -- aguanta 390 bloques frente a 250 y es la unica
+            // que puede con la punta del maguey -- y hacerla ademas mas
+            // productiva la volveria obligatoria en vez de preferible.
+            //
+            // ⚠️ CADA FAMILIA DA LO SUYO.
+            //
+            // Esta rama se ejecuta para CUALQUIER bloque compuesto, no solo
+            // para el maguey. Antes aplicaba las medidas del pulquero a todo,
+            // asi que un agave azul se cosechaba con las etapas de otra planta
+            // -- que por casualidad no reventaba, porque los dos usan campos
+            // del mismo ancho, pero daba el numero equivocado.
+            //
+            // Ahora se pregunta por la familia, que es el dato real.
+            if (esHacha(herramienta)) {
+                const Compuesto::Familia fam = Compuesto::familiaDe(blockType);
+
+                if (fam == Compuesto::FAM_MAGUEY) {
+                    namespace M = Compuesto::Maguey;
+                    const int pencas = M::celdasDeEtapa(M::etapaDe(blockType));
+                    for (int i = 0; i < pencas; ++i)
+                        state->spawnItem(pos, BLOCK_IXTLE_HOJA);
+
+                } else if (fam == Compuesto::FAM_AGAVE_AZUL) {
+                    // ⭐ EL TEQUILANA DA SU PROPIA PENCA.
+                    //
+                    // Item distinto del pulquero a proposito: son dos plantas
+                    // distintas y se ven distintas (azul plateado mate frente
+                    // a verde). Compartir item borraria la diferencia.
+                    //
+                    // La cantidad sale de las celdas que ocupa la ROSETA, la
+                    // misma regla que el pulquero. Se usa celdasDeEtapa y no
+                    // celdasDe porque esta ultima suma el quiote, y un tallo
+                    // floral de 5 m no son cinco pencas mas: la hoja esta en
+                    // la roseta.
+                    namespace AG = Compuesto::AgaveAzul;
+                    if (AG::faseDe(blockType) == AG::PINA) {
+                        // Ya jimada: las pencas se cortaron en su momento, lo
+                        // que queda es el corazon. No da hoja.
+                    } else {
+                        const int pencas =
+                            AG::celdasDeEtapa(AG::etapaDe(blockType));
+                        for (int i = 0; i < pencas; ++i)
+                            state->spawnItem(pos, BLOCK_PENCA_AGAVE_AZUL);
+                    }
+                }
+            }
+
+            // ⭐ CAE LA PLANTA ENTERA, NO SOLO LA CELDA GOLPEADA.
+            //
+            // Un maguey grande ocupa varias celdas. Si se borrase solo la que
+            // recibio el hachazo, el resto quedaria FLOTANDO -- trozos de
+            // planta colgados en el aire sin nada debajo.
+            //
+            // Se busca la base (bajando mientras siga siendo el mismo maguey)
+            // y desde ahi se limpian todas sus celdas hacia arriba.
+            //
+            // ⚠️ VALE PARA CUALQUIER FAMILIA, NO SOLO EL MAGUEY.
+            //
+            // Antes `mismaPlanta` exigia FAM_MAGUEY, asi que al talar un agave
+            // azul solo se borraba la celda golpeada y el resto de la roseta
+            // -- y su quiote de 5 m -- se quedaba FLOTANDO en el aire. El
+            // sintoma es el mismo que el bug que esto vino a corregir, solo
+            // que en la otra planta.
+            //
+            // Se compara por FAMILIA y por SEGMENTO en vez de por los campos
+            // concretos de una especie: dos celdas son de la misma planta si
+            // son de la misma familia y forman una columna de segmentos
+            // consecutivos. Eso vale para todas las familias presentes y para
+            // las que vengan.
             {
-                namespace M = Compuesto::Maguey;
-                const uint16_t p = M::puntasDe(blockType);
-                for (uint16_t i = 0; i < p; ++i)
-                    state->spawnItem(pos, BLOCK_ESPINAS_NOPAL);
+                const Compuesto::Familia famPlanta =
+                    Compuesto::familiaDe(blockType);
+
+                auto mismaFamilia = [&](int yy) {
+                    const BlockType b = state->world.getBlock(bx, yy, bz);
+                    return Compuesto::esCompuesto(b) &&
+                           Compuesto::familiaDe(b) == famPlanta;
+                };
+
+                // El segmento de una celda, sea de la familia que sea: los dos
+                // lo guardan en su estado, aunque en campos distintos.
+                auto segmentoDeCelda = [&](int yy) -> int {
+                    const BlockType b = state->world.getBlock(bx, yy, bz);
+                    if (!Compuesto::esCompuesto(b)) return -1;
+                    if (Compuesto::familiaDe(b) == Compuesto::FAM_MAGUEY)
+                        return (int)Compuesto::Maguey::segmentoDe(b);
+                    if (Compuesto::familiaDe(b) == Compuesto::FAM_AGAVE_AZUL)
+                        return (int)Compuesto::AgaveAzul::segmentoDe(b);
+                    return 0;   // familias de una sola celda
+                };
+
+                // Bajar hasta la celda base (segmento 0).
+                int baseY = by;
+                while (baseY > 0 && mismaFamilia(baseY - 1) &&
+                       segmentoDeCelda(baseY) > 0)
+                    --baseY;
+
+                // Y limpiar hacia arriba mientras siga siendo la misma planta:
+                // misma familia y segmentos que suben de uno en uno. El tope
+                // duro son 8 celdas, que es lo que cabe en el campo SEGMENTO.
+                for (int dy = 0; dy < 8; ++dy) {
+                    const int yy = baseY + dy;
+                    if (!mismaFamilia(yy)) break;
+                    if (segmentoDeCelda(yy) != dy) break;
+                    state->world.setBlock(bx, yy, bz, BLOCK_AIR);
+                }
             }
             state->world.setBlock(bx, by, bz, BLOCK_AIR);
             if (g_soundManager)
@@ -19484,11 +24489,41 @@ void updateMining(GameState* state, float deltaTime) {
 
             // Antes de quitarla, se sueltan sus drops en su propia posicion.
             const Vec3 posCaida(bx + 0.5f, ny + 0.5f, bz + 0.5f);
-            const std::vector<BlockDrop> caidos = getBlockDrops(arriba);
-            for (const auto& d : caidos) {
-                if (d.chance < 1.0f) continue;
-                for (int i = 0; i < d.count; ++i)
-                    state->spawnItem(posCaida, d.itemType);
+
+            // ⭐ LOS BLOQUES COMPUESTOS SUELTAN LO SUYO
+            //
+            // BUG QUE ESTO CORRIGE: al romper el suelo bajo un maguey, este
+            // bucle lo borraba con setBlock(AIR) SIN SOLTAR NADA -- la planta
+            // desaparecia del mundo sin dejar rastro.
+            //
+            // La causa: getBlockDrops() devuelve vacio para los compuestos a
+            // proposito, porque lo que sueltan depende de QUE COMPONENTE se
+            // golpea, y eso solo lo sabe la ruta de rotura. Pero aqui no hay
+            // golpe: la planta cae entera, asi que suelta lo que tuviera.
+            // ⭐ EL MAGUEY NO DA ESPINAS DE NOPAL, TAMPOCO AL CAER.
+            //
+            // Aqui soltaba una espina de nopal por cada pua que le quedara,
+            // asi que bastaba con romper el suelo bajo un maguey grande para
+            // sacar hasta seis espinas de golpe -- la via mas comoda del juego
+            // para un material que NO es suyo: las espinas de nopal salen del
+            // NOPAL, al limpiar la penca (ver g_tirasDesbabando).
+            //
+            // Es la misma regla que ya cumple la rotura a golpes ("EL MAGUEY
+            // NO DA ESPINAS", en la ruta de mineria): esta era la puerta
+            // trasera que se habia quedado abierta.
+            //
+            // La planta cae sin soltar nada. No se pone `continue`: el
+            // setBlock(AIR) de abajo tiene que ejecutarse igual para que la
+            // mata no quede flotando.
+            if (Compuesto::esCompuesto(arriba)) {
+                // Sin drops: ni espinas, ni nada.
+            } else {
+                const std::vector<BlockDrop> caidos = getBlockDrops(arriba);
+                for (const auto& d : caidos) {
+                    if (d.chance < 1.0f) continue;
+                    for (int i = 0; i < d.count; ++i)
+                        state->spawnItem(posCaida, d.itemType);
+                }
             }
 
             state->world.setBlock(bx, ny, bz, BLOCK_AIR);
@@ -19539,7 +24574,10 @@ void updateMining(GameState* state, float deltaTime) {
 
         // ⭐ SISTEMA DE DROPS: Spawnear items según el tipo de bloque
         Vec3 itemPos(result.blockPos.x + 0.5f, result.blockPos.y + 0.5f, result.blockPos.z + 0.5f);
-        std::vector<BlockDrop> drops = getBlockDrops(blockType);
+        // Se pasa la POSICION: los minerales la necesitan para saber cuantos
+        // cristales tenia ese bloque, que es lo que decide cuanto sueltan.
+        std::vector<BlockDrop> drops = getBlockDrops(
+            blockType, result.blockPos.x, result.blockPos.y, result.blockPos.z);
         for (const auto& drop : drops) {
             // Verificar probabilidad de drop (siempre 100% por ahora)
             if (drop.chance >= 1.0f) {
@@ -19571,13 +24609,28 @@ void dropSelectedItem(GameState* state) {
     // Obtener el item seleccionado
     BlockType itemType = state->inventory.getSelectedBlock();
 
+    // ⭐ LA VIDA SE LEE ANTES DE CONSUMIR EL SLOT.
+    //
+    // consumeSelected() puede vaciarlo del todo (vaciar() pone vidaMedios a
+    // 0), asi que si se leyera despues siempre saldria 0 = "sin estrenar" y
+    // el hacha caeria al suelo reparada. Este es el orden que hace que tirar
+    // y recoger deje de ser una forma gratuita de reparar herramientas.
+    int vidaSoltada = 0;
+    if (esHerramientaGastable(itemType)) {
+        const InventorySlot& s =
+            state->inventory.at(state->inventory.selectedSlot);
+        // Sin estrenar (0) se deja en 0: el que la recoja la entendera como
+        // llena, que es justo lo que era.
+        vidaSoltada = s.vidaMedios;
+    }
+
     // Calcular posición de spawn (frente al jugador)
     Vec3 playerEye = state->player.getEyePosition();
     Vec3 forward = state->player.getForward();
     Vec3 spawnPos = playerEye + (forward * 1.5f); // 1.5 bloques adelante
 
     // Spawnear el item en el mundo
-    state->spawnItem(spawnPos, itemType);
+    state->spawnItem(spawnPos, itemType, vidaSoltada);
 
     // Remover 1 item del inventario
     state->inventory.consumeSelected();
@@ -19801,6 +24854,24 @@ void drawInfinitySymbol(float cx, float cy, float size) {
 void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
     if (blockType == BLOCK_AIR) return;
 
+    // ---- HUEVOS DE SPAWN: EL ANIMAL DE VERDAD, EN 3D ----
+    //
+    // No hay PNG para esto, y no deberia haberlo: el modelo del pecari se
+    // genera de su anatomia documentada, asi que usarlo como icono hace que
+    // el icono ES el animal. Si manana se corrige el hocico, el icono se
+    // corrige solo -- un dibujo a mano se quedaria desfasado.
+    //
+    // La malla se pide prestada al mismo cache que usa el mundo, en su LOD
+    // mas bajo: un icono de 32 px no da para mas detalle.
+    if (esHuevoDeSpawn(blockType)) {
+        static Fauna::CacheMallas cacheIconos;
+        UI::dibujarIconoAnimal3D(cacheIconos,
+                                 Fauna::EspecieAnimal::PECARI_COLLAR,
+                                 (int)Fauna::EtapaPecari::ADULTO,
+                                 cx, cy, size);
+        return;
+    }
+
     // ---- ITEMS PUROS Y VEGETACION: sprite plano ----
     // Un cubo isometrico con la textura de una planta se ve absurdo (seis
     // caras de hierba/nopal). La vegetacion se dibuja con su textura tal
@@ -19960,78 +25031,20 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
 // El bloque se SACA del mundo mientras vuela y se devuelve al aterrizar. Es
 // lo que permite verlo caer suave en vez de a saltos de voxel.
 
-// Declarada aqui porque puedeCaer() la necesita y se define mas abajo: las
-// dos preguntas son la cara y la cruz de lo mismo (lo que sujeta no cae), asi
-// que tienen que responder de forma coherente.
-inline bool esSueloFirme(BlockType t);
 
-// ¿Este bloque puede caer?
+// ⭐ QUE CAE Y QUE ES CIMIENTO: viven en FisicaCaida.h.
 //
-// Lo que NO cae:
-//   - el aire, obviamente
-//   - el agua y la lava, que tienen su propio sistema de flujo
-//   - la bedrock, que es el fondo del mundo
-//   - los guijarros, que son un monton apoyado, no un bloque
-//   - EL TERRENO: piedra, tierra, arena y demas cimiento (ver abajo)
-//
-// Las plantas SI caen: se pidio expresamente. Eso significa que al talar el
-// tronco de un arbol, la copa se le viene encima al jugador.
-inline bool puedeCaer(BlockType t) {
-    if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
-    if (t == BLOCK_BEDROCK) return false;
-
-    // ========================================================================
-    // ⭐ EL TERRENO NO SE DERRUMBA. NUNCA.
-    // ========================================================================
-    // ESTE ERA EL BUG DE LOS PARCHES DE PIEDRA A RAS DE SUELO.
-    //
-    // El sistema de estructuras existe para lo que ESTA PUESTO SOBRE el
-    // terreno: un arbol, una torre, un puente. El terreno en si es el
-    // cimiento -- no puede caerse, porque no hay nada debajo sobre lo que
-    // caer.
-    //
-    // Que pasaba: al romper un bloque, revisarSoporte() lanzaba el flood fill
-    // sobre los cuatro vecinos. Si el vecino era piedra o tierra, el fill se
-    // metia en el terreno. Y ahi ocurria lo peor:
-    //
-    //   al mirar hacia ABAJO desde un bloque de piedra, el vecino inferior es
-    //   MAS PIEDRA -- que tambien pasaba puedeCaer(), asi que en vez de
-    //   contar como APOYO se sumaba a la estructura.
-    //
-    // El fill se comia la columna hacia abajo, y con ella el parche entero.
-    // Si el trozo no llegaba a los 512 bloques del tope, `apoyada` no se
-    // activaba nunca y TODO ESE TERRENO se desprendia y caia: aparecian
-    // placas de piedra tiradas sobre el pasto, con huecos donde antes habia
-    // suelo. Justo lo que se veia.
-    //
-    // La regla correcta es la que ya usa esSueloFirme() para decidir que
-    // SUJETA: si un material sostiene una estructura, es cimiento, y un
-    // cimiento no se desprende. Se reusa esa misma funcion para que las dos
-    // decisiones no puedan discrepar -- que un bloque sujete y ademas pueda
-    // caerse es la contradiccion que produjo el fallo.
-    //
-    // Lo que SI cae sigue cayendo: troncos, hojas, ramas y raices no son
-    // suelo firme, asi que un arbol se viene abajo igual que antes.
-    if (esSueloFirme(t)) return false;
-
-    // ⭐ LOS GUIJARROS SE QUEDAN DONDE ESTAN.
-    //
-    // Piedritas, pedernal, polvo de tierra, cantos de hierro, nieve suelta:
-    // no son bloques que ocupen su celda, son un montoncito de cantos
-    // apoyado en el suelo. Un puñado de piedras no "se derrumba" -- se queda
-    // donde cayó, encajado en el terreno.
-    //
-    // Y hay una razon practica ademas de la logica: van sembrados por toda
-    // la superficie del mundo, asi que meterlos en el flood fill de las
-    // estructuras haria recorrerlos una y otra vez sin que nunca caiga
-    // ninguno. Se paga el coste sin ganar nada.
-    //
-    // esGuijarro() los cubre todos a la vez, asi que si manana se anade otro
-    // canto, queda excluido solo.
-    if (esGuijarro(t)) return false;
-
-    return true;
-}
+// Se movieron alli porque son logica pura sobre BlockType y porque tienen que
+// responder de forma COHERENTE entre si (lo que sujeta no cae). Estando
+// juntas y con tests que comprueban la invariante, ya no pueden contradecirse
+// -- que es lo que produjo el bug de los parches de piedra sobre el pasto.
+// El header declara Fisica::isCrossSprite y la usa desde esSueloFirme. La
+// implementacion de verdad es la del motor, que vive fuera del namespace
+// (arriba, con el resto de predicados de bloque). El puente que le da cuerpo
+// esta junto a esa implementacion, en cuanto isCrossSprite existe: definirlo
+// aqui abajo dejaba el simbolo sin cuerpo para las ~19.000 lineas de en medio.
+using Fisica::puedeCaer;
+using Fisica::esSueloFirme;
 
 // ¿Hay algo debajo que lo sujete?
 //
@@ -20076,35 +25089,6 @@ constexpr int MAX_BLOQUES_PIEZA = 512;
 //
 // Sin esta distincion, un arbol nunca caeria: su tronco se apoyaria en el
 // tronco de abajo y el flood fill siempre encontraria "suelo".
-inline bool esSueloFirme(BlockType t) {
-    if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
-
-    // Nada de lo que es planta sujeta.
-    if (isCrossSprite(t)) return false;
-
-    // ⭐ NORMALIZAR ANTES DE DECIDIR.
-    //
-    // Sin esto, la regla solo valia para el bloque ENTERO. Una capa parcial
-    // de tronco (media loncha de madera) o una celda mixta con madera arriba
-    // no se reconocian como planta, asi que SUJETABAN el arbol y este no
-    // caia nunca. La regla se aplica igual sea entero, capa o celda mixta.
-    //
-    // En una celda mixta manda el RELLENO: es la parte de arriba, sobre la
-    // que se apoyaria lo que hubiera encima.
-    if (esNivelParcial(t)) t = bloqueBaseDe(t);
-    if (esMixto(t))        t = mixtoRelleno(t);
-
-    if (t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO || t == BLOCK_WOOD_OYAMEL)
-        return false;
-    if (t == BLOCK_LEAVES || t == BLOCK_LEAVES_ENCINO ||
-        t == BLOCK_LEAVES_OYAMEL)
-        return false;
-
-    // El resto -- terreno, roca, construccion -- si sujeta. Incluidas sus
-    // capas parciales: una loncha de tierra es tierra y aguanta lo que haya
-    // encima, igual que el bloque entero.
-    return true;
-}
 
 // Recorre la estructura conectada a (x,y,z) y la desprende si nada de ella
 // esta apoyado en suelo firme.
@@ -20200,7 +25184,8 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
             const BlockType propio = world.getBlock(p.x, p.y, p.z);
             const bool aguantaPeso =
                 !(propio == BLOCK_LEAVES || propio == BLOCK_LEAVES_ENCINO ||
-                  propio == BLOCK_LEAVES_OYAMEL || isRama(propio) ||
+                  propio == BLOCK_LEAVES_OYAMEL ||
+                  propio == BLOCK_LEAVES_OCOTE || isRama(propio) ||
                   esRaiz(propio));
 
             if (porDebajo && aguantaPeso && esSueloFirme(vec)) {
@@ -20289,15 +25274,59 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
             // apuntada (el arbol se cayo solo, no lo talo nadie), se elige
             // una por la posicion, para que sea siempre la misma en el mismo
             // sitio y no cambie al recargar el mundo.
+            // ⭐ EL RUMBO ES CONTINUO, NO UNO DE CUATRO.
+            //
+            // Antes solo habia cuatro direcciones posibles (las cardinales),
+            // asi que talando un bosque todos los troncos acababan alineados
+            // en cruz -- se veia artificial de inmediato.
+            //
+            // Ahora se calcula un ANGULO completo: el arbol puede caer en
+            // cualquiera de los 360 grados. De ese angulo se derivan las dos
+            // cosas que hacen falta:
+            //
+            //   rumboX/Z   el vector exacto, que es lo que dibuja el render
+            //              mientras el arbol se vence.
+            //   volcarX/Z  el eje entero dominante, que es lo que usa el
+            //              aterrizaje para recolocar los bloques en la
+            //              rejilla de voxeles (una celda no puede estar a 37
+            //              grados).
+            float anguloCaida;
+
             if (g_golpeDirX != 0 || g_golpeDirZ != 0) {
-                pieza.volcarX = -g_golpeDirX;
-                pieza.volcarZ = -g_golpeDirZ;
+                // Cae hacia el lado CONTRARIO al hachazo, que es lo que pasa
+                // de verdad: la cuña abierta por el hacha decide el lado.
+                anguloCaida = atan2f((float)(-g_golpeDirZ), (float)(-g_golpeDirX));
+
+                // ⭐ PERO NO EXACTAMENTE AL CONTRARIO.
+                //
+                // Un arbol real nunca cae en la direccion perfecta: influyen
+                // el viento, el peso de la copa y donde estaba mas podrido.
+                // Se le suma una desviacion de hasta ~28 grados, sacada de la
+                // posicion para que sea determinista -- el mismo arbol del
+                // mismo mundo cae siempre igual.
+                unsigned hd = (unsigned)(x * 73856093) ^ (unsigned)(z * 19349663)
+                            ^ (unsigned)(y * 83492791);
+                hd ^= hd >> 13; hd *= 1274126177u; hd ^= hd >> 16;
+                const float desvio = ((float)(hd % 1000u) / 1000.0f - 0.5f) * 1.0f;
+                anguloCaida += desvio;
             } else {
+                // Se cayo solo (sin hachazo): rumbo por posicion, para que sea
+                // siempre el mismo en el mismo sitio y no cambie al recargar.
                 unsigned h = (unsigned)(x * 73856093) ^ (unsigned)(z * 19349663);
                 h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
-                static const int RUMBOS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-                pieza.volcarX = RUMBOS[h % 4][0];
-                pieza.volcarZ = RUMBOS[h % 4][1];
+                anguloCaida = ((float)(h % 10000u) / 10000.0f) * 6.2831853f;
+            }
+
+            pieza.rumboX = cosf(anguloCaida);
+            pieza.rumboZ = sinf(anguloCaida);
+
+            // El eje entero dominante: el que mas pesa de los dos.
+            if (fabsf(pieza.rumboX) >= fabsf(pieza.rumboZ)) {
+                pieza.volcarX = (pieza.rumboX >= 0.0f) ? 1 : -1;
+                pieza.volcarZ = 0;
+            } else {
+                pieza.volcarX = 0;
+                pieza.volcarZ = (pieza.rumboZ >= 0.0f) ? 1 : -1;
             }
 
             // La altura hace falta para la velocidad del vuelco: un arbol
@@ -20316,6 +25345,124 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
 
 // Mira si lo que hay alrededor se ha quedado sin soporte. Se llama despues
 // de romper o mover algo.
+// ============================================================================
+// ¿ESTA HOJA SIGUE UNIDA A UN TRONCO?
+// ============================================================================
+// Busca un tronco partiendo de la hoja y avanzando SOLO por hojas, hasta
+// HOJA_ALCANCE pasos. Es una anchura primero (BFS) acotada: en cuanto
+// encuentra madera, corta y devuelve true.
+//
+// POR QUE BFS Y NO PROFUNDIDAD: se quiere la distancia MAS CORTA. Con
+// profundidad primero, una rama larga de hojas podria gastar los 4 pasos
+// alejandose y dar por muerta una hoja que tenia el tronco al lado.
+//
+// El coste esta acotado por construccion: como mucho se visitan las celdas a
+// distancia &lt;= 4, que son 129 en el peor caso, y en la practica muchas menos
+// porque solo se avanza por hojas.
+bool hojaTieneSoporte(World& world, int x, int y, int z) {
+    // Se reutilizan entre llamadas para no pedir memoria en cada hoja: esto
+    // se llama una vez por hoja de la copa. Mismo motivo que en
+    // desprenderEstructura.
+    static std::vector<Vec3i> frente;
+    static std::vector<Vec3i> siguiente;
+    static std::unordered_set<long long> vistos;
+
+    frente.clear();
+    siguiente.clear();
+    vistos.clear();
+
+    auto clave = [](int cx, int cy, int cz) -> long long {
+        return ((long long)(cx + 1048576) << 42) |
+               ((long long)(cy + 1048576) << 21) |
+               ((long long)(cz + 1048576));
+    };
+
+    frente.push_back(Vec3i(x, y, z));
+    vistos.insert(clave(x, y, z));
+
+    static const int CARAS[6][3] = {
+        { 1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+    };
+
+    for (int paso = 0; paso < HOJA_ALCANCE; ++paso) {
+        siguiente.clear();
+
+        for (const Vec3i& p : frente) {
+            for (int i = 0; i < 6; ++i) {
+                const int nx = p.x + CARAS[i][0];
+                const int ny = p.y + CARAS[i][1];
+                const int nz = p.z + CARAS[i][2];
+                if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
+
+                const long long k = clave(nx, ny, nz);
+                if (vistos.count(k)) continue;
+
+                const BlockType vec = world.getBlock(nx, ny, nz);
+
+                // TRONCO: la hoja esta viva. No hay mas que buscar.
+                if (esTroncoDeArbol(vec)) return true;
+
+                // Solo se sigue por hojas. Las ramas NO conducen: una rama
+                // suelta, sin tronco, tampoco sostiene una copa.
+                if (!esHojaDeArbol(vec)) continue;
+
+                vistos.insert(k);
+                siguiente.push_back(Vec3i(nx, ny, nz));
+            }
+        }
+
+        if (siguiente.empty()) break;   // no queda hoja por donde seguir
+        frente.swap(siguiente);
+    }
+
+    return false;
+}
+
+// Apunta una hoja para que se pudra, si no lo estaba ya.
+//
+// El plazo sale de un hash de la POSICION, no de un contador ni del azar: asi
+// dos hojas vecinas caen en momentos distintos (la copa se deshace en
+// cascada, no de golpe) y ademas la misma hoja tarda siempre lo mismo, que es
+// lo que hace el efecto reproducible.
+void apuntarHojaPudriendose(int x, int y, int z) {
+    if (g_hojasPudriendose.size() >= MAX_HOJAS_PUDRIENDOSE) return;
+
+    for (const HojaPudriendose& h : g_hojasPudriendose)
+        if (h.x == x && h.y == y && h.z == z) return;   // ya estaba
+
+    unsigned s = (unsigned)(x * 73856093) ^ (unsigned)(y * 19349663) ^
+                 (unsigned)(z * 83492791);
+    s ^= s >> 13; s *= 1274126177u; s ^= s >> 16;
+
+    const double t = (double)(s % 1000u) / 1000.0;      // 0..1
+    const double plazo = HOJA_PUDRIR_MIN +
+                         t * (HOJA_PUDRIR_MAX - HOJA_PUDRIR_MIN);
+
+    g_hojasPudriendose.push_back({ x, y, z, g_tiempoJugadoSegundos, plazo });
+}
+
+// Revisa las hojas de alrededor de un punto y apunta las que se han quedado
+// sin tronco.
+//
+// El radio es HOJA_ALCANCE + 1: una hoja a 5 de distancia podia estar
+// sostenida por una cadena que pasaba justo por el bloque que se acaba de
+// romper, asi que tambien hay que mirarla.
+void revisarHojasSueltas(World& world, int x, int y, int z) {
+    constexpr int R = HOJA_ALCANCE + 1;
+
+    for (int dx = -R; dx <= R; ++dx)
+        for (int dy = -R; dy <= R; ++dy)
+            for (int dz = -R; dz <= R; ++dz) {
+                const int hx = x + dx, hy = y + dy, hz = z + dz;
+                if (hy < 0 || hy >= CHUNK_HEIGHT) continue;
+
+                if (!esHojaDeArbol(world.getBlock(hx, hy, hz))) continue;
+                if (hojaTieneSoporte(world, hx, hy, hz)) continue;
+
+                apuntarHojaPudriendose(hx, hy, hz);
+            }
+}
+
 void revisarSoporte(World& world, int x, int y, int z) {
     // El de encima, que es el candidato mas probable.
     if (y + 1 < CHUNK_HEIGHT) desprenderEstructura(world, x, y + 1, z);
@@ -20324,6 +25471,9 @@ void revisarSoporte(World& world, int x, int y, int z) {
     static const int LADOS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
     for (int i = 0; i < 4; ++i)
         desprenderEstructura(world, x + LADOS[i][0], y, z + LADOS[i][1]);
+
+    // Y las hojas que se hayan quedado colgadas de nada.
+    revisarHojasSueltas(world, x, y, z);
 }
 
 // Avanza la caida de todos los bloques en el aire.
@@ -20438,7 +25588,33 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
                 }
 
                 if (cy < 0 || cy >= CHUNK_HEIGHT) continue;
-                if (world.getBlock(cx, cy, cz) != BLOCK_AIR) continue;
+
+                // ============================================================
+                // ⭐ EL ARBOL APLASTA LO QUE PILLA DEBAJO
+                // ============================================================
+                // Antes esto era `if (... != BLOCK_AIR) continue;`: si en la
+                // celda habia CUALQUIER cosa, el bloque del arbol se
+                // DESCARTABA. Es decir, talar un pino sobre un maguey no
+                // aplastaba el maguey: hacia desaparecer medio arbol sin
+                // dejar rastro, que es lo contrario de lo que se espera.
+                //
+                // Ahora un tronco que se viene abajo revienta lo blando --
+                // maguey, nopal, biznaga, hierba, capas sueltas de tierra --
+                // y ocupa su sitio, como haria de verdad.
+                //
+                // Lo que NO aplasta (ver aplastablePorArbol en FisicaCaida.h):
+                // el terreno firme y la roca (se apoya encima, no perfora el
+                // suelo), las piezas del propio arbol, y el agua.
+                //
+                // ⚠️ SOLO LA CELDA QUE OCUPA, NI UNA MAS.
+                //
+                // Un maguey de tres celdas de alto pierde EXACTAMENTE la que
+                // el tronco viene a ocupar; las de abajo siguen en pie. No se
+                // borra la planta entera ni se propaga hacia abajo: el arbol
+                // pesa sobre donde cae, no sobre toda la columna.
+                const BlockType enCelda = world.getBlock(cx, cy, cz);
+                if (enCelda != BLOCK_AIR &&
+                    !Fisica::aplastablePorArbol(enCelda)) continue;
 
                 world.setBlock(cx, cy, cz, b.tipo);
                 ++colocados;
@@ -20533,7 +25709,70 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
                 ++cy; ++intentos;
             }
 
-            if (cy < CHUNK_HEIGHT && world.getBlock(cx, cy, cz) == BLOCK_AIR) {
+            if (cy >= CHUNK_HEIGHT || world.getBlock(cx, cy, cz) != BLOCK_AIR)
+                continue;
+
+            // ================================================================
+            // ⭐ SE ACOPLA AL NIVEL QUE HAYA DEBAJO, NO SE QUEDA FLOTANDO
+            // ================================================================
+            // El terreno de este motor no va de celda en celda: una celda
+            // puede tener una CAPA de 1 a 7 octavos de alto. Al posarse justo
+            // encima de una capa asi, plantar el bloque en la celda de arriba
+            // dejaba a la vista el hueco que la capa no llena -- hasta 14 px
+            // de aire entre el suelo y lo que acaba de caer.
+            //
+            //     ANTES                      AHORA
+            //     ┌────────────┐             ┌────────────┐
+            //     │ ▓▓ CAIDO ▓▓│  <- flota   │            │
+            //     ├────────────┤             ├────────────┤
+            //     │            │  <- hueco   │ ▓▓ CAIDO ▓▓│  <- pegado
+            //     ├─ ─ ─ ─ ─ ─ ┤             ├─ ─ ─ ─ ─ ─ ┤
+            //     │███ CAPA ███│             │███ CAPA ███│
+            //     └────────────┘             └────────────┘
+            //
+            // Es el mismo criterio que ya usa placeBlock al colocar a mano
+            // (ver "MATERIAL DISTINTO: SE QUEDA EN LA MISMA CELDA"): lo que
+            // cae se mete en la MISMA celda que la capa, empezando justo
+            // donde ella acaba. Asi no queda hueco y no puede flotar.
+            //
+            // Solo aplica a la primera fila de la pieza (dy == 0): es la que
+            // toca el suelo. Las de arriba se apilan sobre ella con normalidad.
+            bool acoplado = false;
+            if (b->dy == 0 && cy > 0) {
+                const BlockType debajo = world.getBlock(cx, cy - 1, cz);
+
+                if (esNivelParcial(debajo)) {
+                    const BlockType baseDebajo = bloqueBaseDe(debajo);
+                    const int nivelDebajo      = nivelDe(debajo);
+                    const BlockType queCae     = bloqueBaseDe(b->tipo);
+
+                    if (baseDebajo == queCae) {
+                        // MISMO MATERIAL: la capa simplemente crece. Tierra
+                        // que cae sobre tierra engorda la capa en vez de
+                        // apilar una segunda encima.
+                        const int suma = nivelDebajo + nivelDe(b->tipo);
+                        if (suma <= 8) {
+                            world.setBlock(cx, cy - 1, cz,
+                                           conNivel(baseDebajo, suma));
+                            ++colocados;
+                            acoplado = true;
+                        }
+                    } else {
+                        // MATERIAL DISTINTO: comparten celda. Abajo la capa
+                        // que ya estaba, y de ahi al techo lo que acaba de
+                        // caer.
+                        const BlockType mezcla =
+                            mixto(baseDebajo, nivelDebajo, queCae);
+                        if (mezcla != BLOCK_AIR) {
+                            world.setBlock(cx, cy - 1, cz, mezcla);
+                            ++colocados;
+                            acoplado = true;
+                        }
+                    }
+                }
+            }
+
+            if (!acoplado) {
                 world.setBlock(cx, cy, cz, b->tipo);
                 ++colocados;
             }
@@ -20764,6 +26003,66 @@ void actualizarVida(GameState* state, float deltaTime) {
         }
     }
 
+    // ------------------------------------------------------------------
+    // LAS HOJAS SEPARADAS DEL ARBOL SE ROMPEN Y SUELTAN SU ITEM
+    // ------------------------------------------------------------------
+    // Mismo patron que las tiras y las pencas: se apunto donde y cuando, y
+    // aqui se cumple el plazo. Cada hoja tiene el suyo (ver
+    // apuntarHojaPudriendose), asi que la copa se deshace en cascada en vez
+    // de desaparecer entera en un frame.
+    if (!g_hojasPudriendose.empty()) {
+        for (size_t i = 0; i < g_hojasPudriendose.size(); ) {
+            const HojaPudriendose& h = g_hojasPudriendose[i];
+
+            const BlockType actual = state->world.getBlock(h.x, h.y, h.z);
+
+            // Si ya no hay una hoja ahi (la rompio el jugador, se la llevo un
+            // arbol al caer...), se descarta el temporizador en vez de
+            // convertir un bloque ajeno. Misma guarda que el resto.
+            if (!esHojaDeArbol(actual)) {
+                g_hojasPudriendose[i] = g_hojasPudriendose.back();
+                g_hojasPudriendose.pop_back();
+                continue;
+            }
+
+            // ⭐ SE COMPRUEBA OTRA VEZ EL SOPORTE ANTES DE ROMPERLA.
+            //
+            // Entre que se apunto y le toca el turno pueden pasar segundos, y
+            // en ese rato el jugador puede haber puesto un tronco al lado o
+            // haber recolocado el arbol. Sin esta segunda comprobacion, la
+            // hoja se caeria igual aunque ya estuviera sostenida: se veria
+            // como que el arbol se deshace solo.
+            if (hojaTieneSoporte(state->world, h.x, h.y, h.z)) {
+                g_hojasPudriendose[i] = g_hojasPudriendose.back();
+                g_hojasPudriendose.pop_back();
+                continue;
+            }
+
+            if (state->tiempoJugadoSegundos - h.t0 >= h.plazo) {
+                const Vec3 pos((float)h.x + 0.5f, (float)h.y + 0.5f,
+                               (float)h.z + 0.5f);
+
+                state->world.setBlock(h.x, h.y, h.z, BLOCK_AIR);
+
+                // Suelta lo que dejaria esa hoja al romperse. spawnItem pasa
+                // el tipo por getDroppedItem, que es donde vive la
+                // probabilidad: si no toca, no cae nada y ya esta.
+                state->spawnItem(pos, actual);
+
+                state->particles.spawnBlockBreakParticles(pos, actual);
+
+                // Al desaparecer esta hoja, las que colgaban de ella se
+                // quedan sin cadena: hay que revisarlas.
+                revisarHojasSueltas(state->world, h.x, h.y, h.z);
+
+                g_hojasPudriendose[i] = g_hojasPudriendose.back();
+                g_hojasPudriendose.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
+
     // --- EL MAGUEY CAPADO SUELTA AGUAMIEL CADA 7 MINUTOS ---
     if (!g_magueyesManando.empty()) {
         for (size_t i = 0; i < g_magueyesManando.size(); ) {
@@ -20789,23 +26088,6 @@ void actualizarVida(GameState* state, float deltaTime) {
         }
     }
 
-    // --- LOS MAGUEYES COMPUESTOS VAN LLENANDOSE DE AGUAMIEL ---
-    //
-    // Un punto de jugo cada AGUAMIEL_PASO_SEG. Como la capacidad de un
-    // productor son 15 puntos, llenarlo del todo lleva 15 pasos: el llenado
-    // es GRADUAL y se ve subir en el cajete, no aparece de golpe.
-    //
-    // El barrido es barato (descarta subchunks por paleta) y corre una vez
-    // por paso, no por frame.
-    {
-        static double ultimoPaso = 0.0;
-        if (state->tiempoJugadoSegundos - ultimoPaso >= AGUAMIEL_PASO_SEG) {
-            ultimoPaso = state->tiempoJugadoSegundos;
-            state->world.producirCompuestos();
-        }
-    }
-
-    // --- ANIMAR LAS PENCAS QUE ESTAN CAYENDO ---
     // Mientras dura la caida hay que rehacer el mesh para que se vea girar.
     // Es el unico momento en que un bloque de nopal cuesta algo, y dura 0.4 s:
     // en cuanto termina, la penca se queda quieta y no vuelve a costar nada.
@@ -21775,6 +27057,14 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_PICO_PEDERNAL:   // Pico de pedernal - herramienta
         case BLOCK_MARTILLO_PEDERNAL: // Martillo de pedernal - herramienta
         case BLOCK_ESPINAS_NOPAL:   // Espinas - item puro
+        // La penca cortada del tequilana: es una hoja suelta, no un bloque.
+        // Colocarla dejaria un cubo azul en el mundo, que es justo lo que no
+        // se quiere de un item.
+        //
+        // ⚠️ BLOCK_IXTLE_HOJA NO va aqui a proposito: es el bloque con el que
+        // el generador construye la roseta del pulquero, asi que tiene que
+        // seguir siendo colocable o se romperia la planta.
+        case BLOCK_PENCA_AGAVE_AZUL:
         case BLOCK_AGUAMIEL:        // Aguamiel - liquido, se recoge con tazon
         // Los tazones se USAN sobre el maguey, no se colocan en el mundo.
         case BLOCK_TAZON_PINO:
@@ -21791,6 +27081,38 @@ bool isPlaceableItem(BlockType type) {
         // El BARRO es material en bruto: se lleva en la mano y se craftea,
         // pero todavia no es un bloque que se ponga en el suelo.
         case BLOCK_PEDAZO_BARRO:
+        // ⭐ EL IXTLE VIEJO NO SE COLOCA.
+        //
+        // Estos bloques son de la lechuguilla que existia ANTES de que el
+        // maguey fuese un modelo 3D. Ya no hay mesher que los dibuje: la
+        // limpieza de buildChunkMesh los borra en cuanto se malla su chunk.
+        //
+        // Pero seguian siendo COLOCABLES (isPlaceableItem devolvia true por
+        // defecto), asi que si a alguien le quedaba uno en el inventario
+        // podia plantarlo junto a un maguey: un CUBO con textura de hoja
+        // pegado al modelo, que es justo lo que se estaba persiguiendo.
+        //
+        // Se cierran aqui. Como ingrediente de crafteo siguen valiendo (la
+        // receta del hilo de ixtle los acepta): esto solo impide ponerlos en
+        // el mundo, no usarlos.
+        case BLOCK_IXTLE_HOJA:
+        case BLOCK_IXTLE_PEQUENA:
+        case BLOCK_IXTLE_GRANDE:
+        case BLOCK_IXTLE_ENORME:
+        case BLOCK_IXTLE_PUNTA:
+        case BLOCK_IXTLE_TALLO:
+        case BLOCK_IXTLE_TALLO_ARENA:
+        case BLOCK_IXTLE_CON_HIERBA:
+        case BLOCK_IXTLE_CON_FLOR:
+        case BLOCK_IXTLE_DOBLE:
+
+        // ⭐ EL HUEVO DE SPAWN NO SE COLOCA: SUELTA UN ANIMAL.
+        //
+        // Si esto faltara, el clic derecho lo pondria en el mundo como un
+        // cubo con la textura del huevo pegada en las seis caras, y el
+        // pecari no llegaria a aparecer nunca. Su uso real se maneja en
+        // placeBlock(), ANTES de llegar a esta comprobacion.
+        case BLOCK_HUEVO_PECARI:
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable
@@ -21806,6 +27128,83 @@ void placeBlock(GameState* state) {
     if (!state->inventory.hasSelectedBlock()) return;
 
     BlockType selectedBlock = state->inventory.getSelectedBlock();
+
+    // ========================================================================
+    // ⭐ EL HUEVO DE SPAWN: SOLTAR UN PECARI
+    // ========================================================================
+    // Va ANTES de la comprobacion de "es colocable", igual que el tazon: el
+    // huevo no se pone en el mundo, se USA.
+    //
+    //   clic derecho          un adulto suelto
+    //   SHIFT + clic derecho  una manada completa con su reparto de edades
+    //
+    // POR QUE SE APOYA EN EL SUELO Y NO DONDE APUNTA LA MIRA:
+    // el raycast da la CARA de un bloque, que es donde se pega un cubo. Un
+    // animal no se pega a una pared: necesita suelo. Por eso se toma la
+    // columna XZ del punto apuntado y el propio mundo decide la altura
+    // (soltarUno consulta alturaSuelo), que es lo mismo que hacen las manadas
+    // naturales al aparecer.
+    if (esHuevoDeSpawn(selectedBlock)) {
+
+        // Sin fauna cargada no hay donde meterlo. Pasa si el mundo aun no
+        // termino de iniciarse.
+        if (!state->pecaries) return;
+
+        const Vec3 ori = state->player.getEyePosition();
+        const Vec3 dir = state->player.getForward();
+        RaycastResult r = raycastBlock(state->world, ori, dir, 5.0f);
+
+        // Donde cae. Si la mira no toca nada, se suelta unos pasos delante:
+        // asi el huevo tambien sirve en campo abierto mirando al horizonte,
+        // que es justo cuando uno quiere poblar una llanura.
+        float sx, sz;
+        if (r.hit) {
+            sx = (float)r.blockPos.x + 0.5f;
+            sz = (float)r.blockPos.z + 0.5f;
+        } else {
+            sx = state->player.position.x + dir.x * 3.0f;
+            sz = state->player.position.z + dir.z * 3.0f;
+        }
+
+        TerrainGen::WorldGeneratorAAA* gen = state->world.getWorldGen();
+        if (!gen) return;
+        AdaptadorMundoFauna adaptador(gen, &state->world);
+
+        // SHIFT = manada entera. El tamano sale del mismo rango que usan las
+        // manadas naturales, para que una piara puesta a mano no se distinga
+        // de una nacida sola.
+        //
+        // Se pregunta a GLFW y NO al array state->keys: ese array es de 256 y
+        // se indexa por caracter ('w', 'a'...), mientras que GLFW_KEY_LEFT_SHIFT
+        // vale 340. Leerlo ahi seria escribir fuera del buffer.
+        GLFWwindow* ventana = glfwGetCurrentContext();
+        const bool conShift =
+            ventana &&
+            (glfwGetKey(ventana, GLFW_KEY_LEFT_SHIFT)  == GLFW_PRESS ||
+             glfwGetKey(ventana, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+
+        int puestos = 0;
+        if (conShift) {
+            puestos = state->pecaries->soltarManada(sx, sz, 8, adaptador);
+            std::cout << "[Huevo] Manada de " << puestos
+                      << " pecaries en (" << sx << ", " << sz << ")" << std::endl;
+        } else {
+            const int id = state->pecaries->soltarUno(
+                sx, sz, Fauna::EtapaPecari::ADULTO, adaptador);
+            puestos = (id >= 0) ? 1 : 0;
+            std::cout << "[Huevo] Pecari adulto en (" << sx << ", " << sz << ")"
+                      << std::endl;
+        }
+
+        // Si se llego al tope de poblacion no se gasta el huevo: seria
+        // cobrarle al jugador por algo que no ha pasado. En creativo el stack
+        // es infinito de todos modos, pero la regla vale igual.
+        if (puestos > 0) {
+            state->inventory.consumeSelected();
+            state->placeCooldown = 0.25f;
+        }
+        return;
+    }
 
     // ========================================================================
     // ⭐ RECOGER EL AGUAMIEL CON UN TAZON
@@ -21824,71 +27223,6 @@ void placeBlock(GameState* state) {
     // (tira el agua y se queda el jugo) y el que ya lleva aguamiel tambien
     // (lo rellena). Ojo: llenar en el RIO sigue siendo cosa solo de los
     // vacios -- eso se comprueba dentro, en su propia rama.
-    // ========================================================================
-    // ⭐ EXTRAER AGUAMIEL DE UN MAGUEY COMPUESTO
-    // ========================================================================
-    // El flujo completo de la planta:
-    //
-    //   maduro -> capado -> produce poco a poco -> el jugador lo recoge ->
-    //   sigue produciendo
-    //
-    // Va ANTES del resto para que apuntar a un maguey con el tazon en la mano
-    // haga siempre lo esperado, sin caer en la rama de "colocar bloque".
-    if (esTazon(selectedBlock)) {
-        const Vec3 oriM = state->player.getEyePosition();
-        const Vec3 dirM = state->player.getForward();
-        RaycastResult rm = raycastBlock(state->world, oriM, dirM, 5.0f);
-
-        if (rm.hit) {
-            const BlockType b = state->world.getBlock(
-                rm.blockPos.x, rm.blockPos.y, rm.blockPos.z);
-
-            if (Compuesto::esCompuesto(b) &&
-                Compuesto::familiaDe(b) == Compuesto::FAM_MAGUEY) {
-                namespace M = Compuesto::Maguey;
-                const uint16_t est = Compuesto::estadoDe(b);
-
-                // -- Aun no esta capado: se abre --
-                if (!M::capadoDe(b)) {
-                    if (M::capacidad(M::etapaDe(b)) == 0) {
-                        std::cout << "Este maguey aun es joven: no da aguamiel."
-                                  << std::endl;
-                    } else {
-                        state->world.setBlock(rm.blockPos.x, rm.blockPos.y,
-                                              rm.blockPos.z, M::capar(b));
-                        std::cout << "Maguey capado: empezara a dar aguamiel."
-                                  << std::endl;
-                    }
-                    state->placeCooldown = 0.25f;
-                    return;
-                }
-
-                // -- Capado: se recoge si hay bastante --
-                if (!M::hayParaTazon(est)) {
-                    std::cout << "Todavia no hay aguamiel suficiente ("
-                              << M::aguamielDe(b) << "/"
-                              << M::AGUAMIEL_PARA_TAZON << ")." << std::endl;
-                    state->placeCooldown = 0.25f;
-                    return;
-                }
-
-                const BlockType conJugo = tazonConAguamiel(selectedBlock);
-                if (conJugo != BLOCK_AIR) {
-                    // La planta se vacia y SIGUE produciendo: no se rompe ni
-                    // pierde el capado.
-                    state->world.setBlock(rm.blockPos.x, rm.blockPos.y,
-                                          rm.blockPos.z, M::vaciado(b));
-                    state->inventory.consumeSelected();
-                    const Vec3 pj(state->player.position.x,
-                                  state->player.position.y + 1.0f,
-                                  state->player.position.z);
-                    state->spawnItem(pj, conJugo);
-                    state->placeCooldown = 0.25f;
-                }
-                return;
-            }
-        }
-    }
 
     if (esTazon(selectedBlock)) {
 
@@ -21927,28 +27261,24 @@ void placeBlock(GameState* state) {
                     // sin querer, que cuesta 10 minutos de espera conseguir.
                     if (!esTazonVacio(selectedBlock)) break;
 
-                    // ⭐ EL AGUA BAJA UN NIVEL
+                    // ⭐ EL TAZON SE LLEVA AGUA DE VERDAD
                     //
-                    // Los niveles van de 0 (fuente) a 7 (el hilo mas fino),
-                    // asi que "bajar un nivel" es SUBIR el numero: queda
-                    // menos agua. Al pasar de 7 la celda se queda seca.
+                    // Los niveles van de 8 (celda llena) a 1 (la lamina mas
+                    // fina), asi que llenar un tazon RESTA: queda menos agua
+                    // donde se metio. Al llegar a 0 la celda se queda seca.
                     //
-                    // Una FUENTE (nivel 0) no se agota: es un manantial, y
-                    // vaciarlo con un tazon dejaria secos los rios. Se llena
-                    // el tazon y el agua se queda como estaba.
-                    const int nivel = state->world.getWaterLevel(bx, by, bz);
+                    // YA NO HAY FUENTES INAGOTABLES. El agua es finita en todo
+                    // el mundo, tambien la de los rios: un tazon saca de la
+                    // celda que toca, y esa celda se rellena -- o no -- segun
+                    // lo que le llegue de sus vecinas. En un rio se nota cero
+                    // (tiene millones de celdas alrededor); en un charco
+                    // pequeno se nota, y esa es la idea.
+                    const int nivel = state->world.aguaDe(bx, by, bz);
 
                     if (nivel > 0) {
-                        const int nuevo = nivel + 1;
-                        if (nuevo > 7) {
-                            // Se acabo el agua de esa celda.
-                            state->world.setBlock(bx, by, bz, BLOCK_AIR);
-                            state->world.setWaterLevel(bx, by, bz, -1);
-                            state->world.notifyWaterRemoved(bx, by, bz);
-                        } else {
-                            state->world.setWaterLevel(bx, by, bz, nuevo);
-                            state->world.scheduleWaterUpdate(bx, by, bz);
-                        }
+                        state->world.setWaterLevel(bx, by, bz, nivel - 1);
+                        state->world.notifyWaterRemoved(bx, by, bz);
+                        state->world.scheduleWaterUpdate(bx, by, bz);
                     }
 
                     // El tazon vacio se cambia por el mismo tazon con agua.
@@ -22118,11 +27448,40 @@ void placeBlock(GameState* state) {
                         const BlockType encima = state->world.getBlock(
                             arriba.x, arriba.y, arriba.z);
 
-                        // Si arriba ya hay algo, esta rama no coloca: se
-                        // apunta el destino y sigue el camino normal, que ya
-                        // sabe tratar ese caso (y comprueba la colision con
-                        // el jugador antes de poner nada).
-                        if (encima == BLOCK_AIR) {
+                        // ⭐ LA HIERBA NO CUENTA COMO "OCUPADO"
+                        //
+                        // ESTE ERA EL BUG DEL HUECO ENTRE BLOQUES.
+                        //
+                        // La comprobacion era `encima == BLOCK_AIR`. Si sobre
+                        // la piedra habia una brizna de hierba -- y el mundo
+                        // esta sembrado de ellas -- esa celda no era aire, asi
+                        // que la rama no colocaba ahi: caia a `placePos =
+                        // arriba` y el bloque acababa UN VOXEL MAS ALTO,
+                        // dejando en medio un hueco de aire con la hierba
+                        // dentro. Dos piedras flotando separadas, que es justo
+                        // lo que se veia.
+                        //
+                        // La vegetacion NO ocupa volumen: es un sprite plano
+                        // que se atraviesa. Al construir se sustituye, igual
+                        // que ya hace la rama de "vegetacion reemplazable"
+                        // cuando se le apunta directamente. Aqui faltaba el
+                        // mismo criterio.
+                        //
+                        // Se excluye lo que SI ocupa sitio (ramas, nopal,
+                        // maguey): eso son piezas reales y machacarlas al
+                        // apilar seria destruir cosas sin querer.
+                        const bool ocupaSitio =
+                            esCladodio(encima) || encima == BLOCK_NOPAL_FRUTO ||
+                            isRama(encima) || esRaiz(encima) ||
+                            Compuesto::esCompuesto(encima);
+                        const bool libre = (encima == BLOCK_AIR) ||
+                                           (isCrossSprite(encima) && !ocupaSitio);
+
+                        // Si arriba ya hay algo solido, esta rama no coloca:
+                        // se apunta el destino y sigue el camino normal, que
+                        // ya sabe tratar ese caso (y comprueba la colision
+                        // con el jugador antes de poner nada).
+                        if (libre) {
                             BlockType aPoner = enMano;
                             if (admiteNiveles(enMano) && !esNivelParcial(enMano))
                                 aPoner = conNivel(bloqueBaseDe(enMano), 1);
@@ -22132,6 +27491,32 @@ void placeBlock(GameState* state) {
                             state->inventory.consumeSelected();
                             state->placeCooldown = 0.25f;
                             return;
+                        }
+
+                        // ⭐ ARRIBA OCUPADO: SE EMPIEZA UNA CAPA EN LA MISMA
+                        //    CELDA SI TODAVIA CABE.
+                        //
+                        // Parte del mismo bug: con un bloque entero encima, la
+                        // unica salida era `placePos = arriba` -- una celda
+                        // que YA esta ocupada -- asi que el camino normal la
+                        // rechazaba y el clic se perdia.
+                        //
+                        // Si la celda apuntada es un nivel parcial, todavia
+                        // tiene sitio dentro: se sube su nivel (o se mezcla)
+                        // en vez de intentar salir a una celda llena. Solo si
+                        // tampoco cabe ahi se deja el destino de antes.
+                        if (esNivelParcial(tocado)) {
+                            const BlockType baseT = bloqueBaseDe(tocado);
+                            if (enMano == baseT || bloqueBaseDe(enMano) == baseT) {
+                                const int nuevo = nivelDe(tocado) + 1;
+                                state->world.setBlock(
+                                    result.blockPos.x, result.blockPos.y,
+                                    result.blockPos.z,
+                                    (nuevo > 8) ? baseT : conNivel(baseT, nuevo));
+                                state->inventory.consumeSelected();
+                                state->placeCooldown = 0.25f;
+                                return;
+                            }
                         }
 
                         placePos = arriba;
@@ -22160,12 +27545,47 @@ void placeBlock(GameState* state) {
                             const BlockType encima = state->world.getBlock(
                                 arriba.x, arriba.y, arriba.z);
 
-                            // Solo si hay sitio libre. Si no, no se coloca
-                            // nada y tampoco se gasta el bloque.
-                            if (encima == BLOCK_AIR && arriba.y < CHUNK_HEIGHT) {
+                            // ⭐ La hierba no estorba: se sustituye, igual que
+                            // en la rama de arriba. Sin esto, al llenar una
+                            // celda bajo una brizna el clic se perdia: no
+                            // colocaba nada y el jugador no entendia por que.
+                            const bool ocupaSitio2 =
+                                esCladodio(encima) ||
+                                encima == BLOCK_NOPAL_FRUTO ||
+                                isRama(encima) || esRaiz(encima) ||
+                                Compuesto::esCompuesto(encima);
+                            const bool libre2 =
+                                (encima == BLOCK_AIR) ||
+                                (isCrossSprite(encima) && !ocupaSitio2);
+
+                            // ⭐ SI ARRIBA HAY ALGO, LA CELDA SE LLENA IGUAL.
+                            //
+                            // BUG QUE ESTO CORRIGE: no se podian colocar
+                            // niveles si habia un bloque entero encima. La
+                            // celda estaba en el nivel 8 y el sitio de arriba
+                            // ocupado, asi que esta rama salia SIN HACER NADA:
+                            // el clic se perdia y el jugador no entendia por
+                            // que un hueco de un bloque no se podia rellenar.
+                            //
+                            // El caso es justo el de rellenar bajo un techo, y
+                            // ahi la respuesta correcta no es "no cabe" sino
+                            // COMPLETAR la celda: ocho octavos son un bloque
+                            // entero, y encaja exacto con lo de arriba sin
+                            // dejar hueco. Es ademas lo que pide la regla de
+                            // que nada quede flotando.
+                            if (libre2 && arriba.y < CHUNK_HEIGHT) {
                                 state->world.setBlock(arriba.x, arriba.y,
                                                       arriba.z,
                                                       conNivel(base, 1));
+                                state->inventory.consumeSelected();
+                                state->placeCooldown = 0.25f;
+                            } else {
+                                // Arriba ocupado: se remata ESTA celda como
+                                // bloque entero en vez de perder el clic.
+                                state->world.setBlock(result.blockPos.x,
+                                                      result.blockPos.y,
+                                                      result.blockPos.z,
+                                                      base);
                                 state->inventory.consumeSelected();
                                 state->placeCooldown = 0.25f;
                             }
@@ -22316,22 +27736,12 @@ void placeBlock(GameState* state) {
             // no puede ir pegada a un ixtle. Las que crecen en el mundo no
             // pasan por aqui -- las siembra la generacion -- asi que las matas
             // naturales conservan sus espinas.
-            if (blockToPlace == BLOCK_IXTLE_PUNTA) {
-                static const int LADOS[6][3] = {
-                    { 1,0,0}, {-1,0,0}, {0, 1,0},
-                    { 0,-1,0}, {0,0,1}, {0,0,-1}
-                };
-                for (int i = 0; i < 6; ++i) {
-                    const BlockType vecino = state->world.getBlock(
-                        placePos.x + LADOS[i][0],
-                        placePos.y + LADOS[i][1],
-                        placePos.z + LADOS[i][2]);
-                    if (esIxtle(vecino)) {
-                        // Se queda rota: no se coloca.
-                        return;
-                    }
-                }
-            }
+            // ⭐ YA NO HACE FALTA COMPROBAR NADA AQUI.
+            //
+            // La punta de ixtle (y el resto del ixtle viejo) dejo de ser
+            // colocable: isPlaceableItem la rechaza, asi que este camino no
+            // se alcanza nunca con ella. La regla de "no se vuelve a
+            // conectar" se cumple sola, porque no se puede poner.
 
             // ================================================================
             // UNA PENCA EN EL AGUA SE LAVA AL INSTANTE
@@ -22417,8 +27827,145 @@ void placeBlock(GameState* state) {
                 blockToPlace = conNivel(bloqueBaseDe(blockToPlace), 1);
             }
 
+            // ================================================================
+            // ⭐ NADA SE QUEDA FLOTANDO SOBRE UNA CAPA
+            // ================================================================
+            // BUG QUE ESTO CORRIGE: al poner un bloque sobre un nivel parcial,
+            // el bloque nuevo ocupaba la celda de arriba ENTERA mientras la
+            // capa de abajo medía 3 px. Entre los dos quedaban 13 px de aire a
+            // la vista: el bloque se veia flotando sobre la capa.
+            //
+            // La solucion no es bajar el bloque -- una celda no puede estar a
+            // media altura -- sino METERLO EN LA MISMA CELDA que la capa. Para
+            // eso existen las celdas mixtas: abajo el material que ya estaba,
+            // y de ahi al techo el nuevo. Al empezar EXACTAMENTE donde acaba la
+            // otra, no puede quedar hueco.
+            //
+            //     ┌────────────┐ 16
+            //     │▒▒ NUEVO ▒▒▒│  lo que se acaba de poner
+            //     ├────────────┤  3
+            //     │██ LA CAPA ██│  el nivel que ya estaba
+            //     └────────────┘  0
+            //
+            // Solo aplica si la celda de abajo es una capa parcial CON SITIO y
+            // los dos materiales se pueden mezclar. Si no, se coloca como
+            // siempre.
+            if (placePos.y > 0) {
+                const BlockType debajo = state->world.getBlock(
+                    placePos.x, placePos.y - 1, placePos.z);
+
+                const BlockType actual = state->world.getBlock(
+                    placePos.x, placePos.y, placePos.z);
+
+                // La celda destino tiene que estar libre: si ya hay algo, este
+                // no es el caso de "flotando sobre una capa".
+                const bool destinoLibre =
+                    (actual == BLOCK_AIR) || isCrossSprite(actual);
+
+                if (destinoLibre && esNivelParcial(debajo) && !esMixto(debajo)) {
+                    const BlockType baseAbajo = bloqueBaseDe(debajo);
+                    const int nivelAbajo = nivelDe(debajo);
+
+                    // Mismo material: sube el nivel de la capa de abajo en vez
+                    // de crear un bloque nuevo encima. Es lo que hace que las
+                    // capas se acumulen sin escalones de aire.
+                    if (bloqueBaseDe(blockToPlace) == baseAbajo &&
+                        nivelAbajo >= 1 && nivelAbajo < 8) {
+                        state->world.setBlock(
+                            placePos.x, placePos.y - 1, placePos.z,
+                            (nivelAbajo + 1 >= 8) ? baseAbajo
+                                                  : conNivel(baseAbajo, nivelAbajo + 1));
+                        state->inventory.consumeSelected();
+                        state->placeCooldown = 0.25f;
+                        return;
+                    }
+
+                    // Material distinto: celda mixta, los dos en el mismo voxel.
+                    const BlockType mezcla =
+                        mixto(baseAbajo, nivelAbajo, bloqueBaseDe(blockToPlace));
+                    if (mezcla != BLOCK_AIR) {
+                        state->world.setBlock(
+                            placePos.x, placePos.y - 1, placePos.z, mezcla);
+                        state->inventory.consumeSelected();
+                        state->placeCooldown = 0.25f;
+                        return;
+                    }
+                }
+            }
+
+            // ⭐ Cuanta agua habia AQUI antes de tapar la celda. Se lee ahora,
+            // porque en cuanto se coloque el bloque el dato se pierde. Luego se
+            // le reparte a los vecinos en vez de dejar que se evapore.
+            const int aguaDesplazada =
+                state->world.aguaDe(placePos.x, placePos.y, placePos.z);
+
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
             state->inventory.consumeSelected();
+
+            // ================================================================
+            // ⭐ UN BLOQUE PUESTO EN EL AIRE SE CAE
+            // ================================================================
+            // Pegar un bloque a media pared lo dejaba flotando: la pared no
+            // lo sujeta -- solo cuenta el contacto por DEBAJO -- pero el
+            // soporte solo se revisaba al ROMPER, nunca al colocar.
+            //
+            // Ahora, si lo que acabas de poner no tiene nada debajo, se viene
+            // abajo en el acto con su fisica. Para construir en alto hay que
+            // subir desde el suelo o levantar un andamio.
+            //
+            // ⚠️ SE SUELTA SOLO ESE BLOQUE, NO LA ESTRUCTURA.
+            //
+            // Es la diferencia que evita reabrir un bug ya arreglado. El
+            // recorrido de estructuras (desprenderEstructura) esta pensado
+            // para arboles, y el terreno esta excluido de el a proposito: si
+            // se metiera en la piedra, se comeria la columna hacia abajo y
+            // acabaria derrumbando parches enteros de suelo -- que es
+            // exactamente lo que pasaba antes.
+            //
+            // Aqui no hace falta ese recorrido: se sabe QUE bloque se acaba
+            // de poner y donde. Basta con mirar si tiene suelo. Asi un bloque
+            // de piedra colgado en el aire cae, pero la piedra del mundo
+            // sigue sin poder derrumbarse jamas.
+            //
+            // Las plantas quedan fuera: un nopal o una rama pegados a la
+            // pared son vegetacion, no construccion.
+            {
+                const bool esVegetacion =
+                    isCrossSprite(blockToPlace) || isRama(blockToPlace) ||
+                    esRaiz(blockToPlace) ||
+                    blockToPlace == BLOCK_LEAVES ||
+                    blockToPlace == BLOCK_LEAVES_ENCINO ||
+                    blockToPlace == BLOCK_LEAVES_OYAMEL ||
+                    blockToPlace == BLOCK_LEAVES_OCOTE;
+
+                const bool sinSuelo =
+                    (placePos.y > 0) &&
+                    !esSueloFirme(state->world.getBlock(placePos.x,
+                                                        placePos.y - 1,
+                                                        placePos.z));
+
+                if (!esVegetacion && sinSuelo &&
+                    g_piezasCayendo.size() < MAX_PIEZAS_CAYENDO) {
+
+                    // Se saca del mundo y se manda a caer como pieza de un
+                    // solo bloque, para que baje con la misma fisica que
+                    // todo lo demas (densidad, arrastre, aterrizaje).
+                    state->world.setBlock(placePos.x, placePos.y, placePos.z,
+                                          BLOCK_AIR);
+
+                    Fisica::PiezaCayendo pz;
+                    pz.x = (float)placePos.x;
+                    pz.y = (float)placePos.y;
+                    pz.z = (float)placePos.z;
+                    pz.velocidad = 0.0f;
+                    pz.bloques.push_back({ 0, 0, 0, blockToPlace });
+                    pz.masaTotal = Fisica::masaDe(blockToPlace);
+                    pz.areaTotal = Fisica::AREA_M2;
+                    pz.vuelca = false;   // un solo bloque no se vuelca
+
+                    g_piezasCayendo.push_back(std::move(pz));
+                }
+            }
 
             // ⭐ ¿SE HA TAPADO UN PASTO?
             // Si debajo queda hierba y lo que se ha puesto la ahoga, se
@@ -22451,6 +27998,21 @@ void placeBlock(GameState* state) {
             // ⭐ SISTEMA DE AGUA: Si se coloca agua, programar actualización
             if (blockToPlace == BLOCK_WATER) {
                 state->world.notifyWaterPlaced(placePos.x, placePos.y, placePos.z);
+            }
+            // ⭐ UN BLOQUE PUESTO EN EL AGUA LA DESPLAZA, NO LA BORRA.
+            //
+            // Esto es lo que se pidio: al meter un bloque en el rio, el agua
+            // que ocupaba esa celda NO desaparece -- se reparte por alrededor
+            // en niveles pequenos, que es lo que hace de verdad.
+            //
+            // El agua desplazada se le entrega a los vecinos antes de que el
+            // bloque nuevo ocupe el sitio (el valor se leyo justo antes de
+            // colocar, en aguaDesplazada). Si no cabe en ningun vecino, se
+            // pierde: el bloque la ha expulsado del mundo, igual que un cubo
+            // metido en un vaso lleno hace que se derrame por la mesa.
+            else if (aguaDesplazada > 0) {
+                state->world.repartirAguaDesplazada(
+                    placePos.x, placePos.y, placePos.z, aguaDesplazada);
             }
             // ⭐ SISTEMA DE LAVA: la lava colocada a mano es fuente y empieza
             // a fluir (despacio) desde ese punto.
@@ -23181,6 +28743,31 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             g_gameState->isEditingNewWorldSeed = false;
             return;
         }
+    }
+
+    // ========================================================================
+    // ESCRIBIENDO EN UN CAMPO DE TEXTO: NINGUNA TECLA ES UN ATAJO
+    // ========================================================================
+    // Con un campo activo, cada letra que se teclea es TEXTO y nada más. El
+    // carácter en sí lo entrega charCallback(), que es el que conoce el
+    // teclado real del usuario; este callback solo ve códigos físicos.
+    //
+    // BUG QUE ESTO CORRIGE: los bloques de edición de arriba solo interceptan
+    // BACKSPACE, ENTER, ESC y TAB. Cualquier OTRA tecla seguía cayendo hacia
+    // abajo y disparaba su atajo mientras el jugador escribía: teclear el
+    // nombre "Bosque" activaba la accion de la B, "Valle" el vuelo, y los
+    // digitos de una semilla cambiaban de slot en el inventario.
+    //
+    // El corte va AQUI a proposito, despues de las teclas de control: esas
+    // tienen que seguir funcionando (borrar, aceptar, cancelar, cambiar de
+    // campo) porque son parte de escribir. Lo que se corta es todo lo demas.
+    //
+    // Es una regla general, no un parche por tecla: cualquier atajo que se
+    // añada en el futuro queda protegido sin tocar nada de esto.
+    if (g_gameState->isEditingWorldName ||
+        g_gameState->isEditingNewWorldName ||
+        g_gameState->isEditingNewWorldSeed) {
+        return;
     }
 
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
@@ -26209,6 +31796,7 @@ void createNewWorld(GameState* state, float currentTime) {
 
     // ⭐ Establecer la nueva semilla en el objeto World
     state->world.setSeed(newSeed);
+    state->iniciarFauna();   // ⭐ FAUNA: poblacion nueva para la semilla nueva
 
     // ⭐ Configurar la ruta del mundo en el objeto World para guardar chunks
     state->world.setWorldPath(worldPath.string());
@@ -27039,6 +32627,7 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
     if (loadLevelDat(worldPath.string(), tempWorldInfo)) {
         // ⭐ CRÍTICO: Establecer la semilla ANTES de generar cualquier chunk
         state->world.setSeed(tempWorldInfo.seed);
+        state->iniciarFauna();   // ⭐ FAUNA: la poblacion sale de esta semilla
         std::cout << "   ✅ Semilla cargada desde level.dat: " << tempWorldInfo.seed << std::endl;
 
         // ⭐ VIDA: el tiempo jugado se arrastra entre sesiones, asi que los
@@ -27078,6 +32667,7 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
                     try {
                         int savedSeed = std::stoi(line.substr(5));
                         state->world.setSeed(savedSeed);
+                        state->iniciarFauna();   // ⭐ FAUNA
                         std::cout << "   ✅ Semilla cargada desde world.cfg: " << savedSeed << std::endl;
                     } catch (const std::exception&) {
                         std::cerr << "   world.cfg: semilla ilegible, se usa la actual: "
@@ -27306,13 +32896,105 @@ static std::string g_crashMarkerPath;
 void emergencySaveHandler(int signal) {
     // Contexto de senal: SOLO operaciones async-signal-safe.
     if (g_crashMarkerFd >= 0) {
-        _write(g_crashMarkerFd, "CRASH\n", 6);
+        // ⭐ SE APUNTA QUE SEÑAL FUE.
+        //
+        // Antes escribia "CRASH" a secas, y eso no distingue una violacion de
+        // acceso de un abort() -- que son dos fallos completamente distintos y
+        // se buscan en sitios distintos. Con el nombre, la siguiente sesion ya
+        // sabe por donde empezar.
+        //
+        // Son literales de cadena: no hay formateo ni asignacion de memoria,
+        // asi que sigue siendo seguro dentro de un manejador de señal.
+        const char* que =
+            (signal == SIGSEGV) ? "CRASH\nsenal=SIGSEGV (acceso invalido)\n" :
+            (signal == SIGABRT) ? "CRASH\nsenal=SIGABRT (abort: assert fallido"
+                                  " o excepcion no capturada)\n" :
+            (signal == SIGILL)  ? "CRASH\nsenal=SIGILL (instruccion ilegal)\n" :
+            (signal == SIGFPE)  ? "CRASH\nsenal=SIGFPE (error aritmetico)\n" :
+                                  "CRASH\nsenal=(otra)\n";
+        unsigned n = 0;
+        while (que[n] != '\0') ++n;   // strlen a mano: sin llamadas de libreria
+        _write(g_crashMarkerFd, que, n);
         _commit(g_crashMarkerFd);
     }
     // Restaurar el manejador por defecto y re-lanzar la senal para que el
     // sistema genere el volcado y el codigo de salida correctos.
     std::signal(signal, SIG_DFL);
     std::raise(signal);
+}
+
+// ============================================================================
+// ⭐ EL CRASH QUE NO DEJABA RASTRO
+// ============================================================================
+// EL PROBLEMA: en Windows, `std::signal(SIGSEGV, ...)` NO captura una
+// violacion de acceso de verdad. Esas viajan por SEH (Structured Exception
+// Handling), que es un mecanismo del sistema operativo, no de la libreria de C.
+//
+// Consecuencia medida: el juego se cerraba de golpe en pleno mundo, el
+// crash.marker quedaba con "CRASH" -- porque eso si lo escribe la ruta de
+// salida-- pero el log se cortaba en seco sin una sola linea de diagnostico.
+// Un crash sin informacion no se puede arreglar: solo se puede adivinar.
+//
+// Esto lo cierra. SetUnhandledExceptionFilter engancha el ULTIMO recurso del
+// sistema: se llama cuando nadie mas ha atendido la excepcion, justo antes de
+// que Windows mate el proceso.
+//
+// ----------------------------------------------------------------------------
+// QUE SE PUEDE HACER AQUI DENTRO, Y QUE NO
+// ----------------------------------------------------------------------------
+// El proceso ya esta roto: el heap puede estar corrupto y hay hilos parados en
+// mitad de lo que estuvieran haciendo. Por eso NO se guarda el mundo (ver la
+// nota del handler de senales, arriba: sobrescribir un save bueno con memoria
+// basura es peor que perder la partida).
+//
+// Lo que si es seguro: escribir en un descriptor de fichero YA ABIERTO con la
+// API cruda del sistema. Nada de std::string, nada de new, nada de mutex.
+// Todo lo que se escribe sale de buffers en la PILA.
+LONG WINAPI filtroExcepcion(EXCEPTION_POINTERS* info) {
+    if (g_crashMarkerFd >= 0) {
+        // Se apunta el CODIGO de excepcion y la DIRECCION donde ocurrio. Con
+        // esos dos numeros y el .pdb se localiza la linea exacta.
+        char buf[256];
+        const DWORD codigo = info && info->ExceptionRecord
+                           ? info->ExceptionRecord->ExceptionCode : 0;
+        const void* dir = info && info->ExceptionRecord
+                        ? info->ExceptionRecord->ExceptionAddress : nullptr;
+
+        // Nombre legible de los codigos que de verdad se dan en un motor.
+        const char* nombre =
+            (codigo == EXCEPTION_ACCESS_VIOLATION)      ? "ACCESO INVALIDO (puntero colgante o nulo)" :
+            (codigo == EXCEPTION_STACK_OVERFLOW)        ? "DESBORDAMIENTO DE PILA (recursion infinita)" :
+            (codigo == EXCEPTION_INT_DIVIDE_BY_ZERO)    ? "DIVISION ENTERA POR CERO" :
+            (codigo == EXCEPTION_ARRAY_BOUNDS_EXCEEDED) ? "INDICE FUERA DE RANGO" :
+            (codigo == EXCEPTION_ILLEGAL_INSTRUCTION)   ? "INSTRUCCION ILEGAL" :
+                                                          "OTRO";
+
+        int n = _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+                            "CRASH\ncodigo=0x%08lX %s\ndireccion=%p\n",
+                            (unsigned long)codigo, nombre, dir);
+
+        // Y en un acceso invalido, QUE se intentaba tocar y para que. Es el
+        // dato que distingue "lei un puntero ya liberado" de "escribi fuera
+        // de un buffer".
+        if (codigo == EXCEPTION_ACCESS_VIOLATION && info->ExceptionRecord &&
+            info->ExceptionRecord->NumberParameters >= 2) {
+            const ULONG_PTR tipo = info->ExceptionRecord->ExceptionInformation[0];
+            const ULONG_PTR ptr  = info->ExceptionRecord->ExceptionInformation[1];
+            const char* op = (tipo == 0) ? "LEER" : (tipo == 1) ? "ESCRIBIR"
+                                                                : "EJECUTAR";
+            n += _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE,
+                             "intento de %s en 0x%p\n", op, (void*)ptr);
+        }
+
+        if (n > 0) {
+            _write(g_crashMarkerFd, buf, (unsigned)n);
+            _commit(g_crashMarkerFd);
+        }
+    }
+
+    // Que Windows siga con lo suyo: generar el volcado si esta configurado y
+    // devolver el codigo de salida correcto.
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 void setupSignalHandlers() {
@@ -27332,11 +33014,38 @@ void setupSignalHandlers() {
     // Por tanto, encontrarlo con contenido significa que la sesion anterior
     // termino en crash.
     if (fs::exists(markerPath, ec) && fs::file_size(markerPath, ec) > 0) {
-        std::cerr << "Se detecto un cierre inesperado en la sesion anterior" << std::endl;
-        MessageBoxA(nullptr,
-                    "Voxel World se cerro inesperadamente la ultima vez.\n\n"
-                    "El progreso desde el ultimo autoguardado podria haberse perdido.\n"
-                    "Hay copias de seguridad en saves\\<mundo>\\backups\\.",
+        // ⭐ SE LEE EL MARCADOR Y SE ENSEÑA LO QUE DICE.
+        //
+        // Antes el aviso era generico: "se cerro inesperadamente". Eso no
+        // sirve para arreglar nada. Ahora el marcador lleva el codigo de
+        // excepcion, la direccion y que se intentaba tocar (ver
+        // filtroExcepcion), y todo eso se muestra y se deja en el log.
+        std::string detalle;
+        {
+            std::ifstream f(markerPath, std::ios::binary);
+            if (f) {
+                std::ostringstream ss;
+                ss << f.rdbuf();
+                detalle = ss.str();
+                // Acotado: es un diagnostico, no un volcado.
+                if (detalle.size() > 400) detalle.resize(400);
+            }
+        }
+
+        std::cerr << "Se detecto un cierre inesperado en la sesion anterior"
+                  << std::endl;
+        if (!detalle.empty())
+            std::cerr << "--- diagnostico del crash ---\n" << detalle
+                      << "-----------------------------" << std::endl;
+
+        std::string msg =
+            "Voxel World se cerro inesperadamente la ultima vez.\n\n"
+            "El progreso desde el ultimo autoguardado podria haberse perdido.\n"
+            "Hay copias de seguridad en saves\\<mundo>\\backups\\.\n";
+        if (!detalle.empty())
+            msg += "\nDetalle tecnico:\n" + detalle;
+
+        MessageBoxA(nullptr, msg.c_str(),
                     "Voxel World - Aviso", MB_OK | MB_ICONWARNING);
     }
 
@@ -27351,6 +33060,54 @@ void setupSignalHandlers() {
     std::signal(SIGABRT, emergencySaveHandler);  // Abort
     std::signal(SIGILL,  emergencySaveHandler);  // Illegal instruction
     std::signal(SIGFPE,  emergencySaveHandler);  // Floating point exception
+
+    // ⭐ Y EL DE VERDAD: el filtro SEH.
+    //
+    // Las señales de C no ven una violacion de acceso en Windows. Sin esto, el
+    // juego se cerraba en pleno mundo y lo unico que quedaba era un marcador
+    // que decia "CRASH" sin decir de que. Ahora deja el codigo, la direccion y
+    // que se intentaba tocar.
+    SetUnhandledExceptionFilter(filtroExcepcion);
+
+    // ⭐ Y LA TERCERA VIA: una EXCEPCION DE C++ que nadie captura.
+    //
+    // Ni las señales ni el filtro SEH la ven. Cuando ocurre, la libreria llama
+    // a std::terminate(), que llama a abort() y el proceso muere con codigo 3.
+    //
+    // Es el caso mas probable en este motor por un motivo concreto: hay HILOS
+    // (dos de generacion, dos de guardado). Una excepcion que escape del cuerpo
+    // de un hilo NO se puede capturar desde main -- mata el proceso entero
+    // directamente, sin pasar por ningun catch.
+    //
+    // Aqui se apunta el mensaje de la excepcion, que suele decir exactamente
+    // que paso (un `bad_alloc`, un `out_of_range` de un vector, un `.at()` que
+    // se salio de rango).
+    std::set_terminate([]() {
+        if (g_crashMarkerFd >= 0) {
+            char buf[512];
+            int n = _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+                                "CRASH\ntipo=excepcion C++ no capturada\n");
+
+            // Si hay una excepcion viva, se le saca el mensaje. Va en
+            // try/catch porque rethrow desde terminate puede volver a lanzar.
+            try {
+                auto ex = std::current_exception();
+                if (ex) std::rethrow_exception(ex);
+            } catch (const std::exception& e) {
+                n += _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE,
+                                 "que=%s\n", e.what());
+            } catch (...) {
+                n += _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE,
+                                 "que=(tipo desconocido)\n");
+            }
+
+            if (n > 0) {
+                _write(g_crashMarkerFd, buf, (unsigned)n);
+                _commit(g_crashMarkerFd);
+            }
+        }
+        std::abort();
+    });
 
     std::cout << "Detector de crashes instalado (marcador: " << g_crashMarkerPath << ")" << std::endl;
 }
@@ -27976,9 +33733,84 @@ int main() {
     // El tiempo del swap: ver la nota junto a glfwSwapBuffers.
     double swap_ms = 0;
 
+    // ========================================================================
+    // ⭐ ARRANQUE DIRECTO A UN MUNDO, PARA MEDIR RENDIMIENTO
+    // ========================================================================
+    // Con VOXELWORLD_BENCH=<nombre de mundo> el juego entra solo en ese mundo
+    // al arrancar, sin pasar por los menus.
+    //
+    // POR QUE HACE FALTA: las cifras del menu principal no valen para nada --
+    // alli no hay mundo, y el desglose del frame sale "chunks=0 render=0".
+    // Medir de verdad exigia entrar a mano cada vez, que ademas da numeros
+    // distintos segun donde acabe el jugador.
+    //
+    // Con esto, medir el rendimiento es repetible y comparable entre cambios,
+    // que es la unica forma de saber si una optimizacion sirvio de algo. Es
+    // justo lo que le faltaba a los doce documentos de FPS que se escribieron
+    // sin haber medido nada.
+    //
+    // No afecta al juego normal: sin la variable puesta, no hace nada.
+    {
+        const char* bench = getenv("VOXELWORLD_BENCH");
+        if (bench && *bench) {
+            scanSavedWorlds(g_gameState);
+            int idx = -1;
+            for (size_t i = 0; i < g_gameState->savedWorlds.size(); i++) {
+                if (g_gameState->savedWorlds[i].name == bench) {
+                    idx = (int)i;
+                    break;
+                }
+            }
+            if (idx >= 0) {
+                std::cout << "[BENCH] Arrancando directo en '" << bench
+                          << "'" << std::endl;
+                loadWorld(g_gameState, idx, (float)glfwGetTime());
+
+                // ⭐ POSICION Y ORIENTACION FIJAS.
+                //
+                // Sin esto cada arranque deja al jugador donde lo dejo la
+                // partida, y la carga cambia MUCHISIMO segun el sitio: se han
+                // medido 250.000 caras en un arranque y 556.000 en el
+                // siguiente. Comparar dos versiones del motor con esos
+                // numeros no dice nada.
+                //
+                // Con posicion fija, dos ejecuciones miden la MISMA vista y
+                // la diferencia que salga es del codigo, no del azar.
+                const char* posStr = getenv("VOXELWORLD_BENCH_POS");
+                if (posStr && *posStr) {
+                    float bx = 0, by = 0, bz = 0, byaw = 0, bpitch = 0;
+                    if (sscanf(posStr, "%f,%f,%f,%f,%f",
+                               &bx, &by, &bz, &byaw, &bpitch) >= 3) {
+                        g_gameState->player.position = Vec3(bx, by, bz);
+                        g_gameState->player.yaw = byaw;
+                        g_gameState->player.pitch = bpitch;
+                        syncControllerFromPlayer();
+                        std::cout << "[BENCH] Posicion fijada en "
+                                  << bx << "," << by << "," << bz << std::endl;
+                    }
+                }
+            } else {
+                std::cout << "[BENCH] No existe el mundo '" << bench
+                          << "'" << std::endl;
+            }
+        }
+    }
+
+    // Cierre automatico tras N segundos, para poder medir sin dejar el juego
+    // abierto a mano. Se lee una sola vez.
+    const char* benchSegundosStr = getenv("VOXELWORLD_BENCH_SEGUNDOS");
+    const double benchSegundos = benchSegundosStr ? atof(benchSegundosStr) : 0.0;
+    const double benchInicio = glfwGetTime();
+
     // ⭐ PROTECCIÓN CONTRA CRASHES: Try-catch en el game loop
     try {
         while (!glfwWindowShouldClose(window)) {
+            // Cierre automatico del banco de pruebas.
+            if (benchSegundos > 0.0 &&
+                glfwGetTime() - benchInicio > benchSegundos) {
+                std::cout << "[BENCH] Fin de la medicion" << std::endl;
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
             // ⭐ Protección crítica: Verificar que el estado del juego es válido
             if (!g_gameState) {
                 std::cerr << "❌ ERROR CRÍTICO: g_gameState es NULL en el bucle principal!" << std::endl;
@@ -28328,7 +34160,78 @@ int main() {
                     ponerEnCreativo(BLOCK_PEDAZO_LIMONITA);
                     ponerEnCreativo(BLOCK_PEDAZO_NIEVE);
                     ponerEnCreativo(BLOCK_PYRITE_ORE);
-                    ponerEnCreativo(BLOCK_MAGUEY_PUNTA);
+
+                    // ================================================================
+                    // ⭐ LO QUE SE HABIA QUEDADO FUERA
+                    // ================================================================
+                    // Esta lista es MANUAL, asi que cada bloque nuevo hay que
+                    // anadirlo aqui a mano -- y es justo lo que se olvida. Desde
+                    // el ID 165 no se anadio ninguno, asi que todo esto existia
+                    // en el juego pero no habia forma de cogerlo en creativo.
+                    //
+                    // Lo cubre ahora un test (test_creativo_completo.cpp) que lee
+                    // esta misma lista y avisa si falta algo: el olvido pasa a ser
+                    // un test rojo en vez de un bloque inalcanzable.
+
+                    // --- Barro y tazones con aguamiel ---
+                    ponerEnCreativo(BLOCK_PEDAZO_BARRO);
+                    ponerEnCreativo(BLOCK_TAZON_PINO_AGUAMIEL);
+                    ponerEnCreativo(BLOCK_TAZON_ENCINO_AGUAMIEL);
+                    ponerEnCreativo(BLOCK_TAZON_OYAMEL_AGUAMIEL);
+
+                    // --- La penca cortada del tequilana ---
+                    ponerEnCreativo(BLOCK_PENCA_AGAVE_AZUL);
+
+                    // --- El ocote blanco (Pinus montezumae) ---
+                    ponerEnCreativo(BLOCK_WOOD_OCOTE);
+                    ponerEnCreativo(BLOCK_WOOD_OCOTE_DENTRO);
+                    ponerEnCreativo(BLOCK_LEAVES_OCOTE);
+                    ponerEnCreativo(BLOCK_PLANKS_OCOTE);
+                    ponerEnCreativo(BLOCK_RAMA_OCOTE);
+
+                    // --- El ocote chino (Pinus leiophylla) ---
+                    ponerEnCreativo(BLOCK_WOOD_OCOTE_CHINO);
+                    ponerEnCreativo(BLOCK_WOOD_OCOTE_CHINO_DENTRO);
+                    ponerEnCreativo(BLOCK_LEAVES_OCOTE_CHINO);
+
+                    // ⚠️ NO ENTRAN, Y ES DELIBERADO:
+                    //
+                    //   Las hojas CON RAMA dentro (…_RAMA) son celdas
+                    //   compartidas que produce el generador, no objetos: en la
+                    //   mano se verian iguales que las hojas normales.
+                    //
+                    //   La tierra/arena/pasto MOJADOS son un ESTADO del bloque
+                    //   (se moja al tocar agua), no un material aparte.
+                    //
+                    //   Las piezas del agave (PENCA, PUNTA, PINA, QUIOTE, FLOR)
+                    //   son etiquetas de textura para el mesher, no bloques que
+                    //   el jugador coloque.
+                    // ⭐ EL MAGUEY NO SALE EN EL CREATIVO
+                    //
+                    // Estuvieron aqui sus cinco etapas mas un ejemplar listo
+                    // para ordeñar. Se retiraron: en el menu se veian como
+                    // seis cubos verdes IDENTICOS, porque el icono del
+                    // inventario usa la textura plana de la planta y no su
+                    // modelo 3D -- asi que no habia forma de distinguir un
+                    // brote de un productor, y solo ocupaban sitio.
+                    //
+                    // El bloque sigue existiendo y funcionando: los magueyes
+                    // de los mundos ya explorados estan intactos, se pueden
+                    // capar y ordeñar igual. Lo unico que se quita es su
+                    // entrada en el menu.
+
+                    // ================================================================
+                    // ⭐ HUEVOS DE SPAWN
+                    // ================================================================
+                    // No son bloques: sueltan un animal vivo. Solo existen en
+                    // creativo -- no se craftean, no caen de nada, y este bucle
+                    // es la unica via por la que entran al inventario.
+                    //
+                    // Su icono NO es una textura plana: es el modelo 3D del
+                    // animal (ver drawItemIcon). Justo lo que le faltaba al
+                    // maguey de aqui arriba para no verse como un cubo verde
+                    // mas.
+                    ponerEnCreativo(BLOCK_HUEVO_PECARI);
 
                     std::cout << "Inventario creativo: " << creativeCount
                               << " objetos en " << g_gameState->inventory.total()
@@ -28510,7 +34413,20 @@ int main() {
                 int eyeZ = (int)floor(eyePos.z);
                 BlockType eyeBlock = g_gameState->world.getBlock(eyeX, eyeY, eyeZ);
 
-                bool isUnderwater = (eyeBlock == BLOCK_WATER);
+                // ⭐ CON NIVELES, "bajo el agua" ES UNA CUESTION DE ALTURA.
+                //
+                // No basta con que la celda de los ojos sea agua: si solo tiene
+                // dos octavos, la lamina queda MUY por debajo de la cara y el
+                // jugador no esta sumergido. Poner la niebla azul ahi haria que
+                // vadear un charco por el tobillo se viera como bucear.
+                //
+                // Asi que se compara la cota real de la superficie con la
+                // altura de los ojos dentro de la celda.
+                bool isUnderwater = false;
+                if (esAguaCualquiera(eyeBlock)) {
+                    const float supAgua = eyeY + Compuesto::Agua::alturaVisual(eyeBlock);
+                    isUnderwater = (eyePos.y < supAgua);
+                }
                 bool isInLava = (eyeBlock == BLOCK_LAVA);
 
                 g_gameState->fogSystem.setUnderwater(isUnderwater);
@@ -28611,6 +34527,10 @@ int main() {
                 // LIGHTING DESHABILITADO PARA DIAGNOSTICO
                 // g_gameState->world.processLightingQueue();
                 g_gameState->updateItems(deltaTime);
+
+                // ⭐ FAUNA: las manadas de pecari se mueven y siguen el
+                // terreno. Sale en la primera linea si no hay ninguno.
+                g_gameState->actualizarFauna(deltaTime);
 
                 // ⭐ BLOQUES EN EL AIRE: gravedad real (ver FisicaCaida.h).
                 // Si no hay ninguno cayendo, sale en la primera linea y no
@@ -29003,6 +34923,234 @@ int main() {
 
         // ⭐ Solo renderizar items y efectos del juego si estamos EN EL JUEGO
         if (g_gameState->screenState == SCREEN_IN_GAME) {
+
+            // ================================================================
+            // FAUNA: LAS MANADAS DE PECARI
+            // ================================================================
+            // Se dibujan ANTES que los items para que un item que caiga sobre
+            // un animal se vea por delante.
+            //
+            // Cada pecari son 10 cajas de color plano (sin textura): tronco en
+            // barril, cabeza, hocico estrecho, collar claro, cresta dorsal,
+            // cuatro patas y una cola minuscula. La geometria ya viene
+            // colocada y orientada desde PecariEntidad.h; aqui solo se pintan
+            // cubos.
+            if (g_gameState->pecaries) {
+                // ================================================================
+                // RENDER DE MALLA ORGANICA
+                // ================================================================
+                // Sustituye al dibujado por cajas. El animal ya no es un monton
+                // de bloques: es una malla continua con normales suaves.
+                //
+                // FLUJO (punto 40 del encargo):
+                //   simulacion -> prepararDibujo (culling + LOD)
+                //              -> lista de instancias
+                //              -> una malla COMPARTIDA por (especie,edad,LOD)
+                //              -> dibujado
+                //
+                // MEMORIA: la geometria NO se duplica por animal. Cien pecaries
+                // usan las mismas ~20 mallas cacheadas (430 KB en total), y cada
+                // instancia solo aporta su transformacion.
+                static Fauna::CacheMallas cacheMallas;
+                static std::vector<Fauna::MundoPecaries::InstanciaDibujo> instancias;
+
+                // El radio de dibujo coincide con la distancia de carga de
+                // chunks: mas alla no hay mundo que los sostenga, y ademas la
+                // niebla ya es opaca.
+                const float radioDibujo = 5.0f * (float)CHUNK_SIZE;
+
+                // Direccion de la camara, para el culling por angulo.
+                //
+                // ⭐ ESTE ERA EL BUG DE "LOS PECARIES DESAPARECEN AL MIRARLOS".
+                //
+                // Aqui se calculaba a mano como (+sin(yaw), +cos(yaw)), pero
+                // getForward() usa (-sin(yaw), -cos(yaw)): el motor mira hacia
+                // Z NEGATIVO, que es la convencion de OpenGL. O sea que este
+                // vector apuntaba justo al REVES que la camara.
+                //
+                // El efecto era exactamente ese: el culling por angulo
+                // descartaba a los que tenias DELANTE y conservaba a los de
+                // detras, asi que al girarte hacia una manada desaparecia.
+                //
+                // La solucion no es cambiar el signo a mano --eso deja otra vez
+                // dos formulas que alguien tiene que mantener sincronizadas--
+                // sino preguntarle al jugador, que es quien sabe hacia donde
+                // mira.
+                const Vec3 miradaCam = g_gameState->player.getForward();
+                const float dirCamX = miradaCam.x;
+                const float dirCamZ = miradaCam.z;
+
+                g_gameState->pecaries->prepararDibujo(
+                    instancias, cacheMallas,
+                    g_gameState->player.position.x,
+                    g_gameState->player.position.z,
+                    dirCamX, dirCamZ,
+                    radioDibujo);
+
+                if (!instancias.empty()) {
+                    glDisable(GL_TEXTURE_2D);   // color por vertice, sin textura
+                    glEnable(GL_CULL_FACE);
+
+                    // ⭐ BUFFERS DEL SKINNING, REUTILIZADOS.
+                    //
+                    // Son static a proposito: la malla deformada se reescribe
+                    // entera cada animal y cada frame, asi que reservar
+                    // memoria nueva cada vez seria tirar trabajo. Con esto se
+                    // reserva una vez y ya.
+                    static std::vector<Fauna::VerticeAnimal> vertsDeform;
+                    static Fauna::PoseEsqueleto poseEsq;
+                    static Fauna::TransHueso transHuesos[Fauna::NUM_HUESOS];
+
+                    // El esqueleto en reposo depende de la ETAPA (una cria
+                    // tiene las patas mas cortas), asi que se cachean los
+                    // cinco y se reusan.
+                    static Fauna::EsqueletoReposo esqPorEtapa[5];
+                    static bool esqListos = false;
+                    if (!esqListos) {
+                        for (int e = 0; e < 5; ++e) {
+                            Fauna::ParametrosPecari pe = Fauna::Especies::pecariDeCollar();
+                            pe = Fauna::Especies::aplicarEdad(pe, e);
+                            esqPorEtapa[e] = Fauna::EsqueletoDePecari(pe);
+                        }
+                        esqListos = true;
+                    }
+
+                    for (const auto& inst : instancias) {
+                        const Fauna::MallaAnimal* malla = inst.malla;
+                        if (!malla || malla->indices.empty()) continue;
+
+                        // --- LUZ DEL BLOQUE ---
+                        // El animal se ilumina como el terreno: de dia se ve, de
+                        // noche se oscurece, y en cueva queda en penumbra.
+                        const int bx = (int)std::floor(inst.x);
+                        const int by = (int)std::floor(inst.y);
+                        const int bz = (int)std::floor(inst.z);
+                        const int nivel  = g_gameState->world.getLightAt(bx, by, bz);
+                        const int arriba = g_gameState->world.getLightAt(bx, by + 1, bz);
+                        const float luzAmbiente = 0.18f + 0.82f * ((float)nivel / 15.0f);
+
+                        // Cuanta MAS luz hay, mas marcada es la sombra: con luz
+                        // alta el contraste se dispara y solo se ilumina la cara
+                        // expuesta.
+                        const float intensidad = (float)nivel / 15.0f;
+                        const float gradiente  = (float)(arriba - nivel) / 15.0f;
+                        float contraste = 0.30f + 0.55f * intensidad
+                                                + 0.30f * (gradiente > 0.0f ? gradiente : 0.0f);
+                        if (contraste > 0.92f) contraste = 0.92f;
+
+                        // Direccion de la luz: desde arriba, algo inclinada, para
+                        // que el volumen se lea.
+                        const float lx = 0.35f, ly = 0.90f, lz = 0.25f;
+
+                        // --- ⭐ ARTICULAR: doblar la malla por sus huesos ---
+                        //
+                        // Aqui es donde el animal deja de ser una estatua. La
+                        // malla cacheada esta en REPOSO y se comparte entre
+                        // todos; esto produce la version doblada de ESTE
+                        // animal en ESTE instante, en un buffer reutilizado.
+                        //
+                        // Solo para los cercanos (inst.articulado, LOD 0-1).
+                        // Los lejanos se dibujan en reposo, que es lo que se
+                        // hacia antes: a esa distancia no se nota y asi una
+                        // manada lejana no cuesta mas que antes.
+                        const std::vector<Fauna::VerticeAnimal>* verts =
+                            &malla->vertices;
+
+                        if (inst.articulado && inst.pesos) {
+                            Fauna::PoseDeMarcha(inst.fasePaso, inst.rapidez, poseEsq);
+
+                            // La cabeza gira aparte del cuerpo: es lo que
+                            // permite que mire a los lados sin girarse entero.
+                            poseEsq.giroY[(int)Fauna::HuesoAnimal::CABEZA] =
+                                inst.giroCabezaY;
+                            poseEsq.giroX[(int)Fauna::HuesoAnimal::CABEZA] +=
+                                inst.giroCabezaX;
+
+                            const int etapaIdx = inst.etapa;
+                            Fauna::ResolverPose(
+                                esqPorEtapa[(etapaIdx < 0 || etapaIdx > 4) ? 3 : etapaIdx],
+                                poseEsq, transHuesos);
+
+                            Fauna::DeformarMalla(*malla, *inst.pesos,
+                                                 transHuesos, vertsDeform);
+                            verts = &vertsDeform;
+                        }
+
+                        // --- TRANSFORMACION DE LA INSTANCIA ---
+                        // La malla esta en METROS y en espacio local; el mundo va
+                        // en BLOQUES de 0.60 m.
+                        const float M_A_BLOQ = 1.0f / 0.60f;
+                        const float esc = inst.escala * M_A_BLOQ;
+                        const float cy = std::cos(inst.orientacion);
+                        const float sy = std::sin(inst.orientacion);
+
+                        // ⭐ RED DE SEGURIDAD: el indice tiene que estar dentro.
+                        //
+                        // Con una malla bien formada esto se cumple por
+                        // construccion, asi que la comprobacion no deberia
+                        // saltar nunca. Esta aqui porque es el punto EXACTO
+                        // donde se materializaba el crash: si `malla` apuntara
+                        // a memoria liberada, `indices` traeria basura y esto
+                        // leeria una direccion arbitraria.
+                        //
+                        // La causa esa ya esta cerrada (ver AnimalMallaCache.h),
+                        // pero un indice fuera de rango no puede tener como
+                        // consecuencia que se cierre el juego: es geometria, y
+                        // como mucho debe faltar un triangulo.
+                        // Se lee de 'verts', que apunta a la malla en reposo o
+                        // a la ya articulada segun el caso. Los INDICES son
+                        // siempre los de la malla original: doblar mueve los
+                        // vertices, no cambia como se conectan.
+                        const size_t nVert = verts->size();
+                        glBegin(GL_TRIANGLES);
+                        for (size_t t = 0; t + 2 < malla->indices.size(); t += 3) {
+                            if (malla->indices[t]     >= nVert ||
+                                malla->indices[t + 1] >= nVert ||
+                                malla->indices[t + 2] >= nVert) continue;
+                            for (int k = 0; k < 3; ++k) {
+                                const Fauna::VerticeAnimal& v =
+                                    (*verts)[malla->indices[t + k]];
+
+                                // Rotar posicion y normal por la orientacion.
+                                const float px = v.pos.x * cy + v.pos.z * sy;
+                                const float pz = -v.pos.x * sy + v.pos.z * cy;
+                                const float nx = v.normal.x * cy + v.normal.z * sy;
+                                const float nz = -v.normal.x * sy + v.normal.z * cy;
+
+                                // --- SOMBREADO ---
+                                // GL_LIGHTING esta desactivado en el motor, asi
+                                // que la iluminacion se calcula aqui por vertice.
+                                // El pipeline fijo interpola el color entre
+                                // vertices (Gouraud), y eso es lo que produce la
+                                // superficie continua en vez de facetas.
+                                float d = nx * lx + v.normal.y * ly + nz * lz;
+                                if (d < 0.0f) d = 0.0f;
+                                const float f = luzAmbiente * (1.0f - contraste * (1.0f - d));
+
+                                glColor3f(v.r * f, v.g * f, v.b * f);
+                                glVertex3f(inst.x + px * esc,
+                                           inst.y + v.pos.y * esc,
+                                           inst.z + pz * esc);
+                            }
+                        }
+                        glEnd();
+                    }
+
+                    glColor3f(1.0f, 1.0f, 1.0f);
+                    g_gameState->pecaries->confirmarLOD(instancias);
+                }
+            }
+            // ⭐ Aqui habia un '}' de mas.
+            //
+            // Venia emparejado con un 'if (g_gameState->pecaries)' que estaba
+            // ESCRITO DOS VECES unas lineas mas arriba. Los dos errores se
+            // cancelaban entre si, asi que el archivo cuadraba de llaves y el
+            // problema no se veia -- salvo que el bloque del Profiler quedaba
+            // fuera de SCREEN_IN_GAME, donde deltaTime no existe.
+            //
+            // Al quitar el 'if' duplicado hubo que quitar tambien este cierre:
+            // arreglar solo uno de los dos deja el archivo peor que antes.
+
             // Renderizar items en el mundo (cubitos pequeños con texturas)
             // Deshabilitar culling para que todas las caras sean visibles
             glDisable(GL_CULL_FACE);
@@ -29051,7 +35199,40 @@ int main() {
                                  item.blockType == BLOCK_PEDAZO_TIERRA ||
                                  item.blockType == BLOCK_PEDAZO_CALIZA ||
                                  item.blockType == BLOCK_RAW_ZINC ||
-                                 item.blockType == BLOCK_COAL_ITEM);
+                                 item.blockType == BLOCK_COAL_ITEM ||
+                                 esPencaDeMaguey(item.blockType));
+
+            // ⭐ LAS PENCAS DE MAGUEY SON MAS GRUESAS QUE UN PEDAZO DE MINERAL.
+            //
+            // Una hoja de agave es CARNOSA -- es lo que la distingue de una
+            // hoja cualquiera, y de donde sale el aguamiel. Como lamina fina
+            // no se lee como lo que es.
+            //
+            // 4 px de grosor sobre los 16 de ancho y alto: un cuarto del lado.
+            // `scale` es el SEMILADO (medio ancho), asi que el semigrosor es
+            // scale * 0.25 para dar 4 px de los 16.
+            //
+            // Las PUNTAS van con el mismo cuerpo que la hoja de la que salen:
+            // son la espina terminal de esa misma penca, no una lamina aparte.
+            const bool esCarnosa = esPencaDeMaguey(item.blockType) ||
+                                   item.blockType == BLOCK_AGAVE_AZUL_PENCA ||
+                                   item.blockType == BLOCK_IXTLE_PUNTA ||
+                                   item.blockType == BLOCK_MAGUEY_PUNTA ||
+                                   item.blockType == BLOCK_AGAVE_AZUL_PUNTA;
+
+            // ⭐ EL CACTUS ES LO MAS GRUESO DE TODO.
+            //
+            // Una penca de nopal es una hoja SUCULENTA: guarda agua, y por eso
+            // es visiblemente mas gorda que la hoja fibrosa de un agave. Lo
+            // mismo vale para la tuna (un fruto redondo) y para la biznaga
+            // (un barril). Dibujarlas con el grosor de una hoja las aplanaria.
+            //
+            // 5 px sobre los 16 del lado = 5/16 = 0.3125, frente a los 4 px
+            // (0.25) del agave y los ~3 (0.18) de una herramienta.
+            const bool esCactus = esCactusSuelto(item.blockType);
+            const float FACTOR_GROSOR = esCactus  ? (5.0f / 16.0f)
+                                      : esCarnosa ? 0.25f
+                                                  : 0.18f;
 
             // ⭐ ITEMS FINOS: el canto sale del CONTORNO, no del borde del cuadro.
             //
@@ -29065,17 +35246,145 @@ int main() {
             // Aqui el canto se levanta pixel a pixel donde la figura toca el
             // vacio: 86 tiras que siguen el palo de verdad. Queda un solido
             // cerrado, con su forma y sin nada invisible.
+            //
+            // ------------------------------------------------------------
+            // POR QUE ESTA LISTA CRECIO
+            // ------------------------------------------------------------
+            // Aqui solo estaba el palo, y eso dejaba fuera a dos grupos que
+            // sufren EL MISMO problema, cada uno a su manera:
+            //
+            //   HERRAMIENTAS (hacha, pico, martillo). Caian al cubo del
+            //   final, asi que un hacha tirada al suelo se veia como un dado
+            //   con el hacha estampada en las seis caras. Son objetos
+            //   diagonales que no llenan su cuadro: es exactamente el caso
+            //   del palo.
+            //
+            //   MAGUEY (la penca y la punta). Estas SI entraban en item3D,
+            //   pero su canto salia de las cuatro tiras del borde -- y el
+            //   borde de "Maguey.png" esta VACIO por los lados: 0 de 16
+            //   pixeles opacos en la columna izquierda y 0 de 16 en la
+            //   derecha (arriba y abajo si tienen 14 de 16). Con el alpha
+            //   test a 0.5, las tiras este y oeste se descartaban ENTERAS y
+            //   la penca quedaba abierta por los dos costados. Ese es el
+            //   "no cargan las caras este y oeste": no faltaba la textura,
+            //   faltaba dibujo opaco donde se iba a muestrear.
+            //
+            // Con el contorno real el problema no se arregla, DESAPARECE: el
+            // canto nace donde hay figura, asi que no puede caer en una
+            // columna transparente.
+            //
+            // La textura del maguey vive en Blocks/ y la de las herramientas
+            // en Items/, por eso la ruta se guarda desde `resourcepacks/`.
             const char* siluetaPNG = nullptr;
             switch (item.blockType) {
-                case BLOCK_STICK: siluetaPNG = "palo.png"; break;
+                case BLOCK_STICK:
+                    siluetaPNG = "Textures/Items/palo.png"; break;
+
+                // --- Herramientas: las seis, de piedra y de pedernal ---
+                case BLOCK_HACHA_PIEDRA:
+                    siluetaPNG = "Textures/Items/Hacha de piedra.png"; break;
+                case BLOCK_PICO_PIEDRA:
+                    siluetaPNG = "Textures/Items/pico de Piedra.png"; break;
+                case BLOCK_MARTILLO_PIEDRA:
+                    siluetaPNG = "Textures/Items/Martillo de Piedra.png"; break;
+                case BLOCK_HACHA_PEDERNAL:
+                    siluetaPNG = "Textures/Items/Hacha de Pedernal afilado.png"; break;
+                case BLOCK_PICO_PEDERNAL:
+                    siluetaPNG = "Textures/Items/Pico de Pedernal.png"; break;
+                case BLOCK_MARTILLO_PEDERNAL:
+                    siluetaPNG = "Textures/Items/Martillo de Pedernal.png"; break;
+
+                // --- Maguey: las piezas que se sueltan como item ---
+                //
+                // La hoja del pulquero y la penca del tequilana son las dos
+                // que el jugador recoge al talar. Las puntas caen al cortar
+                // el quiote. Todas son hojas o espinas: laminas con forma
+                // propia, nunca cubos.
+                case BLOCK_IXTLE_HOJA:
+                    siluetaPNG = "Textures/Blocks/Maguey.png"; break;
+                case BLOCK_IXTLE_PUNTA:
+                case BLOCK_MAGUEY_PUNTA:
+                    siluetaPNG = "Textures/Blocks/Puntas de Maguey.png"; break;
+                case BLOCK_PENCA_AGAVE_AZUL:
+                case BLOCK_AGAVE_AZUL_PENCA:
+                    siluetaPNG = "Textures/Blocks/Maguey de Tequilana azul.png"; break;
+                case BLOCK_AGAVE_AZUL_PUNTA:
+                    siluetaPNG = "Textures/Blocks/punta de Maguey de Tequilana azul.png"; break;
+
+                // --- CACTUS: nopal y sus productos, y las tunas ---
+                //
+                // Entran por el mismo motivo que el maguey, y con el mismo
+                // sintoma si no entraran: sus texturas tampoco llenan el
+                // cuadro, asi que el canto de cuatro tiras del camino item3D
+                // se descartaria en las columnas transparentes y la penca
+                // saldria abierta por los costados.
+                //
+                // Con el contorno real el solido se cierra siempre, sea cual
+                // sea la forma del dibujo: es lo que hace que "se rendericen
+                // las caras de todo en 3D".
+                case BLOCK_NOPAL_CLADODIO:
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla.png"; break;
+                case BLOCK_NOPAL_MOJADO:
+                    siluetaPNG = "Textures/Items/Nopal mojado sin espinas.png"; break;
+                case BLOCK_NOPAL_SECO:
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla seco sin espinas.png"; break;
+                case BLOCK_NOPAL_TIRAS:
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras.png"; break;
+                case BLOCK_NOPAL_SIN_BABA:
+                    siluetaPNG = "Textures/Items/Penca de Nopal sin baba mojado.png"; break;
+                case BLOCK_NOPAL_BABA:
+                    siluetaPNG = "Textures/Items/Baba de nopal.png"; break;
+                case BLOCK_ESPINAS_NOPAL:
+                    siluetaPNG = "Textures/Items/Espinas de Nopal de castilla.png"; break;
+
+                // Las tunas: fruto redondo, cada variedad con su color.
+                case BLOCK_NOPAL_FRUTO:
+                case BLOCK_TUNA:
+                    siluetaPNG = "Textures/Items/Tuna verde crecida.png"; break;
+                case BLOCK_TUNA_AMARILLA:
+                    siluetaPNG = "Textures/Items/Tuna amarilla crecida.png"; break;
+                case BLOCK_TUNA_ROJA:
+                    siluetaPNG = "Textures/Items/Tuna roja crecida.png"; break;
+
                 default: break;
             }
 
             if (siluetaPNG) {
+                // ⭐ EL GROSOR NO ES IGUAL PARA TODOS.
+                //
+                // El palo y las herramientas son laminas finas; una penca de
+                // agave es CARNOSA, y como lamina fina no se lee como lo que
+                // es. Se reutiliza FACTOR_GROSOR (0.25 para las pencas, 0.18
+                // para el resto) en vez del 0.09 fijo que habia, para que la
+                // hoja tenga el mismo cuerpo que ya tenia por el otro camino.
+                //
+                // El modelo se cachea por ruta Y el grosor forma parte de la
+                // geometria, asi que dos items con la misma textura y distinto
+                // grosor compartirian modelo. Hoy no ocurre (cada ruta la usa
+                // un grupo con el mismo grosor), pero conviene saberlo.
+                //
+                // ⚠️ AQUI HABIA UN FACTOR 2 DE MAS, Y HACIA LOS ITEMS LA MITAD
+                // DE GRUESOS DE LO QUE DECIA SU NUMERO.
+                //
+                // La cuenta completa, que es lo que hay que tener delante:
+                //
+                //     lado del item   = 2 * scale          (de -scale a +scale)
+                //     semiGrosor real = semiGrosor * scale (lo que se pasa aqui)
+                //     grosor total    = 2 * semiGrosor * scale
+                //
+                // O sea que grosor/lado == semiGrosor: el valor que se pasa YA
+                // ES la fraccion del lado, y multiplicarlo por 0.5 la partia en
+                // dos. Con el 0.5 la penca de agave salia a 2 px en vez de los
+                // 4 que documenta su constante, y el cactus habria salido a
+                // 2.5 en vez de 5.
+                //
+                // Lo caza el test "Cactus: 5 px de grosor sobre los 16 del lado".
+                const float semiGrosor = FACTOR_GROSOR;
+
                 const std::string ruta =
-                    gamePath("resourcepacks/Textures/Items/") + siluetaPNG;
+                    gamePath("resourcepacks/") + siluetaPNG;
                 const SiluetaItem::Modelo& mod =
-                    SiluetaItem::obtener(ruta, 0.09f);
+                    SiluetaItem::obtener(ruta, semiGrosor);
 
                 if (mod.valido) {
                     const GLuint tex =
@@ -29087,7 +35396,7 @@ int main() {
                     glEnable(GL_ALPHA_TEST);
                     glAlphaFunc(GL_GREATER, 0.5f);
 
-                    const float g = 0.09f * scale;
+                    const float g = semiGrosor * scale;
                     glColor3f(1.0f, 1.0f, 1.0f);
 
                     glBegin(GL_QUADS);
@@ -29134,8 +35443,10 @@ int main() {
                 glEnable(GL_ALPHA_TEST);
                 glAlphaFunc(GL_GREATER, 0.5f);
 
-                // Grosor de la pieza: fino, como una lamina con cuerpo.
-                const float gr = scale * 0.18f;
+                // Grosor de la pieza: fino, como una lamina con cuerpo. Las
+                // pencas de maguey van mas gruesas (ver FACTOR_GROSOR): son
+                // hojas carnosas, no laminas.
+                const float gr = scale * FACTOR_GROSOR;
 
                 glColor3f(1.0f, 1.0f, 1.0f);
                 glBegin(GL_QUADS);
@@ -29263,7 +35574,30 @@ int main() {
         // basta y no merece un VBO.
         if (!g_bloquesCayendo.empty() || !g_piezasCayendo.empty()) {
             glEnable(GL_TEXTURE_2D);
-            glEnable(GL_CULL_FACE);
+
+            // ⭐ SIN CULLING: NO SE PIERDE NINGUNA CARA
+            //
+            // Un bloque que cae se ve desde donde sea -- desde abajo mientras
+            // te pasa por encima, y desde dentro si te atraviesa. Con el
+            // culling puesto, la cara que mira al otro lado se descarta y el
+            // bloque se ve HUECO justo en ese momento.
+            //
+            // El mundo si puede permitirse el culling (nunca estas dentro de
+            // un bloque solido), pero una pieza en el aire no: es un objeto
+            // suelto que se mira desde todos lados. Son pocas caras y duran
+            // un instante, asi que dibujar las dos caras no cuesta nada.
+            glDisable(GL_CULL_FACE);
+
+            // ⭐ Y CON SU LUZ, NO EN BLANCO
+            //
+            // Estaba fijo en blanco puro: un bloque se desprendia de noche o
+            // dentro de una cueva y se encendia de golpe, mas brillante que
+            // todo lo que tenia alrededor. Al aterrizar volvia a apagarse.
+            //
+            // Ahora cada cara toma la luz del sitio por el que va pasando,
+            // con el mismo criterio que el mallado del mundo, asi que la
+            // pieza mantiene su iluminacion durante toda la caida y al
+            // posarse no pega ningun salto.
             glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
             // ================================================================
@@ -29291,9 +35625,47 @@ int main() {
             //    bloque. Un arbol entero pasa de ~200 lotes a 3 o 4 (corteza,
             //    anillos, hojas).
             //
-            // Las caras se acumulan aqui: textura -> vertices (x,y,z,u,v).
+            // Las caras se acumulan aqui: textura -> vertices
+            // (x,y,z, u,v, r,g,b). El color va POR VERTICE porque cada cara
+            // tiene su propia luz, igual que en el mallado del mundo.
             static std::map<GLuint, std::vector<float>> carasPorTextura;
             for (auto& e : carasPorTextura) e.second.clear();
+
+            // ================================================================
+            // LA LUZ DE UNA PIEZA QUE CAE
+            // ================================================================
+            // Mismo criterio que el mesher del mundo, para que un bloque se
+            // vea IGUAL cayendo que puesto:
+            //
+            //   - la cara toma la luz del bloque de aire que la toca
+            //     (faceLightLevel del mesher), no un valor unico por bloque;
+            //   - misma curva lineal con minimo de ambiente;
+            //   - mismo brillo direccional: arriba 1.0, lados 0.92, abajo 0.5.
+            //
+            // Si estos numeros se separaran de los del mesher, el bloque
+            // cambiaria de brillo justo al aterrizar, que es el salto que
+            // esto viene a quitar.
+            const float solAhora = luzSolar();
+            constexpr float LUZ_DE_LUNA_CAIDA = 0.12f;
+
+            auto luzDeCelda = [&](int cx, int cy, int cz) -> float {
+                // Por encima del mundo es cielo abierto; por debajo, fondo.
+                uint8_t nivel;
+                if (cy >= CHUNK_HEIGHT)     nivel = 18;
+                else if (cy < 0)            nivel = 0;
+                else nivel = g_gameState->world.getLightLevel(cx, cy, cz);
+
+                float raw = (float)nivel / 18.0f;
+                float f = raw;
+                if (f < 0.15f) f = 0.15f;          // nunca negro puro
+
+                // La parte que depende del sol es la exposicion al cielo; el
+                // resto se queda igual de dia que de noche.
+                const float delCielo = f * raw;
+                const float propia   = f - delCielo;
+                return propia + delCielo *
+                       (LUZ_DE_LUNA_CAIDA + (1.0f - LUZ_DE_LUNA_CAIDA) * solAhora);
+            };
 
             // Anade las seis caras de un cubo, cada una a su textura.
             auto acumularCubo = [&](BlockType tipo, float bx, float by, float bz) {
@@ -29320,9 +35692,43 @@ int main() {
                     {{X0,Y0,Z0, 0,0}, {X0,Y0,Z1, 1,0}, {X0,Y1,Z1, 1,1}, {X0,Y1,Z0, 0,1}}
                 };
 
+                // Hacia donde mira cada cara, en el mismo orden que CARAS.
+                // Sirve para dos cosas: saber que celda muestrear (la de al
+                // lado, que es por donde entra la luz) y cuanto brillo
+                // direccional le toca.
+                static const int NORMAL[6][3] = {
+                    { 0, 1, 0},   // 0 arriba
+                    { 0,-1, 0},   // 1 abajo
+                    { 0, 0,-1},   // 2 norte
+                    { 0, 0, 1},   // 3 sur
+                    { 1, 0, 0},   // 4 este
+                    {-1, 0, 0}    // 5 oeste
+                };
+                // Mismos valores que el mallado del mundo (BRILLO_ARRIBA,
+                // BRILLO_LADO y BRILLO_ABAJO): si se separaran, el bloque
+                // cambiaria de tono al posarse.
+                static const float BRILLO[6] = {
+                    1.00f,   // arriba
+                    0.50f,   // abajo
+                    0.92f, 0.92f, 0.92f, 0.92f   // los cuatro lados
+                };
+
+                // La celda que ocupa el bloque ahora mismo, para muestrear
+                // desde ella hacia cada cara.
+                const int celdaX = (int)floorf(bx);
+                const int celdaY = (int)floorf(by);
+                const int celdaZ = (int)floorf(bz);
+
                 for (int cara = 0; cara < 6; ++cara) {
                     const GLuint tex = g_textureManager->getBlockTexture(tipo, cara);
                     if (tex == 0) continue;
+
+                    // La luz que le llega a ESTA cara: la del aire que la
+                    // toca, no la del centro del bloque.
+                    const float luz = luzDeCelda(celdaX + NORMAL[cara][0],
+                                                 celdaY + NORMAL[cara][1],
+                                                 celdaZ + NORMAL[cara][2])
+                                      * BRILLO[cara];
 
                     std::vector<float>& v = carasPorTextura[tex];
                     for (int k = 0; k < 4; ++k) {
@@ -29331,6 +35737,9 @@ int main() {
                         v.push_back(CARAS[cara][k][2]);
                         v.push_back(CARAS[cara][k][3]);
                         v.push_back(CARAS[cara][k][4]);
+                        v.push_back(luz);   // r
+                        v.push_back(luz);   // g
+                        v.push_back(luz);   // b
                     }
                 }
             };
@@ -29356,10 +35765,21 @@ int main() {
                     const float altura  = dy * c;
                     const float avance  = dy * s;
 
+                    // ⭐ SE DIBUJA CON EL RUMBO CONTINUO, NO CON EL EJE ENTERO.
+                    //
+                    // `volcarX/Z` solo puede valer -1, 0 o 1, asi que usarlo
+                    // aqui hacia que el arbol se venciera SIEMPRE hacia una de
+                    // cuatro direcciones. `rumboX/Z` lleva el angulo real, y es
+                    // lo unico que hay que cambiar para que la caida se vea en
+                    // cualquiera de los 360 grados.
+                    //
+                    // El aterrizaje sigue usando el eje entero (ver
+                    // actualizarPiezasCayendo): los bloques tienen que acabar
+                    // cuadrados en la rejilla, aunque hayan caido en diagonal.
                     acumularCubo(pieza.tipo,
-                        pz.x + (float)pieza.dx + avance * (float)pz.volcarX,
+                        pz.x + (float)pieza.dx + avance * pz.rumboX,
                         pz.y + altura,
-                        pz.z + (float)pieza.dz + avance * (float)pz.volcarZ);
+                        pz.z + (float)pieza.dz + avance * pz.rumboZ);
                 }
             }
 
@@ -29375,12 +35795,18 @@ int main() {
 
                 g_textureManager->bindOptimized(entrada.first);
                 glBegin(GL_QUADS);
-                for (size_t k = 0; k + 4 < v.size() + 1; k += 5) {
+                // 8 floats por vertice: x,y,z, u,v, r,g,b.
+                for (size_t k = 0; k + 8 <= v.size(); k += 8) {
+                    glColor3f(v[k + 5], v[k + 6], v[k + 7]);
                     glTexCoord2f(v[k + 3], v[k + 4]);
                     glVertex3f(v[k], v[k + 1], v[k + 2]);
                 }
                 glEnd();
             }
+
+            // El color vuelve a blanco para lo que se dibuje despues: si no,
+            // la ultima luz aplicada tenria el resto de la escena.
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         }
 
         // Re-habilitar culling y deshabilitar texturas para el resto del renderizado
@@ -29568,6 +35994,7 @@ int main() {
                     case BLOCK_PLANKS: blockName = "TABLONES DE PINO"; break;
                     case BLOCK_PLANKS_ENCINO: blockName = "TABLONES DE ENCINO"; break;
                     case BLOCK_PLANKS_OYAMEL: blockName = "TABLONES DE OYAMEL"; break;
+                    case BLOCK_PLANKS_OCOTE: blockName = "TABLONES DE OCOTE"; break;
                     case BLOCK_LIMESTONE: blockName = "PIEDRA CALIZA"; break;
                     case BLOCK_GOLD_ORE: blockName = "MINERAL DE ORO"; break;
                     case BLOCK_SILVER_ORE: blockName = "MINERAL DE PLATA"; break;
@@ -29575,8 +36002,11 @@ int main() {
                     case BLOCK_CLAY_SAND: blockName = "ARENA ARCILLOSA"; break;
                     case BLOCK_WOOD_ENCINO: blockName = "MADERA DE ENCINO"; break;
                     case BLOCK_WOOD_OYAMEL: blockName = "MADERA DE OYAMEL"; break;
+                    case BLOCK_WOOD_OCOTE: blockName = "MADERA DE OCOTE"; break;
+                    case BLOCK_WOOD_OCOTE_DENTRO: blockName = "OCOTE RESINOSO"; break;
                     case BLOCK_LEAVES_ENCINO: blockName = "HOJAS DE ENCINO"; break;
                     case BLOCK_LEAVES_OYAMEL: blockName = "HOJAS DE OYAMEL"; break;
+                    case BLOCK_LEAVES_OCOTE: blockName = "ACICULAS DE OCOTE"; break;
                     default: break;
                 }
 

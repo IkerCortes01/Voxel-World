@@ -1,0 +1,918 @@
+{
+  "_meta": {
+    "titulo": "El nopal en Voxel World — la penca, el cladodio y su sistema completo",
+    "version": "1.1",
+    "proyecto": "Voxel World",
+    "fecha": "2026-08-31",
+    "archivos_fuente": ["src/main.cpp", "src/BlockType.h", "src/FisicaCaida.h"],
+    "rol": "Documentación técnica del sistema tal como está IMPLEMENTADO, no una propuesta. Todo lo que dice este archivo se ha verificado contra el código, con el número de línea a la vista.",
+    "aviso_sobre_las_lineas": "Números de línea de main.cpp a 2026-08-31, un archivo de ~34.570 líneas en evolución activa. Sirven para localizar, no como referencia estable: si no cuadran, buscar por el nombre del símbolo.",
+    "escala_de_confianza": {
+      "MEDIDO": "Dato de literatura con cita concreta, ya presente en los comentarios del código",
+      "CODIGO": "Comportamiento verificado leyendo la implementación",
+      "DISENO": "Decisión de juego, deliberadamente apartada del dato real; el código explica por qué",
+      "AUSENTE": "No implementado / no documentado. Se declara el hueco en vez de rellenarlo"
+    }
+  },
+
+  "resumen_en_una_frase": "El nopal es la planta más elaborada del motor: se genera por brotación periférica con filotaxis helicoidal, cada penca calcula su forma a partir de sus vecinos y del entorno, se dibuja como un volumen obovado de ocho rodajas con espinas propias, y alimenta una cadena de procesado de cinco pasos que va del cladodio crudo a la penca seca.",
+
+  "0_la_confusion_que_hay_que_deshacer_primero": {
+    "advertencia": "Tres nombres del código no significan lo que parecen. Sin esto, el resto se lee mal.",
+    "casos": [
+      {
+        "identificador": "BLOCK_NOPAL_FRUTO",
+        "id": 36,
+        "lo_que_parece": "El fruto del nopal",
+        "lo_que_es": "LA PENCA SUELTA — la pieza que el jugador recoge, coloca y sobre la que crecen las tunas",
+        "confianza": "CODIGO",
+        "evidencia": "En src/main.cpp:1178 el predicado esPencaSuelta comprueba exactamente este ID; en 12018 es el único bloque sobre el que nacen tunas; en 25695 es lo que se moja al tocar agua",
+        "el_fruto_de_verdad": "BLOCK_TUNA (40), BLOCK_TUNA_AMARILLA (41), BLOCK_TUNA_ROJA (42)"
+      },
+      {
+        "identificador": "penca vs cladodio",
+        "botanica": "Son la MISMA cosa. 'Penca' es el nombre común mexicano del cladodio.",
+        "confianza": "MEDIDO",
+        "en_el_motor": "Se separan en dos bloques porque cumplen papeles distintos: BLOCK_NOPAL_CLADODIO es la penca que forma parte de la MATA (la que coloca el generador); BLOCK_NOPAL_FRUTO es la penca SUELTA. Es una distinción de MODELO, no de botánica."
+      },
+      {
+        "identificador": "isCrossSprite incluye los cladodios",
+        "aclaracion": "Eso solo marca la semántica de 'no tapa las caras del vecino y se atraviesa'. La geometría real NO es un sprite cruzado: es una caja de seis caras dividida en ocho rodajas (ver sección 5). Lo único del nopal que se dibuja como aspa cruzada son las espinas."
+      }
+    ]
+  },
+
+  "1_botanica_real": {
+    "confianza": "MEDIDO",
+    "que_es_un_cladodio": "Un TALLO APLANADO, no una hoja. El nopal hace la fotosíntesis con el tallo porque sus hojas verdaderas son efímeras: brotan diminutas en el cladodio joven y se caen.",
+    "medidas_del_cladodio_maduro": {
+      "fuente": "Ramírez-Castaño et al. 2023, Rev. Col. Inv. Agroindustriales 10(2):88, sobre 108 cladodios",
+      "citada_en_el_codigo": "src/main.cpp:1161",
+      "largo_cm": 37.13,
+      "desviacion_largo_cm": 5.23,
+      "ancho_cm": 16.64,
+      "desviacion_ancho_cm": 2.89,
+      "grosor_cm": 1.15,
+      "desviacion_grosor_cm": 0.22
+    },
+    "otra_fuente": {
+      "fuente": "FAO/ICARDA e INIFAP",
+      "citada_en_el_codigo": "src/main.cpp:1147",
+      "dato": "30-60 cm de largo por 1.9-2.8 cm de grosor, relación ~1:20"
+    },
+    "cladodios_por_planta": {
+      "fuente": "INIFAP; FAO 'El cultivo de Opuntia para producción de forraje'; SciELO MX 2014 'Rojo Pelón'",
+      "citada_en_el_codigo": "src/main.cpp:11769",
+      "media": 10.2,
+      "rango_medido": "1 a 18"
+    },
+    "brotacion_periferica": {
+      "enunciado": "La brotación es ÚNICAMENTE PERIFÉRICA. Solo el 30% de las areolas de una penca brotan, y son las del contorno, sobre todo del arco superior. Las caras planas NO brotan nunca.",
+      "citada_en_el_codigo": "src/main.cpp:11776-11780"
+    },
+    "filotaxis": {
+      "dato": "La filotaxis de areolas es helicoidal, con ~137 grados de divergencia entre pisos sucesivos",
+      "consecuencia": "Cada piso de brotes queda girado respecto al anterior: la mata se ve en volumen y no como una reja plana"
+    },
+    "crecimiento_por_pisos": "1 nivel nuevo por temporada, hasta 3 en condiciones buenas",
+    "inclinacion_de_las_pencas": {
+      "fuente": "Sortibrán et al. 2005, Am. J. Bot. 92:700, sobre Opuntia puberula",
+      "dato": "El 95% de los cladodios se inclinan menos de 50 grados respecto a la vertical, y el ángulo baja cuanta menos luz reciben",
+      "consecuencia": "Una nopalera real no es un conjunto de placas verticales: tiene pencas dobladas por todas partes"
+    },
+    "perfil_de_la_penca": {
+      "fuente": "Ramírez-Castaño 2023 (n=108); Reyes-Agüero 2005",
+      "citada_en_el_codigo": "src/main.cpp:17332-17364",
+      "forma": "OBOVADA",
+      "cuello_de_insercion": "20-30% del ancho máximo",
+      "punto_mas_ancho": "a 0.58-0.60 del largo",
+      "apice": "redondeado, sin escotadura"
+    },
+    "areolas_y_espinas": {
+      "citada_en_el_codigo": "src/main.cpp:17403-17405",
+      "separacion_entre_areolas_cm": "1.5 a 2.3",
+      "espinas_por_areola": "3 a 6",
+      "longitud_espina_mm": "~30",
+      "la_areola_es_el_organo_generador": {
+        "fuente": "Encyclopedia MDPI; Arqueología Mexicana",
+        "enunciado": "La areola es una yema axilar modificada, exclusiva de las cactáceas. De ella salen TODAS las cosas: espinas, gloquidios, flores, raíces y cladodios nuevos.",
+        "prueba_de_que_el_cladodio_es_tallo": "Una hoja verdadera no produce yemas ni flores desde su superficie; un tallo sí. Las areolas ocupan las axilas de las hojas verdaderas, lo que demuestra que el cladodio es el eje caulinar.",
+        "consecuencia_para_el_modelo": "La topología del nopal es un árbol con puntos de inserción DISCRETOS situados sobre el PERÍMETRO del padre, no en cualquier punto de su superficie. Es exactamente lo que implementa el motor con la brotación periférica."
+      },
+      "espina_vs_gloquidio": {
+        "confianza": "MEDIDO",
+        "espina": "Hoja modificada, grande y rígida, firmemente anclada; no se desprende al tacto",
+        "gloquidio": "Espina diminuta en penacho denso, con barbas retrorsas; SE DESPRENDE al mínimo contacto y se clava. Es el carácter diagnóstico del género Opuntia. En México se le llama ahuate o aguate.",
+        "diferencia_funcional": "La espina es defensa pasiva de gran escala; el gloquidio es defensa por contaminación — te llevas cientos y son casi invisibles",
+        "dato_relevante_para_el_juego": "Un cladodio 'sin espinas' (las variedades cultivadas) SIGUE TENIENDO gloquidios",
+        "estado_en_el_motor": "AUSENTE — el motor modela un solo tipo de espina. La distinción no está implementada."
+      }
+    },
+
+    "hojas_verdaderas": {
+      "confianza": "MEDIDO",
+      "existen": "Sí, pero son efímeras",
+      "forma": "De lezna (subulada, cónica-punzante)",
+      "cuando": "Solo en el cladodio joven; caen conforme el cladodio madura y las espinas se endurecen",
+      "donde": "En la base de cada areola",
+      "consecuencia": "El nopal adulto que se ve NO TIENE NI UNA SOLA HOJA",
+      "hueco_declarado": "Tamaño en mm y días de persistencia: AUSENTE, no se encontró cifra fiable"
+    },
+
+    "contenido_de_agua": {
+      "confianza": "MEDIDO",
+      "fuente": "Revisión en Foods/PMC10096643",
+      "cladodio_porcentaje": "88 a 95",
+      "pulpa_del_fruto_porcentaje": "79.9 a 84.8",
+      "calorias_cladodio_kcal_100g": 27,
+      "calorias_fruto_kcal_100g": "31 a 50",
+      "lectura": "El nopal es esencialmente un DEPÓSITO DE AGUA ESTRUCTURADO. Eso justifica físicamente todo lo demás: por qué el pecarí lo come, por qué el mucílago funciona como aglutinante, y por qué sobrevive la sequía.",
+      "estado_en_el_motor": "AUSENTE — el nopal no hidrata al jugador ni interactúa con ningún sistema de sed (que tampoco existe)"
+    },
+
+    "metabolismo_CAM": {
+      "confianza": "MEDIDO",
+      "mecanismo": "Abre los estomas DE NOCHE y los cierra de día. De noche fija CO2 como ácido málico y lo almacena en las vacuolas; de día lo libera para la fotosíntesis con los estomas ya cerrados.",
+      "por_que_es_ventaja": "De noche el aire está más frío y húmedo, así que el déficit de presión de vapor es bajo y la pérdida de agua por cada CO2 fijado se desploma. La planta desacopla la captura de CO2 (nocturna) de la fotosíntesis (diurna).",
+      "eficiencia_hidrica": {
+        "opuntia_mmol_CO2_por_mol_agua": "4 a 10",
+        "plantas_C3_mmol_CO2_por_mol_agua": "1 a 1.5",
+        "demanda_hidrica_anual": "~1/4 de la de una planta C3"
+      },
+      "fuente": "Annals of Botany; Encyclopedia MDPI",
+      "estado_en_el_motor": "AUSENTE — no hay ciclo día/noche que afecte a la planta. Sería una mecánica posible dado que el motor SÍ tiene ciclo de 24 minutos."
+    },
+
+    "orientacion_solar": {
+      "confianza": "MEDIDO",
+      "fuente": "Nobel 1981, Ecology, 'Influences of Photosynthetically Active Radiation on Cladode Orientation, Stem Tilting, and Height of Cacti'",
+      "hallazgo_central": "Los cladodios se orientan para captar el máximo de radiación en la época favorable de crecimiento — pero la orientación óptima DEPENDE DE LA LATITUD, no es una constante universal",
+      "mediciones": {
+        "O_chlorotica_desierto_de_Mojave": "tendencia significativa a encarar N-S",
+        "O_chlorotica_desierto_Sonorense": "tendencia a encarar E-O",
+        "O_stricta_var_dillenii_Florida": "3 veces más cladodios orientados a ±15 grados del E-O que del N-S"
+      },
+      "estado_en_el_motor": "AUSENTE — el giro de la penca sale de sus vecinos y de un hash de posición, no del sol. Implementarlo sería un sesgo direccional en el hash, barato de añadir."
+    },
+    "frutos_por_cladodio": {
+      "fuente": "Agrociencia 35:159; SciELO MX 2014",
+      "citada_en_el_codigo": "src/main.cpp:11976-11988",
+      "media": "~5",
+      "rango_medido": "1 a 15, hasta 32 en años de carga alta"
+    },
+    "densidad": {
+      "valor_kg_m3": 1030.0,
+      "ubicacion": "src/FisicaCaida.h:153",
+      "nota": "Ligeramente mayor que la del agua: la penca se hunde apenas"
+    }
+  },
+
+  "2_donde_el_motor_se_aparta_del_dato_real": {
+    "confianza": "DISENO",
+    "principio": "El código declara sus concesiones en vez de disimularlas. Estas son las tres que importan.",
+    "concesiones": [
+      {
+        "tema": "El grosor de la penca",
+        "dato_real": "El cladodio es catorce veces más ancho que grueso (16.64 cm vs 1.15 cm)",
+        "a_escala_fiel_seria": "15 x 6.7 x 0.46 px — una lámina tan plana que en la rejilla del voxel casi no se vería",
+        "lo_implementado": {
+          "penca_suelta": "15 de largo x 8 de ancho x 13 de grosor (en dieciseisavos)",
+          "cladodio_de_mata": "8 de ancho x 7 de grosor"
+        },
+        "la_inversion": "La penca suelta queda MÁS GRUESA QUE ANCHA (13 contra 8), justo al revés que en la planta",
+        "por_que": "Legibilidad en el voxel. El cladodio de la mata conserva medidas distintas porque no representa una penca sola, sino un grupo apretado de varias.",
+        "ubicacion": "src/main.cpp:1157-1191"
+      },
+      {
+        "tema": "Cuántos cladodios",
+        "dato_real": "Media 10.2, rango 1-18",
+        "lo_implementado": "7..13",
+        "por_que": "Cubre el grueso del rango medido sin llegar a los ejemplares récord"
+      },
+      {
+        "tema": "Cuántas tunas",
+        "dato_real": "~5 por cladodio, rango 1-15, hasta 32",
+        "lo_implementado": "4..9 por PLANTA (no por cladodio)",
+        "por_que": "No documentado en el código; es una escala de juego"
+      }
+    ]
+  },
+
+  "3_los_bloques": {
+    "referencia": "src/BlockType.h",
+    "bases_que_heredan_el_terreno": {
+      "explicacion": "Bloque COMPLETO cuya textura lleva medio bloque de terreno y medio de tallo. Hay una por suelo para que el arranque no haga costura.",
+      "eleccion": "Se congela AL GENERAR, no al dibujar: un nopal en arena guarda su base de arena para siempre",
+      "funcion": "baseParaSuelo(BlockType), src/main.cpp:11399-11410",
+      "tabla": {
+        "BLOCK_GRASS": { "id_base": 29, "bloque": "BLOCK_NOPAL_BASE_PASTO", "nota": "el más común" },
+        "BLOCK_DIRT": { "id_base": 30, "bloque": "BLOCK_NOPAL_BASE_TIERRA" },
+        "BLOCK_SAND": { "id_base": 31, "bloque": "BLOCK_NOPAL_BASE_ARENA" },
+        "BLOCK_CLAY_DIRT": { "id_base": 32, "bloque": "BLOCK_NOPAL_BASE_T_ARCILLA" },
+        "BLOCK_CLAY_SAND": { "id_base": 33, "bloque": "BLOCK_NOPAL_BASE_A_ARCILLA" },
+        "default": { "bloque": "BLOCK_NOPAL_BASE_TIERRA", "cubre": "grava, arcilla y cualquier otro" }
+      }
+    },
+    "estructura": {
+      "BLOCK_NOPAL_TALLO": { "id": 34, "nota": "Bloque completo, el eje de la mata" },
+      "BLOCK_NOPAL_CLADODIO": { "id": 35, "nota": "La penca de la mata" },
+      "BLOCK_NOPAL_FRUTO": { "id": 36, "nota": "LA PENCA SUELTA (ver sección 0)" }
+    },
+    "variantes_de_cladodio": {
+      "explicacion": "Hasta TRES pencas dentro del mismo voxel. El número viaja dentro del ID: no hay metadatos.",
+      "BLOCK_NOPAL_CLADODIO_X2": { "id": 43, "pencas": 2, "eje": "X (ancho)" },
+      "BLOCK_NOPAL_CLADODIO_X3": { "id": 44, "pencas": 3, "eje": "X (ancho)" },
+      "BLOCK_NOPAL_CLADODIO_Z2": { "id": 45, "pencas": 2, "eje": "Z (largo)" },
+      "BLOCK_NOPAL_CLADODIO_Z3": { "id": 46, "pencas": 3, "eje": "Z (largo)" },
+      "BLOCK_NOPAL_CLADODIO_DIAG": { "id": 47, "nota": "Penca inclinada" },
+      "funciones": {
+        "esCladodio": "src/BlockType.h:1189",
+        "pencasApiladas": "src/BlockType.h:1197 — devuelve 1..3",
+        "apiladoEnX": "src/BlockType.h:1204",
+        "apilarPenca": "src/BlockType.h:1209 — 1 → X2/Z2 → X3/Z3; X3, Z3 y DIAG ya no admiten más"
+      },
+      "asimetria_importante": {
+        "confianza": "CODIGO",
+        "detalle": "Apilar NO multiplica el drop: un CLADODIO_X3 suelta UNA sola penca, no tres"
+      }
+    },
+    "frutos": {
+      "BLOCK_TUNA": { "id": 40, "variedad": "verde / blanca (Alfajayucan)" },
+      "BLOCK_TUNA_AMARILLA": { "id": 41 },
+      "BLOCK_TUNA_ROJA": { "id": 42, "variedad": "cardona" }
+    },
+    "cadena_de_procesado": {
+      "BLOCK_NOPAL_MOJADO": { "id": 52, "nombre": "Nopal mojado, sin espinas" },
+      "BLOCK_NOPAL_TIRAS": { "id": 53, "nombre": "Penca en tiras" },
+      "BLOCK_NOPAL_SIN_BABA": { "id": 54, "nombre": "Tiras sin baba, mojadas" },
+      "BLOCK_NOPAL_BABA": { "id": 55, "nombre": "Baba de nopal (mucílago)" },
+      "BLOCK_NOPAL_SECO": { "id": 147, "nombre": "Penca seca sin espinas" },
+      "BLOCK_ESPINAS_NOPAL": { "id": 148, "nombre": "Espinas" }
+    },
+    "predicado_que_los_agrupa": {
+      "funcion": "esCactusSuelto(BlockType), src/BlockType.h:1302",
+      "cubre": "Las 12 piezas sueltas: cladodio, mojado, seco, tiras, sin baba, baba, espinas, penca (FRUTO) y las tres tunas",
+      "no_cubre": "Las bases, el tallo ni las variantes apiladas — esas son planta en pie, no item"
+    },
+    "nota_sobre_los_ids": {
+      "confianza": "CODIGO",
+      "detalle": "BLOCK_NOPAL_SECO (147) y BLOCK_ESPINAS_NOPAL (148) están FUERA del rango contiguo del resto (29-55), porque se añadieron después. Por eso hay que darlos de alta a mano en el inventario creativo (src/main.cpp:31855-31856)."
+    }
+  },
+
+  "4_como_se_genera_la_mata": {
+    "funcion": "World::generarNopal(int worldX, int baseY, int worldZ)",
+    "ubicacion": "src/main.cpp:11593-12054",
+    "tamano": "~460 líneas",
+
+    "determinismo": {
+      "confianza": "CODIGO",
+      "hash_base": "h = worldX * 6421 + worldZ * 9187 + 3313",
+      "avalancha": "v ^= v>>13; v *= 1274126177u; v ^= v>>16",
+      "clave": "El hash base depende SOLO de X y Z, no de Y. Cada decisión usa un 'salt' distinto sobre el mismo hash.",
+      "consecuencia": "El mismo nopal en la misma columna, siempre. No hay estado guardado: la planta entera es función de sus coordenadas.",
+      "ubicacion": "src/main.cpp:11594-11600"
+    },
+
+    "siembra": {
+      "ubicacion": "src/main.cpp:9225-9241",
+      "condiciones": ["esSueloParaNopal(ground)", "el bloque de encima es aire"],
+      "hash": "hn = worldX*4517 + worldZ*8291, mezclado con 0x9E3779B9",
+      "frecuencia": "(v % 700) == 0 → 1 de cada ~700 columnas válidas",
+      "intencion": "Raro a propósito, para que encontrarlo tenga valor. Se separa de los árboles para que no salga uno dentro de una copa."
+    },
+
+    "donde_arraiga": {
+      "predicado": "esSueloParaNopal(BlockType), src/main.cpp:524",
+      "criterio": "Definido por EXCLUSIÓN: cualquier terreno natural blando; NO roca, caliza ni minerales",
+      "razon_de_la_exclusion": "Para que un bloque natural nuevo herede el comportamiento sin que nadie tenga que acordarse de añadirlo a una lista",
+      "casos_especiales": [
+        "Un NIVEL PARCIAL sirve de suelo igual que su bloque entero: sin esto las plantas dejarían de crecer donde el terreno tiene relieve fino, que es casi en todas partes",
+        "En una CELDA MIXTA la planta se apoya en el relleno, la capa que toca el aire"
+      ],
+      "doble_comprobacion": {
+        "bug_que_cierra": "La comprobación se hacía SOLO donde se decide sembrar, mirando el bloque de superficie ANTES de que la generación siguiera tocando la columna. Si una veta o una cueva lo cambiaba después, el nopal ya estaba encargado y crecía sobre piedra.",
+        "arreglo": "Se repite en generarNopal justo antes de plantar (src/main.cpp:11617)"
+      },
+      "relleno_de_la_capa_parcial": {
+        "que_hace": "Si el suelo es un nivel parcial, lo rellena a bloque entero con el MISMO material",
+        "por_que": "La base es un bloque completo cuya textura lleva medio bloque de terreno; sobre una losa parcial quedaría un hueco visible",
+        "ubicacion": "src/main.cpp:11633-11637"
+      }
+    },
+
+    "el_tallo": {
+      "altura": "3..6 niveles (3 + rnd(salt=1, 4))",
+      "total_vertical": "1 base + 3..6 tallo = 4..7 bloques macizos",
+      "ubicacion": "src/main.cpp:11641-11650"
+    },
+
+    "los_brotes": {
+      "primer_brote": "baseY + 1 + alturaTallo/3 — nunca desde la base",
+      "objetivo": "7..13 cladodios (7 + rnd(salt=77, 7))",
+      "dos_pasadas": {
+        "pasada_0": "Con filtro probabilístico: prob = objetivo*100/posiciones",
+        "pasada_1": "SIN filtro — es la red de seguridad para alcanzar el objetivo"
+      },
+      "giro_helicoidal": {
+        "formula": "giro = ((y - primerBrote) * 3) / 2",
+        "explicacion": "137 grados sobre 4 direcciones son 1.53 pasos, que se aproxima alternando 1 y 2",
+        "efecto": "Rompe la simetría de 'cuatro pencas en cruz'",
+        "ubicacion": "src/main.cpp:11799"
+      },
+      "regla_dura_de_contacto": {
+        "enunciado": "Cada bloque nuevo toca al anterior POR UNA CARA, nunca en diagonal. Un paso avanza en un solo eje.",
+        "bug_historico": "Un `x += dx; ++y;` en el mismo paso dejaba cubos en diagonal, sin contacto real",
+        "ubicacion": "src/main.cpp:11674-11693"
+      },
+      "seis_patrones_de_brote": {
+        "funcion": "brotarCladodio(cx, cy, cz, dir, forma), src/main.cpp:11667-11764",
+        "largo": "1..3 bloques",
+        "patrones": {
+          "0": { "nombre": "RECTA en escalones", "detalle": "avanza y sube en pasos alternos", "lineas": "11696-11702" },
+          "1": { "nombre": "EN L", "detalle": "pasos horizontales y luego 1..2 verticales", "lineas": "11704-11711" },
+          "2": { "nombre": "EN T", "detalle": "recta escalonada con dos brazos laterales al final", "lineas": "11713-11723" },
+          "3": { "nombre": "EN Y", "detalle": "cada brazo se apoya al lado y LUEGO sube, para no quedar en diagonal", "lineas": "11725-11741" },
+          "4": { "nombre": "ENROLLADA (espiral)", "detalle": "gira 90 grados cada dos pasos", "lineas": "11743-11751" },
+          "5": { "nombre": "ESCALERA", "detalle": "un paso lateral y uno vertical siempre, con remate lateral", "lineas": "11753-11761" }
+        }
+      }
+    },
+
+    "post_proceso_pencas_dobladas": {
+      "que_hace": "Convierte parte de los cladodios en BLOCK_NOPAL_CLADODIO_DIAG",
+      "requisitos": [
+        "Debe ser BLOCK_NOPAL_CLADODIO puro (no una variante apilada)",
+        "SOLO las de la punta: si tiene otra penca encima, está sujeta y no se dobla"
+      ],
+      "probabilidad": "34%",
+      "fundamento": "MEDIDO — Sortibrán et al. 2005: en la planta real se vencen las libres; las de dentro están sujetas por las de alrededor",
+      "ubicacion": "src/main.cpp:11816-11841"
+    },
+
+    "post_proceso_apilado": {
+      "que_hace": "Agrupa cladodios en X2/X3/Z2/Z3",
+      "requisitos": [
+        "Debe ser BLOCK_NOPAL_CLADODIO puro (las ya convertidas a DIAG quedan fuera)",
+        "Al menos 2 vecinos horizontales que sean cladodio → SOLO las del interior de la mata; las del borde se quedan solas para conservar la silueta"
+      ],
+      "probabilidades": { "se_agrupa": "45%", "de_esas_a_tres_pencas": "un tercio (r<15 de 45)" },
+      "eje": "Sigue al vecino, para que el grupo quede alineado con la mata",
+      "ubicacion": "src/main.cpp:11843-11881"
+    },
+
+    "las_pencas_sueltas": {
+      "bloque": "BLOCK_NOPAL_FRUTO",
+      "cantidad": "4..7 por planta",
+      "requisito": "Debe tocar un cladodio por alguna de sus 6 caras — queda soldada a la planta",
+      "probabilidades": { "por_arriba": "34%", "laterales": "10%", "por_debajo": "nunca" },
+      "razon_del_nunca_abajo": "La penca crece del borde, no cuelga",
+      "garantia": {
+        "regla": "Si no salió ninguna, repite el barrido de arriba abajo SIN filtro y coloca la primera que quepa",
+        "por_que": "La penca es el ÚNICO soporte de las tunas: sin ella la planta no daría fruto",
+        "ubicacion": "src/main.cpp:11947-11973"
+      },
+      "ubicacion": "src/main.cpp:11883-11974"
+    },
+
+    "las_tunas": {
+      "cantidad": "4..9 por planta",
+      "solo_sobre_penca": {
+        "regla": "SOLO sobre BLOCK_NOPAL_FRUTO, nunca sobre cladodio",
+        "ubicacion": "src/main.cpp:12018"
+      },
+      "una_variedad_por_planta": {
+        "regla": "Un nopal da tunas de UN SOLO color, porque es su variedad, no algo que cambie de fruto a fruto",
+        "reparto": "Las tres se sortean por igual (1/3 cada una), así que el jugador consigue verde, amarilla y roja recorriendo distintos nopales",
+        "ubicacion": "src/main.cpp:11997-12000"
+      },
+      "donde_nacen": {
+        "sitios": "Las seis caras de la penca",
+        "probabilidades": { "encima": "55%", "laterales": "22%", "debajo": "10%" },
+        "justificacion_botanica": "La fructificación se concentra en el borde superior distal",
+        "una_por_hueco": "Si el destino ya tiene un fruto pegado a otra penca, no se pone otro"
+      },
+      "cadena_de_dependencia": "cladodio → penca (FRUTO) → tuna. Ninguna tuna puede flotar."
+    }
+  },
+
+  "5_la_maduracion_de_la_tuna": {
+    "confianza": "CODIGO",
+    "aviso": "Este punto es fácil de leer mal: NO hay transición verde → amarilla → roja. La VARIEDAD es fija desde la generación; lo que cambia con el tiempo es un estado maduro / no maduro.",
+    "funcion": "TextureManager::getTexturaTuna(), src/main.cpp:5195-5264",
+    "de_donde_sale_la_variedad": {
+      "origen": "Del BLOQUE, no de un hash",
+      "por_que": "O lo que se ve y lo que se recoge no coincidirían"
+    },
+    "de_donde_sale_la_madurez": {
+      "origen": "De un hash de la POSICIÓN (fx, fy, fz)",
+      "por_que": "Así no cuesta ni un byte en el chunk",
+      "constante": "TUNA_HORAS_MADURAR = 3.0 horas de juego (src/main.cpp:4393)",
+      "YA_MADURAS": "0.33 — un tercio de las tunas nacen ya maduras",
+      "reparto_del_resto": "t = (r - 0.33) / 0.67; madura cuando horas >= t * 3.0",
+      "bug_que_corrige_el_reescalado": "Sin él, las tunas se amontonaban al final del plazo: el nopal pasaba una hora sin cambiar y luego maduraba de golpe",
+      "ubicacion": "src/main.cpp:5223-5237"
+    },
+    "efecto_visual": {
+      "no_madura": "Tuna verde crecida.png",
+      "madura": "La textura de su variedad"
+    },
+    "el_remallado": {
+      "funcion": "World::marcarChunksConTunas(), src/main.cpp:8049-8062",
+      "que_hace": "Marca needsRebuild en los chunks que contengan alguna tuna, para que el cambio de textura se vea",
+      "intervalo": "TUNA_HORAS_MADURAR * 3600 / 12 = 900 segundos (15 min de juego)",
+      "ubicacion_del_intervalo": "src/main.cpp:24193-24203",
+      "coste": "Escaneo COMPLETO de los bloques de cada chunk cargado. Por eso solo se llama cada 15 minutos (ver hallazgos)."
+    },
+    "comestibilidad": {
+      "confianza": "AUSENTE",
+      "detalle": "No se puede comer. No hay sistema de hambre ni de curación por comida. El único sistema de vida (actualizarVida, src/main.cpp:24206-24228) da 1 corazón inicial + 1 por hora jugada. Las tunas hoy son coleccionables."
+    }
+  },
+
+  "6_la_forma_de_la_penca": {
+    "resumen": "La parte más elaborada del sistema. Una penca no tiene forma fija: la calcula a partir de sus seis vecinos, de las diagonales, del entorno sólido y de un hash de su posición.",
+    "funcion": "calcularFormaNopalCon(TGet get, int wx, int wy, int wz, BlockType tipo)",
+    "ubicacion": "src/main.cpp:953-1369",
+    "estructura": "struct NopalForma, src/main.cpp:602-632",
+
+    "por_que_es_plantilla": {
+      "confianza": "CODIGO",
+      "detalle": "Recibe el accesor de vecinos `get(dx,dy,dz)` como parámetro de plantilla. Eso permite que el MESHER, la HITBOX y (potencialmente) los tests usen la MISMA función con distinta fuente de datos.",
+      "consecuencia": "Es la garantía estructural de que el jugador choca justo donde ve la penca: no hay dos definiciones de forma que puedan desincronizarse."
+    },
+
+    "el_hash_espacial": {
+      "formula": "h = wx*73856093 ^ wy*19349663 ^ wz*83492791, con avalancha",
+      "diferencia_con_el_de_generacion": "Este SÍ depende de Y. Es el que da orientación de reserva, giro de reserva, sentido de la inclinación y variante de patrón.",
+      "ubicacion": "src/main.cpp:966-968"
+    },
+
+    "las_seis_orientaciones": {
+      "significado": "En qué EJE es fina la penca",
+      "tabla": {
+        "0 y 1": "fina en Z — losa VERTICAL mirando norte/sur",
+        "2 y 3": "fina en X — losa VERTICAL mirando este/oeste",
+        "4": "fina en Y — losa HORIZONTAL (penca tumbada)",
+        "5": "achatada — algo más gruesa en los tres ejes"
+      }
+    },
+
+    "cadena_de_prioridad_de_la_orientacion": {
+      "nota": "Orden estricto: la primera regla que se cumple gana",
+      "reglas": [
+        {
+          "n": 1,
+          "caso": "PENCA CAÍDA",
+          "condicion": "es BLOCK_NOPAL_FRUTO + suelta en la planta + apoyo debajo",
+          "resultado": "4 (tumbada)",
+          "razon": "Una penca suelta apoyada en el suelo no se queda de pie: es una pieza plana y pesada, sin nada que la sujete",
+          "por_que_va_primero": "Tiene que ganar incluso a la pared: una penca en el suelo pegada a un muro sigue estando en el suelo, y quedaría absurdo que se levantara de canto solo por tener piedra al lado",
+          "excepcion": "Los cladodios de una mata siguen de pie aunque toquen el suelo: los sujeta la planta"
+        },
+        { "n": 2, "caso": "PENCAS APILADAS", "resultado": "2 si el apilado es en X, 0 si en Z", "razon": "El jugador eligió al colocarlas; esa decisión no la cambia el vecindario" },
+        { "n": 3, "caso": "MANDA LA PLANTA", "resultado": "según el eje dominante de vecinos (enX / enZ / enY)" },
+        { "n": 4, "caso": "EN EL SUELO O EL TECHO, sin pared", "resultado": "4 (losa horizontal)" },
+        { "n": 5, "caso": "CONTRA UNA PARED", "resultado": "cara ancha paralela al muro, como una repisa: 2 si el muro está al este/oeste, 0 si al norte/sur" },
+        { "n": 6, "caso": "AL AIRE", "resultado": "h % 6 (por hash)" }
+      ],
+      "ubicacion": "src/main.cpp:1058-1081"
+    },
+
+    "las_conexiones": {
+      "predicado": "nopalEncadena(BlockType b, BlockType propio), src/main.cpp:919-937",
+      "encadenan": ["Los cladodios entre sí", "El tallo", "Las cinco bases"],
+      "razon_de_las_bases": "Una penca que nace a ras de suelo tiene que soldarse con la base igual que con el tallo, o queda una costura de aire justo en el arranque",
+      "no_encadenan": {
+        "penca_con_penca": {
+          "regla": "BLOCK_NOPAL_FRUTO con BLOCK_NOPAL_FRUTO devuelve false",
+          "razon": "Se pueden poner pegadas, pero cada una mantiene su silueta. Si se unieran, la caja se estiraría hacia la vecina y las dos parecerían un solo bloque verde."
+        },
+        "la_tuna": {
+          "regla": "Queda fuera a propósito",
+          "razon": "Es un bloque independiente que se APOYA en la penca, no una parte de ella. Si encadenara, la penca se estiraría hacia el fruto y perdería su forma."
+        }
+      }
+    },
+
+    "conexiones_en_diagonal": {
+      "problema_que_resuelve": "Antes la penca solo miraba sus 6 caras rectas, así que una vecina en diagonal —que es como sale un brote real del borde superior— no contaba: la penca se orientaba al azar y las dos quedaban cruzadas, sin continuidad",
+      "solucion": "Las diagonales pesan LA MITAD que una cara entera",
+      "por_que_la_mitad": "No llegan a estirar la caja (dos cubos en diagonal solo comparten una arista, y estirarlos dejaría un hueco), pero sí inclinan la orientación",
+      "efecto": "La mata fluye en vez de verse a trozos",
+      "ubicacion": "src/main.cpp:985-1002"
+    },
+
+    "el_giro_ocho_rumbos": {
+      "para_que": "La orientación dice en qué eje es fina la penca, pero no si mira al norte, al noroeste o al sureste",
+      "tabla": { "0": "N", "1": "NE", "2": "E", "3": "SE", "4": "S", "5": "SO", "6": "O", "7": "NO" },
+      "sistema_de_pesos": "Cada vecino suma a su rumbo cardinal: 2 puntos si está en el mismo plano, 1 si es diagonal vertical. Las cuatro esquinas horizontales reparten +1 a cada uno de los dos rumbos que forman.",
+      "resolucion": "Si ambos ejes tienen peso, sale una DIAGONAL (NE/SE/SO/NO); si domina uno, sale el cardinal",
+      "sin_vecinos": "Rumbo por hash, para que dos pencas sueltas contiguas no salgan calcadas",
+      "ubicacion": "src/main.cpp:1097-1139"
+    },
+
+    "la_inclinacion_de_la_diagonal": {
+      "campos": "inclina (fracción de bloque que se desplaza la parte alta) e inclinaEnX (en qué eje se dobla)",
+      "valor": "±0.42, que es ~45 grados — el signo sale del bit 7 del hash, para que dos pencas contiguas no se doblen igual",
+      "eje": "Se dobla en el eje ANCHO de la losa, que es donde tiene recorrido",
+      "solo_para": "BLOCK_NOPAL_CLADODIO_DIAG; el resto queda recto",
+      "ubicacion": "src/main.cpp:1236-1253"
+    },
+
+    "la_caida_animada": {
+      "duracion": "PENCA_CAIDA_SEG = 0.40 s (src/main.cpp:898) — 'es un gesto, no una escena'",
+      "campo": "NopalForma::cayendo — 0 = de pie, 1 = tumbada del todo, -1 = quieta",
+      "curva": "t*t (cuadrática): arranca despacio y acelera, como la gravedad. Una interpolación lineal se ve mecánica.",
+      "interpolacion": "Mezcla la caja 'de pie' con la 'tumbada': el largo pasa al plano y el grosor a la vertical",
+      "prioridad": "La caída MANDA: hay un return temprano, así que nada más puede tocar la caja (ni el ensanchado por vecinos ni el ajuste a las tunas)",
+      "ubicacion": "src/main.cpp:1264-1289"
+    },
+
+    "ensanchado_por_vecinos": {
+      "regla": {
+        "vecino_a_ambos_lados": "ESTIRA de borde a borde",
+        "vecino_a_un_solo_lado": "DESPLAZA conservando el tamaño"
+      },
+      "bug_que_corrige": "Antes se estiraba el eje entero, y una penca rodeada acababa midiendo casi el voxel completo: se veía como un CUBO VERDE liso, sin silueta ni espinas",
+      "ubicacion": "src/main.cpp:1291-1330"
+    },
+
+    "llegar_hasta_la_tuna": {
+      "regla": "Si hay una tuna en alguna cara, la penca SOLO se alarga hacia ese lado, nunca se encoge",
+      "por_que": "Evita el hilo de aire entre penca y fruto conservando la silueta",
+      "ubicacion": "src/main.cpp:1340-1350"
+    },
+
+    "el_espacio_de_formas": {
+      "NOPAL_PATRONES": 100,
+      "NOPAL_ORIENTACIONES": 6,
+      "NOPAL_FORMAS": 600,
+      "como_se_calcula": "patron = máscara de 6 bits de vecindad (0..27 literal; a partir de 28 se remapea a 64..99 con una variante del hash); forma = patron * 6 + orientacion"
+    }
+  },
+
+  "7_como_se_dibuja": {
+    "ubicacion": "buildChunkMesh, src/main.cpp:16967-17594",
+    "no_es_un_sprite_cruzado": {
+      "confianza": "CODIGO",
+      "cita_del_codigo": "NO es una cruz como la hierba: la penca es un volumen. Se dibuja como una CAJA con sus SEIS caras, cada una emitida por separado.",
+      "unica_excepcion": "Las espinas, que sí son aspas cruzadas de 2 planos"
+    },
+    "doble_cara": {
+      "que_hace": "Cada cara se emite en sentido directo Y en sentido inverso",
+      "por_que": "GL_CULL_FACE está activo, y equivocarse en el winding de una sola cara la hace desaparecer. Emitiendo las dos versiones el resultado es robusto."
+    },
+    "uv_por_posicion": {
+      "problema_que_resuelve": "Las 8 rodajas de 2 px aplastaban los 16 px de textura y la repetían 8 veces",
+      "solucion": "Se detecta qué eje es constante entre los 4 vértices (esa es la normal) y los otros dos dan U y V"
+    },
+    "el_perfil_obovado": {
+      "rodajas": 8,
+      "tabla": [0.25, 0.55, 0.78, 0.92, 1.0, 0.97, 0.86, 0.66],
+      "lectura": "0.25 es el cuello de inserción; 1.00 el punto más ancho (a ~0.58 del largo); 0.66 el ápice redondeado",
+      "fundamento": "MEDIDO — Ramírez-Castaño 2023 (n=108) y Reyes-Agüero 2005",
+      "union_recta": "El mordisco se anula en la rodaja de abajo si hay vecino abajo, y en la de arriba si lo hay arriba, para que la unión no haga escalón",
+      "ubicacion": "src/main.cpp:17350-17398"
+    },
+    "el_mordisco_solo_en_el_eje_ancho": {
+      "regla": "El recorte del perfil se aplica al eje ANCHO, nunca al del grosor",
+      "razon": "MEDIDO — el cladodio real es una placa de grosor uniforme (1.13-1.15 cm). Morder ambos ejes dejaba la rodaja en -0.5 px y se veía como un cubo.",
+      "ubicacion": "src/main.cpp:17238-17249"
+    },
+    "el_giro_sin_rotar_geometria": {
+      "truco": "Para los rumbos diagonales (NE/SE/SO/NO), cada rodaja se desplaza en el plano proporcionalmente a su altura",
+      "ventaja": "Da los rumbos intermedios sin geometría rotada",
+      "clamp": "Todo queda dentro del voxel: invadir al vecino rompería la colisión, que va celda a celda"
+    },
+    "las_espinas": {
+      "intentos": 10,
+      "prenden": "62% (≈6 de media por penca)",
+      "geometria": "Aspa cruzada de 2 planos, no una caja de 6 caras",
+      "razon": "A 1 px de grosor la caja no aporta nada y cuesta 6 veces más",
+      "color": {
+        "regla": "NO se pinta a mano: se oscurece la textura del bloque (tinte 0.22, alfa 0.72)",
+        "ventaja": "La espina siempre pega, aunque se cambie el resourcepack"
+      },
+      "salen_del_borde_real": "Se recalcula el ancho de la penca a esa altura consultando el PERFIL, así la espina nace del óvalo y no del rectángulo envolvente",
+      "bug_documentado": "Usar `hash >> 25` dejaba menos de 128 valores y el sorteo se repetía: medido, solo 27 inclinaciones distintas en 200 pencas. Se arregló re-mezclando el hash en vez de desplazarlo.",
+      "ubicacion": "src/main.cpp:17400-17532"
+    },
+    "la_textura_de_union": {
+      "archivo": "Penca Nopal de Castilla conectado al  Cladodio.png (con doble espacio en el nombre, literal)",
+      "regla": "La cicatriz de unión sale SOLO en la cara que toca un cladodio"
+    }
+  },
+
+  "8_la_hitbox": {
+    "principio_rector": {
+      "confianza": "CODIGO",
+      "detalle": "La colisión llama a la MISMA calcularFormaNopalCon que el mesher, con un accesor que consulta el mundo real. No hay dos definiciones de forma."
+    },
+    "funciones": {
+      "plantilla": "nopalHitboxCon(...), src/main.cpp:1724-2059",
+      "envoltorio_para_la_fisica": "nopalHitboxMundo(...), src/main.cpp:30826-30870",
+      "registro": "g_worldQuery->setBlockBoxProvider(&nopalHitboxMundo), src/main.cpp:31190 — física, raycast y resaltado comparten proveedor"
+    },
+    "la_unica_diferencia_con_el_render": {
+      "detalle": "El mesher usa EPS=0.0005 en los lados conectados; la hitbox usa 0.0/1.0 exactos",
+      "por_que": "El epsilon del mesher solo existe para evitar z-fighting entre planos coplanares. La caja de colisión sí llega al borde exacto, para que no quede una rendija por la que colarse.",
+      "en_los_lados_no_conectados": "Ambos usan literalmente los mismos valores de la misma llamada"
+    },
+    "lo_que_la_hitbox_NO_reproduce": {
+      "lista": ["El perfil obovado de 8 rodajas", "El mordisco lateral", "El giro diagonal por rodaja", "El desplazamiento de la inclinación", "Las espinas"],
+      "por_que_esta_bien": "Es un solo AABB: el ENVOLVENTE del volumen dibujado. Como el mesher hace clamp de todo al voxel, la geometría nunca sale de la caja."
+    },
+    "la_tuna_va_aparte": {
+      "regla": "La tuna NO forma parte de la caja de la penca",
+      "consecuencia": "El jugador la arranca sin tocar la penca",
+      "detalle_critico": "En el RENDER la tuna se empotra 2 px dentro de la penca (para que la unión no deje aire), pero en la COLISIÓN no: una caja que se sale del voxel no se detecta desde la celda vecina, porque el motor recorre celda a celda"
+    }
+  },
+
+  "9_la_cadena_de_procesado": {
+    "diagrama": "MATA --romper--> PENCA --tocar agua--> MOJADO --craftear--> 4 TIRAS --tocar agua + 10s--> SIN BABA + 2 baba + 2 espinas --20s--> SECA",
+
+    "pasos": [
+      {
+        "paso": 1,
+        "nombre": "Cosechar",
+        "accion": "Romper cualquier parte de la mata",
+        "resultado": "1 BLOCK_NOPAL_CLADODIO",
+        "nota": "Las cinco bases, el tallo y las seis variantes de cladodio dan TODOS el mismo item. Apilar no multiplica.",
+        "tiempo": "3.0 s base; 1.0 s con hacha",
+        "desgaste_del_hacha": "1 punto (2 medios)"
+      },
+      {
+        "paso": 2,
+        "nombre": "Lavar y desespinar",
+        "accion": "Colocar la penca tocando agua",
+        "resultado": "BLOCK_NOPAL_MOJADO",
+        "deteccion": "Cuenta la celda destino o CUALQUIERA de sus seis caras",
+        "instantaneo": true,
+        "efecto": "Pasa a romperse en 1.5 s, la mitad que con espinas",
+        "ubicacion": "src/main.cpp:25695-25712"
+      },
+      {
+        "paso": 3,
+        "nombre": "Cortar en tiras",
+        "accion": "Crafteo SIN FORMA: basta ponerlo en cualquier casilla, como quien lo corta en la tabla",
+        "receta": "1 BLOCK_NOPAL_MOJADO → 4 BLOCK_NOPAL_TIRAS",
+        "ubicacion": "src/main.cpp:7574-7578",
+        "nota": "Es la ÚNICA receta de todo el motor que toca el nopal"
+      },
+      {
+        "paso": 4,
+        "nombre": "Desbabar (remojo)",
+        "accion": "Colocar las tiras tocando agua",
+        "duracion": "TIRAS_DESBABAR_SEG = 10.0 s (src/main.cpp:807)",
+        "resultado": "BLOCK_NOPAL_SIN_BABA + 2 BLOCK_NOPAL_BABA + 2 BLOCK_ESPINAS_NOPAL",
+        "razon_de_las_espinas": "Si el nopal sale 'sin espinas', esas espinas tienen que ir a alguna parte",
+        "encadena": "Al terminar, entra automáticamente en la lista de secado",
+        "ubicacion": "src/main.cpp:24061-24101",
+        "detalle_de_implementacion": "No re-verifica que siga habiendo agua al lado: solo que el bloque siga siendo NOPAL_TIRAS. Se puede quitar el agua y el desbabado se completa igual."
+      },
+      {
+        "paso": 5,
+        "nombre": "Secar",
+        "accion": "Automático tras el desbabado, o manual colocando un SIN_BABA",
+        "duracion": "PENCA_SECAR_SEG = 20.0 s (src/main.cpp:824)",
+        "resultado": "BLOCK_NOPAL_SECO",
+        "requisito_real": {
+          "confianza": "CODIGO",
+          "detalle": "NINGUNO. Pese a que los comentarios dicen 'dejada al aire' y 'curada al sol', el código NO consulta la luz, la hora, la exposición al cielo ni la altura. Se seca igual en una cueva a medianoche.",
+          "es_bug_o_diseno": "No está declarado como concesión, a diferencia de otras del sistema. Probablemente sea una simplificación no documentada."
+        },
+        "dos_vias": "Automática (desde el desbabado) y manual (al colocar a mano un SIN_BABA), deliberadamente, para que el secado no dependa de por dónde llegó la penca al mundo"
+      }
+    ],
+
+    "rendimiento_total": {
+      "de_una_penca": "1 cladodio → 1 mojado → 4 tiras → 4 pencas secas + 8 babas + 8 espinas",
+      "tiempo_minimo": "~30 s de juego (crafteo instantáneo + 10 s de remojo en paralelo + 20 s de secado)"
+    },
+
+    "patron_comun_de_los_temporizadores": {
+      "estructura": "Las tres listas (TirasDesbabando, PencaSecandose, PastoTapado) comparten diseño: se apunta dónde y cuándo empezó",
+      "cancelacion": "Si el bloque deja de estar ahí, el temporizador se DESCARTA en vez de convertir un bloque ajeno",
+      "reloj": "tiempoJugadoSegundos, el reloj de juego que se persiste con el mundo. No depende de los FPS, no se desfasa al pausar y sobrevive a guardar y salir.",
+      "borrado": "swap-and-pop, O(1)",
+      "coste": "Las listas suelen estar vacías: solo hay entradas mientras haya algo en proceso"
+    }
+  },
+
+  "10_los_drops_dos_tablas_encadenadas": {
+    "confianza": "CODIGO",
+    "aviso": "El motor tiene DOS tablas de drops y el nopal pasa por las dos. No son alternativas: se componen en cadena.",
+    "tabla_A": {
+      "funcion": "getBlockDrops(BlockType), src/main.cpp:22133-22243",
+      "sobre_el_nopal": "NO tiene ni un solo caso. Todo el nopal cae al default, que lo hace soltarse a sí mismo.",
+      "consecuencia_aislada": "Según esta tabla, un CLADODIO_X3 soltaría un CLADODIO_X3"
+    },
+    "tabla_B": {
+      "funcion": "GameState::getDroppedItem(BlockType), src/main.cpp:21327-21408",
+      "sobre_el_nopal": "Las cinco bases + el tallo + los seis cladodios → TODOS dan BLOCK_NOPAL_CLADODIO. Las tres tunas se recogen tal cual, con su color."
+    },
+    "como_se_resuelve": {
+      "mecanismo": "spawnItem() vuelve a pasar el tipo por getDroppedItem (src/main.cpp:21418), y updateMining llama a getBlockDrops y luego a spawnItem por cada entrada",
+      "resultado_neto": "La tabla A normaliza y la tabla B hace la traducción final. Un CLADODIO_X3 pasa por A (se emite a sí mismo) y luego por B (se convierte en la penca simple).",
+      "el_codigo_es_consciente": "Los comentarios avisan: 'esta es la SEGUNDA tabla de drops del motor y minar pasa por las dos: si solo se cerrara una, el aguamiel seguiría saliendo por la otra'"
+    },
+    "drops_en_cadena": {
+      "detalle": "Al romper una pieza, se recogen las tunas de sus cuatro caras y se recorre la columna hacia arriba soltando cada pieza",
+      "ubicacion": "src/main.cpp:22781-22891"
+    },
+    "anti_exploit_del_maguey": {
+      "problema": "El maguey tenía dos puertas traseras que daban espinas de nopal gratis: 'bastaba con romper el suelo bajo un maguey grande para sacar hasta seis espinas de golpe — la vía más cómoda del juego para un material que NO es suyo'",
+      "cerradas_en": ["src/main.cpp:22213-22221", "src/main.cpp:22846-22862"],
+      "test_que_lo_fija": "tests/test_celdas_compartidas.cpp:152 — 'Maguey: capar no suelta espinas'"
+    }
+  },
+
+  "11_integracion_con_el_motor": {
+    "el_hacha": {
+      "regla": "El nopal cuenta como ORGÁNICO",
+      "efecto": "1 s por bloque con hacha, 13 minutos sin ella; gasta 1 punto de vida",
+      "excepciones": "BLOCK_NOPAL_SECO y BLOCK_ESPINAS_NOPAL NO son orgánicos ni roca: ninguna herramienta se gasta con ellos"
+    },
+    "el_pico": "No se gasta con el nopal (desgastePico == 0)",
+    "no_se_machaca": "Colocar un bloque encima de un nopal no lo destruye (test_apilado.cpp)",
+    "no_ahoga_al_pasto": {
+      "regla": "esCladodio queda excluido de ahogaAlPasto",
+      "razon": "No llena el voxel y deja pasar la luz, así que la hierba sigue viva debajo"
+    },
+    "no_sirve_de_apoyo": "isNopal queda excluido del predicado esApoyo: la vegetación no sujeta nada",
+    "fisica_de_caida": {
+      "densidad_kg_m3": 1030.0,
+      "aplica_a": "cladodios, penca, tunas, tallo y mojado",
+      "nota": "Apenas más denso que el agua"
+    }
+  },
+
+  "12_cobertura_de_tests": {
+    "suite_propia": {
+      "confianza": "AUSENTE",
+      "detalle": "NO existe tests/test_nopal.cpp. La planta más compleja del motor no tiene suite dedicada."
+    },
+    "cobertura_indirecta": [
+      { "archivo": "tests/test_items_sueltos.cpp", "fija": "Que las 12 piezas sueltas tengan silueta 3D; que esCactusSuelto agrupe exactamente lo que se suelta y nada más; que las texturas existan en disco" },
+      { "archivo": "tests/test_hacha.cpp", "fija": "desgasteHacha == 2 para cladodio, penca y tallo; desgastePico == 0" },
+      { "archivo": "tests/test_apilado.cpp", "fija": "Que el nopal ocupa volumen y no se machaca" },
+      { "archivo": "tests/test_derrumbe.cpp", "fija": "Que toda la familia se comporta como sprite en la física de caída" }
+    ],
+    "lo_que_nadie_cubre": [
+      "calcularFormaNopalCon: las 600 formas, las seis orientaciones y los ocho rumbos, sin una sola aserción",
+      "Toda la cadena de procesado: TIRAS_DESBABAR_SEG, PENCA_SECAR_SEG, los rendimientos de 2 babas y 2 espinas",
+      "La receta de crafteo",
+      "getBlockDrops / getDroppedItem para el nopal",
+      "La conversión penca → mojado al tocar agua",
+      "TUNA_HORAS_MADURAR y el reparto de madurez",
+      "Que la generación sea determinista para la misma columna"
+    ],
+    "por_que_es_la_laguna_mas_barata_de_cerrar": "calcularFormaNopalCon es una PLANTILLA PURA: recibe su accesor de vecinos como parámetro y no toca OpenGL ni el mundo. Testearla es construir un vecindario de mentira y comprobar la caja — exactamente lo que ya se hizo en test_maguey_hitbox.cpp."
+  },
+
+  "13_hallazgos_y_cosas_a_vigilar": [
+    {
+      "severidad": "media",
+      "titulo": "El lavado y el remojo no reconocen el agua con nivel",
+      "detalle": "Las dos comprobaciones de 'toca agua' usan `== BLOCK_WATER` (el agua legacy, llena) en vez de `esAguaCualquiera()`. Desde que el agua tiene volumen (Compuesto::Agua, IDs por encima de 100.000), una celda de agua a medio nivel NO cuenta como agua para mojar la penca ni para desbabar las tiras.",
+      "ubicacion": ["src/main.cpp:25719 y 25729 (lavado de la penca)", "src/main.cpp:25740 y 25750 (remojo de las tiras)"],
+      "contraste_que_lo_confirma": "El propio motor SÍ lo hace bien en su sistema de fluidos: esCeldaDeAgua (src/main.cpp:12535) comprueba `Compuesto::Agua::esAgua(b) || b == BLOCK_WATER`. Estas dos rutas se quedaron con la comprobación vieja.",
+      "efecto_practico": "Lavar una penca en agua derramada o poco profunda no funciona; hace falta una celda llena",
+      "arreglo": "Sustituir por esAguaCualquiera(), que ya existe en src/BlockType.h:731 exactamente para esto"
+    },
+    {
+      "severidad": "media",
+      "titulo": "El secado dice 'al sol' pero no mira la luz",
+      "detalle": "PENCA_SECAR_SEG se cumple igual en una cueva a medianoche. Los comentarios prometen una condición que el código no aplica.",
+      "por_que_importa": "En un motor cuyo criterio declarado es 'si el dato no existe, se dice', un comentario que promete más de lo que hace es deuda de documentación",
+      "opciones": "O se implementa la condición de cielo abierto, o se corrige el comentario"
+    },
+    {
+      "severidad": "baja",
+      "titulo": "El nombre BLOCK_NOPAL_FRUTO no dice lo que es",
+      "detalle": "Se llama 'fruto' pero es la penca suelta. El fruto real es la tuna.",
+      "efecto": "Ninguno funcional; es una trampa para quien lea el código por primera vez",
+      "nota": "Renombrarlo sería seguro para los saves (el valor numérico no cambia), pero toca muchos sitios"
+    },
+    {
+      "severidad": "baja",
+      "titulo": "marcarChunksConTunas hace un barrido completo",
+      "detalle": "Recorre todos los bloques de cada chunk cargado solo para marcar los que tienen tuna. Se mitiga llamándolo cada 15 minutos.",
+      "ubicacion": "src/main.cpp:8049",
+      "patron_ya_resuelto_en_el_motor": "El sistema del horno lleva una LISTA de chunks con horno, actualizada al poner o quitar uno (ver el comentario en src/main.cpp:8073). Ese patrón es directamente aplicable aquí."
+    },
+    {
+      "severidad": "informativa",
+      "titulo": "La cadena produce cuatro cosas que no sirven para nada",
+      "detalle": "Baba, espinas, tiras sin baba y penca seca no entran en ninguna receta. La cadena de TRANSFORMACIÓN está terminada; la de CONSUMO no existe.",
+      "oportunidad_documentada": "Ver la sección 15: el mucílago tiene un uso histórico real, prehispánico y colonial, como aditivo de la cal. Es el destino natural de la baba y encaja con la línea de investigación del proyecto."
+    },
+    {
+      "severidad": "informativa",
+      "titulo": "Código muerto en el mesher",
+      "detalle": "Hay un bloque de comentario y tres variables (ah, yc0, yc1) de una versión anterior de 3 rodajas con CURVA=2/16. El código vivo es el de 8 rodajas; esas variables no se usan.",
+      "ubicacion": "src/main.cpp:17206-17231"
+    }
+  ],
+
+  "14_contexto_cultural": {
+    "confianza": "MEDIDO",
+    "simbolismo": "Opuntia es el género emblemático de México: aparece en el escudo nacional, sobre la piedra donde el águila devora la serpiente, en la fundación mítica de Tenochtitlan.",
+    "honestidad_sobre_la_investigacion_del_proyecto": {
+      "hallazgo": "La carpeta documentación/Investigacion_Mexico lista el nopal entre las especies NO DOCUMENTADAS arqueológicamente en el contexto olmeca, pese a ser plausible",
+      "razon": "El área olmeca es trópico húmedo de la costa del Golfo, no el hábitat del nopal, que es de zonas áridas y semiáridas del Altiplano",
+      "explicacion_alternativa_de_la_propia_investigacion": "La ausencia es MUY PROBABLEMENTE TAFONÓMICA: la preservación de restos vegetales carbonizados en ambientes tropicales es pobre",
+      "consecuencia": "El nopal del juego NO es un dato olmeca. Es flora del México árido, coherente con el bioma de desierto del motor, y conviene documentarlo así para no mezclar dos capas de investigación distintas."
+    },
+    "conexion_con_la_fauna": {
+      "referencia": "AI simulator/Mamiferos/",
+      "confianza": "MEDIDO en lo cualitativo",
+      "lo_documentado": "En zonas semiáridas el pecarí de collar es principalmente herbívoro y los componentes principales de su dieta son agaves y nopales. Donde el nopal abunda, los pecaríes CASI NO VISITAN los aguajes, porque la planta les da comida y agua a la vez.",
+      "selectividad_medida": "Arizona 1989-1990, sobre O. phaeacantha: los pecaríes prefirieron un morfotipo sobre otro más allá de su disponibilidad, y dentro de cada planta usaron las PENCAS INTERNAS más de lo esperado (están más protegidas y son más tiernas)",
+      "advertencia_sobre_el_porcentaje": {
+        "confianza": "AUSENTE",
+        "detalle": "El porcentaje exacto del nopal en la dieta (que la documentación interna del proyecto cita como 25-80%) NO se pudo verificar con una fuente citable en esta investigación. Lo defendible es: 'componente principal y preferido de la dieta, y principal fuente de agua en zonas áridas', SIN número.",
+        "nota": "Se deja señalado para que el dato del framework de fauna se revise antes de darlo por bueno."
+      },
+      "estado": "El motor YA tiene nopal y tunas, así que la especie tendrá de qué comer cuando se integre"
+    }
+  },
+
+  "15_usos_historicos_reales_y_lo_que_habilitarian": {
+    "confianza": "MEDIDO",
+    "nota": "Esta sección NO describe lo implementado. Es material de investigación para decidir qué hacer con los productos que hoy no tienen destino.",
+
+    "el_mucilago_como_material_de_construccion": {
+      "estado_en_el_motor": "AUSENTE — la baba se produce y no se consume",
+      "quimica": {
+        "que_es": "Polisacárido complejo ácido, tipo pectina, asociado a glicoproteínas",
+        "composicion_monosacarida_medida": {
+          "arabinosa": "42%",
+          "xilosa": "22%",
+          "galactosa": "21%",
+          "acido_galacturonico": "8%",
+          "ramnosa": "7%"
+        },
+        "por_que_funciona": "El ácido galacturónico le da carácter aniónico, y eso es exactamente lo que lo hace reaccionar con la cal"
+      },
+      "uso_historico": {
+        "desde": "Época prehispánica, en el altiplano mexicano",
+        "para_que": "Aglutinante en estucos, aplanados y pintura mural",
+        "efecto_medido": "Añadido al agua de amasado de morteros y recubrimientos de cal, aumenta la plasticidad y la adhesión, y produce recubrimientos con mayor dureza e impermeabilidad",
+        "epoca_colonial": "Documentado en mezclas de cal a las que además se añadía yema y clara de huevo, algodón, y elementos de origen animal (pelo, sangre de buey, toro y cerdo). Caso estudiado: Convento de San Diego.",
+        "uso_moderno": "Se usa para optimizar pastas y morteros de cal y para reducir el tiempo de reposo de la cal hidratada; hay formulaciones de mortero de inyección con mucílago para restaurar pintura mural"
+      },
+      "extraccion_documentada": "Quitar espinas → lavar → retirar la epidermis → cortar en fragmentos de ~1 cm2 → añadir agua → cocer a 80 grados durante 1 hora → separar el mucílago. El método tradicional de construcción es más simple: penca troceada en remojo durante días hasta que el agua se vuelve viscosa.",
+      "encaje_con_el_proyecto": "El motor ya tiene CALIZA y la investigación olmeca ya propone la CAL como producto de calcinarla en horno. Cal + baba de nopal = estuco duro e impermeable es una receta con más de 500 años de uso continuo y documentado. Sería el destino natural de la baba y cerraría la cadena."
+    },
+
+    "la_grana_cochinilla": {
+      "estado_en_el_motor": "AUSENTE",
+      "que_es": "Dactylopius coccus, un hemíptero que parasita el nopal y se alimenta de la savia de la penca",
+      "el_producto": "Ácido carmínico, hasta el 21% del peso seco de la hembra adulta",
+      "rendimiento": "70.000 a 100.000 cochinillas hembra por kilogramo de carmín puro",
+      "ciclo": "Hembra ~3 meses; macho ~1 semana. Solo la hembra produce el colorante.",
+      "cria_tradicional": "Se colocan nidos con 2-3 cucharadas de cochinilla adulta en cada penca; la cría sale por los huecos y se adhiere al nopal. Los nidos se cambian de nopal cada 3 días y se vacían en 2 semanas.",
+      "importancia_historica": "En el siglo XVI fue el producto más exportado de la Nueva España DESPUÉS DEL ORO Y LA PLATA. En el XVIII, Oaxaca producía el 99% de la grana exportada en el mundo. Nombre náhuatl: nochéztli, 'sangre de tuna'. Domesticada por mixtecos, zapotecos y mexicas.",
+      "encaje_con_el_proyecto": "Es un tinte rojo de importancia histórica difícil de exagerar, criado SOBRE una planta que el motor ya modela con detalle. Daría una mecánica de cría y espera sobre un bloque existente."
+    },
+
+    "los_nopalitos": {
+      "estado_en_el_motor": "Parcialmente implementado — la cadena de proceso existe, pero no se pueden comer",
+      "quitar_espinas": "Con cuchillo, arrastrando el filo de lado a lado sobre la cara del cladodio para rebanar las areolas; luego se recorta el borde perimetral y el extremo basal, donde se concentran. Se pelan los bultos oscuros SIN pelar toda la piel: el cladodio conserva su epidermis verde.",
+      "desbabar_real": "Al cocer sueltan el líquido gelatinoso. Técnica documentada: fuego medio ~20 minutos hasta que el líquido sale y se reduce.",
+      "comparacion_con_el_motor": "El motor desbaba por REMOJO en agua fría (10 s). El método real es por COCCIÓN. No es un error: es una simplificación coherente con que el motor no tiene cocina, y el horno prehispánico existe pero no se usa para esto.",
+      "bromatologia_por_edad": {
+        "fuente": "SciELO Perú, sobre O. ficus-indica",
+        "cladodio_de_1_mes": "proteína 0.94%, vitamina C 37.27 mg/100 g",
+        "cladodio_de_1_ano": "proteína 0.48%, vitamina C 23.11 mg/100 g",
+        "tendencia": "La fibra, el calcio, el sodio, el potasio y el hierro AUMENTAN con la edad",
+        "lectura": "El nopalito tierno es el de comer; el viejo es fibra y mineral"
+      }
+    },
+
+    "las_variedades_reales_de_tuna": {
+      "fuente": "SIAP",
+      "estado_en_el_motor": "El motor modela TRES (verde/blanca, amarilla, roja). La realidad tiene al menos ocho comercializadas.",
+      "lista": ["alfajayucan (la de mayor producción; blanca/verde, 'Reyna' en el Valle del Mezquital)", "amarilla", "blanca burrón", "blanca cristalina", "criolla", "pico chulo", "roja", "xoconostle (ácido, se usa como verdura y condimento, no como fruta dulce)"],
+      "la_cardona": "La de Zacatecas y San Luis Potosí, base del colonche (bebida fermentada), del queso de tuna y de mieles y melcochas",
+      "maduracion_real": {
+        "dato": "110 a 120 días después de la floración",
+        "discrepancia_declarada": "Arqueología Mexicana da '3 a 6 semanas' para el desarrollo del fruto y hasta 6 meses para el xoconostle. Probablemente miden fases distintas (cuajado vs. maduración completa). Se recomienda 110-120 días.",
+        "comparacion_con_el_motor": "El motor usa 3 horas de juego. Con el día de 24 minutos, eso son ~7.5 días de juego: una compresión fuerte pero coherente con la escala del resto de procesos."
+      }
+    },
+
+    "el_simbolo_nacional": {
+      "etimologia": "Tenochtitlan = tetl (piedra) + nochtli (tuna/nopal) = 'lugar del nopal sobre la piedra'. El nopal —tenochtli— ES la ciudad misma en el mito: no es decorado, es el topónimo.",
+      "lectura_simbolica": "El águila es Huitzilopochtli / el Sol; el nopal es la isla fundadora; la serpiente, la sabiduría. Tras la Conquista el simbolismo de la serpiente se invirtió a 'el mal vencido'.",
+      "advertencia_historiografica": {
+        "fuente": "INAH",
+        "detalle": "La imagen del águila DEVORANDO la serpiente es un añadido tardío. Ningún documento prehispánico ni colonial la representa así con exactitud; en las fuentes antiguas (por ejemplo el Códice Mendoza) el águila está sobre el nopal SIN serpiente.",
+        "por_que_se_incluye": "Es justo el tipo de dato que el protocolo del proyecto exige señalar: lo que 'todo el mundo sabe' y la evidencia no respalda"
+      }
+    }
+  }
+}

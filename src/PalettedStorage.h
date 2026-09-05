@@ -221,6 +221,18 @@ public:
         return palette.size();
     }
 
+    // ⭐ QUE TIPO HAY EN LA ENTRADA i DE LA PALETA
+    //
+    // Permite preguntar "¿este subchunk contiene algun bloque de tal clase?"
+    // mirando solo la paleta -- unas pocas entradas -- en vez de recorrer sus
+    // 4096 bloques. Lo usan los barridos periodicos (la produccion de los
+    // bloques compuestos) para descartar de golpe los subchunks que no les
+    // interesan, que son casi todos.
+    BlockType tipoDePaleta(size_t i) const {
+        if (i >= palette.size()) return palette[0];
+        return palette[i];
+    }
+
     // ⭐ SERIALIZACIÓN: Escribir a buffer binario
     void serialize(std::vector<uint8_t>& buffer) const {
         // Formato:

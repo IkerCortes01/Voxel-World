@@ -204,6 +204,37 @@ struct Inventory {
         return true;
     }
 
+    // ============================================================================
+    // RECOGER UNA HERRAMIENTA CONSERVANDO SU DESGASTE
+    // ============================================================================
+    // addItem() APILA por tipo, y para una herramienta eso destruye la
+    // durabilidad: dos hachas con desgastes distintos acabarian en el mismo
+    // slot, que solo tiene UN vidaMedios. Una de las dos vidas se pierde, y
+    // como el slot conserva la del que llego primero, recoger un hacha
+    // gastada junto a una nueva las igualaba a las dos.
+    //
+    // Por eso una herramienta con vida propia NO se apila: se le da su
+    // casilla, igual que hacen los juegos del genero. Es lo que permite
+    // llevar un hacha a medias y otra entera sin que se mezclen.
+    //
+    // `vidaMedios` = 0 significa "sin estrenar" (vida completa), que es como
+    // entra una recien fabricada.
+    void addHerramienta(BlockType type, int vidaMedios) {
+        // Un hueco vacio que ya exista se aprovecha antes de crecer.
+        for (int i = 0; i < total(); i++) {
+            if (slots[(size_t)i].isEmpty()) {
+                slots[(size_t)i].blockType  = type;
+                slots[(size_t)i].count      = 1;
+                slots[(size_t)i].vidaMedios = vidaMedios;
+                return;
+            }
+        }
+        slots.push_back(InventorySlot());
+        slots.back().blockType  = type;
+        slots.back().count      = 1;
+        slots.back().vidaMedios = vidaMedios;
+    }
+
     bool removeItem(BlockType type, int amount = 1) {
         for (int i = 0; i < total(); i++) {
             if (slots[i].blockType == type && slots[i].count >= amount) {

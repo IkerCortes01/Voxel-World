@@ -1,0 +1,629 @@
+{
+  "_meta": {
+    "titulo": "Pecarí de collar — anatomía estructural para el modelo 3D",
+    "version": "1.0",
+    "proyecto": "Voxel World — AI simulator",
+    "fecha": "2026-08-29",
+    "rol": "Cuarta capa de datos de la especie. 10_BIOLOGIA da masa, medidas externas y comportamiento; este archivo da la ESTRUCTURA: forma externa, esqueleto, órganos y encéfalo. Es el 'Input data' del modelo 3D, igual que 10_ lo es del modelo de IA.",
+    "regla": "Misma escala de confianza que el resto del sistema. Una medida sin fuente publicada se marca ESTIMADO sin disimulo, o AUSENTE si ni siquiera hay base para estimarla.",
+    "por_que_existe_este_archivo": "10_PECARI_BIOLOGIA.json cubre morfología EXTERNA (masa, longitud, altura a la cruz) porque es lo que necesita la IA. Un modelo 3D anatómico necesita además dónde está cada hueso y cada víscera, y eso no estaba en ninguna parte del sistema.",
+    "advertencia_de_alcance": "La mayoría de las proporciones internas son ESTIMADO. La literatura veterinaria de Tayassuidae describe la anatomía CUALITATIVAMENTE (qué hay, qué falta, qué está fusionado) con mucho detalle y muy buena evidencia, pero rara vez publica las coordenadas o los volúmenes que un modelo 3D necesita. Lo CUALITATIVO de este archivo es sólido; lo NUMÉRICO interno es en gran parte reconstrucción."
+  },
+
+  "como_se_relaciona_con_los_otros_archivos": {
+    "10_PECARI_BIOLOGIA": "Fuente de las medidas externas MEDIDAS que anclan todo lo demás (longitud cabeza-cuerpo, altura a la cruz, masa).",
+    "11_PECARI_IA": "Consume de aquí la hitbox y las velocidades; el resto de la anatomía no le afecta.",
+    "12_PECARI_TRAZABILIDAD": "Debe absorber la tabla 'trazabilidad_anatomica' de este archivo en su auditoría.",
+    "Pecari_modelo3D_h": "El header C++ que traduce estos números a cajas dibujables. Es generado a mano desde aquí y lleva static_assert que verifican la coherencia."
+  },
+
+  "sistema_de_coordenadas": {
+    "ejes": "+X derecha del animal, +Y arriba, +Z hacia el hocico",
+    "origen": "Punto medio entre las cuatro pezuñas, a nivel del suelo",
+    "unidad": "metros",
+    "nota_de_conversion": "El motor mide en bloques de 0.60 m (Fisica::LADO_M). La conversión ocurre en un solo sitio del header para que estos números se puedan comparar con un libro de zoología sin traducir nada."
+  },
+
+  "escala_del_ejemplar_modelado": {
+    "criterio": "Adulto de tamaño medio, no un máximo excepcional",
+    "masa_kg": {
+      "valor": 18.7,
+      "origen": "10_PECARI_BIOLOGIA.morfologia_y_crecimiento.masa_adulta.valor_central_kg",
+      "fuente": "PMID 3803989 (Growth, 1986), n=16",
+      "confianza": "MEDIDO"
+    },
+    "longitud_cabeza_cuerpo_m": {
+      "valor": 0.95,
+      "origen": "Punto medio del rango MEDIDO 84-106 cm",
+      "fuente": "Animal Diversity Web",
+      "confianza": "DERIVADO",
+      "nota": "El rango es MEDIDO; tomar el centro es una elección de diseño para el ejemplar tipo"
+    },
+    "altura_a_la_cruz_m": {
+      "valor": 0.44,
+      "origen": "Rango MEDIDO 30-50 cm; se toma un valor alto-medio por coherencia con una longitud de 95 cm",
+      "fuente": "Animal Diversity Web",
+      "confianza": "DERIVADO",
+      "nota": "El rango publicado 30-50 cm es muy ancho y probablemente mezcla subadultos. 44 cm mantiene la proporción alto/largo en 0.46, que es lo que se ve en fotografía de campo."
+    },
+    "longitud_cola_m": {
+      "valor": 0.012,
+      "fuente": "Animal Diversity Web",
+      "confianza": "MEDIDO",
+      "nota": "1.2 cm: prácticamente inexistente. Es un rasgo visible del animal y el modelo NO debe darle cola de cerdo."
+    },
+    "longitud_oreja_m": {
+      "valor": 0.065,
+      "origen": "Punto medio del rango MEDIDO 3-10 cm",
+      "fuente": "Animal Diversity Web",
+      "confianza": "DERIVADO"
+    }
+  },
+
+  "capa_1_forma_externa": {
+    "_nota": "Lo que se ve. Las proporciones generales están ancladas a medidas MEDIDAS; el reparto en cajas es reconstrucción.",
+
+    "tronco": {
+      "descripcion": "Cuerpo robusto y compacto, descrito universalmente como 'en forma de barril': más ancho por el centro que por los extremos",
+      "caja_m": { "cx": 0.0, "cy": 0.315, "cz": 0.0, "hx": 0.125, "hy": 0.125, "hz": 0.245 },
+      "confianza": "ESTIMADO",
+      "base": "El largo (0.49 m) sale de restar cabeza y cuello a la longitud cabeza-cuerpo MEDIDA. El ancho y el alto son reconstrucción a partir de fotografía y de la necesidad de alojar el proestómago.",
+      "estrechamiento_extremos": {
+        "valor": 0.78,
+        "significado": "La sección en los extremos es el 78% de la central. Es lo que hace que sea un barril y no un ladrillo.",
+        "confianza": "ESTIMADO"
+      }
+    },
+
+    "cabeza": {
+      "descripcion": "Proporcionalmente grande, en cuña: ancha en el cráneo y afilada hacia el hocico",
+      "caja_m": { "cx": 0.0, "cy": 0.345, "cz": 0.315, "hx": 0.095, "hy": 0.105, "hz": 0.135 },
+      "confianza": "ESTIMADO",
+      "nota": "La cabeza grande respecto al cuerpo es una descripción cualitativa constante en la literatura; el reparto exacto es reconstrucción."
+    },
+
+    "hocico": {
+      "descripcion": "Trompa terminal, mucho más estrecha que el cráneo. Es el órgano de trabajo: escarba y huele.",
+      "caja_m": { "cx": 0.0, "cy": 0.295, "cz": 0.485, "hx": 0.052, "hy": 0.050, "hz": 0.050 },
+      "confianza": "ESTIMADO",
+      "afilado_respecto_a_cabeza": 0.55,
+      "nota": "El afilado no es un número elegido: es el cociente entre el ancho del hocico y el de la cabeza."
+    },
+
+    "patas": {
+      "descripcion": "Largas y delgadas en comparación con el cuerpo robusto. El contraste es una firma visual de la especie.",
+      "grosor_m": { "valor": 0.048, "confianza": "ESTIMADO" },
+      "largo_m": {
+        "valor": 0.20,
+        "confianza": "DERIVADO",
+        "base": "altura_a_la_cruz (0.44) menos la mitad del alto del tronco: la pata es lo que queda entre el suelo y la panza"
+      },
+      "separacion_x_m": { "valor": 0.082, "confianza": "ESTIMADO" },
+      "delantera_z_m": { "valor": 0.165, "confianza": "ESTIMADO" },
+      "trasera_z_m": { "valor": -0.175, "confianza": "ESTIMADO" }
+    },
+
+    "dedos": {
+      "_IMPORTANCIA": "Es uno de los criterios de campo que separan Tayassuidae de Suidae y hay que respetarlo en el modelo.",
+      "delanteros": {
+        "valor": 4,
+        "detalle": "Dos centrales que apoyan y dos laterales reducidos",
+        "confianza": "MEDIDO",
+        "fuente": "Descripción anatómica estándar de Tayassuidae"
+      },
+      "traseros": {
+        "valor": 3,
+        "detalle": "LA DIFERENCIA con el cerdo verdadero, que tiene cuatro. El pecarí de collar y el de labios blancos tienen tres.",
+        "confianza": "MEDIDO",
+        "fuente": "Descripción anatómica estándar de Tayassuidae"
+      },
+      "traseros_chaco": {
+        "valor": 2,
+        "especie": "Catagonus wagneri",
+        "detalle": "La tercera especie, del Chaco árido, reduce a dos. Se declara para que el modelo pueda representarla cambiando un número.",
+        "confianza": "MEDIDO"
+      },
+      "dedos_que_apoyan": {
+        "valor": 2,
+        "detalle": "Solo los centrales tocan el suelo; los laterales cuelgan sin cargar peso",
+        "confianza": "MEDIDO"
+      },
+      "pezuna": {
+        "descripcion": "Angosta y funcional, nada que ver con el casco ancho de un ungulado de pradera",
+        "ancho_m": 0.020,
+        "alto_m": 0.028,
+        "confianza": "ESTIMADO"
+      }
+    },
+
+    "pelaje": {
+      "descripcion": "Cerdas largas, gruesas y rígidas, de tonos grisáceos, negros o castaños. No es pelo suave: son casi púas flexibles.",
+      "cerda_largo_m": { "valor": 0.050, "confianza": "ESTIMADO" },
+      "cerda_grosor_m": { "valor": 0.0016, "confianza": "ESTIMADO" },
+
+      "_DECISION_DE_MODELADO": {
+        "afirmacion": "El pelaje del pecarí NO se simula con geometría ni con física. Se simula como ESTADO DE SUPERFICIE: cuatro bytes por individuo que modulan el color al sombrear.",
+        "razon_1_biologica": "Sus cerdas no son pelo, son púas semirrígidas de 1.6 mm de grosor. No ondean, no se aplastan, no fluyen. Un sistema de fur dinámico (shells, strands, física de mechones) reproduciría un movimiento que el animal real NO tiene. Sería caro y además falso.",
+        "razon_2_de_escala": "El motor mide en bloques de 0.60 m. Una cerda de 5 cm es sub-texel: no hay resolución donde dibujarla individualmente.",
+        "razon_3_funcional": "Todo lo que el pelaje COMUNICA está medido y es de baja dimensionalidad: se eriza (cresta), se aclara en verano (muda), se ensucia (revolcadero) y lleva un collar diagnóstico. Cuatro señales, no un campo continuo.",
+        "consecuencia": "Coste por animal: 4 bytes de estado y cero ramas nuevas por frame. La variación se resuelve en el sombreado, no en la memoria.",
+        "lo_que_se_descarta_explicitamente": ["Fur shells", "Física de mechones", "Texturas únicas por individuo", "Geometría de cerda individual"],
+        "confianza": "DERIVADO — la decisión se deduce de la morfología MEDIDA de la cerda y de la escala del motor."
+      },
+
+      "collar": {
+        "descripcion": "Banda clara que cruza el hombro y da nombre a la especie",
+        "ancho_m": 0.042,
+        "posicion_z_m": 0.135,
+        "confianza": "ESTIMADO",
+        "nota": "La existencia del collar es MEDIDA y diagnóstica; sus dimensiones exactas son reconstrucción.",
+        "_IMPORTANCIA_PARA_EL_MODELO": "Es el rasgo que da NOMBRE a la especie y el que la distingue de un jabalí a simple vista. Un pecarí de collar sin collar dibujado es un error de identificación, no un detalle omitido.",
+        "implementacion": "Banda en la textura o desplazamiento de paleta en el atlas. Coste en runtime: CERO. No requiere geometría propia.",
+        "invariante": "El collar cruza el HOMBRO (z positivo, delante del centro del tronco), no el cuello ni el lomo medio."
+      },
+
+      "variacion_individual_de_tono": {
+        "_PROBLEMA_QUE_RESUELVE": "Una piara de 6-10 individuos con un único color se lee como copias del mismo objeto. La cohesión de manada es un rasgo MEDIDO de la especie, así que el jugador SIEMPRE los verá juntos: es justo el caso donde la uniformidad más se nota.",
+        "base_biologica": "La descripción publicada del pelaje da tres tonos —grisáceo, negro, castaño— como variación normal dentro de la especie.",
+        "confianza_de_la_variacion": "MEDIDO (cualitativa: la especie presenta esos tonos)",
+        "confianza_de_la_distribucion": "ESTIMADO — no hay frecuencias publicadas de cada tono en poblaciones silvestres.",
+        "implementacion": "1 byte de semilla por individuo que indexa una rampa de tono grisáceo→castaño. NO es una textura por individuo.",
+        "coste_ram_bytes": 1,
+        "correlacion_familiar": {
+          "regla": "Los individuos de la misma matrilínea comparten tono con desviación reducida",
+          "razon": "La filopatría femenina (MEDIDO) hace que la manada se base en linajes maternos. Que los parientes se parezcan es coherente con esa estructura.",
+          "confianza": "ESTIMADO — la heredabilidad del tono no está medida en esta especie. Es una elección de diseño que respeta una estructura social medida.",
+          "enlace": "El campo linaje_materno ya existe en 11_PECARI_IA.json"
+        }
+      },
+
+      "muda_estacional": {
+        "_HALLAZGO": "Esto NO es una invención de diseño: está MEDIDO.",
+        "hallazgo_literal": "En verano el color del pelaje SE ACLARA y disminuye la densidad de cerdas",
+        "fuente": "Zervanos y Hadley 1973",
+        "confianza": "MEDIDO",
+        "referencia_interna": "10_PECARI_BIOLOGIA.json → efecto_de_la_temperatura → adaptacion_estacional_del_pelaje",
+        "funcion": "Termorregulación pasiva. Es la ÚNICA defensa fisiológica contra el calor que tiene esta especie: no puede jadear.",
+        "importancia_sistemica": "Conecta con el hallazgo de que el pecarí NO PUEDE JADEAR. Su termorregulación es conductual (sombra, cueva, revolcadero) más este único ajuste pasivo y lento. La muda es la mitad fisiológica de un problema que por lo demás resuelve moviéndose.",
+        "aclaramiento_verano": { "valor": 0.22, "unidad": "fracción de aclarado sobre el tono base", "confianza": "ESTIMADO", "nota": "La DIRECCIÓN del cambio está MEDIDA (se aclara). La MAGNITUD no está publicada como valor numérico." },
+        "reduccion_densidad_cerdas": { "valor": 0.30, "unidad": "fracción de reducción", "confianza": "ESTIMADO", "nota": "Ídem: la dirección es MEDIDA, la magnitud es de diseño." },
+        "constante_de_tiempo_dias": { "valor": 21.0, "confianza": "ESTIMADO", "razon": "Una muda es un proceso de semanas, no de días. Debe ir MUY por detrás de la temperatura instantánea: si el pelaje siguiera al clima diario, se vería como un parpadeo." },
+        "implementacion": "1 byte que persigue con retardo un objetivo estacional. Se actualiza una vez por día simulado, NO por frame.",
+        "coste_ram_bytes": 1
+      },
+
+      "suciedad_y_revolcadero": {
+        "_POR_QUE_IMPORTA": "Sin esto, el revolcadero es una animación sin consecuencia visible. El animal se revuelca y sale idéntico, y el jugador no puede ver que la necesidad se satisfizo.",
+        "base_biologica": "El revolcadero es una de las estrategias de termorregulación documentadas, y esta especie NO tiene salida fisiológica alternativa: no puede jadear.",
+        "confianza_del_comportamiento": "MEDIDO (el uso de revolcaderos está documentado)",
+        "confianza_del_efecto_termorregulador": "AUSENTE — no hay cuantificación publicada de cuánto calor disipa un revolcadero en D. tajacu.",
+        "funcion_visual": "El lodo oscurece y satura el pelaje, y se seca con el tiempo.",
+        "funcion_de_diseño": "Cierra el lazo perceptivo entre una NECESIDAD (calor) y su SATISFACCIÓN (revolcarse). El jugador ve el estado interno del animal en su superficie.",
+        "suciedad_maxima": { "valor": 1.0, "significado": "Recién salido del revolcadero" },
+        "oscurecimiento_max": { "valor": 0.35, "unidad": "fracción de oscurecido", "confianza": "ESTIMADO" },
+        "tiempo_de_secado_s": { "valor": 900.0, "confianza": "ESTIMADO", "nota": "15 minutos de juego. No hay medición publicada de la persistencia del lodo sobre el animal; sí la hay del revolcadero como estructura (≥6 años), que es otra cosa." },
+        "efecto_secundario_documentado": "El revolcadero PERSISTE en el mundo y atrae a otras especies (13 anfibios, 2 reptiles, 11 aves, 16 mamíferos registrados). El pecarí es ingeniero de ecosistemas. Eso es un bloque del mundo, no estado del animal.",
+        "implementacion": "1 byte que decae linealmente. Se actualiza en el tick de necesidades, NO por frame.",
+        "coste_ram_bytes": 1
+      },
+
+      "presupuesto_total_de_superficie": {
+        "bytes_por_individuo": 4,
+        "desglose": ["1 tono base (variación individual)", "1 muda estacional", "1 suciedad de lodo", "1 erizado de cresta (ya existía como float, se empaqueta)"],
+        "coste_para_una_piara_de_10": "40 bytes",
+        "coste_para_1000_individuos": "4 KB",
+        "comparacion": "Un solo vértice con posición, normal y UV ocupa 32 bytes. Todo el pelaje de un pecarí cuesta menos que un octavo de vértice.",
+        "actualizacion_por_frame": "NINGUNA salvo el erizado, que ya se actualizaba. Tono es constante, muda es diaria, suciedad va en el tick de necesidades.",
+        "confianza": "DERIVADO"
+      }
+    },
+
+    "cresta_dorsal_erectil": {
+      "descripcion": "Línea de cerdas a lo largo del dorso que el animal LEVANTA al sentirse amenazado o alarmado. Erizada, el animal parece mucho más grande.",
+      "funcion": "Señalización de alarma y amenaza, no termorregulación",
+      "altura_reposo_m": { "valor": 0.020, "confianza": "ESTIMADO" },
+      "altura_erizada_m": { "valor": 0.070, "confianza": "ESTIMADO" },
+      "factor_de_erizado": 3.5,
+      "largo_m": { "valor": 0.44, "confianza": "ESTIMADO" },
+      "ancho_m": { "valor": 0.032, "confianza": "ESTIMADO" },
+      "tiempo_erizado_s": {
+        "valor": 0.25,
+        "confianza": "ESTIMADO",
+        "base": "Es una respuesta de alarma: tiene que ser rápida. No hay medición publicada del tiempo."
+      },
+      "asimetria_de_respuesta": {
+        "descripcion": "Se eriza deprisa y baja despacio",
+        "razon": "Alarmarse es inmediato; calmarse es gradual. Es el patrón general de la respuesta de sobresalto en presas.",
+        "factor_bajada": 0.35,
+        "confianza": "ESTIMADO"
+      },
+      "enlace_con_IA": "El estado 'erizado' debe activarse con las mismas señales que disparan ALERTA en 11_PECARI_IA."
+    },
+
+    "glandula_de_almizcle_dorsal": {
+      "_IMPORTANCIA": "Es LA característica única de la familia y la infraestructura de su vida social.",
+      "descripcion": "Glándula dorsal situada cerca de las ancas que secreta un aceite de olor muy fuerte y penetrante",
+      "posicion": "SOBRE LAS ANCAS, no en mitad del lomo. Colocarla en el centro del dorso sería un error del modelo.",
+      "caja_m": { "cx": 0.0, "cy": 0.435, "cz": -0.145, "hx": 0.030, "hy": 0.011, "hz": 0.042 },
+      "confianza_posicion": "MEDIDO (cualitativa: dorsal, cerca de las ancas)",
+      "confianza_dimensiones": "ESTIMADO",
+      "usos_documentados": [
+        "Frotarse contra árboles y rocas para marcar territorio",
+        "Frotamiento mutuo cabeza-contra-grupa entre miembros de la manada",
+        "Reconocimiento entre individuos de la misma piara"
+      ],
+      "consecuencia_para_el_modelo": "El animal necesita una animación de MARCADO (frotar el costado/grupa contra un tronco) y otra de frotamiento mutuo. Sin ellas, la glándula es decorativa.",
+      "radio_percepcion_m": {
+        "valor": 45.0,
+        "confianza": "ESTIMADO",
+        "nota": "El olor es notoriamente detectable por el olfato humano a distancia considerable, pero no hay medición publicada de un radio. Número de diseño."
+      }
+    },
+
+    "colmillos": {
+      "_IMPORTANCIA": "El rasgo que más se confunde con el jabalí, y el más fácil de dibujar mal.",
+      "descripcion": "Caninos rectos y afilados que crecen verticalmente HACIA ABAJO",
+      "contraste_con_jabali": "Los del jabalí se CURVAN HACIA ARRIBA y sobresalen de la boca. Los del pecarí son rectos, pegados a la mandíbula y casi invisibles con la boca cerrada.",
+      "angulo_grados": {
+        "valor": 0.0,
+        "significado": "0 = perfectamente vertical. Un jabalí estaría en torno a +55.",
+        "confianza": "MEDIDO",
+        "nota": "La verticalidad es un criterio diagnóstico de la familia, no una apreciación."
+      },
+      "largo_m": { "valor": 0.038, "confianza": "ESTIMADO" },
+      "grosor_m": { "valor": 0.010, "confianza": "ESTIMADO" },
+      "autoafilado": {
+        "existe": true,
+        "mecanismo": "Al cerrar la boca, los caninos superiores e inferiores FROTAN entre sí, manteniéndose afilados de forma automática",
+        "confianza": "MEDIDO",
+        "requisito_anatomico": "Depende del surco óseo del maxilar (ver capa_2_esqueleto.craneo.surco_del_canino). Sin ese surco los colmillos chocarían en vez de deslizar."
+      },
+      "uso_conductual": "El castañeteo de colmillos es una de las vocalizaciones/señales de amenaza documentadas"
+    },
+
+    "formula_dentaria": {
+      "valor": "2133/3133",
+      "total_dientes": 38,
+      "origen": "10_PECARI_BIOLOGIA.morfologia_y_crecimiento.dentadura",
+      "confianza": "MEDIDO"
+    }
+  },
+
+  "capa_2_esqueleto": {
+    "_nota": "Similar al del cerdo salvo en cuatro adaptaciones, y esas cuatro son justo lo que convierte al pecarí en un corredor de terreno duro. Lo CUALITATIVO aquí es sólido y bien documentado; las coordenadas son reconstrucción.",
+
+    "craneo": {
+      "caja_m": { "cx": 0.0, "cy": 0.350, "cz": 0.305, "hx": 0.075, "hy": 0.080, "hz": 0.115 },
+      "confianza": "ESTIMADO",
+
+      "surco_del_canino": {
+        "_IMPORTANCIA": "Es la pieza mecánica que hace posible el autoafilado.",
+        "descripcion": "Surco óseo especializado en el maxilar superior donde encaja el canino inferior al cerrar la boca",
+        "profundidad_m": { "valor": 0.005, "confianza": "ESTIMADO" },
+        "largo_m": { "valor": 0.026, "confianza": "ESTIMADO" },
+        "confianza_existencia": "MEDIDO"
+      },
+
+      "canal_auditivo_cigomatico": {
+        "descripcion": "El conducto auditivo pasa por un canal óseo oculto y protegido, entre los huesos del arco cigomático (pómulo)",
+        "ventaja_adaptativa": "Queda protegido de espinas y ramas, lo que conviene a un animal que mete la cabeza en matorral cerrado",
+        "confianza_existencia": "MEDIDO",
+        "arco_cigomatico_largo_m": { "valor": 0.058, "confianza": "ESTIMADO" }
+      }
+    },
+
+    "columna": {
+      "vertebras_cervicales": { "valor": 7, "confianza": "INFERIDO", "base": "Constante en prácticamente todos los mamíferos" },
+      "vertebras_toracicas": { "valor": 14, "confianza": "INFERIDO", "base": "Rango típico de suiformes; no verificado en Tayassuidae" },
+      "vertebras_lumbares": { "valor": 5, "confianza": "INFERIDO", "base": "Rango típico de suiformes" },
+      "pares_de_costillas": { "valor": 14, "confianza": "DERIVADO", "base": "Una por vértebra torácica" },
+      "_advertencia": "La fórmula vertebral concreta de Dicotyles tajacu no se localizó en la investigación. Marcado INFERIDO en vez de presentarlo como dato de la especie."
+    },
+
+    "caja_toracica": {
+      "descripcion": "Lo que da al barril su forma de barril",
+      "caja_m": { "cx": 0.0, "cy": 0.320, "cz": 0.075, "hx": 0.108, "hy": 0.108, "hz": 0.155 },
+      "confianza": "ESTIMADO"
+    },
+
+    "radioulna_fusionada": {
+      "_IMPORTANCIA": "La adaptación ósea más característica del miembro anterior.",
+      "descripcion": "El radio y la ulna (cúbito) están COMPLETAMENTE FUSIONADOS en una sola estructura sólida",
+      "huesos_en_antebrazo": {
+        "valor": 1,
+        "comparacion": "Serían 2, articulados y capaces de rotar, en la mayoría de mamíferos",
+        "confianza": "MEDIDO"
+      },
+      "intercambio_evolutivo": {
+        "pierde": "La rotación del antebrazo (pronación/supinación)",
+        "gana": "Rigidez: un hueso entero no se tuerce al golpear el suelo corriendo ni al escarbar",
+        "confianza": "MEDIDO (el hecho); DERIVADO (la interpretación funcional)"
+      },
+      "caja_m": { "cx": 0.082, "cy": 0.205, "cz": 0.165, "hx": 0.017, "hy": 0.068, "hz": 0.017 },
+      "confianza_dimensiones": "ESTIMADO"
+    },
+
+    "metapodios_fusionados": {
+      "descripcion": "Los metapodios tercero y cuarto —los huesos largos de los dos dedos centrales, que son los que apoyan— están fusionados entre sí",
+      "fusionados": { "valor": true, "confianza": "MEDIDO" },
+      "carpo_tarso_soldados": {
+        "valor": true,
+        "descripcion": "Además, los huesos de la palma y la planta se unen cerca de las muñecas y los tobillos",
+        "confianza": "MEDIDO"
+      },
+      "logica_comun_con_la_radioulna": "Dos huesos sueltos se desalinean bajo carga; uno solo no. Los ungulados corredores repiten esta solución de forma independiente (en los ciervos el hueso fusionado equivalente se llama 'caña').",
+      "caja_m": { "cx": 0.082, "cy": 0.098, "cz": 0.165, "hx": 0.014, "hy": 0.050, "hz": 0.014 },
+      "confianza_dimensiones": "ESTIMADO"
+    },
+
+    "pelvis": {
+      "caja_m": { "cx": 0.0, "cy": 0.325, "cz": -0.175, "hx": 0.085, "hy": 0.055, "hz": 0.068 },
+      "confianza": "ESTIMADO"
+    }
+  },
+
+  "capa_3_organos": {
+    "_nota": "Aquí el pecarí deja de parecerse al cerdo del todo. Por fuera es discutible; por dentro no hay discusión posible. Los HECHOS de esta capa están muy bien documentados; las coordenadas son reconstrucción.",
+
+    "estomago_complejo": {
+      "_IMPORTANCIA": "La diferencia digestiva central con Suidae, y la razón fisiológica de que el pecarí prospere en zona semiárida.",
+      "descripcion": "Estómago dividido en tres o cuatro cámaras, frente al estómago SIMPLE de un cerdo",
+      "camaras": {
+        "min": 3,
+        "max": 4,
+        "composicion": "Dos sacos ciegos no glandulares, una bolsa gástrica y el estómago posterior glandular",
+        "confianza": "MEDIDO"
+      },
+      "fermentacion_pregastrica": {
+        "existe": true,
+        "descripcion": "Fermentación microbiana previa que digiere eficientemente la celulosa de plantas, raíces, frutos y nopales duros",
+        "confianza": "MEDIDO"
+      },
+      "es_rumiante_verdadero": {
+        "valor": false,
+        "aclaracion": "Fermenta antes del estómago glandular, pero NO regurgita ni rumia. Llamarlo rumiante sería un error.",
+        "confianza": "MEDIDO"
+      },
+      "enlace_con_la_dieta": {
+        "consecuencia": "Un estómago simple no saca energía de una penca de nopal; este sí.",
+        "dato_relacionado": "10_PECARI_BIOLOGIA.alimentacion — el nopal es 25-80% de la dieta en zona semiárida",
+        "nota_para_el_motor": "El motor YA tiene nopal, tunas, biznaga y magueyes implementados. La anatomía y el contenido del juego coinciden sin forzar nada."
+      },
+      "enlace_con_la_personalidad": {
+        "hallazgo": "La digestibilidad de la fibra varía entre individuos (0.41 a 0.79) y correlaciona con la audacia: los calmados digieren mejor",
+        "origen": "00_LEEME.txt — 'el hallazgo más aprovechable'",
+        "consecuencia_anatomica": "La microbiota del proestómago es más homogénea en los individuos calmados. Es el mismo órgano el que sostiene el rasgo de personalidad.",
+        "confianza": "MEDIDO"
+      },
+      "caja_m": { "cx": -0.014, "cy": 0.285, "cz": 0.018, "hx": 0.080, "hy": 0.062, "hz": 0.098 },
+      "confianza_dimensiones": "ESTIMADO",
+      "subcamaras": {
+        "saco_ciego_izquierdo": { "cx": -0.055, "cy": 0.298, "cz": 0.058, "hx": 0.032, "hy": 0.040, "hz": 0.044, "confianza": "ESTIMADO" },
+        "saco_ciego_derecho":   { "cx": 0.034, "cy": 0.298, "cz": 0.058, "hx": 0.029, "hy": 0.038, "hz": 0.041, "confianza": "ESTIMADO" },
+        "bolsa_gastrica":       { "cx": -0.018, "cy": 0.272, "cz": -0.004, "hx": 0.050, "hy": 0.045, "hz": 0.050, "confianza": "ESTIMADO" },
+        "estomago_glandular":   { "cx": -0.009, "cy": 0.264, "cz": -0.062, "hx": 0.043, "hy": 0.036, "hz": 0.029, "confianza": "ESTIMADO" }
+      },
+      "asimetria_declarada": "Los dos sacos ciegos NO son simétricos. La asimetría es real en la anatomía descrita; sus dimensiones concretas son reconstrucción."
+    },
+
+    "ausencia_de_vesicula_biliar": {
+      "_IMPORTANCIA": "Diferencia anatómica clave con cerdos y jabalíes. Es una ausencia limpia y uno de los criterios que separan las dos familias sin ambigüedad.",
+      "tiene_vesicula_biliar": {
+        "valor": false,
+        "confianza": "MEDIDO",
+        "contraste": "El cerdo doméstico SÍ tiene vesícula biliar"
+      },
+      "consecuencia_fisiologica": {
+        "descripcion": "El hígado sigue produciendo bilis, pero no hay dónde almacenarla: se vierte de forma continua y directa al intestino delgado",
+        "confianza": "MEDIDO"
+      },
+      "coherencia_ecologica": {
+        "razonamiento": "Un herbívoro que come poco y a menudo no necesita un depósito de bilis para digerir un banquete ocasional",
+        "confianza": "DERIVADO",
+        "nota": "Interpretación funcional, no dato publicado"
+      },
+      "consecuencia_para_el_modelo": "La capa de órganos NO debe dibujar vesícula. Es una ausencia que hay que representar activamente, porque el error natural al modelar 'algo parecido a un cerdo' es incluirla."
+    },
+
+    "higado": {
+      "caja_m": { "cx": 0.040, "cy": 0.318, "cz": 0.105, "hx": 0.056, "hy": 0.043, "hz": 0.050 },
+      "confianza": "ESTIMADO"
+    },
+    "corazon": {
+      "caja_m": { "cx": -0.010, "cy": 0.330, "cz": 0.132, "hx": 0.032, "hy": 0.036, "hz": 0.029 },
+      "confianza": "ESTIMADO"
+    },
+    "pulmon_izquierdo": {
+      "caja_m": { "cx": -0.062, "cy": 0.348, "cz": 0.115, "hx": 0.038, "hy": 0.048, "hz": 0.070 },
+      "confianza": "ESTIMADO"
+    },
+    "pulmon_derecho": {
+      "caja_m": { "cx": 0.062, "cy": 0.348, "cz": 0.115, "hx": 0.038, "hy": 0.048, "hz": 0.070 },
+      "confianza": "ESTIMADO"
+    },
+    "intestino": {
+      "caja_m": { "cx": 0.013, "cy": 0.252, "cz": -0.068, "hx": 0.095, "hy": 0.048, "hz": 0.105 },
+      "confianza": "ESTIMADO"
+    },
+
+    "aparato_urogenital": {
+      "descripcion": "Presenta características exclusivas de la especie, incluyendo un seno urogenital diferenciado y glándulas vestibulares específicas",
+      "seno_urogenital_diferenciado": { "valor": true, "confianza": "MEDIDO" },
+      "glandulas_vestibulares_propias": { "valor": true, "confianza": "MEDIDO" },
+      "caja_m": { "cx": 0.0, "cy": 0.248, "cz": -0.158, "hx": 0.040, "hy": 0.030, "hz": 0.042 },
+      "confianza_dimensiones": "ESTIMADO",
+      "nota_de_alcance": "Se declara su envolvente sin detallar más. El modelo no lo dibuja en detalle, pero ocupa sitio y por tanto entra en el reparto del abdomen."
+    }
+  },
+
+  "capa_4_encefalo": {
+    "_nota": "Un cerebro construido alrededor de dos capacidades: OLER y RECORDAR DÓNDE.",
+
+    "encefalo": {
+      "caja_m": { "cx": 0.0, "cy": 0.362, "cz": 0.288, "hx": 0.038, "hy": 0.032, "hz": 0.050 },
+      "confianza": "ESTIMADO"
+    },
+
+    "bulbos_olfatorios": {
+      "_IMPORTANCIA": "El rasgo definitorio de este encéfalo.",
+      "descripcion": "La región dedicada a procesar olores (rinencéfalo / bulbo olfatorio) es proporcionalmente ENORME",
+      "confianza_cualitativa": "MEDIDO",
+      "fraccion_del_encefalo": {
+        "valor": 0.15,
+        "confianza": "ESTIMADO",
+        "nota": "El hecho de que sean desproporcionadamente grandes está documentado; la fracción numérica concreta NO se localizó. Es reconstrucción para dar escala al modelo."
+      },
+      "caja_m": { "cx": 0.0, "cy": 0.356, "cz": 0.325, "hx": 0.024, "hy": 0.017, "hz": 0.027 },
+      "confianza_dimensiones": "ESTIMADO",
+      "tres_funciones_que_resuelve": [
+        "Reconocer a los miembros de la piara por la marca de almizcle",
+        "Rastrear alimento ENTERRADO, que no se ve",
+        "Detectar depredadores a gran distancia"
+      ],
+      "alcance_olfato_m": {
+        "valor": 120.0,
+        "confianza": "ESTIMADO",
+        "nota": "Sin medición publicada de umbral olfativo en la especie. Número de diseño."
+      },
+      "olfato_profundidad_bloques": {
+        "valor": 3,
+        "confianza": "ESTIMADO",
+        "nota": "Cuántos bloques bajo tierra puede oler una raíz. Parámetro de juego."
+      }
+    },
+
+    "corteza_girencefalica": {
+      "descripcion": "Corteza cerebral con circunvoluciones (giros y surcos), no lisa",
+      "es_girencefalico": { "valor": true, "confianza": "MEDIDO" },
+      "significado": "Un cerebro plegado mete mucha más superficie cortical en el mismo cráneo que uno liso (lisencefálico). Es lo que sostiene el comportamiento complejo.",
+      "comparacion": "Compartido con otros ungulados",
+      "surcos_principales": { "valor": 6, "confianza": "ESTIMADO", "nota": "Número para el modelo visual; no es un recuento publicado." }
+    },
+
+    "memoria_espacial": {
+      "descripcion": "Las regiones vinculadas a memoria a largo plazo y navegación están destacadas",
+      "capacidad_documentada": "Las manadas memorizan mapas mentales exactos del territorio: ubicación de fuentes de agua estacionales, árboles frutales y rutas seguras, a lo largo de años",
+      "confianza_cualitativa": "MEDIDO",
+      "puntos_memorizados_max": {
+        "valor": 24,
+        "confianza": "ESTIMADO",
+        "nota": "Traducción a un número de simulación. La capacidad es documentada; el límite concreto es de diseño."
+      },
+      "duracion_memoria_dias": {
+        "valor": 365,
+        "confianza": "ESTIMADO",
+        "base": "La literatura habla de memoria 'a lo largo de los años'; se toma un año como horizonte de simulación."
+      },
+      "hipocampo_caja_m": { "cx": 0.0, "cy": 0.360, "cz": 0.275, "hx": 0.018, "hy": 0.013, "hz": 0.022 },
+      "confianza_dimensiones": "ESTIMADO",
+      "enlace_con_IA": "Este es el sustrato anatómico del sistema de memoria de recursos de 11_PECARI_IA. No es un añadido: es el órgano del que sale ese comportamiento."
+    },
+
+    "integracion_social": {
+      "descripcion": "Animal estrictamente gregario. El encéfalo procesa vocalizaciones de alerta, jerarquías de dominancia y respuestas coordinadas ante el peligro.",
+      "ADVERTENCIA_DE_COHERENCIA": {
+        "problema": "El texto de origen menciona 'jerarquías de dominancia'. 10_PECARI_BIOLOGIA y 00_LEEME establecen que NO hay macho alfa ni jerarquía lineal documentada en Dicotyles tajacu, y que el monomorfismo sexual medido lo corrobora.",
+        "resolucion": "Se conserva 'respuesta coordinada' y 'vocalizaciones', que están documentadas, y NO se implementa jerarquía lineal. Interacciones de dominancia puntuales no equivalen a una jerarquía estable.",
+        "regla_aplicada": "Ante conflicto entre el texto de encargo y un dato MEDIDO del sistema, manda el dato MEDIDO.",
+        "confianza": "MEDIDO (la ausencia de jerarquía lineal)"
+      },
+      "tamano_de_piara": {
+        "origen": "10_PECARI_BIOLOGIA.estructura_social",
+        "nota": "El modelo 3D no fija estos números; los consume de la capa de IA para no duplicar la fuente de verdad."
+      },
+      "vocalizaciones": {
+        "cuantas_distintas": 4,
+        "confianza": "INFERIDO",
+        "lista": [
+          { "nombre": "GRUNIDO_CONTACTO", "uso": "Mantener cohesión dentro de la piara", "alcance_m": 25, "confianza_alcance": "ESTIMADO" },
+          { "nombre": "CASTANETEO", "uso": "Amenaza; los colmillos castañetean. Precede a la carga.", "alcance_m": 40, "confianza_alcance": "ESTIMADO" },
+          { "nombre": "LADRIDO_ALARMA", "uso": "Depredador detectado; la piara reacciona", "alcance_m": 150, "confianza_alcance": "ESTIMADO" },
+          { "nombre": "CHILLIDO", "uso": "Dolor o captura", "alcance_m": 200, "confianza_alcance": "ESTIMADO" }
+        ],
+        "nota": "El repertorio vocal del pecarí es más rico que estas cuatro categorías. Es una simplificación de simulación, declarada como tal. Ver 10_PECARI_BIOLOGIA.comunicacion para el detalle."
+      }
+    }
+  },
+
+  "derivados_para_el_motor": {
+    "_nota": "Lo que el motor necesita para colisionar y mover al animal. Sale de la anatomía; no se escribe a mano.",
+    "hitbox_bloques": {
+      "ancho": { "valor": 0.55, "base": "Ancho del tronco (0.25 m) más holgura, convertido a bloques de 0.60 m", "confianza": "DERIVADO" },
+      "alto": { "valor": 0.85, "base": "Altura a la cruz MEDIDA (0.44 m) más la cresta erizada", "confianza": "DERIVADO" },
+      "largo": { "valor": 1.58, "base": "Longitud cabeza-cuerpo MEDIDA (0.95 m) en bloques", "confianza": "DERIVADO" }
+    },
+    "velocidades_bloques_por_s": {
+      "pastando": { "valor": 0.35, "confianza": "ESTIMADO" },
+      "trote": { "valor": 5.1, "equivalente_kmh": 11, "confianza": "ESTIMADO" },
+      "huida": { "valor": 16.2, "equivalente_kmh": 35, "confianza": "ESTIMADO" },
+      "_advertencia": "Las velocidades NO se localizaron medidas en literatura para esta especie. Son números de diseño coherentes con un ungulado de este tamaño. Si 11_PECARI_IA tiene velocidades propias, MANDAN LAS DE ALLÍ: este archivo no debe crear una segunda fuente de verdad."
+    }
+  },
+
+  "invariantes_que_verifica_el_header": {
+    "_proposito": "Cada una de estas se comprueba con static_assert en el header C++. Convierten un error silencioso (un hígado fuera del cuerpo, un colmillo de jabalí) en un error de compilación. Es la misma técnica que BloqueCompuesto.h usa con COMPUESTO_BASE.",
+    "contencion": [
+      "Todo órgano cabe dentro del tronco",
+      "Toda subcámara gástrica cabe dentro del estómago",
+      "El cráneo cabe dentro de la cabeza",
+      "El encéfalo, los bulbos olfatorios y el hipocampo caben dentro del cráneo",
+      "La caja torácica y la pelvis caben dentro del tronco"
+    ],
+    "senas_de_identidad": [
+      "DEDOS_TRASEROS == 3 (cuatro sería un cerdo)",
+      "HUESOS_EN_ANTEBRAZO == 1 (radioulna fusionada)",
+      "TIENE_VESICULA_BILIAR == false",
+      "CAMARAS_ESTOMACALES_MIN >= 3",
+      "COLMILLO_ANGULO_GRADOS == 0 (curvado sería jabalí)"
+    ],
+    "coherencia_visual": [
+      "La cresta erizada mide más del doble que en reposo, o la señal de alarma no se ve",
+      "El hocico es más estrecho que la cabeza, o no se afila",
+      "La cola es prácticamente inexistente, no una cola de cerdo"
+    ],
+    "por_que_esto_importa": "El error natural al modelar un animal 'parecido a un cerdo' es deslizarse hacia el cerdo. Estas comprobaciones hacen ese deslizamiento imposible de cometer en silencio."
+  },
+
+  "trazabilidad_anatomica": {
+    "_nota": "Resumen para absorber en 12_PECARI_TRAZABILIDAD.json",
+    "recuento": {
+      "MEDIDO": 24,
+      "DERIVADO": 8,
+      "INFERIDO": 5,
+      "ESTIMADO": 46,
+      "AUSENTE": 3
+    },
+    "lectura_honesta": "La mayoría de los NÚMEROS de este archivo son ESTIMADO, y hay que decirlo claro. Lo que está MEDIDO es lo que de verdad define a la especie: qué hay, qué falta, qué está fusionado y hacia dónde crecen los colmillos. Las coordenadas exactas de un hígado no están publicadas para Dicotyles tajacu, y fingir lo contrario rompería la regla del sistema.",
+    "que_pasa_si_se_ajusta_un_ESTIMADO": "Nada se rompe: son proporciones visuales. Los static_assert impiden que un ajuste saque un órgano del cuerpo.",
+    "que_pasa_si_se_ajusta_un_MEDIDO": "Se rompe el realismo y, en cinco casos, se convierte al pecarí en un cerdo. Esos cinco están protegidos por static_assert."
+  },
+
+  "lagunas_declaradas": [
+    {
+      "hueco": "Coordenadas y volúmenes viscerales publicados para Dicotyles tajacu",
+      "que_se_buscaria": "Un atlas anatómico o un estudio morfométrico con posiciones y masas de órganos",
+      "estado": "AUSENTE",
+      "consecuencia": "Todas las cajas de órganos son reconstrucción a partir de la descripción cualitativa y de la anatomía general de suiformes"
+    },
+    {
+      "hueco": "Fórmula vertebral concreta de la especie",
+      "estado": "AUSENTE",
+      "consecuencia": "Los recuentos vertebrales están marcados INFERIDO desde suiformes, no presentados como dato de la especie"
+    },
+    {
+      "hueco": "Fracción exacta del encéfalo ocupada por los bulbos olfatorios",
+      "estado": "AUSENTE",
+      "consecuencia": "El hecho de que sean desproporcionadamente grandes es MEDIDO; el 0.15 es reconstrucción para dar escala"
+    },
+    {
+      "hueco": "Velocidades de locomoción medidas en la especie",
+      "estado": "AUSENTE",
+      "consecuencia": "Las tres velocidades son de diseño. Si la capa de IA las tiene, mandan las de allí."
+    },
+    {
+      "hueco": "Cinemática de la marcha (longitud de zancada, frecuencia, secuencia de apoyos)",
+      "estado": "AUSENTE",
+      "consecuencia": "La animación de caminar tendrá que ajustarse a ojo hasta que exista el dato. Se marca para no presentarla como realismo medido."
+    }
+  ]
+}

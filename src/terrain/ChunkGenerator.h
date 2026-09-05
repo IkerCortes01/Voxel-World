@@ -4,6 +4,8 @@
 #include "TerrainGenerator.h"
 #include "CaveGenerator.h"
 #include "BiomeTypes.h"
+#include "../BloqueCompuesto.h"   // Agua::conOrilla / conCorriente
+#include <cmath>                  // fabsf
 
 // ============================================================================
 // CHUNK GENERATOR - ETAPA 11 (Optimizacion) + ETAPA 12 (Determinismo)
@@ -135,13 +137,24 @@ public:
         for (int y = bedrockTop + 1; y <= surfaceY && y < worldHeight; ++y) {
             // --- ETAPA 9: CUEVAS ---
             // Se consultan ANTES de colocar el bloque: si hay cueva, se deja
-            // aire (o lava en el fondo del mundo).
+            // aire.
+            //
+            // ⭐ SIN LAGOS DE LAVA.
+            //
+            // Antes el fondo del mundo (y <= LAVA_LEVEL) se inundaba de lava.
+            // Se retiro a peticion de diseño: la lava dejaba el fondo de las
+            // cuevas intransitable y convertia el descenso en una carrera de
+            // obstaculos en vez de una exploracion.
+            //
+            // ⚠️ LO QUE **NO** SE HA TOCADO, Y ES DELIBERADO:
+            //   - El bloque BLOCK_LAVA sigue existiendo en el enum.
+            //   - Su simulacion (updateLavaFlow) sigue viva.
+            //   - Los mundos ya guardados conservan la lava que tuvieran.
+            // Asi el cambio es REVERSIBLE: si algun dia se quiere lava en el
+            // fondo, se vuelve a poner aqui y todo lo demas sigue en su sitio.
+            // Lo unico que desaparece es la lava GENERADA de cero.
             if (caves.IsCave((float)worldX, y, (float)worldZ, surfaceY)) {
-                if (y <= CaveGenerator::LAVA_LEVEL) {
-                    writer.Set(lx, y, lz, Blocks::LAVA);
-                } else {
-                    writer.Set(lx, y, lz, Blocks::AIR);
-                }
+                writer.Set(lx, y, lz, Blocks::AIR);
                 continue;
             }
 
@@ -181,6 +194,16 @@ public:
                 } else if (col.isOcean) {
                     block = def.underwaterBlock;
                 } else {
+                    // ⚠️ AQUI HUBO UN ANILLO DE PIEDRA ALREDEDOR DE LAS BOCAS.
+                    //
+                    // Se retiro a peticion de diseño: se veia como parches de
+                    // roca sueltos en mitad del pasto, no como el borde de una
+                    // sima. La boca ya se ve sin el -- el agujero es lo que
+                    // llama la atencion, no su marco.
+                    //
+                    // Lo que SI se conserva es que la boca llegue hasta la
+                    // superficie sin techo encima, que es lo que de verdad
+                    // hacia falta (ver IsCaveEntrance).
                     block = def.surfaceBlock;
                 }
             }
@@ -192,7 +215,20 @@ public:
         // 3. ENTRADAS A CUEVAS
         // --------------------------------------------------------------------
         // Perforan el techo solido para conectar la red con el exterior.
-        for (int y = surfaceY - CaveGenerator::SURFACE_MARGIN; y <= surfaceY; ++y) {
+        //
+        // ⭐ EL RANGO LO MANDA LA BOCA, NO EL MARGEN DE LA CUEVA.
+        //
+        // Antes este bucle recorria solo SURFACE_MARGIN (5) bloques, mientras
+        // que IsCaveEntrance estaba escrita para trabajar sobre 22. O sea: se
+        // calculaba un embudo de 22 y se perforaban 5. El pozo se quedaba en
+        // un mordisco en la superficie que no llegaba a ninguna parte.
+        //
+        // Ahora los dos hablan del mismo rango, y es la propia funcion la que
+        // decide donde para: baja hasta encontrar la galeria (ver
+        // ENTRADA_MAX_HONDURA).
+        //
+        for (int y = surfaceY;
+             y >= surfaceY - CaveGenerator::ENTRADA_MAX_HONDURA; --y) {
             if (y < 1 || y >= worldHeight) continue;
             if (caves.IsCaveEntrance((float)worldX, y, (float)worldZ, surfaceY)) {
                 writer.Set(lx, y, lz, Blocks::AIR);
@@ -208,8 +244,30 @@ public:
         // Rellena desde la superficie del terreno hasta el nivel del mar.
         if (surfaceY < SEA_LEVEL) {
             const int waterTop = (SEA_LEVEL < worldHeight - 1) ? SEA_LEVEL : worldHeight - 1;
+
+            // ⭐ LA FRANJA DE ORILLA: DONDE ROMPEN LAS OLAS
+            //
+            // Es el agua somera pegada a la playa, no todo el mar. Se
+            // reconoce porque el fondo esta a uno o dos bloques bajo la
+            // superficie del agua: mas hondo que eso ya es mar abierto y ahi
+            // el oleaje no llega al fondo.
+            //
+            // Solo la celda de ARRIBA de esa franja oscila. Las de debajo se
+            // quedan llenas: una ola mueve la lamina superficial, no vacia la
+            // columna entera hasta la arena.
+            const int hondura = waterTop - surfaceY;   // celdas de agua
+            const bool esOrilla = (hondura >= 1 && hondura <= 2);
+
             for (int y = surfaceY + 1; y <= waterTop; ++y) {
-                writer.Set(lx, y, lz, Blocks::WATER);
+                if (esOrilla && y == waterTop) {
+                    // La marca viaja dentro del ID, asi que se guarda con el
+                    // chunk y no necesita estructura aparte.
+                    writer.Set(lx, y, lz, (Blocks::Id)
+                        Compuesto::Agua::conOrilla(
+                            Compuesto::Agua::nuevo(Compuesto::Agua::LLENA), true));
+                } else {
+                    writer.Set(lx, y, lz, Blocks::WATER);
+                }
             }
         }
         // ---- AGUA DEL RIO (por encima del nivel del mar) ----
@@ -228,8 +286,61 @@ public:
 
             const int riverTop = surfaceY + depth;
             const int top = (riverTop < worldHeight - 1) ? riverTop : worldHeight - 1;
+
+            // ⭐ EL RIO NO VA LLENO, Y CORRE
+            //
+            // Un rio de montaña es agua SOMERA sobre un lecho que se ve. Antes
+            // se rellenaba con celdas llenas, asi que un arroyo se veia igual
+            // que un trozo de mar: opaco y quieto.
+            //
+            // Ahora la lamina de arriba lleva nivel bajo -- 2 o 3 octavos
+            // segun la fuerza del cauce -- de modo que se transparenta el
+            // fondo y se distingue de un vistazo un rio de un lago.
+            //
+            // El nivel sale de `riverStrength`: el centro del cauce lleva mas
+            // agua que la orilla, que es lo que da el perfil de un rio real.
+            const int nivelRio = (col.riverStrength > 0.55f) ? 3 : 2;
+
+            // ---- LA DIRECCION DE LA CORRIENTE ----
+            //
+            // No hay un campo "hacia donde va el rio", pero se puede deducir:
+            // el agua baja por el cauce, y el cauce es mas profundo donde
+            // `riverStrength` es mayor. Muestreando la fuerza a los cuatro
+            // lados se sabe hacia donde desciende el valle.
+            //
+            // Es una aproximacion --el gradiente de la fuerza, no de la
+            // altura-- pero da una corriente COHERENTE a lo largo del cauce,
+            // que es lo que importa: dos celdas vecinas del mismo rio apuntan
+            // al mismo sitio en vez de contradecirse.
+            uint16_t dirCorriente = Compuesto::Agua::SIN_CORRIENTE;
+            {
+                const float sN = terrain.Rivers().GetRiverStrength((float)worldX, (float)(worldZ - 2), col.climate);
+                const float sS = terrain.Rivers().GetRiverStrength((float)worldX, (float)(worldZ + 2), col.climate);
+                const float sE = terrain.Rivers().GetRiverStrength((float)(worldX + 2), (float)worldZ, col.climate);
+                const float sO = terrain.Rivers().GetRiverStrength((float)(worldX - 2), (float)worldZ, col.climate);
+
+                const float gradZ = sS - sN;   // >0: el cauce crece hacia +Z
+                const float gradX = sE - sO;
+
+                if (fabsf(gradX) > fabsf(gradZ)) {
+                    dirCorriente = (gradX > 0.0f) ? Compuesto::Agua::HACIA_ESTE
+                                                  : Compuesto::Agua::HACIA_OESTE;
+                } else if (fabsf(gradZ) > 0.0f) {
+                    dirCorriente = (gradZ > 0.0f) ? Compuesto::Agua::HACIA_SUR
+                                                  : Compuesto::Agua::HACIA_NORTE;
+                }
+            }
+
             for (int y = surfaceY + 1; y <= top; ++y) {
-                writer.Set(lx, y, lz, Blocks::WATER);
+                if (y == top) {
+                    // La lamina de arriba: nivel bajo y con corriente.
+                    BlockType agua = Compuesto::Agua::nuevo((uint16_t)nivelRio);
+                    agua = Compuesto::Agua::conCorriente(agua, dirCorriente);
+                    writer.Set(lx, y, lz, (Blocks::Id)agua);
+                } else {
+                    // Debajo, agua llena: es el cuerpo del cauce.
+                    writer.Set(lx, y, lz, Blocks::WATER);
+                }
             }
             riverWaterTop = top;   // el bucle de aire debe empezar por encima
         }

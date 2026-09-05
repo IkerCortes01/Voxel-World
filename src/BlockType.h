@@ -489,12 +489,196 @@ enum BlockType {
     //
     // Al final del enum, como todo lo nuevo: meterlo en medio correria los
     // IDs de lo que va detras y los mundos ya guardados leerian otra cosa.
-    BLOCK_PEDAZO_BARRO       // 165 Pedazo de barro
+    BLOCK_PEDAZO_BARRO,      // 165 Pedazo de barro
+
+    // ========================================================================
+    // LOS TAZONES CON AGUAMIEL
+    // ========================================================================
+    // El premio de capar un maguey. Uno por especie, igual que los vacios y
+    // los de agua: lo que cambia es lo que llevan dentro, no la madera.
+    //
+    // Son bloques PROPIOS y no un estado del tazon de agua porque el aguamiel
+    // no es agua: sabe distinto, se consigue de otra forma y llevara a otras
+    // recetas (el pulque). Mezclarlos obligaria a llevar la cuenta aparte de
+    // que hay en cada tazon, que es justo lo que el ID ya resuelve gratis.
+    BLOCK_TAZON_PINO_AGUAMIEL,   // 166 Tazon de pino con aguamiel
+    BLOCK_TAZON_ENCINO_AGUAMIEL, // 167 Tazon de encino con aguamiel
+    BLOCK_TAZON_OYAMEL_AGUAMIEL, // 168 Tazon de oyamel con aguamiel
+
+    // --- TIERRA MOJADA: la que se bebio el agua ---
+    //
+    // Cuando el agua cae sobre tierra o arena seca, el suelo la absorbe y pasa
+    // a su version mojada. NO es decoracion: el agua absorbida esta GUARDADA
+    // ahi dentro, y por eso un bloque mojado ya no bebe mas.
+    //
+    // Es lo que impide que un oceano se drene por su propia playa: la orilla
+    // se satura y deja de robarle agua al mar.
+    //
+    // Van AL FINAL del enum a proposito. Insertarlos en medio correria los IDs
+    // de todo lo que viene detras y los mundos guardados leerian otro bloque.
+    BLOCK_DIRT_MOJADA,           // 169 Tierra empapada
+    BLOCK_SAND_MOJADA,           // 170 Arena empapada
+    BLOCK_GRASS_MOJADA,          // 171 Pasto empapado
+
+    // ========================================================================
+    // EL AGAVE TEQUILANA AZUL
+    // ========================================================================
+    // La planta en si es un BLOQUE COMPUESTO (ver FAM_AGAVE_AZUL en
+    // BloqueCompuesto.h): su estado -- fase, etapa, quiote -- viaja dentro
+    // del ID y no gasta entradas de este enum.
+    //
+    // Lo que SI necesita entrada propia es cada TEXTURA que el mesher pide
+    // por separado, porque texSegura() trabaja con BlockType. Son etiquetas
+    // de textura, no bloques que el jugador coloque:
+    //
+    //   PENCA  la hoja azul plateada mate (la cera del agave)
+    //   PUNTA  la espina terminal, oscura y muy dura
+    //   PINA   el tallo central fibroso, blanco y verde claro
+    //   QUIOTE el tallo floral
+    //   FLOR   los racimos amarillos del candelabro
+    //
+    // Al final del enum, como todo lo nuevo.
+    BLOCK_AGAVE_AZUL_PENCA,      // 172 Hoja azul plateada del tequilana
+    BLOCK_AGAVE_AZUL_PUNTA,      // 173 Espina terminal, dura y oscura
+    BLOCK_AGAVE_AZUL_PINA,       // 174 Piña: el tallo central ya jimado
+    BLOCK_AGAVE_AZUL_QUIOTE,     // 175 Tallo floral que sube hasta 5 m
+    BLOCK_AGAVE_AZUL_FLOR,       // 176 Racimos amarillos del candelabro
+
+    // ========================================================================
+    // EL PINO OCOTE (Pinus montezumae)
+    // ========================================================================
+    // El pino de Moctezuma, el ocote blanco del centro de Mexico. Es una
+    // ESPECIE MAS de pino, no un reemplazo del que ya habia: comparte la
+    // familia pero se distingue de lejos por su copa redondeada y ancha y por
+    // sus aciculas larguisimas (30-35 cm) agrupadas de cinco en cinco, que
+    // cuelgan en vez de erizarse.
+    //
+    // Lleva las cuatro entradas del patron que ya siguen encino y oyamel --
+    // tronco, tronco por dentro, hojas y tablones -- porque son cuatro
+    // texturas distintas y texSegura() trabaja con BlockType.
+    //
+    // Al final del enum: insertar en medio correria los IDs y los mundos
+    // guardados leerian otro bloque.
+    BLOCK_WOOD_OCOTE,            // 177 Tronco: corteza gruesa en placas
+    BLOCK_WOOD_OCOTE_DENTRO,     // 178 El corte del tronco, ambar y resinoso
+    BLOCK_LEAVES_OCOTE,          // 179 Aciculas largas de cinco en cinco
+    BLOCK_PLANKS_OCOTE,          // 180 Tablones de ocote blanco
+    BLOCK_RAMA_OCOTE,            // 181 Rama horizontal y fuerte
+
+    // ========================================================================
+    // LA PENCA DEL AGAVE TEQUILANA AZUL, COMO ITEM
+    // ========================================================================
+    // El pulquero ya entregaba pencas al talarlo (BLOCK_IXTLE_HOJA). El
+    // tequilana no entregaba NADA, asi que cortarlo no servia de nada.
+    //
+    // Lleva item PROPIO y no reutiliza el del pulquero porque son dos plantas
+    // distintas y se ven distintas: la penca del tequilana es azul plateada
+    // mate por la cera, la del pulquero verde. Compartir item borraria de un
+    // plumazo la diferencia que costo modelar.
+    BLOCK_PENCA_AGAVE_AZUL,      // 182 Penca azul plateada del tequilana
+
+    // ========================================================================
+    // EL OCOTE CHINO (Pinus leiophylla)
+    // ========================================================================
+    // La quinta especie de arbol, y la segunda del genero Pinus despues del
+    // ocote blanco (Pinus montezumae). Se le llama "chino" por sus aciculas
+    // finas y rizadas, mas cortas y en manojos mas apretados que las del
+    // blanco: de ahi que su follaje se lea mas tupido.
+    //
+    // Va con bloques PROPIOS y no reutiliza los del ocote blanco porque son
+    // dos maderas distintas y se ven distintas -- la del chino tira a rojiza
+    // oscura y su corte es mas cerrado. Compartir bloque borraria de un
+    // plumazo esa diferencia, que es justo la que se pidio.
+    //
+    // Al final del enum, como manda la regla: insertar en medio correria los
+    // IDs y los mundos guardados leerian otro bloque.
+    BLOCK_WOOD_OCOTE_CHINO,         // 183 Tronco: corteza rojiza en placas
+    BLOCK_WOOD_OCOTE_CHINO_DENTRO,  // 184 El corte del tronco, mas cerrado
+    BLOCK_LEAVES_OCOTE_CHINO,       // 185 Aciculas finas, en manojo apretado
+
+    // ⭐ HOJA CON RAMA DENTRO
+    //
+    // La copa del ocote chino lleva el ramaje POR DENTRO del follaje: la rama
+    // y las hojas comparten voxel en vez de gastar dos. Es una celda
+    // compartida (ver esCompartido), asi que el raycast, el mesher y la
+    // rotura la tratan como dos piezas independientes sin codigo especial.
+    BLOCK_LEAVES_OCOTE_CHINO_RAMA,  // 186 Hojas con la rama dentro
+
+    // ⭐ LO MISMO PARA EL OCOTE BLANCO (Pinus montezumae)
+    //
+    // El chino ya llevaba el ramaje dentro del follaje; el blanco no, asi que
+    // su copa era hoja maciza sin nada que la sostuviera por dentro. Con esto
+    // las dos especies comparten estructura: la rama y las aciculas ocupan el
+    // MISMO voxel en vez de gastar dos.
+    //
+    // Va al final del enum, como todo lo nuevo: insertar en medio correria los
+    // IDs y los mundos guardados leerian otro bloque.
+    BLOCK_LEAVES_OCOTE_RAMA,        // 187 Aciculas del ocote con rama dentro
+
+    // ========================================================================
+    // HUEVO DE SPAWN: PECARI DE COLLAR
+    // ========================================================================
+    // Item EXCLUSIVO DEL CREATIVO. No es un bloque, no se coloca y no se
+    // craftea: al hacer clic derecho suelta un pecari de collar donde apunta
+    // el jugador.
+    //
+    //   clic derecho          un adulto suelto
+    //   SHIFT + clic derecho  una manada completa, con su reparto de edades
+    //
+    // POR QUE UN ITEM Y NO UN COMANDO: el motor no tiene consola. El
+    // inventario creativo es la unica superficie donde el jugador puede pedir
+    // que aparezca algo, asi que es donde tiene que vivir.
+    //
+    // Va al final del enum, como todo lo nuevo: insertar en medio correria los
+    // IDs y los mundos guardados leerian otro bloque.
+    BLOCK_HUEVO_PECARI              // 188 Huevo de spawn del pecari de collar
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
 // Lo que va después son items y bloques retirados.
 constexpr int BLOCK_LAST_PLACEABLE = BLOCK_SCRAP_L7;
+
+// ============================================================================
+// LA TIERRA QUE BEBE AGUA
+// ============================================================================
+// Que le pasa a este bloque cuando el agua lo empapa.
+//
+// Devuelve el MISMO bloque si no absorbe -- porque es impermeable (piedra,
+// roca, madera) o porque ya esta saturado. El llamador usa esa igualdad como
+// respuesta a "¿bebiste?", asi que no hay una segunda tabla que mantener.
+//
+// LA SATURACION ES LO QUE HACE QUE ESTO FUNCIONE. Si la tierra bebiera sin
+// limite, la orilla de un mar se tragaria el mar entero: son millones de
+// celdas de agua tocando arena. Al saturarse, la orilla se moja una vez y el
+// mar se queda donde esta.
+//
+// La piedra no bebe. Un suelo de roca es lo que permite hacer un estanque que
+// no se filtra.
+inline BlockType versionMojada(BlockType t) {
+    switch (t) {
+        case BLOCK_DIRT:  return BLOCK_DIRT_MOJADA;
+        case BLOCK_SAND:  return BLOCK_SAND_MOJADA;
+        case BLOCK_GRASS: return BLOCK_GRASS_MOJADA;
+        default:          return t;   // impermeable o ya saturado
+    }
+}
+
+// ¿Este bloque esta empapado?
+inline bool estaMojado(BlockType t) {
+    return t == BLOCK_DIRT_MOJADA || t == BLOCK_SAND_MOJADA ||
+           t == BLOCK_GRASS_MOJADA;
+}
+
+// El bloque seco del que viene este mojado. Sirve para que al romperlo suelte
+// tierra normal y no un bloque "mojado" en el inventario.
+inline BlockType versionSeca(BlockType t) {
+    switch (t) {
+        case BLOCK_DIRT_MOJADA:  return BLOCK_DIRT;
+        case BLOCK_SAND_MOJADA:  return BLOCK_SAND;
+        case BLOCK_GRASS_MOJADA: return BLOCK_GRASS;
+        default:                 return t;
+    }
+}
 
 // ============================================================================
 // CELDAS MIXTAS: UNA CAPA DE UN MATERIAL, RELLENO DE OTRO ENCIMA
@@ -540,6 +724,68 @@ constexpr int BLOCK_MIXTO_FIN =
 // ¿Es una celda mixta (capa + relleno de otro material)?
 inline bool esMixto(BlockType t) {
     return (int)t >= BLOCK_MIXTO_BASE && (int)t < BLOCK_MIXTO_FIN;
+}
+
+// ============================================================================
+// DONDE EMPIEZAN LOS BLOQUES COMPUESTOS
+// ============================================================================
+// Los bloques con estado (maguey, biznaga...) viven en un rango de IDs muy
+// por encima del enum. Su definicion completa esta en BloqueCompuesto.h, que
+// incluye a ESTE archivo -- asi que aqui no se le puede preguntar.
+//
+// Se repite el numero, que es una constante del formato de guardado y no va a
+// cambiar. Para que las dos copias no se separen nunca, BloqueCompuesto.h
+// lleva un static_assert que compara la suya con esta: si alguien mueve una,
+// el build falla al instante en vez de corromper mundos en silencio.
+constexpr int BLOQUE_COMPUESTO_BASE_ID = 100000;
+
+// Cuantos IDs ocupa cada familia compuesta (2^16 estados). Igual que el
+// numero de arriba, esta copia la vigila un static_assert en
+// BloqueCompuesto.h: si las dos se separan, el build falla.
+constexpr int BLOQUE_COMPUESTO_ESTADOS = 65536;
+
+// El indice de la familia AGUA dentro del rango compuesto.
+//
+// Hace falta AQUI porque el agua es la primera familia compuesta que NO es una
+// planta, y este archivo tiene que poder distinguirla sin preguntarle a
+// BloqueCompuesto.h (la dependencia va al reves). Tambien lo vigila un
+// static_assert alli, contra el valor real del enum.
+constexpr int BLOQUE_COMPUESTO_FAM_AGUA = 5;
+
+// ¿Es una celda de agua con volumen?
+//
+// El agua vive en el rango compuesto (para heredar gratis el guardado del
+// nivel), pero no es vegetacion ni se corta con el hacha, asi que todo lo que
+// clasifica bloques tiene que apartarla antes de tratar el rango entero como
+// plantas.
+inline bool esAguaVolumen(BlockType t) {
+    const int base = BLOQUE_COMPUESTO_BASE_ID +
+                     BLOQUE_COMPUESTO_FAM_AGUA * BLOQUE_COMPUESTO_ESTADOS;
+    return (int)t >= base && (int)t < base + BLOQUE_COMPUESTO_ESTADOS;
+}
+
+// ¿Es agua, de la que sea?
+//
+// ESTA es la pregunta que tiene que hacer el motor, y no `== BLOCK_WATER`.
+//
+// Hay DOS representaciones del agua conviviendo, a proposito:
+//
+//   BLOCK_WATER         el agua de siempre. Sigue existiendo porque los
+//                       mundos guardados estan llenos de ella y el generador
+//                       de terreno la sigue usando para llenar mares y rios.
+//                       Cuenta como celda LLENA.
+//   Compuesto::Agua     el agua con nivel, que aparece en cuanto el flujo
+//                       toca una celda o el jugador coloca un cubo.
+//
+// Un mar guardado hace meses se lee como BLOCK_WATER y se convierte en agua
+// con nivel sola, celda a celda, segun el jugador se acerca. Por eso no hay
+// migracion que escribir ni version de formato que subir.
+//
+// El precio es que cada sitio que preguntaba `== BLOCK_WATER` tiene que
+// preguntar esto. Los que no se cambien no reconoceran el agua nueva: se
+// nadara raro, se colocaran bloques dentro o el mesher la dibujara mal.
+inline bool esAguaCualquiera(BlockType t) {
+    return t == BLOCK_WATER || esAguaVolumen(t);
 }
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
@@ -862,24 +1108,96 @@ inline bool esTalloIxtle(BlockType t) {
     return t == BLOCK_IXTLE_TALLO || t == BLOCK_IXTLE_TALLO_ARENA;
 }
 
-// ¿Es una celda COMPARTIDA: dos bloques ocupando el mismo espacio?
+// ============================================================================
+// CELDAS COMPARTIDAS: VARIOS BLOQUES EN EL MISMO VOXEL
+// ============================================================================
+// Un voxel guarda UN solo BlockType, pero eso no obliga a que dentro haya una
+// sola cosa: el ID puede describir un CONJUNTO de piezas que conviven en el
+// mismo espacio, cada una con su caja, su textura y su comportamiento.
+//
+// Asi el maguey capado son dos bloques -- el cuenco y el jugo de dentro -- y
+// el ixtle puede llevar hierba o una flor creciendo entre sus hojas. Se
+// seleccionan y se rompen POR SEPARADO: el rayo prueba la caja de cada pieza
+// y gana la que atraviesa antes.
+//
+// ⭐ EL SISTEMA ADMITE N PIEZAS, no solo dos.
+//
+// La version anterior estaba cableada a exactamente 2 (un bool "segunda"), y
+// eso ponia un techo artificial: para meter una tercera pieza habia que tocar
+// el raycast, el mesher y la rotura. Ahora se pregunta por INDICE, asi que
+// añadir una celda de tres o cuatro piezas es rellenar una fila de la tabla y
+// nada mas.
+//
+// El contrato es simple:
+//   piezasDe(t)      -> cuantas piezas hay (1 si no es compartida)
+//   piezaN(t, i)     -> que bloque es la pieza i
+//   cajaDePiezaN()   -> que espacio ocupa (en main.cpp, necesita geometria)
+
+// Tope de piezas por celda. Subirlo no rompe nada: es solo el tamaño de los
+// bucles que recorren las piezas.
+constexpr int MAX_PIEZAS_CELDA = 4;
+
 inline bool esCompartido(BlockType t) {
     return t == BLOCK_IXTLE_CON_HIERBA || t == BLOCK_IXTLE_CON_FLOR ||
-           t == BLOCK_IXTLE_DOBLE;
+           t == BLOCK_IXTLE_DOBLE ||
+           t == BLOCK_AGUAMIEL ||
+           // La copa del ocote chino: la rama va DENTRO del follaje, no en
+           // una celda aparte. Asi el ramaje se ve entre las hojas sin gastar
+           // el doble de bloques.
+           t == BLOCK_LEAVES_OCOTE_CHINO_RAMA ||
+           // Lo mismo en el ocote blanco: misma estructura, otra especie.
+           t == BLOCK_LEAVES_OCOTE_RAMA;
 }
 
-// Las dos piezas que conviven en una celda compartida.
-// PRIMERA: la que ocupa el centro (el ixtle). SEGUNDA: la acompañante.
-inline BlockType piezaPrimera(BlockType t) {
-    return esCompartido(t) ? BLOCK_IXTLE_HOJA : t;
+// Cuantas piezas conviven en esta celda. Un bloque normal es "una pieza",
+// de modo que el codigo que recorre piezas vale para todos sin casos aparte.
+inline int piezasDe(BlockType t) {
+    if (!esCompartido(t)) return 1;
+    // De momento todas las compartidas son de dos. Cuando exista una de tres,
+    // se devuelve 3 aqui y el resto del motor se adapta solo.
+    return 2;
 }
-inline BlockType piezaSegunda(BlockType t) {
+
+// La pieza numero `i` (0 = la principal). Devuelve BLOCK_AIR si no existe.
+inline BlockType piezaN(BlockType t, int i) {
+    if (i < 0 || i >= piezasDe(t)) return BLOCK_AIR;
+
+    if (!esCompartido(t)) return t;
+
+    if (i == 0) {
+        // La PRINCIPAL: la que sostiene la celda.
+        // El cajete de maguey es la pieza solida de su celda: es lo que queda
+        // cuando el jugador se lleva el jugo.
+        if (t == BLOCK_AGUAMIEL) return BLOCK_MAGUEY_HUECO;
+        // En la copa del ocote chino manda la RAMA: es lo que sujeta el
+        // follaje, igual que el cajete sujeta el jugo. Quitando las hojas
+        // queda la rama; quitando la rama no queda nada de que colgar.
+        if (t == BLOCK_LEAVES_OCOTE_CHINO_RAMA) return BLOCK_RAMA_OCOTE;
+        if (t == BLOCK_LEAVES_OCOTE_RAMA)       return BLOCK_RAMA_OCOTE;
+        return BLOCK_IXTLE_HOJA;
+    }
+
+    // Las ACOMPAÑANTES.
     switch (t) {
         case BLOCK_IXTLE_CON_HIERBA: return BLOCK_TALLGRASS;
         case BLOCK_IXTLE_CON_FLOR:   return BLOCK_ORANGE_FLOWER;
         case BLOCK_IXTLE_DOBLE:      return BLOCK_IXTLE_HOJA;
+        // El JUGO: la pieza de dentro del cajete. Se "quita" recogiendolo con
+        // un tazon, nunca rompiendolo.
+        case BLOCK_AGUAMIEL:         return BLOCK_AGUAMIEL;
+        // Las hojas que envuelven la rama del ocote chino.
+        case BLOCK_LEAVES_OCOTE_CHINO_RAMA: return BLOCK_LEAVES_OCOTE_CHINO;
+        case BLOCK_LEAVES_OCOTE_RAMA:       return BLOCK_LEAVES_OCOTE;
         default:                     return BLOCK_AIR;
     }
+}
+
+// --- Atajos de los dos primeros, que es lo que usa casi todo el motor ---
+inline BlockType piezaPrimera(BlockType t) {
+    return esCompartido(t) ? piezaN(t, 0) : t;
+}
+inline BlockType piezaSegunda(BlockType t) {
+    return piezaN(t, 1);
 }
 
 // La combinación que resulta de juntar `encima` con lo que ya hay (`base`).
@@ -896,10 +1214,28 @@ inline BlockType combinar(BlockType base, BlockType encima) {
     return BLOCK_AIR;
 }
 
-// Al romper UNA de las dos piezas, ¿qué queda en la celda?
-inline BlockType quitarPieza(BlockType t, bool quitarSegunda) {
+// Al quitar la pieza `i`, ¿que queda en la celda?
+//
+// La regla general: quitar una ACOMPAÑANTE deja la principal en pie; quitar
+// la PRINCIPAL se lleva la celda entera, porque las demas se apoyaban en ella
+// (la hierba crece entre las hojas del ixtle, el jugo vive dentro del cuenco).
+inline BlockType quitarPiezaN(BlockType t, int i) {
     if (!esCompartido(t)) return BLOCK_AIR;
-    return quitarSegunda ? piezaPrimera(t) : piezaSegunda(t);
+    if (i <= 0) return BLOCK_AIR;          // se va la principal: cae todo
+
+    // El maguey capado: quitarle el JUGO deja el cuenco vacio, que es lo que
+    // pasa al recogerlo con el tazon.
+    if (t == BLOCK_AGUAMIEL) return BLOCK_MAGUEY_HUECO;
+
+    // En una celda de dos, quitar la acompañante deja la principal sola.
+    // (Con tres o mas habria que devolver la combinacion restante; hoy no
+    // existe ninguna, y `combinar` es donde se declararia.)
+    return piezaPrimera(t);
+}
+
+// Compatibilidad con el codigo que piensa en dos piezas.
+inline BlockType quitarPieza(BlockType t, bool quitarSegunda) {
+    return quitarPiezaN(t, quitarSegunda ? 1 : 0);
 }
 
 // ¿Es una pieza de ixtle (lechuguilla)?
@@ -1001,6 +1337,61 @@ inline bool esHerramientaGastable(BlockType t) {
            t == BLOCK_MARTILLO_PEDERNAL;
 }
 
+// ============================================================================
+// ¿ES UNA PENCA DE MAGUEY SUELTA?
+// ============================================================================
+// Las hojas cortadas de las dos especies de agave: la del pulquero
+// (BLOCK_IXTLE_HOJA) y la del tequilana (BLOCK_PENCA_AGAVE_AZUL).
+//
+// Se agrupan porque comparten una propiedad que el resto de items no tiene:
+// son hojas CARNOSAS, no laminas. Por eso el render las dibuja mas gruesas
+// (4 px de los 16, frente a los ~3 del resto), y por eso conviene una sola
+// funcion que las nombre en vez de repetir la lista en cada sitio -- que es
+// como se acaba con una especie que se ve distinta de la otra sin motivo.
+//
+// Las variantes de tamaño del ixtle (pequeña, grande, enorme) son bloques del
+// mundo, no items sueltos, asi que no entran aqui.
+inline bool esPencaDeMaguey(BlockType t) {
+    return t == BLOCK_IXTLE_HOJA || t == BLOCK_PENCA_AGAVE_AZUL;
+}
+
+// ============================================================================
+// ¿ES UN ITEM DE CACTUS TIRADO EN EL SUELO?
+// ============================================================================
+// Lo que el jugador recoge del nopal y de la biznaga: pencas, tunas, espinas y
+// los productos de trabajar la penca (tiras, baba, seca).
+//
+// Se agrupan por una razon de RENDER, no de gameplay: son las piezas mas
+// GRUESAS del inventario. Una penca de nopal es suculenta -- guarda agua -- y
+// una tuna es un fruto redondo; las dos tienen bastante mas cuerpo que la hoja
+// fibrosa de un agave, y muchisimo mas que una lamina de pedernal. Dibujarlas
+// con el grosor de una hoja las aplanaria.
+//
+// ⚠️ SOLO LOS QUE SE SUELTAN COMO ITEM. Los bloques con los que el generador
+// construye la planta (las bases del tallo, los cladodios apilados X2/X3, la
+// biznaga viva) NO entran: esos se ven en el mundo, no en la mano, y el
+// mesher ya tiene su propia geometria para ellos.
+inline bool esCactusSuelto(BlockType t) {
+    switch (t) {
+        // --- La penca del nopal y lo que sale de trabajarla ---
+        case BLOCK_NOPAL_CLADODIO:   // lo que cae al romper cualquier parte
+        case BLOCK_NOPAL_MOJADO:     // limpia de espinas
+        case BLOCK_NOPAL_SECO:       // curada al sol
+        case BLOCK_NOPAL_TIRAS:      // cortada en tiras
+        case BLOCK_NOPAL_SIN_BABA:   // desbabada
+        case BLOCK_NOPAL_BABA:       // el mucilago
+        case BLOCK_ESPINAS_NOPAL:    // lo que se le quita
+        // --- Los frutos ---
+        case BLOCK_NOPAL_FRUTO:
+        case BLOCK_TUNA:
+        case BLOCK_TUNA_AMARILLA:
+        case BLOCK_TUNA_ROJA:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // ¿Es un hacha, de la clase que sea? Las dos cortan lo mismo; la de pedernal
 // aguanta más y además puede con la punta del maguey.
 inline bool esHacha(BlockType t) {
@@ -1020,6 +1411,32 @@ inline bool esMartillo(BlockType t) {
 }
 
 // ============================================================================
+// EL CAJETE DEL MAGUEY: MEDIDAS DE LA FORMA 3D
+// ============================================================================
+// Un maguey capado no es un cubo macizo: es un CUENCO. Tiene suelo y cuatro
+// paredes de maguey, y en medio un agujero cuadrado donde se junta el
+// aguamiel -- el "cajete" que se raspa para sacar el jugo.
+//
+// Las medidas viven AQUI, en un solo sitio, porque las usan tres sistemas que
+// tienen que coincidir al pixel:
+//   - el MESHER, para dibujar el cuenco y el liquido
+//   - la SELECCION (formaDeBloque), para que el contorno siga el borde real
+//   - la COLISION, para que el jugador se apoye en el borde y no en el aire
+//
+// Si cada uno llevara sus numeros, bastaria tocar uno para que el contorno
+// dejara de cuadrar con lo que se ve.
+//
+//     ┌──────────────┐ 1.0
+//     │ ▓▓        ▓▓ │      <- paredes (3/16 de grosor)
+//     │ ▓▓~~~~~~~~▓▓ │ 0.62 <- AGUAMIEL_ALTO: el liquido no rebosa
+//     │ ▓▓▓▓▓▓▓▓▓▓▓▓ │ 0.25 <- CAJETE_SUELO: el fondo del cuenco
+//     └──────────────┘ 0.0
+//
+constexpr float CAJETE_PARED   = 3.0f / 16.0f;   // grosor de las paredes
+constexpr float CAJETE_SUELO   = 4.0f / 16.0f;   // altura del fondo
+constexpr float AGUAMIEL_ALTO  = 10.0f / 16.0f;  // hasta donde sube el jugo
+
+// ============================================================================
 // LOS TAZONES: VACIO <-> LLENO
 // ============================================================================
 // La correspondencia entre cada tazon y su version con agua vive AQUI, en un
@@ -1037,8 +1454,51 @@ inline bool esTazonConAgua(BlockType t) {
            t == BLOCK_TAZON_OYAMEL_AGUA;
 }
 
+// ¿Es un tazon lleno de AGUAMIEL? Es otra cosa que el agua: se consigue de
+// un maguey capado, no de un rio, y lleva a otras recetas.
+inline bool esTazonConAguamiel(BlockType t) {
+    return t == BLOCK_TAZON_PINO_AGUAMIEL ||
+           t == BLOCK_TAZON_ENCINO_AGUAMIEL ||
+           t == BLOCK_TAZON_OYAMEL_AGUAMIEL;
+}
+
 inline bool esTazon(BlockType t) {
-    return esTazonVacio(t) || esTazonConAgua(t);
+    return esTazonVacio(t) || esTazonConAgua(t) || esTazonConAguamiel(t);
+}
+
+// ============================================================================
+// LOS HUEVOS DE SPAWN
+// ============================================================================
+// Items de CREATIVO que sueltan un animal vivo en vez de colocar un bloque.
+//
+// Es una funcion y no una comparacion suelta porque en cuanto haya una
+// segunda especie --y la habra: el proyecto documenta el colibri-- todos los
+// sitios que hoy preguntan "es el huevo del pecari" tendrian que pasar a
+// preguntar por dos, y siempre se olvida uno.
+inline bool esHuevoDeSpawn(BlockType t) {
+    return t == BLOCK_HUEVO_PECARI;
+}
+
+// El mismo tazon, lleno de AGUAMIEL. Devuelve BLOCK_AIR si no era un tazon
+// vacio.
+//
+// ⭐ ACEPTA CUALQUIER TAZON, no solo el vacio: se pidio que "con cualquier
+// tipo de tazon" se pueda recoger. Uno con agua se vacia y se llena de
+// aguamiel -- el agua se tira, que es lo que haria cualquiera al ver que hay
+// algo mejor que echar dentro.
+inline BlockType tazonConAguamiel(BlockType cualquiera) {
+    switch (cualquiera) {
+        case BLOCK_TAZON_PINO:
+        case BLOCK_TAZON_PINO_AGUA:
+        case BLOCK_TAZON_PINO_AGUAMIEL:   return BLOCK_TAZON_PINO_AGUAMIEL;
+        case BLOCK_TAZON_ENCINO:
+        case BLOCK_TAZON_ENCINO_AGUA:
+        case BLOCK_TAZON_ENCINO_AGUAMIEL: return BLOCK_TAZON_ENCINO_AGUAMIEL;
+        case BLOCK_TAZON_OYAMEL:
+        case BLOCK_TAZON_OYAMEL_AGUA:
+        case BLOCK_TAZON_OYAMEL_AGUAMIEL: return BLOCK_TAZON_OYAMEL_AGUAMIEL;
+        default:                          return BLOCK_AIR;
+    }
 }
 
 // El mismo tazon, lleno de agua. Devuelve BLOCK_AIR si no era un tazon vacio.
@@ -1051,13 +1511,31 @@ inline BlockType tazonLleno(BlockType vacio) {
     }
 }
 
-// El mismo tazon, vacio. Devuelve BLOCK_AIR si no era un tazon con agua.
+// El mismo tazon, vacio. Devuelve BLOCK_AIR si no era un tazon con AGUA.
+//
+// ⚠️ SOLO AGUA, a proposito. Lo usa la receta del barro, que amasa tierra con
+// agua: si aceptara tambien el aguamiel, se podria gastar el jugo del maguey
+// -- mucho mas costoso de conseguir -- en hacer barro sin querer.
 inline BlockType tazonVaciado(BlockType lleno) {
     switch (lleno) {
         case BLOCK_TAZON_PINO_AGUA:   return BLOCK_TAZON_PINO;
         case BLOCK_TAZON_ENCINO_AGUA: return BLOCK_TAZON_ENCINO;
         case BLOCK_TAZON_OYAMEL_AGUA: return BLOCK_TAZON_OYAMEL;
         default:                      return BLOCK_AIR;
+    }
+}
+
+// El mismo tazon, vacio, VENGA DE DONDE VENGA (agua o aguamiel). Se usa
+// cuando lo que importa es dejar el recipiente limpio, no que llevaba dentro.
+inline BlockType tazonVaciadoTodo(BlockType lleno) {
+    switch (lleno) {
+        case BLOCK_TAZON_PINO_AGUA:
+        case BLOCK_TAZON_PINO_AGUAMIEL:   return BLOCK_TAZON_PINO;
+        case BLOCK_TAZON_ENCINO_AGUA:
+        case BLOCK_TAZON_ENCINO_AGUAMIEL: return BLOCK_TAZON_ENCINO;
+        case BLOCK_TAZON_OYAMEL_AGUA:
+        case BLOCK_TAZON_OYAMEL_AGUAMIEL: return BLOCK_TAZON_OYAMEL;
+        default:                          return BLOCK_AIR;
     }
 }
 
@@ -1080,6 +1558,37 @@ inline int vidaMaximaHerramienta(BlockType t) {
 // Son las cosas vivas del mundo: el árbol entero (tronco, rama, raíz), y las
 // plantas carnosas (nopal con todas sus partes, y el maguey/ixtle).
 //
+// ============================================================================
+// LAS PIEZAS DEL ARBOL, POR NOMBRE
+// ============================================================================
+// La lista de las cuatro especies estaba repetida a mano por medio motor
+// (soporte, densidad, hacha, pico, mesher...). Cada vez que se anadio una
+// especie hubo que acordarse de TODAS esas copias, y alguna se quedo atras:
+// el ocote falto en la lista de sprites de los tests durante toda su vida.
+//
+// Con estos dos predicados, anadir una especie es tocar un sitio.
+inline bool esHojaDeArbol(BlockType t) {
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    // La celda de hoja+rama del ocote chino cuenta como hoja: por dentro
+    // lleva ramaje, pero de cara al mundo (soporte, hacha, mesher) es follaje.
+    return t == BLOCK_LEAVES || t == BLOCK_LEAVES_ENCINO ||
+           t == BLOCK_LEAVES_OYAMEL || t == BLOCK_LEAVES_OCOTE ||
+           t == BLOCK_LEAVES_OCOTE_CHINO ||
+           t == BLOCK_LEAVES_OCOTE_CHINO_RAMA ||
+           t == BLOCK_LEAVES_OCOTE_RAMA;
+}
+
+// El tronco, incluido el corazon del ocote (que es el mismo tronco visto por
+// dentro). Es lo que SOSTIENE una copa: las ramas no cuentan, porque una rama
+// suelta sin tronco tampoco deberia sostener nada.
+inline bool esTroncoDeArbol(BlockType t) {
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    return t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO ||
+           t == BLOCK_WOOD_OYAMEL || t == BLOCK_WOOD_OCOTE ||
+           t == BLOCK_WOOD_OCOTE_DENTRO ||
+           t == BLOCK_WOOD_OCOTE_CHINO || t == BLOCK_WOOD_OCOTE_CHINO_DENTRO;
+}
+
 // Esta es la lista que manda en las DOS cosas del hacha: cuánta vida gasta el
 // bloque y cuánto tarda en romperse. Tenerlas juntas evita que se separen —
 // si mañana se añade una planta nueva, se añade aquí y las dos reglas la
@@ -1088,10 +1597,13 @@ inline bool esOrganicoParaHacha(BlockType t) {
     if (esNivelParcial(t)) t = bloqueBaseDe(t);
 
     // --- El árbol: tronco, rama y raíz ---
-    if (t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO || t == BLOCK_WOOD_OYAMEL)
-        return true;
+    //
+    // El tronco va por esTroncoDeArbol() en vez de repetir aqui la lista de
+    // especies: es justo la duplicacion que dejo al ocote fuera de media
+    // docena de sitios. Anadir una especie es tocar ese predicado y ya.
+    if (esTroncoDeArbol(t)) return true;
     if (t == BLOCK_RAMA_PINO || t == BLOCK_RAMA_ENCINO ||
-        t == BLOCK_RAMA_OYAMEL)
+        t == BLOCK_RAMA_OYAMEL || t == BLOCK_RAMA_OCOTE)
         return true;
     if (esRaiz(t)) return true;
 
@@ -1107,6 +1619,26 @@ inline bool esOrganicoParaHacha(BlockType t) {
 
     // --- Maguey / ixtle: hoja y punta ---
     if (esIxtle(t)) return true;
+
+    // --- Los BLOQUES COMPUESTOS son plantas ---
+    //
+    // BUG QUE ESTO CORRIGE: cortar un maguey del sistema nuevo NO gastaba el
+    // hacha. Sin esta linea el compuesto no contaba como organico, asi que
+    // desgasteHacha() devolvia 0 y la herramienta duraba eternamente talando
+    // magueyes -- justo lo contrario de lo que cuesta cortar un agave hecho.
+    //
+    // Se comprueba por RANGO DE ID y no llamando a Compuesto::esCompuesto()
+    // porque la dependencia va al reves: BloqueCompuesto.h incluye a este
+    // archivo, no al contrario. El rango es una constante del formato de
+    // guardado, asi que repetirla aqui es seguro -- pero tiene que coincidir
+    // con COMPUESTO_BASE / COMPUESTO_FIN, y por eso hay un static_assert
+    // alli que lo comprueba.
+    //
+    // Ese dia llego: el AGUA es compuesta y no es una planta. Se aparta
+    // antes, porque cortar agua con el hacha no gasta el hacha ni tiene
+    // sentido. El resto de familias (maguey, biznaga) si son vegetacion.
+    if (esAguaVolumen(t)) return false;
+    if ((int)t >= BLOQUE_COMPUESTO_BASE_ID) return true;
 
     return false;
 }
@@ -1129,12 +1661,22 @@ inline bool esRocaParaPico(BlockType t) {
 
     if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
 
+    // El agua con nivel tampoco, por lo mismo: es liquida. Sin esta linea
+    // caeria hasta el `return true` del final -- es justo el agujero del que
+    // avisa el comentario de mas abajo -- y el pico se gastaria picando agua.
+    if (esAguaVolumen(t)) return false;
+
+    // La tierra empapada se pica igual que la seca: sigue siendo tierra, y
+    // la tierra no es del pico.
+    if (estaMojado(t)) t = versionSeca(t);
+
     // Lo orgánico es del hacha, no del pico.
     if (esOrganicoParaHacha(t)) return false;
 
     // Las plantas y la hojarasca tampoco: no son roca.
     if (t == BLOCK_TALLGRASS || t == BLOCK_LEAVES ||
-        t == BLOCK_LEAVES_ENCINO || t == BLOCK_LEAVES_OYAMEL)
+        t == BLOCK_LEAVES_ENCINO || t == BLOCK_LEAVES_OYAMEL ||
+        t == BLOCK_LEAVES_OCOTE)
         return false;
 
     // ⭐ EL MAGUEY MADURO Y LO QUE SALE DE EL
@@ -1185,4 +1727,93 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // Último valor válido del enum: se usa para validar los datos leídos de
 // archivos, donde un blockType fuera de rango llega desde disco y no del juego.
 // ⚠️ Actualizar si se añaden bloques al final del enum.
-constexpr int BLOCK_TYPE_MAX = BLOCK_PYRITE_ORE;
+//
+// ⭐ SE QUEDO DESFASADO UNA VEZ, Y COSTO DOS BUGS.
+//
+// Al añadir el agave tequilana azul (5 bloques al final) esto siguio apuntando
+// al tazon, asi que el tope se quedo 10 IDs corto. Consecuencias reales:
+//
+//   1. prewarmItemTextures() recorre `0..BLOCK_TYPE_MAX`, asi que las piezas
+//      del agave NO se registraban como icono de item: en la mano y en el
+//      inventario salian sin textura.
+//   2. Es el tope con el que se validan los IDs que llegan de disco. Un bloque
+//      por encima del tope es "fuera de rango" -- justo lo que este valor
+//      existe para detectar.
+//
+// Ninguno de los dos avisa: el primero se ve como un hueco y el segundo no se
+// ve hasta que alguien recarga un mundo. Por eso hay un test que ata este
+// valor al ultimo del enum (test_agave_azul.cpp), para que la proxima vez que
+// se olvide falle el build de tests en vez de salir a produccion.
+constexpr int BLOCK_TYPE_MAX = BLOCK_HUEVO_PECARI;
+
+// ============================================================================
+//  CARAS OCULTAS Y VISION DEL INTERIOR
+// ============================================================================
+//
+// QUE RESUELVE
+// Un bloque puede declarar que una o varias de sus caras NO se dibujan. Por el
+// hueco que dejan se ve el INTERIOR del bloque: las otras cinco caras, vistas
+// desde dentro.
+//
+// Sin esto, mirar por el hueco muestra el vacio. El mundo se dibuja con
+// GL_CULL_FACE(GL_BACK), asi que OpenGL descarta toda cara cuyo recorrido se
+// vea horario desde el ojo -- y desde dentro de un bloque, las cinco caras
+// restantes se ven exactamente asi. El bloque queda hueco y transparente.
+//
+// COMO SE RESUELVE
+// Las caras de un bloque hueco se emiten DOS veces: la normal, que se ve desde
+// fuera, y su gemela con los vertices en orden inverso, que se ve desde
+// dentro. No se toca el estado de OpenGL: el resto del mundo sigue con su
+// culling intacto y no hay que separar el lote de dibujo.
+//
+// El coste es de hasta 5 quads extra por bloque hueco, y solo por los bloques
+// que declaran alguna cara oculta -- el resto del mundo no paga nada.
+//
+// ORIENTACION DE LAS CARAS (indice `dir` del mesher, ver DIR_VEC)
+//   0 = +Y (arriba)    1 = -Y (abajo)
+//   2 = +Z (norte)     3 = -Z (sur)
+//   4 = +X (este)      5 = -X (oeste)
+
+/// Mascara de caras ocultas: bit `dir` a 1 = esa cara no se dibuja.
+using CaraMask = unsigned;
+
+constexpr CaraMask CARA_NINGUNA = 0u;
+constexpr CaraMask CARA_ARRIBA  = 1u << 0;   // +Y
+constexpr CaraMask CARA_ABAJO   = 1u << 1;   // -Y
+constexpr CaraMask CARA_NORTE   = 1u << 2;   // +Z
+constexpr CaraMask CARA_SUR     = 1u << 3;   // -Z
+constexpr CaraMask CARA_ESTE    = 1u << 4;   // +X
+constexpr CaraMask CARA_OESTE   = 1u << 5;   // -X
+
+/// Que caras oculta este tipo de bloque.
+///
+/// Es la UNICA fuente de verdad: el mesher no vuelve a codificar casos
+/// especiales por tipo de bloque. Anadir un bloque hueco es anadir una linea
+/// aqui, sin tocar el mesher.
+inline CaraMask carasOcultas(BlockType type) {
+    switch (type) {
+    // Copas de ocote: no tienen suelo. Mirando hacia arriba desde el pie del
+    // arbol se ve el interior de la copa -- el ramaje entre el follaje -- en
+    // vez de un techo liso.
+    case BLOCK_LEAVES_OCOTE_CHINO:
+    case BLOCK_LEAVES_OCOTE_CHINO_RAMA:
+    case BLOCK_LEAVES_OCOTE:
+    case BLOCK_LEAVES_OCOTE_RAMA:
+        return CARA_ABAJO;
+
+    default:
+        return CARA_NINGUNA;
+    }
+}
+
+/// true si `dir` esta oculta en este bloque.
+inline bool caraEstaOculta(BlockType type, int dir) {
+    if (dir < 0 || dir > 5) return false;
+    return (carasOcultas(type) & (1u << dir)) != 0u;
+}
+
+/// true si el bloque deja ver su interior por algun hueco, y por tanto sus
+/// caras necesitan gemela interior.
+inline bool muestraInterior(BlockType type) {
+    return carasOcultas(type) != CARA_NINGUNA;
+}

@@ -72,6 +72,25 @@ ARCHIVOS
       Cada parámetro de la IA enlazado con el dato biológico del que sale.
       Es lo que permite auditar el modelo y distinguir dato de invención.
 
+  13_PECARI_ANATOMIA.json
+      Las cuatro capas de la criatura --forma externa, esqueleto, órganos y
+      encéfalo-- con sus cajas en metros. Es el "input data" del modelo 3D.
+      Incluye la sub-capa de SUPERFICIE: collar, tono individual, muda
+      estacional y lodo del revolcadero.
+
+  14_PECARI_INVESTIGACION_2026.json
+      Segunda ronda de investigación, dirigida SOLO a cerrar las 22 lagunas
+      que 10_ declaró. No sustituye a 10_: lo amplía. De 22 lagunas, 9
+      quedaron cerradas con dato citable, 5 parciales y 8 confirmadas como
+      hueco real de la literatura. Contiene además los dos hallazgos que
+      obligan a matizar decisiones previas (ver más abajo).
+
+  PecariModelo3D.h
+      El header C++ que traduce la anatomía a cajas dibujables, con
+      static_assert que convierten en error de compilación cualquier
+      deslizamiento hacia el cerdo. Contiene también el pelaje empaquetado
+      en 4 bytes por individuo.
+
   --- DOCUMENTACIÓN DE PROCESO ---
   90_PROCESO_PASO_A_PASO.json
       El registro meticuloso de cada decisión de diseño, por qué se tomó,
@@ -136,16 +155,43 @@ Tres, y todas salen de la evidencia, no de la intuición:
      dimorfismo predice la ausencia de competencia intrasexual intensa.
      Implementar un alfa sería inventar biología.
 
-  2. ES DIURNO, NO NOCTURNO.
+  2. ES DIURNO, NO NOCTURNO —PERO POR MIEDO, NO POR RELOJ.
      Pico de actividad hacia las 09:24, con 54.473 días-trampa de respaldo
      en Campeche y 8.463 en Chiapas, replicado en Costa Rica y Ecuador.
      El pecarí NOCTURNO es otra especie (Tayassu pecari). Confundirlos
      sería el error más visible del modelo.
 
+     MATIZ AÑADIDO EN LA SEGUNDA RONDA (ver 14_):
+     La diurnidad NO es una constante de la especie: es una RESPUESTA al
+     riesgo percibido. En Jalisco, la misma población es 98% diurna en
+     zonas de forrajeo peligrosas y solo 42% diurna donde se siente
+     segura, donde pasa a dos picos crepusculares. Y trata los caminos
+     y senderos como zona de riesgo (92% diurno).
+     Por tanto NO se codifica una curva horaria fija: se codifica una
+     preferencia diurna MODULADA por la seguridad del lugar. El ritmo
+     observado emerge de dos presiones opuestas —miedo de día, calor al
+     mediodía—, no de una tabla.
+
   3. EL NOPAL LE QUITA LA SED, NO SOLO EL HAMBRE.
      El nopal es el 25-80% de su dieta en zona semiárida y contiene ~87% de
      agua. Es lo que le permite vivir sin agua libre. Y el motor YA tiene
      nopal y tunas implementados.
+
+     AMPLIACIÓN DE LA SEGUNDA RONDA: eso vale para el SEMIÁRIDO. En selva
+     mexicana (Calakmul, Campeche) la dieta medida es 57.9% frutos y 30.1%
+     hojas, sobre 37 especies vegetales. La tabla de alimento debe
+     indexarse por BIOMA, no por especie. Y entre lo que come figura
+     Zea mays: el pecarí entrando a la milpa es un dato de campo
+     publicado, no una mecánica inventada.
+
+  4. NO PUEDE JADEAR. (hallazgo de la segunda ronda)
+     A diferencia del coyote o el lince, con los que comparte hábitat, el
+     pecarí NO puede evaporar humedad jadeando. Su única defensa contra el
+     calor es CONDUCTUAL: sombra, cueva, matorral denso, y revolcadero de
+     lodo. No tiene salida fisiológica.
+     Consecuencia de diseño: la necesidad de termorregulación no se puede
+     satisfacer "por dentro". Obliga al animal a moverse, y por eso compite
+     de verdad con forrajear en las horas centrales del día.
 
 --------------------------------------------------------------------------------
 EL HALLAZGO MÁS APROVECHABLE
@@ -172,3 +218,222 @@ depredadores. Eso es selección natural emergente saliendo de dos datos
 medidos, no de un diseño.
 
 No es un rasgo inventado para dar variedad: está medido en esta especie.
+
+--------------------------------------------------------------------------------
+EL PELAJE: POR QUÉ NO HAY SIMULACIÓN DE PELO
+--------------------------------------------------------------------------------
+
+Es una decisión deliberada, y las tres razones apuntan al mismo sitio:
+
+  1. BIOLÓGICA. Sus cerdas NO son pelo: son púas semirrígidas de 1.6 mm de
+     grosor. No ondean, no se aplastan, no fluyen. Un sistema de fur dinámico
+     —shells, strands, física de mechones— simularía un movimiento que el
+     animal real NO TIENE. Sería caro y además falso.
+
+  2. DE ESCALA. El motor mide en bloques de 0.60 m. Una cerda de 5 cm es
+     sub-texel: no hay resolución donde dibujarla.
+
+  3. FUNCIONAL. Todo lo que este pelaje COMUNICA está medido y es de baja
+     dimensionalidad: se eriza, se aclara en verano, se ensucia, y lleva un
+     collar diagnóstico. Cuatro señales, no un campo continuo.
+
+Así que el pelaje se modela como ESTADO DE SUPERFICIE: cuatro bytes por
+individuo que modulan el color al sombrear.
+
+  tonoBase   El color del individuo. La especie presenta tonos grisáceos,
+             negros y castaños (MEDIDO). Se DERIVA del id del animal y del de
+             su matrilínea, así que no cuesta memoria y es reproducible: el
+             mismo animal sale del mismo color siempre, aunque el chunk se
+             descargue. Los parientes se parecen, porque una piara ES una
+             familia materna (filopatría femenina, MEDIDO).
+
+  muda       En verano el pelaje SE ACLARA y baja la densidad de cerdas
+             (MEDIDO, Zervanos y Hadley 1973). Importa más de lo que parece:
+             este animal NO PUEDE JADEAR, así que ésta es la ÚNICA defensa
+             FISIOLÓGICA que tiene contra el calor. Todo lo demás —sombra,
+             cueva, revolcadero— es conducta.
+
+  suciedad   El lodo del revolcadero. Cierra el lazo entre una NECESIDAD
+             (calor) y su SATISFACCIÓN: sin barro visible, el animal se
+             revuelca y sale idéntico, y el jugador no puede ver que la
+             necesidad se resolvió.
+
+  erizado    La cresta dorsal. Ya existía.
+
+COSTE: 4 bytes por animal. Una piara de 10 son 40 bytes; mil pecaríes, 3.9 KB.
+Para comparar: un solo vértice con posición, normal y UV ocupa 32 bytes. Todo
+el pelaje de un pecarí cuesta menos que un octavo de vértice.
+
+Y por frame no cuesta NADA: el tono no cambia nunca, la muda se actualiza una
+vez por día simulado, y la suciedad va en el tick de necesidades. Sólo el
+erizado se anima, y ya se animaba antes.
+
+DOS TRAMPAS QUE COSTARON ENCONTRAR, ambas de trabajar en bytes:
+
+  - Generar el tono promediando el hash del linaje con el del individuo
+    COLAPSA la varianza hacia el centro, y la piara vuelve a verse uniforme
+    —justo el problema que venía a resolver—. El linaje tiene que fijar el
+    CENTRO y el individuo aportar una desviación CON SIGNO alrededor de él.
+
+  - Una exponencial nunca llega a cero, y redondeada a byte se queda CLAVADA
+    en un valor bajo: el animal pasaría el resto de su vida medio erizado.
+    Y no basta con poner un umbral, porque cerca de cero el decremento vale
+    menos que medio paso de byte y el redondeo lo devuelve al valor de
+    partida. Es un punto fijo. Se rompe forzando que la bajada mueva al
+    menos un paso entero.
+
+Ambas están protegidas con static_assert. El build para si alguien las
+deshace.
+
+--------------------------------------------------------------------------------
+ABUNDANCIA: EL PECARÍ NO ES UN ANIMAL RARO
+--------------------------------------------------------------------------------
+
+Es una especie ABUNDANTE y GENERALISTA en México: cubre el país
+prácticamente entero, ocupa al menos 9 tipos de vegetación distintos, tolera
+hábitats agroforestales y está EXPANDIENDO su rango hacia el norte. Que el
+jugador los encuentre con regularidad no es una concesión al ritmo de juego,
+es lo que dicen los datos.
+
+La revisión de la aparición por bioma corrigió dos valores AL ALZA:
+
+  PLANICIES   de 0.6 a 0.75. En Campeche, vegetación secundaria (58.1% de los
+              puntos) más pastizales inducidos (29%) suman el 87% de los
+              registros. No es hábitat marginal, y el valor previo lo trataba
+              como si lo fuera.
+
+  MONTAÑA     de 0.2 a 0.35. El rango altitudinal en México sigue siendo
+              AUSENTE, pero el único dato disponible —La Sepultura, Chiapas—
+              da ahí la abundancia MEDIDA más alta registrada. El valor previo
+              asumía que la montaña es hábitat pobre; lo poco que se sabe
+              apunta a lo contrario.
+
+Y se añadieron tres modificadores que aprovechan el clima que el generador YA
+calcula (temperature, humidity, continentalness, erosion, weirdness), así que
+salen gratis:
+
+  CORREDORES XERO-RIPARIOS (x1.5)   Zona árida CON agua cerca. Los registros
+      del Altiplano (2025) los señalan como corredores CLAVE de la expansión.
+      Sin esto, los pecaríes del desierto quedan como bolsas aisladas en vez
+      de una población conectada.
+
+  BORDE DE BOSQUE (x1.25)   En La Sepultura el cafetal igualó EXACTAMENTE a la
+      montaña (1.875 huellas/km en ambos). Un cafetal es estructuralmente un
+      borde: dosel parcial sobre sotobosque abierto. El motor ya calcula
+      blendWeight, que es justo la distancia a una frontera de biomas.
+
+  PROXIMIDAD AL AGUA (x0.6-1.4)   MEDIDO en Chiapas.
+
+APARICIÓN UNIVERSAL (decisión de diseño, 1 de septiembre de 2026)
+
+Por petición explícita, el pecarí aparece ahora en TODOS los biomas terrestres.
+Se subieron playa (0.1 → 0.45) y picos nevados (0.0 → 0.25), y el modificador
+de altitud extrema pasó de 0.0 a 0.6 —era un corte duro que habría anulado los
+picos y dejado el bioma vacío pese a tener densidad asignada—.
+
+Hay que separar dos cosas, porque no tienen el mismo respaldo:
+
+  LO QUE SOSTIENEN LOS DATOS   Las subidas de planicies y montaña. Salen de
+      registros medidos y corrigen una infravaloración real del archivo.
+      La playa tiene respaldo PARCIAL: la especie sí ocupa selva baja
+      inundable y tular/popal, aunque 0.45 va algo por encima de eso.
+
+  LO QUE NO                    Los picos nevados. NO existe ningún registro de
+      D. tajacu sobre nieve permanente: es una especie neotropical. El 0.25 es
+      enteramente de diseño y contradice la distribución conocida. Queda
+      marcado como ESTIMADO, con la advertencia puesta en el JSON y en la
+      trazabilidad.
+
+El océano es el único bioma que sigue en 0.0, y no por escasez: el animal se
+ahogaría. Nada para cruzar cuerpos de agua, pero no habita mar abierto.
+
+Si en algún momento se quiere recuperar el rigor sin perder la presencia
+universal, la vía es restringir los picos a sus cotas bajas —por debajo de la
+línea de nieve— en vez de excluirlos. Poner picos a 0.0 y playa a 0.1 devuelve
+el archivo a la distribución respaldada por datos.
+
+Reparto esperado en el mundo, combinando esas densidades con la ocupación real
+del generador (bosque 52% de la tierra firme, planicies 33%, desierto 15%):
+
+  ~62% de los pecaríes en bosque, ~29% en planicies, ~9% en desierto.
+
+Playa y picos no mueven esos porcentajes de forma apreciable: ocupan una
+fracción pequeña de la superficie. Lo que cambia es que dejan de ser huecos
+vacíos —el jugador que llegue a una playa o a una cumbre puede encontrar una
+piara en vez de tener la certeza de que ahí no hay ninguna—, que es justo el
+objetivo de la decisión.
+
+Coherente con una especie de selva que además penetra en zonas abiertas y
+áridas: el pecarí del desierto existe y se encuentra, pero quien quiera verlos
+irá al bosque.
+
+MULTIPLICADOR DE ABUNDANCIA ×30 (decisión de diseño, 1 de septiembre de 2026)
+
+Por petición —"que los pecaríes sean súper mega comunes"— se fijó un
+multiplicador de juego de ×30 sobre la densidad medida. Antes el archivo decía
+"debe ajustarse al ritmo del juego" sin dar el número; ahora lo da.
+
+  DENSIDAD BIOLÓGICA REAL    1-2 ind/km²   (MEDIDO, se conserva intacto)
+  DENSIDAD DE JUEGO          ~45 ind/km²   (ESTIMADO, ×30)
+
+Lo que eso significa caminando: una manada cada ~420 m, un encuentro cada 3-4
+minutos. Abundancia tipo vaca de Minecraft —se encuentran sin buscarlos— pero
+siguen siendo grupos separados y no una alfombra continua de animales. Por
+encima de ×50 se pierde eso y el mundo empieza a parecer un corral.
+
+Es UN SOLO número: subirlo o bajarlo escala la población entera sin tocar nada
+más. Las proporciones entre biomas no dependen de él, así que el bosque sigue
+teniendo el doble que el desierto.
+
+TRES COSAS SE ROMPEN A ESTA DENSIDAD, y conviene saberlo antes de implementar:
+
+  1. LA TERRITORIALIDAD DEJA DE TENER SENTIDO. El ámbito de hogar medido es de
+     150-250 ha por manada y el solapamiento medido entre manadas vecinas es
+     del 20-40%. A ×30 hay una manada cada 0.18 km²: ONCE manadas comparten el
+     espacio que la literatura asigna a una sola. Si la exclusión territorial
+     se deja activa, las manadas se pasarán la vida en conflicto y el mundo se
+     verá en guerra permanente en vez de poblado. Hay que desactivarla.
+
+     Lo que NO se rompe: la cohesión INTERNA de la manada (boids, k≈7
+     topológico) no depende de cuántas manadas haya alrededor. El rasgo más
+     característico de la especie se conserva.
+
+  2. LA REPRODUCCIÓN DENSODEPENDIENTE SE INVIERTE. Está definida como "la
+     fecundidad sube a baja densidad". Si su umbral quedó calibrado sobre
+     1-2 ind/km², a 45 ind/km² el sistema leerá SIEMPRE densidad alta y la
+     fecundidad quedará suprimida para siempre: el amortiguador se convierte
+     en freno. El umbral debe escalarse por el mismo ×30, igual que los
+     límites duros de población.
+
+     Regla general: todo umbral en ind/km² se escala; los expresados en
+     PROPORCIONES (tasas per cápita, fracciones de manada) no se tocan.
+
+  3. EL RENDIMIENTO DEJA DE SER GRATIS. El presupuesto declarado es ~2 ms por
+     frame para toda la fauna. La cifra que importa no es la del mundo entero
+     sino la de los animales en LOD alto: a 45 ind/km², un radio de 200 m
+     contiene ~6 individuos y uno de 500 m, ~35. Es manejable PORQUE la
+     arquitectura ya tiene LOD 0-3 con histéresis, time-slicing, layout SoA y
+     decaimiento perezoso.
+
+     Lo que no se puede hacer es subir el multiplicador y mantener a todos en
+     LOD_0. Y conviene revisar el tamaño de celda del spatial hash: con 30
+     veces más agentes por celda, si el lado se calibró para la densidad vieja
+     las consultas de vecindad se encarecen.
+
+HONESTIDAD SOBRE QUÉ SE CAMBIÓ. Con ×30 la simulación ya NO reproduce la
+ecología espacial de Dicotyles tajacu. Sí reproduce su COMPORTAMIENTO —manadas
+cohesivas, diurnidad modulada por el miedo, dieta indexada por bioma,
+termorregulación puramente conductual, audacia con consecuencias digestivas—
+a una densidad que no es la suya. Es una decisión legítima de videojuego, pero
+queda marcada como ESTIMADO en el JSON y en la trazabilidad para que nadie la
+confunda con un hallazgo.
+
+La densidad medida (1-2 ind/km²) sigue en el archivo, dentro del mismo campo,
+bajo "densidad_biologica_real". Es la que hay que citar si alguien pregunta
+cuál es la densidad real de la especie, y la que hay que restaurar —poniendo
+el multiplicador a 1.0— si algún día se quiere una simulación fiel.
+
+Y un detalle que NO debe suavizarse: con manadas de 6-10, la unidad de
+aparición es el GRUPO, no el individuo. Los encuentros son POCOS pero
+NUMEROSOS —el jugador ve nueve de golpe y luego nada en un buen rato—. Ese
+patrón agrupado es el correcto.

@@ -149,10 +149,18 @@ mesher completo + escaneo NaN de todos los vértices + VBOs nuevos, 60 veces
 por segundo, para siempre. El reintento sin tope es deliberado (una textura
 que falta suele ser transitoria), pero no distingue transitorio de definitivo.
 
-### `waterLevels` / `lavaLevels` no se purgan al descargar chunks
-Son `std::map` indexados por coordenada de mundo y nadie borra las entradas de
-los chunks que se descargan: crecen durante toda la sesión. Peor, si el
-jugador vuelve a una zona, `getWaterLevel` devuelve el nivel rancio de antes.
+### `waterLevels` — ✅ HECHO. `lavaLevels` sigue abierto
+`waterLevels` **se eliminó**: el nivel del agua vive ahora dentro del ID del
+bloque (`Compuesto::Agua`, familia `FAM_AGUA` en `BloqueCompuesto.h`), igual
+que el estado del maguey. Con eso se cerraron los tres fallos de golpe: se
+guarda con el chunk (antes el nivel se perdía al recargar y todo el agua
+volvía a ser fuente), se descarga con él, y un océano ya no necesita un nodo
+de `std::map` por celda.
+
+`lavaLevels` **sigue igual** y con el mismo problema: es un `std::map` por
+coordenada que nadie purga, así que crece toda la sesión y devuelve niveles
+rancios al volver a una zona. El arreglo es el mismo camino — una familia
+`FAM_LAVA` — y ahora hay un precedente que copiar.
 
 ### Dos tablas de drops que no coinciden
 `getBlockDrops()` y `GameState::getDroppedItem()` deciden lo mismo por
@@ -172,6 +180,60 @@ creativo esas listas nunca se vacían; y como el mesher consulta las pencas con
 una búsqueda lineal, el mallado se degrada durante toda la partida.
 
 ---
+
+## 3-ter. Rendimiento: lo hecho y lo que queda (2026-08-24)
+
+Medido dentro de un mundo real, no en el menú. Para reproducir:
+
+```batch
+set VOXELWORLD_BENCH=Mundo 1
+set VOXELWORLD_BENCH_SEGUNDOS=45
+build\bin\Release\VoxelWorld.exe
+```
+
+Las cifras salen al log (`[FPS]` con desglose por fase y `[GPU]` con batches
+y caras). `VOXELWORLD_BENCH_POS=x,y,z,yaw,pitch` fija la vista, que es
+imprescindible para comparar dos versiones: entre dos arranques sin fijarla se
+han medido de 110.000 a 625.000 caras según dónde quedara el jugador.
+
+### Hecho
+
+- **Agrupar los batches por textura, no por chunk** (`World::render`). Era la
+  mejora grande: de ~8,4 µs a ~3,3 µs por batch, o sea `render` de 7,8-9,3 ms
+  a 4,0-4,4 ms *con un 28 % más de batches*. Los 52 chunks visibles repiten
+  las mismas ~20 texturas, así que recorrer por chunk rebindeaba en cada
+  batch y el caché de `bindOptimized` no servía de nada.
+  `VOXELWORLD_AGRUPAR=0` vuelve al camino viejo para comparar.
+- **Presupuesto de mallado de 8 ms → 2,5 ms.** 8 ms era el presupuesto de un
+  objetivo de 60 FPS; a 120 FPS el frame entero dura 8,3 ms. Además el
+  chequeo dejaba pasar siempre un mesh entero por frame (`&& meshesBuilt > 0`),
+  que era justo el que producía el tirón. Resultado: los peores frames pasaron
+  de 64-88 ms a 12-16 ms y los mínimos de 11-14 FPS a 62-83.
+- **Regulador adaptativo recalibrado** de 100 FPS a 120-200, y freno de
+  emergencia de 80 ms a 33 ms. El umbral de subida *es* el objetivo: con el
+  listón en 100 el motor gastaba todo el margen en cargar mundo más deprisa.
+- **Dos `sqrtf` por chunk y por frame eliminados** (orden de mallado y radio
+  de descarga), comparando al cuadrado.
+- Corregido el comentario de `shouldRenderFace`, que decía que se dibujaban
+  todas las caras cuando el face culling lleva tiempo activo.
+
+### Estado y lo que queda
+
+En estado estacionario el frame se reparte así (vista de ~1.000 batches):
+`fis` 0,06 ms · `chunks` 0,05 ms · `render` 4,2 ms · **`swap` 3,3-5,4 ms**.
+
+O sea: **el cuello ya no es la CPU, es la GPU**. Con ~440.000 caras a la
+vista, `swap` es la tarjeta terminando de dibujar. Las dos vías que quedan,
+por orden de rendimiento esperado:
+
+1. **Atlas de texturas.** Un bloque de pasto usa 3 texturas (arriba, lados,
+   abajo) = 3 batches. Con 58 texturas de bloque, fusionarlas en un atlas
+   dejaría un chunk en 1-2 draw calls en vez de ~19. Es la mejora grande que
+   queda, y es un proyecto en sí mismo: toca las UV de todo el mesher, la
+   animación del agua y los GIF.
+2. **Bajar `RENDER_DISTANCE` de 5 a 4** da 118 FPS estables ya mismo
+   (medido), a cambio de ver menos lejos. Es una decisión de diseño, no
+   técnica, y por eso se deja sin tocar.
 
 ## 4. Calidad de build y proceso
 

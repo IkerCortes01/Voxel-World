@@ -794,6 +794,21 @@ inline bool esRaiz(BlockType t) {
            t == BLOCK_RAIZ_GRANDE  || t == BLOCK_RAIZ_ENORME;
 }
 
+// ¿Es follaje de ocote (las dos especies, suelto o con la rama dentro)?
+//
+// ⚠️ ESTO ES UNA COPIA DELIBERADA de Acicula::esAciculaOcote, y la razón es la
+// misma que ya obliga a BlockType.h a duplicar las constantes de los bloques
+// compuestos: la dependencia va en el otro sentido. AciculaOcote.h INCLUYE
+// este archivo, así que este no puede incluir aquél sin crear un ciclo.
+//
+// El riesgo de una copia es que las dos se separen. Aquí no puede pasar sin
+// que salte el build: AciculaOcote.h tiene un static_assert que comprueba que
+// las dos funciones coinciden en las cuatro variantes.
+constexpr bool Acicula_esFollajeOcote(BlockType t) {
+    return t == BLOCK_LEAVES_OCOTE       || t == BLOCK_LEAVES_OCOTE_RAMA ||
+           t == BLOCK_LEAVES_OCOTE_CHINO || t == BLOCK_LEAVES_OCOTE_CHINO_RAMA;
+}
+
 // Grosor de la raíz en píxeles (4, 8, 12 o 16).
 inline int grosorRaiz(BlockType t) {
     switch (t) {
@@ -1203,6 +1218,40 @@ inline BlockType piezaSegunda(BlockType t) {
 // La combinación que resulta de juntar `encima` con lo que ya hay (`base`).
 // Devuelve AIR si esa pareja no puede compartir espacio.
 inline BlockType combinar(BlockType base, BlockType encima) {
+    // ========================================================================
+    // ⭐ LA ACICULA DEL OCOTE SOLO CONVIVE CON LA RAIZ
+    // ========================================================================
+    // El follaje del ocote ya comparte celda con su RAMA (las variantes
+    // _RAMA de esCompartido), y esa es la unica pareja que le corresponde
+    // dentro del arbol. Lo que se declara aqui es la regla para todo lo demas:
+    //
+    //   con una RAIZ  -> si. Es lo unico que puede atravesar el mismo espacio
+    //                    sin contradecir a la planta: la raiz va por el suelo
+    //                    y el follaje por encima, y ninguna de las dos llena
+    //                    su voxel.
+    //   con NADA MAS  -> no. Sin este corte, cualquier sprite que cayera en la
+    //                    celda de una acicula podria fundirse con ella y el
+    //                    mesher acabaria dibujando dos plantas en el mismo
+    //                    hueco.
+    //
+    // Se resuelve ANTES que el ixtle porque es la regla mas especifica: la
+    // acicula no es una hoja de lechuguilla y no debe heredar sus parejas.
+    if (Acicula_esFollajeOcote(base) || Acicula_esFollajeOcote(encima)) {
+        // La raiz es la unica compañia admitida, en cualquiera de los dos
+        // ordenes (da igual quien llegue primero a la celda).
+        const bool hayRaiz = esRaiz(base) || esRaiz(encima);
+        const bool hayHoja = Acicula_esFollajeOcote(base) ||
+                             Acicula_esFollajeOcote(encima);
+        if (hayRaiz && hayHoja) {
+            // Se conserva la HOJA como bloque de la celda: es lo que se ve, y
+            // la raiz pasa por dentro sin cambiar su ID. Esto mantiene el
+            // formato de guardado intacto -- no hace falta un ID nuevo para la
+            // pareja, que es lo que obligaria a migrar mundos.
+            return Acicula_esFollajeOcote(base) ? base : encima;
+        }
+        return BLOCK_AIR;   // con cualquier otra cosa, no comparten
+    }
+
     // Solo se comparte con una hoja de ixtle: su roseta es abierta y deja
     // huecos entre hoja y hoja donde cabe otra planta.
     const bool baseIxtle = esIxtleHoja(base);

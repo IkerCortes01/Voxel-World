@@ -58,10 +58,36 @@ namespace Acicula {
 //
 // Cubre las cuatro variantes: las hojas sueltas de las dos especies y las dos
 // celdas que ademas llevan la rama dentro.
-inline bool esAciculaOcote(BlockType t) {
+// constexpr para que el static_assert de mas abajo pueda evaluarla en tiempo
+// de compilacion; sigue siendo utilizable en runtime igual que antes.
+constexpr bool esAciculaOcote(BlockType t) {
     return t == BLOCK_LEAVES_OCOTE      || t == BLOCK_LEAVES_OCOTE_RAMA ||
            t == BLOCK_LEAVES_OCOTE_CHINO|| t == BLOCK_LEAVES_OCOTE_CHINO_RAMA;
 }
+
+// ⚠️ LA COPIA DE BlockType.h NO PUEDE SEPARARSE DE ESTA.
+//
+// Alli vive `Acicula_esFollajeOcote`, identica a esta, porque BlockType.h la
+// necesita para decidir con quien comparte celda una acicula (ver `combinar`)
+// y no puede incluir este archivo: la dependencia va al reves y habria ciclo.
+//
+// Esto ata las dos: si alguien añade una variante de follaje en un sitio y no
+// en el otro, el build PARA aqui en vez de dejar que la acicula nueva se funda
+// en silencio con cualquier planta.
+static_assert(esAciculaOcote(BLOCK_LEAVES_OCOTE) ==
+              Acicula_esFollajeOcote(BLOCK_LEAVES_OCOTE) &&
+              esAciculaOcote(BLOCK_LEAVES_OCOTE_RAMA) ==
+              Acicula_esFollajeOcote(BLOCK_LEAVES_OCOTE_RAMA) &&
+              esAciculaOcote(BLOCK_LEAVES_OCOTE_CHINO) ==
+              Acicula_esFollajeOcote(BLOCK_LEAVES_OCOTE_CHINO) &&
+              esAciculaOcote(BLOCK_LEAVES_OCOTE_CHINO_RAMA) ==
+              Acicula_esFollajeOcote(BLOCK_LEAVES_OCOTE_CHINO_RAMA) &&
+              // Y que ninguna de las dos se trague una hoja de otra especie.
+              !Acicula_esFollajeOcote(BLOCK_LEAVES) &&
+              !Acicula_esFollajeOcote(BLOCK_LEAVES_OYAMEL),
+              "Acicula::esAciculaOcote y Acicula_esFollajeOcote (BlockType.h) "
+              "se han separado: las dos tienen que reconocer las mismas "
+              "variantes de follaje de ocote");
 
 // ¿Y de cual de las dos especies?
 inline bool esChino(BlockType t) {
@@ -142,6 +168,64 @@ struct Mechon {
     // entera lata al unisono como si fuera un solo objeto: cada mechon entra
     // en el ciclo de la brisa en un momento distinto. Ver DesplazarHoja.
     float fase;
+
+    // ⭐ CUANTO SE AGARRA ESTE MECHON A LA MADERA. 0 = al aire, 1 = clavado.
+    //
+    // Sale de mirar si el mechon apunta hacia una rama o un tronco vecino, y
+    // gobierna las dos mitades del comportamiento:
+    //
+    //   la FORMA  -> el que se agarra sale recto; el suelto se vence.
+    //   el MOVIMIENTO -> el que se agarra apenas se mueve; el suelto ondea.
+    //
+    // Que las dos cosas salgan del MISMO numero es lo que hace que la copa se
+    // vea coherente: la parte tiesa es exactamente la parte quieta, que es lo
+    // que pasa en un arbol de verdad.
+    float sujecion;
+};
+
+// ============================================================================
+// COMO SE APOYA ESTA CELDA EN LA MADERA
+// ============================================================================
+// Un mechon no cuelga igual si tiene la rama pegada o si esta al aire. Donde la
+// acicula NACE de la madera, arranca RECTA y tiesa -- la vaina la sujeta. Donde
+// no hay nada que la sujete, se vence.
+//
+// Eso es lo que hace que una copa se lea como una estructura y no como una
+// nube: el follaje esta TENSO junto al ramaje y BLANDO en los bordes, y la
+// frontera entre las dos cosas dibuja por si sola donde estan las ramas.
+//
+// ----------------------------------------------------------------------------
+// DE DONDE SALEN LAS MILES DE FORMAS
+// ----------------------------------------------------------------------------
+// La celda mira sus SEIS vecinas y se queda con un mapa de bits: que lados
+// tienen madera. Son 2^6 = 64 vecindarios distintos, y cada uno reparte de otra
+// manera lo rigido y lo blando dentro de la celda.
+//
+// Multiplicado por lo que ya variaba antes -- el numero de mechones (5 valores),
+// el giro de la espiral y el ladeo de cada sprite, todo por hash de posicion --
+// el numero de siluetas distintas que puede tomar una celda de follaje se va a
+// las decenas de miles, sin un solo ID nuevo y sin tocar el guardado.
+//
+// El bit por lado, en el orden de VECINOS_MADERA (ver abajo).
+enum LadoMadera : uint8_t {
+    MADERA_ARRIBA  = 1 << 0,
+    MADERA_ABAJO   = 1 << 1,
+    MADERA_ESTE    = 1 << 2,
+    MADERA_OESTE   = 1 << 3,
+    MADERA_SUR     = 1 << 4,
+    MADERA_NORTE   = 1 << 5
+};
+
+// Los desplazamientos, en el MISMO orden que los bits de arriba. Quien rellena
+// el mapa (el mesher, que es el unico que sabe leer el mundo) recorre esta
+// tabla, de modo que el orden solo esta escrito una vez.
+static const int VECINOS_MADERA[6][3] = {
+    { 0,  1,  0},   // arriba
+    { 0, -1,  0},   // abajo
+    { 1,  0,  0},   // este
+    {-1,  0,  0},   // oeste
+    { 0,  0,  1},   // sur
+    { 0,  0, -1}    // norte
 };
 
 // ----------------------------------------------------------------------------
@@ -156,8 +240,12 @@ struct Mechon {
 // Se reparten sobre una esfera con la espiral de Fibonacci, que es la forma
 // mas barata de repartir N puntos por una esfera sin que se amontonen en los
 // polos. Encaja ademas con que la filotaxis del pino es helicoidal.
+//
+// `maderaAlrededor` es el mapa de bits de arriba: que lados de la celda tienen
+// rama o tronco. Con 0 (follaje suelto en el aire) el resultado es el de antes.
 inline int MechonesDe(BlockType tipo, int wx, int wy, int wz,
-                      Mechon* salida, int maxSalida) {
+                      Mechon* salida, int maxSalida,
+                      uint8_t maderaAlrededor = 0) {
     const Especie e = EspecieDe(tipo);
 
     unsigned h = (unsigned)(wx * 73856093) ^ (unsigned)(wy * 19349663) ^
@@ -186,12 +274,44 @@ inline int MechonesDe(BlockType tipo, int wx, int wy, int wz,
         float dx = std::cos(ang) * r;
         float dz = std::sin(ang) * r;
 
-        // ⭐ SESGO HACIA ABAJO: LA ACICULA CUELGA.
+        // ====================================================================
+        // ⭐ ¿ESTE MECHON NACE DE LA MADERA O ESTA AL AIRE?
+        // ====================================================================
+        // Se compara la direccion en la que sale con los lados que tienen rama
+        // o tronco. Un mechon que apunta HACIA la madera nace de ella: esta
+        // sujeto. Uno que apunta al aire, no.
+        //
+        // El producto escalar da directamente cuanto se parecen las dos
+        // direcciones: 1 si apunta justo a ese lado, 0 si va perpendicular.
+        // Quedarse con el MAYOR es preguntar "¿cual es la madera a la que mas
+        // se arrima este mechon?".
+        float apoyo = 0.0f;
+        if (maderaAlrededor) {
+            for (int L = 0; L < 6; ++L) {
+                if (!(maderaAlrededor & (1u << L))) continue;
+                const float px = (float)VECINOS_MADERA[L][0];
+                const float py = (float)VECINOS_MADERA[L][1];
+                const float pz = (float)VECINOS_MADERA[L][2];
+                const float d = dx * px + dy * py + dz * pz;
+                if (d > apoyo) apoyo = d;
+            }
+        }
+
+        // ⭐ SESGO HACIA ABAJO: LA ACICULA CUELGA... SALVO DONDE SE AGARRA.
         //
         // Miden hasta 35 cm y son "muy flexibles": no se sostienen rectas, se
         // vencen. Sin esto los mechones salen como un erizo rigido, que es
         // justo el aspecto que NO tiene un pino.
-        dy -= e.caida;
+        //
+        // Pero la caida se ANULA en el mechon que nace de la madera. Es lo
+        // pedido, y es lo que se ve en el arbol: la aguja pegada a la ramilla
+        // sale tiesa, y solo se dobla segun se aleja del punto de agarre. Por
+        // eso una copa tiene el follaje TENSO donde hay rama y BLANDO en el
+        // aire, y no una caida uniforme por todas partes.
+        //
+        // `apoyo` va de 0 (al aire, cae entera) a 1 (pegado a la madera, no
+        // cae nada).
+        dy -= e.caida * (1.0f - apoyo);
         const float len = std::sqrt(dx*dx + dy*dy + dz*dz);
         if (len > 1e-4f) { dx /= len; dy /= len; dz /= len; }
 
@@ -229,6 +349,10 @@ inline int MechonesDe(BlockType tipo, int wx, int wy, int wz,
         // La fase propia del mechon para la brisa: dos mechones vecinos no
         // pueden oscilar a la vez o la copa entera latiria como un solo objeto.
         m.fase = (float)((ho >> 11) % 628u) * 0.01f;   // 0..2*pi
+
+        // Lo que ya se calculo para enderezarlo sirve tambien para frenarlo:
+        // el mechon que nace de la madera ni se dobla ni se mueve.
+        m.sujecion = apoyo;
     }
     return n;
 }
@@ -294,10 +418,15 @@ constexpr float BRISA = 0.045f;
 //
 // Es una funcion pura y barata: sin ramas caras, sin memoria, sin locks. Se
 // llama por vertice desde el mesher.
+// `sujecion` es cuanto se agarra el mechon a la madera (0 al aire, 1 clavado a
+// una rama). Un mechon sujeto se mueve mucho menos: es lo que hace que, en una
+// rama con hojas encima, se muevan las que quedan libres y no las del punto de
+// union.
 inline void DesplazarHoja(float px, float py, float pz,
                           float t01, float fase, float tiempo,
                           float jx, float jy, float jz,
-                          float& dx, float& dy, float& dz) {
+                          float& dx, float& dy, float& dz,
+                          float sujecion = 0.0f) {
     dx = dy = dz = 0.0f;
 
     // ⭐ EL PERFIL DE VIGA EN VOLADIZO. ESTA ES LA LINEA QUE IMPORTA.
@@ -308,7 +437,27 @@ inline void DesplazarHoja(float px, float py, float pz,
     //
     // Al ser cuadratica, a media hoja el movimiento es solo la CUARTA parte
     // del de la punta, no la mitad. Por eso se ve doblarse y no trasladarse.
-    const float rigidez = t01 * t01;
+    float rigidez = t01 * t01;
+
+    // ⭐ Y LA SEGUNDA MITAD DE LO MISMO: EL PUNTO DE UNION NO SE MUEVE.
+    //
+    // La rigidez del voladizo dice que la BASE de cada mechon esta quieta. Esto
+    // dice ademas que los mechones ANCLADOS A LA MADERA estan quietos ENTEROS,
+    // punta incluida.
+    //
+    // Es exactamente el comportamiento pedido: en una rama con follaje encima,
+    // lo que se mueve son las hojas que cuelgan libres --las esquinas, los
+    // bordes, lo que no llego a conectar-- mientras que las del punto de union
+    // con la rama se quedan firmes. La frontera entre lo que ondea y lo que no
+    // dibuja sola donde esta el ramaje.
+    //
+    // No se anula del todo (queda un 15% incluso clavado) porque una aguja
+    // sujeta por la vaina aun vibra un poco; congelarla del todo se ve rigido.
+    if (sujecion > 0.0f) {
+        const float s = (sujecion > 1.0f) ? 1.0f : sujecion;
+        rigidez *= (1.0f - 0.85f * s);
+    }
+
     if (rigidez < 0.001f) return;     // la base no se mueve: nada que calcular
 
     // ------------------------------------------------------------------------

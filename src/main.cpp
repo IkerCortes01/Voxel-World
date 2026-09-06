@@ -297,6 +297,8 @@ struct Vec3i {
 // Los mechones de aciculas del ocote: la hoja del pino no es un cubo, es un
 // fasciculo de agujas que sale radialmente de la ramilla.
 #include "AciculaOcote.h"
+// Dormir con Z: acostarse, el fundido a negro y las reglas del refugio.
+#include "Dormir.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "render/MallaChunk.h"  // geometria de chunk SIN OpenGL (movible entre hilos)
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
@@ -7029,10 +7031,25 @@ struct Chunk {
     static const uint8_t LEAF_ATTENUATION = 3;
 
     static bool isFoliage(BlockType b) {
+        // ⭐ FALTABAN TRES DE LAS CUATRO VARIANTES DEL OCOTE.
+        //
+        // Estaba solo BLOCK_LEAVES_OCOTE. Las otras tres --las dos del ocote
+        // chino y las dos celdas compartidas hoja+rama-- no entraban aqui, asi
+        // que lightCost las mandaba al `return 0` del final: OPACAS.
+        //
+        // El efecto era exactamente el bug de la luz que se corta: una copa de
+        // pino proyectaba la sombra de un bloque MACIZO, apagando por completo
+        // todo lo que tuviera debajo, en vez de filtrar la luz como hace un
+        // follaje poroso. Y como la copa del ocote es la mas tupida del motor,
+        // era donde mas se notaba.
+        //
+        // Se usa el predicado que ya existe para reconocerlas todas, en vez de
+        // listarlas otra vez: si manana se añade otra variante, entra sola.
+        if (Acicula_esFollajeOcote(b)) return true;
+
         return b == BLOCK_LEAVES ||
                b == BLOCK_LEAVES_ENCINO ||
-               b == BLOCK_LEAVES_OYAMEL ||
-               b == BLOCK_LEAVES_OCOTE;
+               b == BLOCK_LEAVES_OYAMEL;
     }
 
     // Coste de atravesar este bloque, en niveles de luz.
@@ -8509,11 +8526,11 @@ public:
     // cambio se ve gradual y nunca hay dos remallados seguidos.
     float luzYaMallada = -1.0f;
 
-    // Estado del refresco del follaje (ver actualizarHojasQueSeMueven). Se
-    // arranca muy lejos para que la primera pasada siempre entre.
+    // Desde donde se refresco el follaje por ultima vez (ver
+    // actualizarHojasQueSeMueven). Se arranca muy lejos para que la primera
+    // pasada siempre entre.
     float hojasUltimaX = -1e9f;
     float hojasUltimaZ = -1e9f;
-    float hojasUltimoRefresco = -1e9f;
 
     void actualizarLuzDelCielo(const Vec3& posJugador) {
         const float ahora = luzSolar();
@@ -8581,55 +8598,107 @@ public:
     //
     // Y la brisa se refresca a un ritmo suelto (INTERVALO_BRISA) para que el
     // follaje no se quede congelado del todo estando parado.
-    void actualizarHojasQueSeMueven(const Vec3& posJugador, float ahora) {
-        // Radio, en CHUNKS, del anillo que se refresca. Con 1 se cubren los 9
-        // chunks alrededor del jugador: 24 bloques de lado, muy por encima de
-        // los 1.6 del empuje, con margen para que una hoja no aparezca ya
-        // apartada al cruzar una frontera de chunk.
-        constexpr int RADIO_HOJAS = 1;
+    void actualizarHojasQueSeMueven(const Vec3& posJugador) {
+        // ⭐ INTERRUPTOR PARA MEDIR EL COSTE DEL EFECTO.
+        //
+        // VOXELWORLD_HOJAS=0 desactiva el refresco: el follaje se queda quieto
+        // y el remallado por movimiento no ocurre. Existe por el mismo motivo
+        // que VOXELWORLD_AGRUPAR en World::render -- comparar dos versiones
+        // recompilando da numeros que no se pueden comparar, porque el jugador
+        // acaba en sitios distintos y la carga cambia por completo. Con el
+        // interruptor, las dos rutas se miden en la MISMA sesion.
+        static const bool activo = []{
+            const char* v = getenv("VOXELWORLD_HOJAS");
+            return !(v && v[0] == '0');
+        }();
+        if (!activo) return;
+
+        // ====================================================================
+        // ⚠️ EL PRESUPUESTO DE ESTO ES MINUSCULO, Y ESTA MEDIDO
+        // ====================================================================
+        // Remallar NO es "recalcular las hojas": reconstruye la geometria
+        // ENTERA del chunk, unas 330.000 iteraciones de celda. Da igual que
+        // solo hayan cambiado veinte vertices de acicula.
+        //
+        // Medido en el juego (mundo real, vista fija, mismo binario, con el
+        // interruptor de arriba para comparar las dos rutas en la misma
+        // sesion):
+        //
+        //                          fase `chunks`     FPS minimo
+        //     sin refresco           0.056 ms          45-50
+        //     refrescando 9 chunks   4 a 16 ms         23-27     <- inaceptable
+        //         cada 0.35 s
+        //
+        // O sea: una "brisa" de fondo con el jugador QUIETO costaba mas que
+        // todo lo demas del frame junto y partia por la mitad el peor caso.
+        //
+        // De ahi las dos decisiones que siguen, y que son lo que hace que el
+        // efecto sea gratis en la practica:
+        //
+        //   1. NO HAY BRISA GLOBAL. El follaje solo se rehace cuando el
+        //      jugador SE MUEVE. Parado no se paga ni un microsegundo, que es
+        //      justo el caso medido arriba. Se pierde el temblor de fondo en
+        //      una copa lejana; a cambio, mirar alrededor sin andar sigue
+        //      costando cero.
+        //
+        //   2. EL ANILLO ES DE 1 CHUNK, NO DE 3x3. Solo el chunk que pisa el
+        //      jugador y sus vecinos EN LA DIRECCION en la que va -- que es
+        //      donde estan las hojas que puede tocar. El empuje llega a 1.6
+        //      bloques; un chunk mide 16.
+        //
+        // El resultado es que el coste aparece solo mientras se camina, que es
+        // exactamente cuando el efecto se ve, y desaparece al pararse.
 
         // Cuanto tiene que andar el jugador para que se rehaga el follaje.
-        // Medio bloque: por debajo de eso el cambio en el arco de la hoja es
-        // de milimetros y no se ve, pero se pagaria igual.
-        constexpr float PASO_MINIMO = 0.5f;
-
-        // Cada cuanto se refresca la brisa aunque nadie se mueva.
-        constexpr float INTERVALO_BRISA = 0.35f;
+        //
+        // ⭐ ESTE NUMERO ES EL QUE MANDA EN EL COSTE.
+        //
+        // Un bloque entero: andando (4.3 bloques/s) sale a ~4 refrescos por
+        // segundo, no a 60. Por debajo de un bloque el arco de la hoja cambia
+        // en milimetros -- invisible -- pero el remallado se paga completo.
+        constexpr float PASO_MINIMO = 1.0f;
 
         const float dx = posJugador.x - hojasUltimaX;
         const float dz = posJugador.z - hojasUltimaZ;
         const float movido2 = dx * dx + dz * dz;
 
-        const bool seMovio = movido2 >= PASO_MINIMO * PASO_MINIMO;
-        const bool tocaBrisa = (ahora - hojasUltimoRefresco) >= INTERVALO_BRISA;
-
-        if (!seMovio && !tocaBrisa) return;
+        // Sin movimiento no hay nada que actualizar. Es la linea que devuelve
+        // los 0.056 ms de la tabla de arriba cuando el jugador esta parado.
+        if (movido2 < PASO_MINIMO * PASO_MINIMO) return;
 
         hojasUltimaX = posJugador.x;
         hojasUltimaZ = posJugador.z;
-        hojasUltimoRefresco = ahora;
 
         const int cjx = (int)floorf(posJugador.x / (float)CHUNK_SIZE);
         const int cjz = (int)floorf(posJugador.z / (float)CHUNK_SIZE);
 
-        for (int ox = -RADIO_HOJAS; ox <= RADIO_HOJAS; ++ox)
-            for (int oz = -RADIO_HOJAS; oz <= RADIO_HOJAS; ++oz) {
-                auto it = chunks.find(Vec3i(cjx + ox, 0, cjz + oz));
+        // Los cuatro candidatos: el chunk del jugador y los tres que comparten
+        // esquina en la direccion en la que se mueve. Con el radio 3x3 anterior
+        // se remallaban nueve, y los de detras no aportan nada -- el jugador ya
+        // ha pasado por ahi.
+        const int haciaX = (dx >= 0.0f) ? 1 : -1;
+        const int haciaZ = (dz >= 0.0f) ? 1 : -1;
+        const int candidatos[4][2] = {
+            { 0, 0 }, { haciaX, 0 }, { 0, haciaZ }, { haciaX, haciaZ }
+        };
+
+        for (const auto& c2 : candidatos) {
+                auto it = chunks.find(Vec3i(cjx + c2[0], 0, cjz + c2[1]));
                 if (it == chunks.end()) continue;
                 Chunk* c = it->second;
                 if (!c || !c->isGenerated || c->needsRebuild) continue;
 
                 // ⭐ SOLO SI ESTE CHUNK TIENE FOLLAJE DE OCOTE.
                 //
-                // Sin esta comprobacion se remallarian los 9 chunks siempre,
-                // incluso caminando por un desierto donde no hay una sola
-                // acicula. La respuesta se cachea en el propio chunk al
+                // Sin esta comprobacion se remallarian los cuatro chunks en
+                // cada paso, incluso caminando por un desierto donde no hay una
+                // sola acicula. La respuesta se cachea en el propio chunk al
                 // mallarlo (ver tieneAciculas), asi que preguntar es leer un
                 // bool -- no recorrer los 32.768 bloques.
                 if (!c->tieneAciculas) continue;
 
                 c->needsRebuild = true;
-            }
+        }
     }
 
     void startGenerationWorkers() {
@@ -8667,6 +8736,198 @@ public:
 
 private:
     // Integra en el mundo los chunks que los workers hayan terminado.
+    // ========================================================================
+    // ⭐ LA COSTURA DE LUZ: QUE EL SOL CRUCE LA FRONTERA ENTRE CHUNKS
+    // ========================================================================
+    // EL BUG QUE ESTO CORRIGE, que es el que se ve jugando:
+    //
+    //   Estas bajo un techo, el sol da de lleno a tres metros de ti, al otro
+    //   lado de la frontera de un chunk -- y tu celda esta a la luz minima.
+    //   Como si el borde del chunk fuera una pared opaca que el sol no cruza.
+    //
+    // LA CAUSA: `computeSkylight` es deliberadamente LOCAL. Corre en los hilos
+    // de generacion, y para poder hacerlo sin locks no lee ni escribe los
+    // chunks vecinos. Su propio comentario lo dice: "el precio es que la luz
+    // no se derrama a traves del borde entre chunks".
+    //
+    // Eso esta bien para la generacion --es lo que la hace paralelizable-- pero
+    // deja el resultado incompleto. El mesher SI lee la luz del vecino
+    // (faceLightLevel), asi que lee un valor que nunca se calculo bien.
+    //
+    // LA SOLUCION, que es la que prescribe docs/PENDIENTES.md seccion 5:
+    // una pasada de COSTURA en el hilo principal, cuando los dos chunks ya
+    // existen y nadie mas los toca. Se vuelve a derramar la luz desde los
+    // bordes del vecino hacia dentro, con el mismo flood-fill y la misma
+    // atenuacion que usa computeSkylight -- de modo que el resultado es el que
+    // habria salido si el calculo hubiera sido global desde el principio.
+    //
+    // ----------------------------------------------------------------------
+    // POR QUE ES BARATO
+    // ----------------------------------------------------------------------
+    // No recalcula el chunk entero: solo SIEMBRA la cola con las celdas del
+    // borde que reciben mas luz de la que tienen, y deja que el flood-fill se
+    // apague solo. En un borde ya coherente --el caso normal-- no se siembra
+    // nada y la funcion sale en una pasada de 2.048 comparaciones sin escribir
+    // un solo byte.
+    //
+    // Devuelve true si cambio algo, para que el llamante sepa si hay que
+    // remallar.
+    bool coserLuzEntre(Chunk* a, Chunk* b, int dx, int dz) {
+        // ⭐ Interruptor para medir el coste de la costura, por el mismo motivo
+        // que VOXELWORLD_AGRUPAR en World::render: comparar dos versiones
+        // recompilando da numeros que no se pueden comparar, porque el jugador
+        // acaba en sitios distintos. Con esto las dos rutas se miden en la
+        // MISMA sesion y sobre la misma vista.
+        static const bool activa = []{
+            const char* v = getenv("VOXELWORLD_COSTURA");
+            return !(v && v[0] == '0');
+        }();
+        if (!activa) return false;
+
+        if (!a || !b || !a->isGenerated || !b->isGenerated) return false;
+
+        // La cola del flood-fill: celdas de `a` que acaban de subir de luz.
+        // Se reutiliza entre llamadas para no reservar en cada costura.
+        static std::vector<uint32_t> cola;
+        cola.clear();
+
+        auto pack = [](int x, int y, int z) -> uint32_t {
+            return (uint32_t)((x << 11) | (z << 7) | y);
+        };
+
+        // --- SEMBRAR DESDE EL BORDE DEL VECINO ---
+        //
+        // Se recorre la pared que comparten los dos chunks. Para cada celda
+        // del borde de `a`, se mira la celda de `b` que tiene justo enfrente:
+        // si aquella trae mas luz de la que esta tiene (menos la atenuacion de
+        // entrar), esta celda sube y entra en la cola.
+        // ⭐ SOLO SE COSE DONDE PUEDE HABER LUZ QUE PASAR.
+        //
+        // Recorrer las 128 alturas de los cuatro bordes son 2.048 celdas por
+        // vecino, y la inmensa mayoria es roca maciza a decenas de bloques bajo
+        // el suelo: ahi el vecino tiene luz 0, asi que la comprobacion se hace
+        // para no hacer nada.
+        //
+        // El corte por ARRIBA no se puede subir mas (el cielo abierto llega a
+        // CHUNK_HEIGHT), pero el de ABAJO si: por debajo de la cota mas honda
+        // donde el vecino tenga algo de luz, no hay nada que derramar. Se
+        // averigua de una pasada por la columna central del borde, que es
+        // mucho mas barato que probar las 2.048.
+        int yMin = 0;
+        {
+            // La cota mas baja del borde del vecino con luz. Se mira en cuatro
+            // columnas repartidas, no en una: una sola podria caer justo en un
+            // pozo de cueva y no representar el resto del borde.
+            int masHondo = CHUNK_HEIGHT;
+            for (int m = 0; m < CHUNK_SIZE; m += 5) {
+                int bx2, bz2;
+                if (dx != 0) { bx2 = (dx > 0) ? 0 : CHUNK_SIZE - 1; bz2 = m; }
+                else         { bz2 = (dz > 0) ? 0 : CHUNK_SIZE - 1; bx2 = m; }
+
+                for (int y = 0; y < masHondo; ++y) {
+                    if (b->getSunlight(bx2, y, bz2) > 1) { masHondo = y; break; }
+                }
+            }
+            // Un margen generoso hacia abajo: la luz que entra por el borde
+            // puede bajar por un hueco, y cortar justo en la cota medida
+            // dejaria sin coser el suelo de una cueva pegada a la frontera.
+            yMin = masHondo - 24;
+            if (yMin < 0) yMin = 0;
+            // Si el vecino no tiene NADA de luz en todo el borde, no hay nada
+            // que derramar: se sale sin tocar nada.
+            if (masHondo >= CHUNK_HEIGHT) return false;
+        }
+
+        for (int t = 0; t < CHUNK_SIZE; ++t) {
+            for (int y = yMin; y < CHUNK_HEIGHT; ++y) {
+                // Coordenadas de la celda de `a` en su borde, y de la de `b`
+                // pegada a ella por el otro lado.
+                int ax, az, bx, bz;
+                if (dx != 0) {
+                    ax = (dx > 0) ? CHUNK_SIZE - 1 : 0;
+                    bx = (dx > 0) ? 0 : CHUNK_SIZE - 1;
+                    az = t; bz = t;
+                } else {
+                    az = (dz > 0) ? CHUNK_SIZE - 1 : 0;
+                    bz = (dz > 0) ? 0 : CHUNK_SIZE - 1;
+                    ax = t; bx = t;
+                }
+
+                const uint8_t costeA = Chunk::lightCost(a->getBlock(ax, y, az));
+                if (costeA == 0) continue;            // opaca: no entra luz
+
+                const uint8_t luzB = b->getSunlight(bx, y, bz);
+                if (luzB <= costeA) continue;         // no queda luz que pasar
+
+                const uint8_t nueva = (uint8_t)(luzB - costeA);
+                if (a->getSunlight(ax, y, az) >= nueva) continue;
+
+                a->setSunlight(ax, y, az, nueva);
+                cola.push_back(pack(ax, y, az));
+            }
+        }
+
+        if (cola.empty()) return false;   // el borde ya era coherente
+
+        // --- DERRAMAR HACIA DENTRO ---
+        //
+        // Mismo flood-fill que computeSkylight, con la misma regla: una celda
+        // solo puede SUBIR, asi que converge y el orden no importa.
+        static const int D[6][3] = {
+            {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+        };
+
+        while (!cola.empty()) {
+            const uint32_t c = cola.back();
+            cola.pop_back();
+            const int cx = (c >> 11) & 15, cz = (c >> 7) & 15, cy = c & 127;
+
+            const uint8_t L = a->getSunlight(cx, cy, cz);
+            if (L <= 1) continue;
+
+            for (const auto& d : D) {
+                const int nx = cx + d[0], ny = cy + d[1], nz = cz + d[2];
+                if (nx < 0 || nx >= CHUNK_SIZE) continue;
+                if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
+                if (nz < 0 || nz >= CHUNK_SIZE) continue;
+
+                const uint8_t coste = Chunk::lightCost(a->getBlock(nx, ny, nz));
+                if (coste == 0) continue;
+                if (L <= coste) continue;
+
+                const uint8_t next = (uint8_t)(L - coste);
+                if (a->getSunlight(nx, ny, nz) >= next) continue;
+
+                a->setSunlight(nx, ny, nz, next);
+                cola.push_back(pack(nx, ny, nz));
+            }
+        }
+        return true;
+    }
+
+    // Cose un chunk con sus cuatro vecinos, en los DOS sentidos.
+    //
+    // Los dos sentidos importan: al llegar un chunk nuevo puede tanto RECIBIR
+    // luz de un vecino ya iluminado como DARSELA (si el nuevo es un claro y el
+    // viejo estaba a oscuras contra el vacio). Coser en un solo sentido dejaria
+    // la mitad de los bordes mal.
+    void coserLuzConVecinos(const Vec3i& pos) {
+        Chunk* c = getChunk(pos);
+        if (!c || !c->isGenerated) return;
+
+        static const int DIRS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+
+        for (const auto& d : DIRS) {
+            Chunk* v = getChunk(Vec3i(pos.x + d[0], 0, pos.z + d[1]));
+            if (!v || !v->isGenerated) continue;
+
+            // El vecino le da luz a este...
+            if (coserLuzEntre(c, v, d[0], d[1])) c->needsRebuild = true;
+            // ...y este al vecino.
+            if (coserLuzEntre(v, c, -d[0], -d[1])) v->needsRebuild = true;
+        }
+    }
+
     // Solo se llama desde el hilo principal: aquí sí se puede tocar el mapa y
     // marcar meshes para reconstruir.
     void integrateGeneratedChunks() {
@@ -8704,6 +8965,19 @@ private:
             chunks[r.pos] = r.chunk;
             addToCache(r.pos, r.chunk, true);
             r.chunk->needsRebuild = true;
+
+            // ⭐ COSER LA LUZ CON LOS VECINOS.
+            //
+            // El chunk viene de un worker, donde su skylight se calculo SIN
+            // mirar afuera. Ahora que esta en el mapa y estamos en el hilo
+            // principal, se derrama la luz a traves de las cuatro fronteras
+            // para que el sol no se corte en el borde.
+            //
+            // Va ANTES de marcar los vecinos para remallar: la costura puede
+            // cambiar la luz de ellos tambien, y asi el rebuild que se pide
+            // justo debajo ya recoge el resultado en vez de dejarlo para el
+            // frame siguiente.
+            coserLuzConVecinos(r.pos);
 
             // Los vecinos deben rehacer su mesh: sus caras hacia este chunk
             // dejan de estar contra el vacío.
@@ -9375,6 +9649,15 @@ public:
         // ⭐⭐⭐ PASO 5: Agregar al caché
         if (chunk) {
             addToCache(chunkPos, chunk, true);  // Pinned = true para chunks recién cargados
+
+            // ⭐ COSER LA LUZ CON LOS VECINOS.
+            //
+            // Se hace AQUI, a la salida, y no en cada una de las tres ramas de
+            // arriba (cargado del save nuevo, del viejo, o generado de cero):
+            // las tres acaban con un chunk cuyo skylight se calculo mirando
+            // solo hacia dentro, asi que las tres necesitan lo mismo. Un solo
+            // punto es tambien un solo sitio que mantener.
+            coserLuzConVecinos(chunkPos);
         }
 
         // Marcar chunks vecinos para reconstrucción
@@ -12845,9 +13128,18 @@ public:
 
     void cerrarLote() {
         lotePendiente = false;
+        // Primero TODOS los skylight locales, y solo despues las costuras.
+        //
+        // El orden importa: coser un chunk contra un vecino que todavia no ha
+        // recalculado su luz propagaria un valor viejo, que la pasada del
+        // vecino borraria acto seguido. Dos bucles separados garantizan que
+        // toda costura ve luz ya definitiva.
         for (const Vec3i& cp : chunksDelLote) {
             Chunk* c = getChunk(cp);
             if (c) c->computeSkylight();
+        }
+        for (const Vec3i& cp : chunksDelLote) {
+            coserLuzConVecinos(cp);
         }
         chunksDelLote.clear();
     }
@@ -12968,6 +13260,14 @@ public:
             chunksDelLote.insert(chunkPos);
         } else {
             chunk->computeSkylight();
+            // ⭐ Y volver a coser con los vecinos.
+            //
+            // computeSkylight recalcula el chunk ENTERO desde cero y solo mira
+            // dentro, asi que BORRA la luz que la costura anterior habia
+            // metido desde fuera. Sin esta linea, romper un bloque junto a una
+            // frontera apagaria toda la franja del borde -- que es el mismo
+            // bug de la luz cortada, pero disparado al jugar.
+            coserLuzConVecinos(chunkPos);
         }
 
         // ⭐ Marcar chunk como modificado (para guardarlo después)
@@ -13037,8 +13337,39 @@ public:
     // ⭐⭐⭐ SISTEMA AVANZADO DE FLUIDOS - Estilo Minecraft Mejorado ⭐⭐⭐
     // ========================================================================
 private:
-    // Cola de bloques de agua que necesitan actualización
-    std::queue<std::tuple<int, int, int>> waterUpdateQueue;
+    // ========================================================================
+    // ⭐ EL AGUA SOLO LLEGA HASTA 8 BLOQUES DE DONDE NACIO
+    // ========================================================================
+    // Antes el reparto lateral no tenia tope: mientras hubiera un vecino con
+    // 2 octavos menos, el agua seguia extendiendose. Sobre un terreno grande y
+    // llano un solo cubo podia acabar mojando media llanura, celda a celda, y
+    // cada celda nueva volvia a encolarse -- la cola crecia sola y el coste
+    // con ella.
+    //
+    // Ahora cada gota RECUERDA DE DONDE SALIO. Al repartirse a un lado, la
+    // celda destino hereda ese mismo origen, y en cuanto se aleja mas de
+    // RADIO_EXPANSION bloques deja de extenderse.
+    //
+    // LO QUE SIGUE FUNCIONANDO IGUAL:
+    //   - CAER no cuenta para el radio. Una cascada baja los bloques que haga
+    //     falta: el limite es de EXPANSION HORIZONTAL, no de recorrido.
+    //   - El agua no se pierde. Al llegar al borde simplemente no se reparte
+    //     mas, asi que se queda donde esta -- no se borra ni se evapora.
+    //   - Un oceano generado no se toca: nace ya colocado y en equilibrio, y
+    //     lo que no se mueve no entra en la cola.
+    //
+    // El origen viaja en la propia cola en vez de en un mapa lateral, que es
+    // lo que evita tener que purgarlo al descargar un chunk (la fuga que ya
+    // sufre lavaLevels).
+    static constexpr int RADIO_EXPANSION = 8;
+
+    // Cola de bloques de agua que necesitan actualización.
+    // Los cinco enteros son: x, y, z y el ORIGEN (ox, oz) de esa agua.
+    struct PendienteAgua {
+        int x, y, z;      // la celda que hay que actualizar
+        int ox, oz;       // de donde salio esta agua (para medir el radio)
+    };
+    std::queue<PendienteAgua> waterUpdateQueue;
     const int MAX_WATER_UPDATES_PER_TICK = 50;  // ⭐ AUMENTADO: 50 bloques por tick para flujo rápido y fluido
 
     // ========================================================================
@@ -13203,12 +13534,19 @@ public:
                != nullptr;
     }
 
+    // Encolar una celda. Sin origen explicito, la celda ES su propio origen:
+    // es lo que ocurre cuando el agua la coloca el jugador o la despierta un
+    // cambio de terreno, y entonces sus 8 bloques se cuentan desde ahi.
     void scheduleWaterUpdate(int x, int y, int z) {
+        scheduleWaterUpdate(x, y, z, x, z);
+    }
+
+    void scheduleWaterUpdate(int x, int y, int z, int ox, int oz) {
         // No se encola lo que ya no existe: evita que la cola se llene de
         // posiciones muertas que luego resucitarian chunks.
         if (!chunkCargadoEn(x, z)) return;
         if (waterUpdateQueue.size() < 5000) {  // Límite de cola aumentado
-            waterUpdateQueue.push(std::make_tuple(x, y, z));
+            waterUpdateQueue.push(PendienteAgua{ x, y, z, ox, oz });
         }
     }
 
@@ -13394,12 +13732,17 @@ public:
 
             while (!waterUpdateQueue.empty() &&
                    procesadas < MAX_WATER_UPDATES_PER_TICK) {
-                auto pos = waterUpdateQueue.front();
+                const PendienteAgua pos = waterUpdateQueue.front();
                 waterUpdateQueue.pop();
 
-                const int x = std::get<0>(pos);
-                const int y = std::get<1>(pos);
-                const int z = std::get<2>(pos);
+                const int x = pos.x;
+                const int y = pos.y;
+                const int z = pos.z;
+
+                // De donde salio esta agua. Se arrastra al repartir a los
+                // lados, y es lo que acota la expansion a RADIO_EXPANSION.
+                const int ox = pos.ox;
+                const int oz = pos.oz;
 
                 if (y < 1 || y >= CHUNK_HEIGHT - 1) continue;
 
@@ -13455,32 +13798,27 @@ public:
                     const int hueco = (int)Compuesto::Agua::LLENA - abajo;
 
                     if (hueco > 0) {
-                        // ⭐ EL AGUA NO CAE COMO UN BLOQUE: ESCURRE.
+                        // ⭐ SIN GRAVEDAD: EL NIVEL BAJA DE GOLPE.
                         //
-                        // Antes bajaba TODO lo que cupiera de una vez
-                        // (min(nivel, hueco)), asi que una celda llena se
-                        // vaciaba entera en un solo tick y el agua se veia
-                        // "caer con gravedad", como si fuera un solido.
+                        // Antes el trasvase estaba limitado a CAUDAL_CAIDA=2
+                        // octavos por tick para imitar un liquido que se
+                        // descuelga poco a poco. Con el tick a 0,5 s eso son
+                        // ~2 s por celda, y una cascada de diez bloques
+                        // tardaba veinte segundos en llegar abajo.
                         //
-                        // Un liquido no hace eso: se descuelga poco a poco. Se
-                        // limita el trasvase a CAUDAL octavos por tick, de modo
-                        // que una columna tarda varios ticks en bajar y se ve
-                        // el hilo escurriendo en vez del salto de golpe.
+                        // El agua ya no simula caida: TODO lo que cabe abajo
+                        // baja en el mismo tick. No hay aceleracion, ni
+                        // velocidad, ni fisica -- solo el nivel que cae
+                        // deprisa, que es lo que se pidio y ademas es mucho
+                        // mas simple de razonar: una celda con hueco debajo
+                        // se vacia, y punto.
                         //
                         // ⚠️ NO SE PIERDE NI SE CREA AGUA. Sigue siendo restar
-                        // de aqui y sumar abajo -- el mismo total. Lo unico que
-                        // cambia es CUANTA se mueve por tick, asi que la
+                        // de aqui y sumar abajo -- el mismo total. Lo unico
+                        // que cambia es CUANTA se mueve por tick, asi que la
                         // conservacion del volumen (de la que depende que un
                         // oceano no se vacie) queda intacta.
-                        //
-                        // 2 de 8 octavos por tick, con el tick a 0,5 s: una
-                        // celda llena tarda ~2 s en descolgarse del todo. Lo
-                        // bastante lento para verlo, lo bastante rapido para
-                        // que un derrame no se eternice.
-                        constexpr int CAUDAL_CAIDA = 2;
-
-                        int baja = (nivel < hueco) ? nivel : hueco;
-                        if (baja > CAUDAL_CAIDA) baja = CAUDAL_CAIDA;
+                        const int baja = (nivel < hueco) ? nivel : hueco;
 
                         // Restar de aqui y sumar abajo: mismo total.
                         setBlock(x, y - 1, z,
@@ -13489,26 +13827,36 @@ public:
                         nivel -= baja;
                         setWaterLevel(x, y, z, nivel);
 
-                        scheduleWaterUpdate(x, y - 1, z);
+                        // ⭐ CAER NO GASTA RADIO, PERO SI CONSERVA EL ORIGEN.
+                        //
+                        // Una cascada puede bajar los bloques que quiera: el
+                        // limite es de expansion HORIZONTAL. Pero el origen
+                        // viaja con ella, de modo que el charco del fondo se
+                        // extiende 8 bloques desde donde se solto el agua y no
+                        // desde el punto en que aterrizo -- que es lo que
+                        // convertiria una caida larga en un radio infinito a
+                        // saltos.
+                        scheduleWaterUpdate(x, y - 1, z, ox, oz);
                         if (nivel <= 0) {
                             despertarVecinos(x, y, z);
                             continue;
                         }
 
-                        // ⭐ SEGUIR ESCURRIENDO EN EL PROXIMO TICK.
+                        // ⭐ SEGUIR VACIANDOSE SI AUN QUEDA HUECO ABAJO.
                         //
-                        // Al limitar el caudal, esta celda se queda con agua
-                        // que todavia tiene que bajar. Si no se reencola, el
-                        // goteo se para tras el primer tick y el agua queda a
-                        // medias colgada -- que es peor que la caida de golpe
-                        // de antes.
+                        // Con la caida de golpe esta celda ya suelta todo lo
+                        // que cabe, asi que normalmente se queda a cero y no
+                        // hace falta reencolarla. Pero puede quedar agua si el
+                        // hueco de abajo era mas pequeño que el nivel de aqui
+                        // (por ejemplo 3 octavos cayendo sobre una celda que
+                        // solo admitia 2).
                         //
                         // Solo mientras QUEDE hueco abajo: en cuanto se llena,
                         // la celda deja de despertarse sola y el agua vuelve a
                         // estar en reposo. Eso es lo que impide que un charco
                         // ya asentado siga gastando CPU para siempre.
                         if (aguaDe(x, y - 1, z) < (int)Compuesto::Agua::LLENA) {
-                            scheduleWaterUpdate(x, y, z);
+                            scheduleWaterUpdate(x, y, z, ox, oz);
                         }
                     }
                 }
@@ -13541,6 +13889,25 @@ public:
                             const int nz = z + dirs[i][1];
                             if (!aguaPuedeEntrar(nx, y, nz)) continue;
 
+                            // ⭐ EL TOPE DE 8 BLOQUES
+                            //
+                            // Se mide en distancia de Chebyshev (el mayor de
+                            // los dos ejes), que es la que dibuja un CUADRADO
+                            // de 17x17 alrededor del origen. Con distancia
+                            // euclidea saldria un circulo y el agua llegaria
+                            // mas lejos en recto que en diagonal, que es
+                            // justamente lo que confunde al construir.
+                            //
+                            // Va aqui, en la busqueda, y no despues: asi una
+                            // celda del borde ni siquiera se considera como
+                            // destino, en vez de elegirla y descartarla.
+                            const int dOx = nx - ox;
+                            const int dOz = nz - oz;
+                            const int distX = (dOx < 0) ? -dOx : dOx;
+                            const int distZ = (dOz < 0) ? -dOz : dOz;
+                            const int dist  = (distX > distZ) ? distX : distZ;
+                            if (dist > RADIO_EXPANSION) continue;
+
                             const int n = aguaDe(nx, y, nz);
                             if (n < mejorNivel) {
                                 mejorNivel = n;
@@ -13560,7 +13927,14 @@ public:
                                          (uint16_t)(mejorNivel + 1)));
                             nivel--;
                             setWaterLevel(x, y, z, nivel);
-                            scheduleWaterUpdate(mejorX, y, mejorZ);
+
+                            // La celda destino HEREDA EL ORIGEN. Es lo que
+                            // hace que el radio se mida siempre desde donde
+                            // nacio el agua y no desde el ultimo salto: sin
+                            // esto, cada celda seria su propio origen y la
+                            // expansion volveria a ser infinita, avanzando de
+                            // 8 en 8 para siempre.
+                            scheduleWaterUpdate(mejorX, y, mejorZ, ox, oz);
                             procesadas++;
                             movio = true;
 
@@ -13876,6 +14250,15 @@ public:
         // ¿Alguna cara se quedó sin textura durante ESTA construcción? Si es
         // así el mesh está incompleto y hay que rehacerlo (ver más abajo).
         bool texturasFaltantes = false;
+
+        // ⭐ EL CENSO DE FOLLAJE SE REHACE EN CADA MALLADO.
+        //
+        // Se pone a false ANTES de recorrer los bloques, y el recorrido lo
+        // vuelve a levantar si encuentra una acicula. Sin este reset, un chunk
+        // cuyos ocotes se talaran se quedaria marcado para siempre y seguiria
+        // remallandose cada vez que el jugador pasa cerca -- pagando el
+        // refresco de un follaje que ya no existe.
+        chunk->tieneAciculas = false;
 
         // ⭐ CHUNKS QUE SALEN SIN TEXTURA
         //
@@ -17127,8 +17510,15 @@ public:
                         continue;   // no emitir las caras del cubo
                     }
 
+                    // ⭐ EL AGUA CON NIVEL ENTRA AQUI TAMBIEN.
+                    //
+                    // Sin este termino, `Compuesto::Agua` no cumplia ninguna
+                    // de las tres condiciones y se iba al camino generico del
+                    // cubo: por eso un octavo de agua se veia como una celda
+                    // llena. Dentro hay una rama propia para ella (busca "EL
+                    // AGUA SE DIBUJA A LA ALTURA DE SU NIVEL").
                     if (isCrossSprite(block) || esNivelParcial(block) ||
-                        esMixto(block)) {
+                        esMixto(block) || Compuesto::Agua::esAgua(block)) {
                         GLuint texture = texSegura(block, 0);
 
                         // ⭐ Esta textura lleva fondo que hay que recortar.
@@ -17356,6 +17746,200 @@ public:
                         // El numero de hojas (11-30 en la planta real) sale
                         // del hash de la posicion, de modo que cada mata es
                         // distinta y siempre la misma al recargar el chunk.
+                        // ====================================================
+                        // ⭐ EL AGUA SE DIBUJA A LA ALTURA DE SU NIVEL
+                        // ====================================================
+                        // BUG QUE ESTO CORRIGE: una celda con 1 octavo de agua
+                        // se veia como un CUBO LLENO. El nivel existia, se
+                        // guardaba y se simulaba, pero no se veia por ninguna
+                        // parte: un charco de nivel 1 y un mar de nivel 8 se
+                        // dibujaban exactamente igual.
+                        //
+                        // LA CAUSA: `esNivelParcial()` solo consulta la tabla
+                        // de niveles del TERRENO (BlockType.h), y el agua con
+                        // volumen no vive ahi -- vive en el espacio de bloques
+                        // compuestos (`Compuesto::Agua`, familia FAM_AGUA).
+                        // Asi que el agua nunca entraba en la rama de caja
+                        // rebajada y caia al camino generico del cubo.
+                        //
+                        // ----------------------------------------------------
+                        // POR QUE NO SE REUSA LA RAMA DE NIVELES
+                        // ----------------------------------------------------
+                        // Porque el agua es TRANSPARENTE, y eso lo cambia todo:
+                        //
+                        //   - Un nivel de tierra emite sus cuatro lados
+                        //     siempre. Si el agua hiciera lo mismo, dentro de
+                        //     un mar se verian las paredes internas de cada
+                        //     celda: una reja azul flotando bajo el agua.
+                        //     Aqui cada cara se emite SOLO si da a algo que no
+                        //     es agua.
+                        //
+                        //   - La tapa de un nivel va a su altura y basta. La
+                        //     del agua tiene que ir a la altura del NIVEL, y
+                        //     ademas no dibujarse si encima hay mas agua --
+                        //     seria una lamina intermedia dentro del liquido.
+                        //
+                        // El agua ya estaba marcada como transparente mas
+                        // arriba (texturasTransparentes), asi que estos quads
+                        // salen en el pase con blending sin tocar nada mas.
+                        if (Compuesto::Agua::esAgua(block)) {
+                            const int nivelAgua =
+                                (int)Compuesto::Agua::nivelDe(block);
+
+                            // ⭐ LA ALTURA, Y LOS DOS CASOS EN QUE NO APLICA
+                            //
+                            // 8 octavos = celda llena: ocupa el voxel entero.
+                            //
+                            // Y el agua que CAE tambien llena el voxel aunque
+                            // su nivel sea bajo: un chorro fino sigue siendo un
+                            // chorro de arriba abajo, no un charco flotando en
+                            // el aire a media altura. Es lo que ya decia el bit
+                            // CAYENDO de BloqueCompuesto.h; aqui por fin se
+                            // dibuja como dice.
+                            const bool cayendo =
+                                Compuesto::Agua::estaCayendo(block);
+                            const float altoAgua =
+                                (nivelAgua >= (int)Compuesto::Agua::LLENA || cayendo)
+                                    ? 1.0f
+                                    : (float)nivelAgua / (float)Compuesto::Agua::LLENA;
+
+                            const GLuint texAgua = texSegura(block, 0);
+
+                            auto& vA = verticesByTexture[texAgua];
+                            auto& cA = colorsByTexture[texAgua];
+                            auto& uA = uvsByTexture[texAgua];
+
+                            // ¿Lo que hay en esa direccion es agua tambien? Si
+                            // lo es, la cara no se dibuja: es una frontera
+                            // interna del liquido y solo produciria una reja
+                            // azul dentro del mar.
+                            auto vecinoEsAgua = [&](int dx, int dy, int dz) {
+                                const BlockType v =
+                                    getNeighborBlockCached(x, y, z, dx, dy, dz);
+                                return esAguaCualquiera(v);
+                            };
+
+                            // Los mismos brillos por cara que el resto del
+                            // terreno, para que el agua no se vea plana al
+                            // lado de un bloque solido.
+                            constexpr float BRILLO_LADO_AG   = 0.92f;
+                            constexpr float BRILLO_ABAJO_AG  = 0.50f;
+
+                            // --- LOS CUATRO LADOS ---
+                            auto ladoAgua = [&](float ax, float az,
+                                                float bx, float bz,
+                                                int dx, int dz) {
+                                if (vecinoEsAgua(dx, 0, dz)) return;
+
+                                const float lf =
+                                    faceLightFactor(x, y, z, dx, 0, dz);
+                                const float lr =
+                                    clamp1(lf * lightColorR) * BRILLO_LADO_AG;
+                                const float lg =
+                                    clamp1(lf * lightColorG) * BRILLO_LADO_AG;
+                                const float lb =
+                                    clamp1(lf * lightColorB) * BRILLO_LADO_AG;
+
+                                const float PX4[4] = { ax, bx, bx, ax };
+                                const float PZ4[4] = { az, bz, bz, az };
+                                const float PY4[4] = { 0.0f, 0.0f,
+                                                       altoAgua, altoAgua };
+                                const float U4[4]  = { U0, U1, U1, U0 };
+
+                                // La V se recorta al alto real: el pixel de la
+                                // textura conserva su tamaño en vez de
+                                // estirarse. Misma regla que los niveles de
+                                // terreno, y por el mismo motivo.
+                                const float vTope = U1;
+                                const float vBase = U1 - (U1 - U0) * altoAgua;
+                                const float V4[4]  = { vBase, vBase,
+                                                       vTope, vTope };
+
+                                for (int i = 0; i < 4; ++i) {
+                                    vA.push_back(wx + PX4[i]);
+                                    vA.push_back(wy + PY4[i]);
+                                    vA.push_back(wz + PZ4[i]);
+                                    cA.push_back(lr); cA.push_back(lg);
+                                    cA.push_back(lb); cA.push_back(ca);
+                                    uA.push_back(U4[i]); uA.push_back(V4[i]);
+                                }
+                            };
+
+                            // El mismo orden de vertices que los niveles: con
+                            // el contrario, las cuatro caras miran hacia
+                            // dentro y el culling las borra.
+                            ladoAgua(1.0f, 0.0f, 0.0f, 0.0f,  0, -1);   // -Z
+                            ladoAgua(0.0f, 1.0f, 1.0f, 1.0f,  0,  1);   // +Z
+                            ladoAgua(0.0f, 0.0f, 0.0f, 1.0f, -1,  0);   // -X
+                            ladoAgua(1.0f, 1.0f, 1.0f, 0.0f,  1,  0);   // +X
+
+                            // --- LA SUPERFICIE ---
+                            // Solo si encima NO hay mas agua: dentro de un mar
+                            // seria una lamina horizontal flotando entre dos
+                            // capas de liquido.
+                            if (!vecinoEsAgua(0, 1, 0)) {
+                                const float luzArribaAg =
+                                    faceLightFactor(x, y, z, 0, 1, 0);
+                                const float crA2 = clamp1(luzArribaAg * lightColorR);
+                                const float cgA2 = clamp1(luzArribaAg * lightColorG);
+                                const float cbA2 = clamp1(luzArribaAg * lightColorB);
+
+                                const float TX[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+                                const float TZ[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
+                                const float TU[4] = { U0, U0, U1, U1 };
+                                const float TV[4] = { U0, U1, U1, U0 };
+                                for (int i = 0; i < 4; ++i) {
+                                    vA.push_back(wx + TX[i]);
+                                    vA.push_back(wy + altoAgua);
+                                    vA.push_back(wz + TZ[i]);
+                                    cA.push_back(crA2);
+                                    cA.push_back(cgA2);
+                                    cA.push_back(cbA2);
+                                    cA.push_back(ca);
+                                    uA.push_back(TU[i]); uA.push_back(TV[i]);
+                                }
+                            }
+
+                            // --- EL FONDO ---
+                            // Se ve al mirar hacia arriba desde debajo de una
+                            // cascada o del borde de un estanque. Si debajo hay
+                            // bloque macizo u otra agua, no se ve nunca.
+                            {
+                                const BlockType debajoAg =
+                                    getNeighborBlockCached(x, y, z, 0, -1, 0);
+                                const bool tapado =
+                                    esAguaCualquiera(debajoAg) ||
+                                    (debajoAg != BLOCK_AIR && isBlockOpaque(debajoAg));
+
+                                if (!tapado) {
+                                    const float luzAbajoAg =
+                                        faceLightFactor(x, y, z, 0, -1, 0);
+                                    const float crB = clamp1(luzAbajoAg * lightColorR) * BRILLO_ABAJO_AG;
+                                    const float cgB = clamp1(luzAbajoAg * lightColorG) * BRILLO_ABAJO_AG;
+                                    const float cbB = clamp1(luzAbajoAg * lightColorB) * BRILLO_ABAJO_AG;
+
+                                    // Orden inverso al de la tapa: mira hacia
+                                    // abajo.
+                                    const float BX[4] = { 1.0f, 1.0f, 0.0f, 0.0f };
+                                    const float BZ[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
+                                    const float BU[4] = { U1, U1, U0, U0 };
+                                    const float BV[4] = { U0, U1, U1, U0 };
+                                    for (int i = 0; i < 4; ++i) {
+                                        vA.push_back(wx + BX[i]);
+                                        vA.push_back(wy + 0.0f);
+                                        vA.push_back(wz + BZ[i]);
+                                        cA.push_back(crB);
+                                        cA.push_back(cgB);
+                                        cA.push_back(cbB);
+                                        cA.push_back(ca);
+                                        uA.push_back(BU[i]); uA.push_back(BV[i]);
+                                    }
+                                }
+                            }
+
+                            continue;   // no emitir las caras del cubo
+                        }
+
                         // ============================================
                         // NIVELES: UNA CAJA MAS BAJA, SIN DEFORMAR
                         // ============================================
@@ -18666,6 +19250,101 @@ public:
                             // preguntarlo aparte costaria recorrer el chunk.
                             chunk->tieneAciculas = true;
 
+                            // ================================================
+                            // ⭐ LA LUZ DE LA HOJA: DE FUERA, NO DE DENTRO
+                            // ================================================
+                            // BUG QUE ESTO CORRIGE: el follaje del ocote salia
+                            // CASI NEGRO, sobre todo en el interior de la copa.
+                            //
+                            // La causa: `cr/cg/cb` vienen de
+                            // faceLightFactor(x,y,z, 0,0,0), o sea la luz de la
+                            // PROPIA celda. Para una mata de hierba eso esta
+                            // bien --esta suelta, le da el cielo-- pero una
+                            // acicula vive DENTRO de una copa densa, rodeada de
+                            // mas acicula y de rama. Su celda tiene skylight
+                            // bajo, asi que el mechon entero se pintaba con esa
+                            // luz de sotobosque.
+                            //
+                            // Y es fisicamente al reves: los mechones SOBRESALEN
+                            // de la celda --miden hasta 0.78 de bloque y apuntan
+                            // en todas direcciones-- asi que la mayoria de sus
+                            // agujas estan en el AIRE de al lado, no en el
+                            // interior oscuro. La luz que les da es la del aire
+                            // que las rodea.
+                            //
+                            // Se toma la MEJOR de las seis vecinas y de la
+                            // propia. Es barato (seis lecturas ya cacheadas),
+                            // no necesita smooth lighting, y hace que la copa
+                            // se vea iluminada por fuera y en penumbra por
+                            // dentro, que es justo como se ve un pino.
+                            float luzHoja = faceLightFactor(x, y, z, 0, 0, 0);
+                            {
+                                static const int VEC[6][3] = {
+                                    { 0, 1, 0}, { 0,-1, 0}, { 1, 0, 0},
+                                    {-1, 0, 0}, { 0, 0, 1}, { 0, 0,-1}
+                                };
+                                for (const auto& v : VEC) {
+                                    const float l =
+                                        faceLightFactor(x, y, z, v[0], v[1], v[2]);
+                                    if (l > luzHoja) luzHoja = l;
+                                }
+                            }
+
+                            // El tinte de la copa: las agujas del interior
+                            // quedan algo mas apagadas que las del borde, que
+                            // es lo que da profundidad al follaje en vez de un
+                            // color plano. 0.88 es suave a proposito -- el
+                            // objetivo era quitar la oscuridad, no cambiarla
+                            // por un verde lavado.
+                            constexpr float TINTE_COPA = 0.88f;
+
+                            auto tope1h = [](float v) { return v > 1.0f ? 1.0f : v; };
+                            const float hr = tope1h(luzHoja * lightColorR * TINTE_COPA);
+                            const float hg = tope1h(luzHoja * lightColorG * TINTE_COPA);
+                            const float hb = tope1h(luzHoja * lightColorB * TINTE_COPA);
+
+                            // ================================================
+                            // ⭐ DONDE HAY MADERA ALREDEDOR DE ESTA CELDA
+                            // ================================================
+                            // Es lo que decide que parte del follaje sale
+                            // TIESA y que parte cuelga: la acicula que nace
+                            // de una rama esta sujeta; la que da al aire, no.
+                            //
+                            // Se mira una vez por celda --seis lecturas ya
+                            // cacheadas-- y sirve para los ~14 mechones que
+                            // salgan de ella.
+                            //
+                            // Cuenta como madera el tronco, la rama suelta y
+                            // la celda compartida hoja+rama, que por dentro
+                            // lleva su rama. Las 64 combinaciones posibles de
+                            // estos seis bits son las que dan la variedad de
+                            // siluetas de la copa.
+                            uint8_t maderaAlrededor = 0;
+                            for (int L = 0; L < 6; ++L) {
+                                const BlockType vn = getNeighborBlockCached(
+                                    x, y, z,
+                                    Acicula::VECINOS_MADERA[L][0],
+                                    Acicula::VECINOS_MADERA[L][1],
+                                    Acicula::VECINOS_MADERA[L][2]);
+
+                                const bool esMadera =
+                                    isRama(vn) || esTroncoDeArbol(vn) ||
+                                    vn == BLOCK_LEAVES_OCOTE_RAMA ||
+                                    vn == BLOCK_LEAVES_OCOTE_CHINO_RAMA;
+
+                                if (esMadera) maderaAlrededor |= (uint8_t)(1u << L);
+                            }
+
+                            // La propia celda compartida lleva la rama DENTRO,
+                            // asi que su follaje nace de madera aunque no
+                            // tenga ni un vecino leñoso. Sin esto, una rama
+                            // aislada dentro de la copa tendria sus agujas
+                            // colgando como si estuviera al aire.
+                            if (block == BLOCK_LEAVES_OCOTE_RAMA ||
+                                block == BLOCK_LEAVES_OCOTE_CHINO_RAMA) {
+                                maderaAlrededor |= Acicula::MADERA_ABAJO;
+                            }
+
                             // El tope lo fija AciculaOcote.h, que es donde se
                             // decide cuantos mechones puede pedir una celda.
                             // Cuando estaba escrito a mano aqui (un 12
@@ -18674,7 +19353,7 @@ public:
                             Acicula::Mechon mech[Acicula::MAX_MECHONES];
                             const int nMech = Acicula::MechonesDe(
                                 block, (int)wx, (int)wy, (int)wz,
-                                mech, Acicula::MAX_MECHONES);
+                                mech, Acicula::MAX_MECHONES, maderaAlrededor);
 
                             // Emite un quad plano orientado libremente. Es como
                             // pushQuad pero sin obligar a que sea vertical: un
@@ -18698,8 +19377,11 @@ public:
                             // (wx+P), que es donde vive el jugador: la hoja
                             // tiene que reaccionar a donde esta el, no a su
                             // posicion dentro del voxel.
-                            const float faseMech = m.fase;
-                            auto quadLibre = [&](float ax, float ay, float az,
+                            // La fase entra por PARAMETRO y no por captura: la
+                            // lambda se define una vez, fuera del bucle, y cada
+                            // mechon tiene la suya.
+                            auto quadLibre = [&](float faseMech, float sujMech,
+                                                 float ax, float ay, float az,
                                                  float bx, float by, float bz,
                                                  float cx, float cy, float cz,
                                                  float dx2, float dy2, float dz2) {
@@ -18727,13 +19409,15 @@ public:
                                             g_hojaTiempo,
                                             g_hojaJugadorX, g_hojaJugadorY,
                                             g_hojaJugadorZ,
-                                            ddx, ddy, ddz);
+                                            ddx, ddy, ddz, sujMech);
 
                                         verts.push_back(vx + ddx);
                                         verts.push_back(vy + ddy);
                                         verts.push_back(vz + ddz);
-                                        cols.push_back(cr); cols.push_back(cg);
-                                        cols.push_back(cb); cols.push_back(ca);
+                                        // La luz del follaje, no la de la celda
+                                        // (ver la nota de luzHoja arriba).
+                                        cols.push_back(hr); cols.push_back(hg);
+                                        cols.push_back(hb); cols.push_back(ca);
                                         uvCoords.push_back(T[i][0]);
                                         uvCoords.push_back(T[i][1]);
                                     }
@@ -18811,14 +19495,14 @@ public:
                                 const float aBase = a * 0.25f;
 
                                 // Plano 1, sobre el eje u.
-                                quadLibre(
+                                quadLibre(m.fase, m.sujecion,
                                     m.ox - ux*aBase, m.oy - uy*aBase, m.oz - uz*aBase,
                                     m.ox + ux*aBase, m.oy + uy*aBase, m.oz + uz*aBase,
                                     px   + ux*a,     py   + uy*a,     pz   + uz*a,
                                     px   - ux*a,     py   - uy*a,     pz   - uz*a);
 
                                 // Plano 2, cruzado sobre el eje v.
-                                quadLibre(
+                                quadLibre(m.fase, m.sujecion,
                                     m.ox - vx2*aBase, m.oy - vy2*aBase, m.oz - vz2*aBase,
                                     m.ox + vx2*aBase, m.oy + vy2*aBase, m.oz + vz2*aBase,
                                     px   + vx2*a,     py   + vy2*a,     pz   + vz2*a,
@@ -22296,7 +22980,11 @@ struct GameState;
 // ⭐ SISTEMA DE TIRAR ITEMS: Tirar el item seleccionado con Q (como Minecraft)
 void dropSelectedItem(GameState* state);  // Declaración forward
 
-void updatePlayerPhysics(Player& player, World& world, float deltaTime, bool keys[256]) {
+// `durmiendo` llega por PARAMETRO y no se lee de g_gameState porque en este
+// punto del archivo GameState todavia no esta definido (solo declarado). Es la
+// misma razon por la que `keys` y `player` tambien vienen por parametro.
+void updatePlayerPhysics(Player& player, World& world, float deltaTime,
+                         bool keys[256], bool durmiendo) {
     // ========================================================================
     // DELEGACION AL CHARACTER CONTROLLER MODULAR
     // ========================================================================
@@ -22324,13 +23012,24 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime, bool key
     // entre los dos toques de W.
     im.setTime(glfwGetTime());
 
+    // ---- DURMIENDO NO SE ANDA ----
+    //
+    // Se corta la INTENCION, no la fisica: la gravedad y las colisiones siguen
+    // corriendo, asi que el jugador se queda apoyado en el suelo como debe. Si
+    // se cortara la simulacion entera, dormir en el borde de un saliente lo
+    // dejaria flotando.
+    //
+    // El corte se aplica al leer el teclado, mas abajo, para que ninguna tecla
+    // llegue a registrarse: asi tampoco se acumula un salto en el buffer que
+    // se dispararia al despertar.
+
     // ---- TRADUCIR TECLADO -> INTENCION ----
     // El motor mantiene keys[] en minusculas (ver keyCallback).
-    im.setForward(keys[(unsigned char)'w']);
-    im.setBack   (keys[(unsigned char)'s']);
-    im.setLeft   (keys[(unsigned char)'a']);
-    im.setRight  (keys[(unsigned char)'d']);
-    im.setJump   (keys[(unsigned char)' ']);
+    im.setForward(!durmiendo && keys[(unsigned char)'w']);
+    im.setBack   (!durmiendo && keys[(unsigned char)'s']);
+    im.setLeft   (!durmiendo && keys[(unsigned char)'a']);
+    im.setRight  (!durmiendo && keys[(unsigned char)'d']);
+    im.setJump   (!durmiendo && keys[(unsigned char)' ']);
 
     // SHIFT y CTRL se consultan directamente porque no estan en keys[].
     GLFWwindow* win = glfwGetCurrentContext();
@@ -22343,8 +23042,8 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime, bool key
     }
     // CTRL = correr, SHIFT = agacharse (convencion estandar de sandbox voxel).
     // En vuelo, SHIFT desciende.
-    im.setSprint(ctrlDown);
-    im.setCrouch(shiftDown);
+    im.setSprint(!durmiendo && ctrlDown);
+    im.setCrouch(!durmiendo && shiftDown);
 
     // ---- MANTENER SINCRONIZADO EL MODO VUELO ----
     // La tecla V la gestiona keyCallback sobre player.isFlying.
@@ -22692,6 +23391,20 @@ struct GameState {
     // ⭐⭐⭐ Sistema de acumulación de items en hotbar
     int lastPressedSlot;        // Último slot presionado
     double lastSlotPressTime;   // Tiempo del último press
+
+    // ========================================================================
+    // DORMIR (tecla Z)
+    // ========================================================================
+    // Ver src/Dormir.h para las reglas del refugio y la forma de las curvas.
+    // Aqui solo vive el ESTADO: cuanto lleva durmiendo y que aviso mostrar.
+    bool  durmiendo = false;
+    float tiempoDurmiendo = 0.0f;   // segundos reales desde que se tumbo
+
+    // El aviso de "no puedes dormir aqui", con su cuenta atras. Se guarda el
+    // motivo y no el texto ya formado para que la traduccion viva en un solo
+    // sitio (Dormir::TextoDeMotivo).
+    Dormir::Motivo motivoNoDormir = Dormir::Motivo::PUEDE;
+    float avisoDormirTimer = 0.0f;
 
     // Sistema de guardado
     bool isSaving;
@@ -25613,8 +26326,29 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
                 // borra la planta entera ni se propaga hacia abajo: el arbol
                 // pesa sobre donde cae, no sobre toda la columna.
                 const BlockType enCelda = world.getBlock(cx, cy, cz);
-                if (enCelda != BLOCK_AIR &&
-                    !Fisica::aplastablePorArbol(enCelda)) continue;
+
+                // ============================================================
+                // ⭐ LA HOJA NO ROMPE NADA: SE POSA
+                // ============================================================
+                // Una acicula pesa gramos. Que el TRONCO aplaste un maguey al
+                // caerle encima es fisica; que lo haga el follaje que lo
+                // acompaña, no -- una copa que roza una planta al derrumbarse
+                // no la revienta, se le queda encima.
+                //
+                // Asi que la hoja tiene su propia regla, mas estricta que la
+                // del tronco: solo entra si la celda esta VACIA. Si hay algo,
+                // se descarta en vez de destruirlo.
+                //
+                // Y con eso se cumple lo pedido de una sola vez: la hoja que
+                // cae no rompe niveles ni bloques, y tampoco se queda flotando
+                // -- porque la altura `cy` ya viene de bajar hasta topar con
+                // suelo, asi que se posa PEGADA a lo que haya debajo.
+                if (Acicula::esAciculaOcote(b.tipo) || esHojaDeArbol(b.tipo)) {
+                    if (enCelda != BLOCK_AIR) continue;
+                } else if (enCelda != BLOCK_AIR &&
+                           !Fisica::aplastablePorArbol(enCelda)) {
+                    continue;
+                }
 
                 world.setBlock(cx, cy, cz, b.tipo);
                 ++colocados;
@@ -29189,6 +29923,21 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
         g_gameState->lastMouseX = xpos;
         g_gameState->lastMouseY = ypos;
         g_gameState->firstMouse = false;
+    }
+
+    // ⭐ DURMIENDO NO SE MIRA ALREDEDOR.
+    //
+    // La camara esta haciendo su propio movimiento --acostarse-- y dejar que
+    // el raton la gire encima rompe la ilusion: se veria al jugador tumbado
+    // girando la cabeza como si nada.
+    //
+    // Se actualiza lastMouse ANTES de salir. Si no, el raton movido durante el
+    // sueno se acumularia y al despertar la vista pegaria un latigazo con todo
+    // el desplazamiento de golpe.
+    if (g_gameState->durmiendo) {
+        g_gameState->lastMouseX = xpos;
+        g_gameState->lastMouseY = ypos;
+        return;
     }
 
     // ⭐⭐⭐ CÁLCULO DE DELTA (SISTEMA FPS ESTÁNDAR) ⭐⭐⭐
@@ -34362,7 +35111,8 @@ int main() {
                 const bool wasOnGroundForAudio = g_gameState->player.onGround;
                 const float fallSpeedBefore = -g_gameState->player.velocity.y;
 
-                updatePlayerPhysics(g_gameState->player, g_gameState->world, deltaTime, g_gameState->keys);
+                updatePlayerPhysics(g_gameState->player, g_gameState->world, deltaTime,
+                                    g_gameState->keys, g_gameState->durmiendo);
 
                 // ============================================================
                 // SONIDO DE PASOS
@@ -34439,6 +35189,120 @@ int main() {
                     dropSelectedItem(g_gameState);
                 }
                 qWasPressed = qPressed;
+
+                // ============================================================
+                // ⭐ DORMIR CON Z
+                // ============================================================
+                // Se MANTIENE pulsada: soltar antes de tiempo despierta al
+                // jugador. Es lo que permite las dos salidas del ciclo --
+                // dormir del tiron hasta la manana, o cortar a media noche y
+                // levantarse de madrugada.
+                //
+                // La comprobacion del refugio se hace UNA VEZ, al empezar. No
+                // se repite cada frame a proposito: si un bloque cambiara
+                // mientras duerme, despertarlo a mitad del fundido seria un
+                // corte brusco sin que el jugador entienda por que.
+                {
+                    const bool zPulsada = (g_gameState->keys['Z'] ||
+                                           g_gameState->keys['z']);
+
+                    if (g_gameState->durmiendo) {
+                        g_gameState->tiempoDurmiendo += deltaTime;
+
+                        const bool soltó = !zPulsada;
+                        const bool acabó  =
+                            Dormir::Terminado(g_gameState->tiempoDurmiendo);
+
+                        if (soltó || acabó) {
+                            // ¿Ha dormido lo suficiente como para que la hora
+                            // cambie? Del tiron amanece entero; cortando a
+                            // media noche, se levanta de madrugada.
+                            const bool completo = acabó;
+                            const bool cuenta = completo ||
+                                Dormir::CuentaComoDormido(
+                                    g_gameState->tiempoDurmiendo);
+
+                            if (cuenta) {
+                                // ⭐ SE ADELANTA EL RELOJ, NO SE RETROCEDE.
+                                //
+                                // La hora del mundo solo puede ir hacia
+                                // adelante: poner las 7:00 cuando ya son las
+                                // 9:00 haria retroceder el dia y, como el
+                                // reloj cuenta dias enteros, se veria como un
+                                // salto al pasado. Se avanza hasta la proxima
+                                // vez que el reloj marque esa hora.
+                                const double destino =
+                                    Dormir::HoraAlDespertar(completo);
+                                const double ahora = horaDelMundo();
+
+                                double avance = destino - ahora;
+                                if (avance <= 0.0) avance += 24.0;   // manana
+
+                                g_horaDelMundoSegundos +=
+                                    avance / 24.0 * SEGUNDOS_POR_DIA;
+
+                                std::cout << "Ha dormido "
+                                          << (completo ? "toda la noche"
+                                                       : "a ratos")
+                                          << ": son las " << destino
+                                          << std::endl;
+                            }
+
+                            g_gameState->durmiendo = false;
+                            g_gameState->tiempoDurmiendo = 0.0f;
+                        }
+                    }
+                    else {
+                        // No esta durmiendo: ¿acaba de pulsar Z?
+                        static bool zWasPressed = false;
+                        if (zPulsada && !zWasPressed &&
+                            !g_gameState->inventoryOpen &&
+                            !g_gameState->isPaused &&
+                            !g_gameState->isSaving) {
+
+                            // Los pies del jugador, en enteros.
+                            const Vec3& pp = g_gameState->player.position;
+                            const int px = (int)floorf(pp.x);
+                            const int py = (int)floorf(pp.y);
+                            const int pz = (int)floorf(pp.z);
+
+                            World& w = g_gameState->world;
+
+                            // Las dos consultas que Dormir.h necesita, atadas
+                            // aqui a las funciones del motor. El header no
+                            // conoce World: mismo patron que IWorldQuery.
+                            auto esSolido = [&w](int x, int y, int z) -> bool {
+                                if (y < 0 || y >= CHUNK_HEIGHT) return y < 0;
+                                return isBlockSolid(w.getBlock(x, y, z));
+                            };
+                            auto esLiquido = [&w](int x, int y, int z) -> bool {
+                                if (y < 0 || y >= CHUNK_HEIGHT) return false;
+                                const BlockType b = w.getBlock(x, y, z);
+                                return esAguaCualquiera(b) || b == BLOCK_LAVA;
+                            };
+
+                            const Dormir::Motivo m = Dormir::PuedeDormir(
+                                px, py, pz, esSolido, esLiquido);
+
+                            if (m == Dormir::Motivo::PUEDE) {
+                                g_gameState->durmiendo = true;
+                                g_gameState->tiempoDurmiendo = 0.0f;
+                                std::cout << "Durmiendo..." << std::endl;
+                            } else {
+                                // No se puede: se dice POR QUE, y el aviso se
+                                // queda un rato en pantalla.
+                                g_gameState->motivoNoDormir = m;
+                                g_gameState->avisoDormirTimer = 2.5f;
+                            }
+                        }
+                        zWasPressed = zPulsada;
+                    }
+
+                    // La cuenta atras del aviso.
+                    if (g_gameState->avisoDormirTimer > 0.0f) {
+                        g_gameState->avisoDormirTimer -= deltaTime;
+                    }
+                }
 
                 // ⭐⭐⭐ SISTEMA ANTI-ATRAPAMIENTO ELIMINADO ⭐⭐⭐
                 // El usuario solicitó eliminar este sistema porque rompe bloques automáticamente
@@ -34578,6 +35442,25 @@ int main() {
                 g_gameState->world.actualizarLuzDelCielo(
                     g_gameState->player.position);
 
+                // ⭐ EL FOLLAJE DEL OCOTE SE MUEVE
+                //
+                // Dos pasos, y el orden importa: primero se publica el estado
+                // que la deformacion necesita (reloj y posicion del jugador),
+                // y solo despues se piden las mallas nuevas. Al reves, el
+                // remallado de este frame usaria la posicion del frame
+                // anterior y la hoja iria un paso por detras del jugador.
+                //
+                // La posicion es la de los OJOS, no la de los pies: es la
+                // altura a la que el jugador atraviesa una copa, y la que hace
+                // que las hojas se aparten a la altura de la cara.
+                g_hojaTiempo   = (float)currentTime;
+                g_hojaJugadorX = g_gameState->player.position.x;
+                g_hojaJugadorY = g_gameState->player.position.y + 1.6f;
+                g_hojaJugadorZ = g_gameState->player.position.z;
+
+                g_gameState->world.actualizarHojasQueSeMueven(
+                    g_gameState->player.position);
+
                 // ANIMACIÓN: Actualizar animación de agua
                 g_textureManager->updateWaterAnimation(deltaTime);
 
@@ -34626,6 +35509,32 @@ int main() {
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
 
+        // ====================================================================
+        // ⭐ LA CAMARA SE ACUESTA
+        // ====================================================================
+        // Al dormir, el punto de vista hace lo que haria el de una persona que
+        // se tumba: bajar hasta el suelo Y girar hacia arriba, porque acostado
+        // se mira al techo.
+        //
+        // Las dos cosas van con la misma curva suavizada (ver
+        // Dormir::AlturaCamara), asi que arrancan y paran despacio -- un
+        // cuerpo que se acuesta acelera y frena, no baja a velocidad fija.
+        //
+        // Se aplica ANTES de la rotacion de la vista para que sea un giro de
+        // la CABEZA sobre el cuello, no del mundo alrededor del jugador.
+        float caidaCamara = 0.0f;
+        if (g_gameState->durmiendo) {
+            const float t = Dormir::AlturaCamara(g_gameState->tiempoDurmiendo);
+
+            // 78 grados hacia arriba: casi mirando al techo, pero no del todo,
+            // que se ve desorientador.
+            glRotatef(-78.0f * t, 1, 0, 0);
+
+            // Y la altura del ojo baja de 1.62 (de pie) a 0.30 (tumbado en el
+            // suelo). Se guarda para restarla mas abajo, cuando se traslada.
+            caidaCamara = t * 1.32f;
+        }
+
         glRotatef(-g_gameState->player.pitch, 1, 0, 0);
         glRotatef(-g_gameState->player.yaw, 0, 1, 0);
 
@@ -34655,7 +35564,10 @@ int main() {
         } else {
             eye = g_gameState->player.getEyePosition();
         }
-        glTranslatef(-eye.x, -eye.y, -eye.z);
+        // La caida al acostarse se resta aqui, sobre la altura del ojo que ya
+        // calculo el CameraSystem: asi se respeta el agachado y el suavizado
+        // del escalon en vez de pisarlos con una altura fija.
+        glTranslatef(-eye.x, -(eye.y - caidaCamara), -eye.z);
 
         // ⭐⭐⭐ CONFIGURAR SISTEMA DE NIEBLA VOLUMÉTRICA AVANZADO ⭐⭐⭐
         if (g_gameState->fogSystem.isEnabled()) {
@@ -35019,21 +35931,82 @@ int main() {
                         const Fauna::MallaAnimal* malla = inst.malla;
                         if (!malla || malla->indices.empty()) continue;
 
-                        // --- LUZ DEL BLOQUE ---
-                        // El animal se ilumina como el terreno: de dia se ve, de
-                        // noche se oscurece, y en cueva queda en penumbra.
+                        // ============================================
+                        // --- LUZ DEL BLOQUE: EL ANIMAL COPIA SU ENTORNO
+                        // ============================================
+                        // TRES BUGS CORREGIDOS AQUI, y los tres se veian:
+                        //
+                        // 1. ⭐ SE DIVIDIA ENTRE 15, Y LA ESCALA ES 18.
+                        //    getLightAt devuelve 0..18 (ver LightVoxel y
+                        //    computeSkylight, que siembra con 18). Dividir
+                        //    entre 15 da hasta 1.2, o sea que el animal
+                        //    SATURABA a plena luz: a cielo abierto se veia
+                        //    lavado y mas brillante que el terreno que pisa,
+                        //    que como mucho llega a 1.0.
+                        //
+                        // 2. ⭐ NO SE APLICABA EL CICLO DIA/NOCHE.
+                        //    Falta multiplicar por luzSolar(). Un pecari a la
+                        //    intemperie de noche se veia igual de iluminado
+                        //    que a mediodia: el unico objeto del mundo al que
+                        //    no le anochecia.
+                        //
+                        // 3. ⭐ MUESTREABA UNA SOLA CELDA -- LA DE SUS PIES.
+                        //    Un pecari mide 0.5 m al lomo, pero ocupa casi un
+                        //    bloque de largo. Con un solo muestreo, cruzar la
+                        //    sombra de un arbol le cambiaba el brillo DE GOLPE
+                        //    al pisar la celda siguiente. Ahora se promedia su
+                        //    celda con las cuatro de alrededor y la de encima,
+                        //    asi que la transicion es gradual: es lo que se
+                        //    pidio con "que copie la iluminacion de los
+                        //    bloques a su alrededor".
                         const int bx = (int)std::floor(inst.x);
                         const int by = (int)std::floor(inst.y);
                         const int bz = (int)std::floor(inst.z);
-                        const int nivel  = g_gameState->world.getLightAt(bx, by, bz);
-                        const int arriba = g_gameState->world.getLightAt(bx, by + 1, bz);
-                        const float luzAmbiente = 0.18f + 0.82f * ((float)nivel / 15.0f);
+
+                        // El promedio del entorno. Se pesa mas la celda del
+                        // animal (x3) que las de alrededor, para que el valor
+                        // siga siendo el de DONDE ESTA y las vecinas solo
+                        // suavicen la transicion.
+                        int suma = g_gameState->world.getLightAt(bx, by, bz) * 3;
+                        int peso = 3;
+                        static const int ALRED[5][3] = {
+                            { 1, 0, 0}, {-1, 0, 0}, { 0, 0, 1}, { 0, 0,-1},
+                            { 0, 1, 0}    // la de encima: la que ve el cielo
+                        };
+                        for (const auto& a : ALRED) {
+                            suma += g_gameState->world.getLightAt(
+                                bx + a[0], by + a[1], bz + a[2]);
+                            ++peso;
+                        }
+                        const float nivelProm = (float)suma / (float)peso;
+
+                        // 18 es la escala real del motor, la misma que usan el
+                        // mesher y los items sueltos. Tenerla escrita igual en
+                        // los tres sitios es lo que hace que un animal, un
+                        // bloque y un item tirado en el mismo punto se vean
+                        // con el mismo brillo.
+                        float raw = nivelProm / 18.0f;
+                        if (raw > 1.0f) raw = 1.0f;
+
+                        // El ciclo del dia, con el mismo criterio del mesher:
+                        // lo que ve el cielo se apaga de noche, lo que no
+                        // (una cueva) se queda como esta.
+                        const float solFauna = luzSolar();
+                        constexpr float LUZ_DE_LUNA_FAUNA = 0.12f;
+                        const float delCielo = raw * raw;
+                        const float propia   = raw - delCielo;
+                        const float luzHora  = propia + delCielo *
+                            (LUZ_DE_LUNA_FAUNA + (1.0f - LUZ_DE_LUNA_FAUNA) * solFauna);
+
+                        const float luzAmbiente = 0.18f + 0.82f * luzHora;
 
                         // Cuanta MAS luz hay, mas marcada es la sombra: con luz
                         // alta el contraste se dispara y solo se ilumina la cara
                         // expuesta.
-                        const float intensidad = (float)nivel / 15.0f;
-                        const float gradiente  = (float)(arriba - nivel) / 15.0f;
+                        const int arriba = g_gameState->world.getLightAt(bx, by + 1, bz);
+                        const int nivel  = g_gameState->world.getLightAt(bx, by, bz);
+                        const float intensidad = luzHora;
+                        const float gradiente  = (float)(arriba - nivel) / 18.0f;
                         float contraste = 0.30f + 0.55f * intensidad
                                                 + 0.30f * (gradiente > 0.0f ? gradiente : 0.0f);
                         if (contraste > 0.92f) contraste = 0.92f;
@@ -35156,9 +36129,70 @@ int main() {
             glDisable(GL_CULL_FACE);
             glEnable(GL_TEXTURE_2D);
 
+            // ================================================================
+            // ⭐ LOS ITEMS SE APAGAN CON LA LUZ DE DONDE ESTAN
+            // ================================================================
+            // BUG QUE ESTO CORRIGE: los items sueltos se dibujaban con
+            // glColor3f(1,1,1) fijo -- blanco puro, a plena intensidad. O sea
+            // que un pedazo de cobre tirado en el fondo de una cueva sin
+            // antorchas se veia EXACTAMENTE igual de brillante que a mediodia
+            // al sol. Flotaban como si tuvieran luz propia.
+            //
+            // Es la misma regla que ya siguen los bloques que caen (ver
+            // `luzDeCelda` mas abajo) y el mesher del mundo: se toma la luz de
+            // la celda donde esta el objeto y se aplica al color de vertice.
+            //
+            // El CRITERIO TIENE QUE SER EL MISMO en los tres sitios. Si se
+            // separaran, un bloque cambiaria de brillo al pasar de estar
+            // puesto a caer y de caer a quedarse suelto en el suelo, que es un
+            // parpadeo mucho mas visible que un item un poco oscuro.
+            const float solItems = luzSolar();
+            constexpr float LUZ_DE_LUNA_ITEM = 0.12f;
+
+            // ⭐ Y ADEMAS SE LES BAJA EL BRILLO DE BASE.
+            //
+            // Aunque estuvieran a plena luz, los items se veian mas brillantes
+            // que el terreno que los rodea: el mundo pasa por el sombreado por
+            // cara (los lados van al 60-92%) y ellos no, asi que un item a
+            // 1.0 destaca contra un suelo que como mucho llega a 0.92.
+            //
+            // 0.82 los devuelve al rango del terreno. No es un valor de gusto:
+            // es la media aproximada del sombreado direccional del mesher, de
+            // modo que un item se ve como se veria el bloque del que salio.
+            constexpr float BRILLO_ITEM = 0.82f;
+
+            auto luzDelItem = [&](const Vec3& p) -> float {
+                const int cx = (int)floorf(p.x);
+                const int cy = (int)floorf(p.y);
+                const int cz = (int)floorf(p.z);
+
+                uint8_t nivel;
+                if (cy >= CHUNK_HEIGHT)  nivel = 18;   // por encima: cielo
+                else if (cy < 0)         nivel = 0;    // por debajo: fondo
+                else nivel = g_gameState->world.getLightLevel(cx, cy, cz);
+
+                float raw = (float)nivel / 18.0f;
+                float f = raw;
+                if (f < 0.15f) f = 0.15f;              // nunca negro puro
+
+                // La parte que depende del sol es la exposicion al cielo; lo
+                // que no ve el cielo (una antorcha, el ambiente) no cambia con
+                // la hora.
+                const float delCielo = f * raw;
+                const float propia   = f - delCielo;
+                const float luz = propia + delCielo *
+                    (LUZ_DE_LUNA_ITEM + (1.0f - LUZ_DE_LUNA_ITEM) * solItems);
+
+                return luz * BRILLO_ITEM;
+            };
+
             glPushMatrix();
             for (const ItemEntity& item : g_gameState->items) {
             glPushMatrix();
+
+            // La luz de este item, ya lista para multiplicar por el color de
+            // cada cara. Se calcula UNA vez por item, no por vertice.
+            const float luzIt = luzDelItem(item.position);
 
             // Movimiento de flotación suave (bobbing)
             float bobOffset = sin(item.lifetime * 3.0f) * 0.1f;
@@ -35397,7 +36431,8 @@ int main() {
                     glAlphaFunc(GL_GREATER, 0.5f);
 
                     const float g = semiGrosor * scale;
-                    glColor3f(1.0f, 1.0f, 1.0f);
+                    // La cara plana, a la luz del sitio donde esta el item.
+                    glColor3f(luzIt, luzIt, luzIt);
 
                     glBegin(GL_QUADS);
                     // Cara de delante
@@ -35413,8 +36448,10 @@ int main() {
                     glEnd();
 
                     // El CANTO: el contorno real, ya calculado y cacheado.
-                    // Se oscurece un poco para que el volumen se lea.
-                    glColor3f(0.78f, 0.78f, 0.78f);
+                    // Se oscurece un poco para que el volumen se lea. El 0.78
+                    // es el sombreado del canto; la luz del entorno se
+                    // multiplica encima, no lo sustituye.
+                    glColor3f(0.78f * luzIt, 0.78f * luzIt, 0.78f * luzIt);
                     glBegin(GL_QUADS);
                     for (const SiluetaItem::Vertice& v : mod.canto) {
                         // La V se invierte porque la silueta se leyo sin
@@ -35448,7 +36485,7 @@ int main() {
                 // hojas carnosas, no laminas.
                 const float gr = scale * FACTOR_GROSOR;
 
-                glColor3f(1.0f, 1.0f, 1.0f);
+                glColor3f(luzIt, luzIt, luzIt);
                 glBegin(GL_QUADS);
                 // Cara de delante
                 glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
@@ -35465,7 +36502,7 @@ int main() {
                 // El CANTO: cuatro tiras que unen las dos caras y le dan el
                 // volumen. Cada tira toma su color del borde de la textura
                 // que le toca, asi que no hay color inventado.
-                glColor3f(0.75f, 0.75f, 0.75f);
+                glColor3f(0.75f * luzIt, 0.75f * luzIt, 0.75f * luzIt);
                 glBegin(GL_QUADS);
                 // arriba
                 glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
@@ -35499,7 +36536,10 @@ int main() {
             GLuint texTop = g_textureManager->getBlockTexture(item.blockType, 0);
             if (g_textureManager) g_textureManager->bindForUI(texTop);
             glBegin(GL_QUADS);
-            glColor3f(1.0f, 1.0f, 1.0f);  // Más brillante
+            // El sombreado por cara se CONSERVA y la luz del entorno se
+            // multiplica encima: el cubo sigue teniendo volumen, pero ahora
+            // ademas se apaga en la oscuridad.
+            glColor3f(luzIt, luzIt, luzIt);  // Más brillante
             glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -scale);
             glTexCoord2f(0, 1); glVertex3f(-scale,  scale,  scale);
             glTexCoord2f(1, 1); glVertex3f( scale,  scale,  scale);
@@ -35510,7 +36550,7 @@ int main() {
             GLuint texBottom = g_textureManager->getBlockTexture(item.blockType, 1);
             if (g_textureManager) g_textureManager->bindForUI(texBottom);
             glBegin(GL_QUADS);
-            glColor3f(0.5f, 0.5f, 0.5f);  // Más oscuro
+            glColor3f(0.5f * luzIt, 0.5f * luzIt, 0.5f * luzIt);  // Más oscuro
             glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -scale);
             glTexCoord2f(1, 0); glVertex3f( scale, -scale, -scale);
             glTexCoord2f(1, 1); glVertex3f( scale, -scale,  scale);
@@ -35521,7 +36561,7 @@ int main() {
             GLuint texNorth = g_textureManager->getBlockTexture(item.blockType, 2);
             if (g_textureManager) g_textureManager->bindForUI(texNorth);
             glBegin(GL_QUADS);
-            glColor3f(0.8f, 0.8f, 0.8f);  // N/S faces
+            glColor3f(0.8f * luzIt, 0.8f * luzIt, 0.8f * luzIt);  // N/S faces
             glTexCoord2f(0, 0); glVertex3f(-scale, -scale,  scale);
             glTexCoord2f(1, 0); glVertex3f( scale, -scale,  scale);
             glTexCoord2f(1, 1); glVertex3f( scale,  scale,  scale);
@@ -35532,7 +36572,7 @@ int main() {
             GLuint texSouth = g_textureManager->getBlockTexture(item.blockType, 3);
             if (g_textureManager) g_textureManager->bindForUI(texSouth);
             glBegin(GL_QUADS);
-            glColor3f(0.8f, 0.8f, 0.8f);  // N/S faces
+            glColor3f(0.8f * luzIt, 0.8f * luzIt, 0.8f * luzIt);  // N/S faces
             glTexCoord2f(0, 0); glVertex3f( scale, -scale, -scale);
             glTexCoord2f(1, 0); glVertex3f(-scale, -scale, -scale);
             glTexCoord2f(1, 1); glVertex3f(-scale,  scale, -scale);
@@ -35543,7 +36583,7 @@ int main() {
             GLuint texEast = g_textureManager->getBlockTexture(item.blockType, 4);
             if (g_textureManager) g_textureManager->bindForUI(texEast);
             glBegin(GL_QUADS);
-            glColor3f(0.6f, 0.6f, 0.6f);  // E/W faces = más oscuro
+            glColor3f(0.6f * luzIt, 0.6f * luzIt, 0.6f * luzIt);  // E/W faces = más oscuro
             glTexCoord2f(0, 0); glVertex3f( scale, -scale,  scale);
             glTexCoord2f(1, 0); glVertex3f( scale, -scale, -scale);
             glTexCoord2f(1, 1); glVertex3f( scale,  scale, -scale);
@@ -35554,7 +36594,7 @@ int main() {
             GLuint texWest = g_textureManager->getBlockTexture(item.blockType, 5);
             if (g_textureManager) g_textureManager->bindForUI(texWest);
             glBegin(GL_QUADS);
-            glColor3f(0.6f, 0.6f, 0.6f);  // E/W faces = más oscuro
+            glColor3f(0.6f * luzIt, 0.6f * luzIt, 0.6f * luzIt);  // E/W faces = más oscuro
             glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -scale);
             glTexCoord2f(1, 0); glVertex3f(-scale, -scale,  scale);
             glTexCoord2f(1, 1); glVertex3f(-scale,  scale,  scale);
@@ -36123,6 +37163,74 @@ int main() {
 
             // ⭐ Renderizar item en la mano (esquina inferior derecha)
             renderItemInHand(&g_gameState->inventory, width, height);
+
+            // ================================================================
+            // ⭐ DORMIR: LA PANTALLA SE VA A NEGRO
+            // ================================================================
+            // Va DESPUES del HUD y de la mano a proposito: al dormir se apaga
+            // la vista entera, no solo el mundo. Si el fundido fuera antes, la
+            // hotbar y los corazones seguirian brillando sobre el negro.
+            //
+            // Y va antes de los avisos de guardado, que si tienen que verse
+            // pase lo que pase.
+            if (g_gameState->durmiendo) {
+                const float osc = Dormir::Oscuridad(g_gameState->tiempoDurmiendo);
+                if (osc > 0.001f) {
+                    glDisable(GL_TEXTURE_2D);
+                    glDisable(GL_DEPTH_TEST);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                    glColor4f(0.0f, 0.0f, 0.0f, osc);
+                    glBegin(GL_QUADS);
+                    glVertex2f(0.0f,          0.0f);
+                    glVertex2f((float)width,  0.0f);
+                    glVertex2f((float)width,  (float)height);
+                    glVertex2f(0.0f,          (float)height);
+                    glEnd();
+
+                    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                    glEnable(GL_TEXTURE_2D);
+                    glEnable(GL_DEPTH_TEST);
+                }
+            }
+
+            // ⭐ EL AVISO DE POR QUE NO SE PUEDE DORMIR
+            //
+            // Sale cuando el jugador pulsa Z donde no debe. Dice el motivo
+            // concreto --sin techo, sin paredes, sin sitio-- porque "no puedes
+            // dormir aqui" a secas deja al jugador probando a ciegas.
+            if (g_gameState->avisoDormirTimer > 0.0f) {
+                const char* txt =
+                    Dormir::TextoDeMotivo(g_gameState->motivoNoDormir);
+                if (txt && *txt) {
+                    // Se desvanece en el ultimo medio segundo.
+                    float a = g_gameState->avisoDormirTimer;
+                    if (a > 1.0f) a = 1.0f;
+
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                    const float ancho = (float)strlen(txt) * 12.0f;
+                    const float cx = width * 0.5f - ancho * 0.5f;
+                    const float cy = height * 0.62f;
+
+                    // Fondo oscuro para que el texto se lea sobre cualquier
+                    // terreno.
+                    glDisable(GL_TEXTURE_2D);
+                    glColor4f(0.0f, 0.0f, 0.0f, 0.55f * a);
+                    glBegin(GL_QUADS);
+                    glVertex2f(cx - 12.0f, cy - 8.0f);
+                    glVertex2f(cx + ancho + 12.0f, cy - 8.0f);
+                    glVertex2f(cx + ancho + 12.0f, cy + 26.0f);
+                    glVertex2f(cx - 12.0f, cy + 26.0f);
+                    glEnd();
+
+                    glColor4f(1.0f, 0.85f, 0.55f, a);
+                    renderText(txt, cx, cy, 2.0f);
+                    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                }
+            }
 
             // ⭐⭐⭐ INDICADOR VISUAL DE AUTO-GUARDADO ⭐⭐⭐
             if (g_gameState->showSavingIndicator) {

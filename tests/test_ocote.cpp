@@ -400,6 +400,446 @@ TEST_CASE("Aciculas: las cuatro variantes de bloque se reconocen") {
     CHECK_FALSE(Acicula::esChino(BLOCK_LEAVES_OCOTE));
 }
 
+// ============================================================================
+// LA FISICA DE LA HOJA
+// ============================================================================
+// Una acicula es una viga empotrada por la base: la punta se mueve, el
+// arranque no. Lo que sigue fija esa invariante y las que la acompanan.
+
+TEST_CASE("Fisica de hoja: la base NO se mueve, pase lo que pase") {
+    // ⭐ ESTA ES LA INVARIANTE PRINCIPAL DEL EFECTO.
+    //
+    // El vertice pegado a la rama tiene que quedarse EXACTAMENTE donde estaba,
+    // aunque el jugador este encima. Si se moviera, el mechon se despegaria de
+    // su rama y se veria flotar -- que es justo lo que distingue una hoja bien
+    // anclada de un sprite suelto.
+    float dx, dy, dz;
+
+    // El caso mas exigente: el jugador clavado en el punto de la hoja.
+    Acicula::DesplazarHoja(10.0f, 70.0f, 10.0f,
+                           /*t01=*/0.0f, /*fase=*/1.3f, /*tiempo=*/7.5f,
+                           10.0f, 70.0f, 10.0f,
+                           dx, dy, dz);
+    CHECK(dx == 0.0f);
+    CHECK(dy == 0.0f);
+    CHECK(dz == 0.0f);
+
+    // Y en un barrido de tiempos y posiciones del jugador.
+    for (float t = 0.0f; t < 12.0f; t += 0.7f)
+        for (float ox = -2.0f; ox <= 2.0f; ox += 0.5f) {
+            Acicula::DesplazarHoja(10.0f, 70.0f, 10.0f, 0.0f, 2.0f, t,
+                                   10.0f + ox, 70.0f, 10.0f, dx, dy, dz);
+            INFO("t=", t, " offset=", ox);
+            CHECK(dx == 0.0f);
+            CHECK(dy == 0.0f);
+            CHECK(dz == 0.0f);
+        }
+}
+
+TEST_CASE("Fisica de hoja: la punta se mueve mucho mas que el medio") {
+    // El perfil de viga en voladizo es CUADRATICO, no lineal: a media hoja el
+    // desplazamiento tiene que ser ~1/4 del de la punta, no 1/2. Eso es lo que
+    // hace que la hoja se vea DOBLARSE en arco en vez de trasladarse rigida.
+    float px, py, pz, mx, my, mz;
+
+    // Jugador cerca, para que domine el empuje sobre la brisa.
+    Acicula::DesplazarHoja(10.5f, 70.0f, 10.0f, 1.0f, 0.0f, 3.0f,
+                           10.0f, 70.0f, 10.0f, px, py, pz);
+    Acicula::DesplazarHoja(10.5f, 70.0f, 10.0f, 0.5f, 0.0f, 3.0f,
+                           10.0f, 70.0f, 10.0f, mx, my, mz);
+
+    const float punta = std::sqrt(px*px + py*py + pz*pz);
+    const float medio = std::sqrt(mx*mx + my*my + mz*mz);
+
+    INFO("punta ", punta, " medio ", medio);
+    REQUIRE(punta > 1e-4f);
+    CHECK(medio < punta);
+    // La razon teorica es 0.5^2 = 0.25. Se deja holgura por la brisa, que no
+    // depende del empuje.
+    CHECK(medio / punta < 0.45f);
+}
+
+TEST_CASE("Fisica de hoja: el jugador la aparta ALEJANDOLA de si") {
+    // El empuje es radial y saliente: una hoja al este del jugador se va mas
+    // al este. Si el signo estuviera invertido, las hojas se meterian DENTRO
+    // del jugador, que es exactamente lo contrario de lo que se ve al andar
+    // entre ramas.
+    float dx, dy, dz;
+
+    // Hoja al ESTE del jugador (x mayor): debe empujarse hacia +x.
+    Acicula::DesplazarHoja(10.6f, 70.0f, 10.0f, 1.0f, 0.0f, 0.0f,
+                           10.0f, 70.0f, 10.0f, dx, dy, dz);
+    CHECK(dx > 0.0f);
+
+    // Hoja al OESTE: hacia -x.
+    Acicula::DesplazarHoja(9.4f, 70.0f, 10.0f, 1.0f, 0.0f, 0.0f,
+                           10.0f, 70.0f, 10.0f, dx, dy, dz);
+    CHECK(dx < 0.0f);
+
+    // Hoja al SUR (z mayor): hacia +z.
+    Acicula::DesplazarHoja(10.0f, 70.0f, 10.6f, 1.0f, 0.0f, 0.0f,
+                           10.0f, 70.0f, 10.0f, dx, dy, dz);
+    CHECK(dz > 0.0f);
+}
+
+TEST_CASE("Fisica de hoja: fuera del radio solo queda la brisa") {
+    // El empuje tiene alcance limitado. Una hoja lejos del jugador se mueve
+    // SOLO por la brisa, que es un orden de magnitud mas pequena. Sin este
+    // corte, cruzar un bosque agitaria copas a decenas de bloques.
+    float lejos[3], cerca[3];
+
+    Acicula::DesplazarHoja(40.0f, 70.0f, 40.0f, 1.0f, 0.0f, 2.0f,
+                           10.0f, 70.0f, 10.0f, lejos[0], lejos[1], lejos[2]);
+    Acicula::DesplazarHoja(10.4f, 70.0f, 10.0f, 1.0f, 0.0f, 2.0f,
+                           10.0f, 70.0f, 10.0f, cerca[0], cerca[1], cerca[2]);
+
+    const float dLejos = std::sqrt(lejos[0]*lejos[0] + lejos[1]*lejos[1] +
+                                   lejos[2]*lejos[2]);
+    const float dCerca = std::sqrt(cerca[0]*cerca[0] + cerca[1]*cerca[1] +
+                                   cerca[2]*cerca[2]);
+
+    INFO("lejos ", dLejos, " cerca ", dCerca);
+    CHECK(dLejos < Acicula::BRISA * 3.0f);   // solo brisa
+    CHECK(dCerca > dLejos * 2.0f);           // el empuje domina de cerca
+}
+
+TEST_CASE("Fisica de hoja: el desplazamiento nunca se dispara") {
+    // Una cota dura. Si un caso limite --el jugador en el mismo punto, una
+    // division por una distancia diminuta-- produjera un valor enorme, la hoja
+    // saldria disparada al infinito y se veria un triangulo cruzando la
+    // pantalla. Es el fallo tipico de un empuje radial mal acotado.
+    float dx, dy, dz;
+    const float tope = Acicula::EMPUJE_MAX + Acicula::BRISA * 4.0f;
+
+    for (float ox = -0.05f; ox <= 0.05f; ox += 0.01f)
+        for (float oz = -0.05f; oz <= 0.05f; oz += 0.01f)
+            for (float t = 0.0f; t < 6.0f; t += 0.9f) {
+                Acicula::DesplazarHoja(10.0f + ox, 70.0f, 10.0f + oz,
+                                       1.0f, 0.7f, t,
+                                       10.0f, 70.0f, 10.0f, dx, dy, dz);
+                const float d = std::sqrt(dx*dx + dy*dy + dz*dz);
+                INFO("offset ", ox, ",", oz, " t=", t, " -> ", d);
+                CHECK(std::isfinite(d));
+                CHECK(d <= tope);
+            }
+}
+
+TEST_CASE("Fisica de hoja: no reacciona a un jugador muy por encima o debajo") {
+    // El empuje se limita al alto del cuerpo. Pasar por debajo de una copa no
+    // puede agitar hojas que estan diez bloques mas arriba.
+    float dx, dy, dz;
+
+    // Jugador 10 bloques por debajo de la hoja.
+    Acicula::DesplazarHoja(10.0f, 80.0f, 10.0f, 1.0f, 0.0f, 1.0f,
+                           10.0f, 70.0f, 10.0f, dx, dy, dz);
+    float d = std::sqrt(dx*dx + dy*dy + dz*dz);
+    INFO("por debajo -> ", d);
+    CHECK(d < Acicula::BRISA * 3.0f);   // solo brisa
+
+    // Jugador 10 bloques por encima.
+    Acicula::DesplazarHoja(10.0f, 60.0f, 10.0f, 1.0f, 0.0f, 1.0f,
+                           10.0f, 70.0f, 10.0f, dx, dy, dz);
+    d = std::sqrt(dx*dx + dy*dy + dz*dz);
+    INFO("por encima -> ", d);
+    CHECK(d < Acicula::BRISA * 3.0f);
+}
+
+TEST_CASE("Fisica de hoja: es continua, no da saltos en el borde del radio") {
+    // El empuje cae con un smoothstep. Si fuera un corte duro, la hoja pasaria
+    // de apartada a normal en un frame y se veria un PARPADEO al caminar. Se
+    // comprueba que dos puntos casi iguales dan desplazamientos casi iguales,
+    // justo en el borde del radio, que es donde un escalon se notaria.
+    const float R = Acicula::RADIO_EMPUJE;
+    float a[3], b[3];
+
+    Acicula::DesplazarHoja(10.0f + R - 0.01f, 70.0f, 10.0f, 1.0f, 0.0f, 0.0f,
+                           10.0f, 70.0f, 10.0f, a[0], a[1], a[2]);
+    Acicula::DesplazarHoja(10.0f + R + 0.01f, 70.0f, 10.0f, 1.0f, 0.0f, 0.0f,
+                           10.0f, 70.0f, 10.0f, b[0], b[1], b[2]);
+
+    const float salto = std::sqrt((a[0]-b[0])*(a[0]-b[0]) +
+                                  (a[1]-b[1])*(a[1]-b[1]) +
+                                  (a[2]-b[2])*(a[2]-b[2]));
+    INFO("salto en el borde ", salto);
+    CHECK(salto < 0.02f);
+}
+
+TEST_CASE("Fisica de hoja: dos mechones con distinta fase no van al unisono") {
+    // Si todos compartieran fase, la copa entera latiria como un solo objeto
+    // --se veria respirar-- en vez de ondular por zonas.
+    float a[3], b[3];
+
+    Acicula::DesplazarHoja(30.0f, 70.0f, 30.0f, 1.0f, /*fase=*/0.0f, 2.0f,
+                           0.0f, 0.0f, 0.0f, a[0], a[1], a[2]);
+    Acicula::DesplazarHoja(30.0f, 70.0f, 30.0f, 1.0f, /*fase=*/3.1f, 2.0f,
+                           0.0f, 0.0f, 0.0f, b[0], b[1], b[2]);
+
+    CHECK(a[0] != b[0]);
+}
+
+TEST_CASE("Fisica de hoja: es determinista") {
+    // Sin estado ni memoria: el mismo instante da siempre el mismo resultado.
+    // Es lo que permite que el mesher la aplique sin guardar nada por vertice.
+    float a[3], b[3];
+    Acicula::DesplazarHoja(12.3f, 71.5f, 9.7f, 0.8f, 1.1f, 4.25f,
+                           11.0f, 70.0f, 10.0f, a[0], a[1], a[2]);
+    Acicula::DesplazarHoja(12.3f, 71.5f, 9.7f, 0.8f, 1.1f, 4.25f,
+                           11.0f, 70.0f, 10.0f, b[0], b[1], b[2]);
+    CHECK(a[0] == b[0]);
+    CHECK(a[1] == b[1]);
+    CHECK(a[2] == b[2]);
+}
+
+TEST_CASE("Fisica de hoja: la hoja apartada cede tambien hacia abajo") {
+    // Una rama que algo aparta no se desplaza solo en horizontal: se vence.
+    // Sin la componente vertical el movimiento se lee como si la hoja
+    // resbalara sobre un plano.
+    float dx, dy, dz;
+    Acicula::DesplazarHoja(10.5f, 70.0f, 10.0f, 1.0f, 0.0f, 0.0f,
+                           10.0f, 70.0f, 10.0f, dx, dy, dz);
+    CHECK(dy < 0.0f);
+}
+
+// ============================================================================
+// LA CONEXION CON LA MADERA: LO QUE SE AGARRA NO SE MUEVE
+// ============================================================================
+// Es el comportamiento pedido: en una rama con hojas encima, se mueven las que
+// quedan libres --las esquinas, lo que no llego a conectar-- y NO las del punto
+// de union con la rama.
+
+TEST_CASE("Sujecion: sin madera alrededor, el follaje cuelga suelto") {
+    // El caso de referencia: una celda de hoja en el aire. Ningun mechon esta
+    // sujeto, asi que todos se vencen y todos ondean.
+    Acicula::Mechon buf[Acicula::MAX_MECHONES];
+    const int n = Acicula::MechonesDe(BLOCK_LEAVES_OCOTE, 5, 70, 5,
+                                      buf, Acicula::MAX_MECHONES,
+                                      /*maderaAlrededor=*/0);
+    REQUIRE(n > 0);
+    for (int i = 0; i < n; ++i) {
+        INFO("mechon ", i, " sujecion ", buf[i].sujecion);
+        CHECK(buf[i].sujecion == doctest::Approx(0.0f));
+    }
+}
+
+TEST_CASE("Sujecion: con una rama debajo, algun mechon se agarra") {
+    // Con madera en un lado, los mechones que apuntan HACIA ella quedan
+    // sujetos. No todos: los que salen al lado contrario siguen libres, que es
+    // justo lo que produce el contraste entre zona tensa y zona blanda.
+    Acicula::Mechon buf[Acicula::MAX_MECHONES];
+    const int n = Acicula::MechonesDe(BLOCK_LEAVES_OCOTE, 5, 70, 5,
+                                      buf, Acicula::MAX_MECHONES,
+                                      Acicula::MADERA_ABAJO);
+    REQUIRE(n > 0);
+
+    int sujetos = 0, libres = 0;
+    for (int i = 0; i < n; ++i) {
+        if (buf[i].sujecion > 0.3f) ++sujetos;
+        if (buf[i].sujecion < 0.05f) ++libres;
+        // Nunca fuera de rango: es un coseno entre direcciones unitarias.
+        CHECK(buf[i].sujecion >= 0.0f);
+        CHECK(buf[i].sujecion <= 1.0f);
+    }
+
+    INFO("sujetos ", sujetos, " libres ", libres, " de ", n);
+    CHECK(sujetos > 0);   // los que miran a la rama
+    CHECK(libres > 0);    // los que miran al aire
+}
+
+TEST_CASE("Sujecion: el mechon agarrado NO se vence, el libre si") {
+    // La FORMA. La caida se anula donde la acicula nace de la madera: sale
+    // recta desde la vaina. Se compara la misma celda con y sin rama debajo.
+    Acicula::Mechon libre[Acicula::MAX_MECHONES];
+    Acicula::Mechon pegado[Acicula::MAX_MECHONES];
+
+    const int nl = Acicula::MechonesDe(BLOCK_LEAVES_OCOTE, 9, 72, 9,
+                                       libre, Acicula::MAX_MECHONES, 0);
+    const int np = Acicula::MechonesDe(BLOCK_LEAVES_OCOTE, 9, 72, 9,
+                                       pegado, Acicula::MAX_MECHONES,
+                                       Acicula::MADERA_ABAJO);
+    REQUIRE(nl == np);
+
+    // El mechon que MAS se agarra en la version con rama tiene que apuntar
+    // mas hacia abajo (hacia la rama) que su equivalente suelto, porque a este
+    // ultimo se le resta la caida y al otro no.
+    int mejor = 0;
+    for (int i = 1; i < np; ++i)
+        if (pegado[i].sujecion > pegado[mejor].sujecion) mejor = i;
+
+    INFO("sujecion del mejor ", pegado[mejor].sujecion);
+    CHECK(pegado[mejor].sujecion > 0.5f);
+    // Su direccion difiere de la del mismo mechon sin sujetar: la caida ya no
+    // le resta lo mismo.
+    CHECK(pegado[mejor].dy != doctest::Approx(libre[mejor].dy));
+}
+
+TEST_CASE("Sujecion: la hoja pegada a la rama apenas se mueve") {
+    // ⭐ EL COMPORTAMIENTO PEDIDO, MEDIDO.
+    //
+    // Mismo punto, mismo instante, mismo jugador encima: lo unico que cambia
+    // es si el mechon esta agarrado a la madera. El sujeto tiene que moverse
+    // MUCHO menos que el libre.
+    float suelto[3], anclado[3];
+
+    Acicula::DesplazarHoja(10.4f, 70.0f, 10.0f, 1.0f, 0.5f, 3.0f,
+                           10.0f, 70.0f, 10.0f,
+                           suelto[0], suelto[1], suelto[2],
+                           /*sujecion=*/0.0f);
+    Acicula::DesplazarHoja(10.4f, 70.0f, 10.0f, 1.0f, 0.5f, 3.0f,
+                           10.0f, 70.0f, 10.0f,
+                           anclado[0], anclado[1], anclado[2],
+                           /*sujecion=*/1.0f);
+
+    const float dSuelto = std::sqrt(suelto[0]*suelto[0] + suelto[1]*suelto[1] +
+                                    suelto[2]*suelto[2]);
+    const float dAnclado = std::sqrt(anclado[0]*anclado[0] +
+                                     anclado[1]*anclado[1] +
+                                     anclado[2]*anclado[2]);
+
+    INFO("suelto ", dSuelto, " anclado ", dAnclado);
+    REQUIRE(dSuelto > 1e-4f);
+    // El anclado conserva como mucho el 20% del movimiento.
+    CHECK(dAnclado < dSuelto * 0.2f);
+    // Pero NO se congela del todo: una aguja sujeta aun vibra.
+    CHECK(dAnclado > 0.0f);
+}
+
+TEST_CASE("Sujecion: el efecto es gradual, no un interruptor") {
+    // Entre agarrado y suelto hay todos los grados intermedios. Si fuera
+    // binario se veria una frontera dura en la copa, justo el corte que el
+    // resto del sistema evita con smoothstep.
+    float ant = 1e9f;
+    for (float s = 0.0f; s <= 1.0f; s += 0.2f) {
+        float d[3];
+        Acicula::DesplazarHoja(10.4f, 70.0f, 10.0f, 1.0f, 0.5f, 3.0f,
+                               10.0f, 70.0f, 10.0f, d[0], d[1], d[2], s);
+        const float mag = std::sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]);
+        INFO("sujecion ", s, " -> ", mag);
+        CHECK(mag <= ant + 1e-5f);   // monotono decreciente
+        ant = mag;
+    }
+}
+
+TEST_CASE("Sujecion: la base sigue clavada aunque el mechon este suelto") {
+    // La regla del voladizo manda por encima de todo: pase lo que pase con la
+    // sujecion, el vertice pegado a la rama no se mueve.
+    for (float s = 0.0f; s <= 1.0f; s += 0.25f) {
+        float d[3];
+        Acicula::DesplazarHoja(10.2f, 70.0f, 10.0f, /*t01=*/0.0f, 0.5f, 3.0f,
+                               10.0f, 70.0f, 10.0f, d[0], d[1], d[2], s);
+        INFO("sujecion ", s);
+        CHECK(d[0] == 0.0f);
+        CHECK(d[1] == 0.0f);
+        CHECK(d[2] == 0.0f);
+    }
+}
+
+TEST_CASE("Combinaciones: los 64 vecindarios dan resultados validos") {
+    // Las 64 combinaciones de madera alrededor (2^6) son la fuente de la
+    // variedad de siluetas. Ninguna puede producir geometria invalida.
+    Acicula::Mechon buf[Acicula::MAX_MECHONES];
+
+    int distintas = 0;
+    float firmaAnterior = -1e9f;
+
+    for (int mapa = 0; mapa < 64; ++mapa) {
+        const int n = Acicula::MechonesDe(BLOCK_LEAVES_OCOTE, 3, 66, 3,
+                                          buf, Acicula::MAX_MECHONES,
+                                          (uint8_t)mapa);
+        REQUIRE(n >= 3);
+        REQUIRE(n <= Acicula::MAX_MECHONES);
+
+        float firma = 0.0f;
+        for (int i = 0; i < n; ++i) {
+            // Direccion unitaria y finita, siempre.
+            const float len = std::sqrt(buf[i].dx*buf[i].dx +
+                                        buf[i].dy*buf[i].dy +
+                                        buf[i].dz*buf[i].dz);
+            INFO("mapa ", mapa, " mechon ", i);
+            CHECK(std::isfinite(len));
+            CHECK(len == doctest::Approx(1.0f).epsilon(0.01f));
+            CHECK(buf[i].sujecion >= 0.0f);
+            CHECK(buf[i].sujecion <= 1.0f);
+            firma += buf[i].dy * (float)(i + 1) + buf[i].sujecion;
+        }
+        if (firma != firmaAnterior) ++distintas;
+        firmaAnterior = firma;
+    }
+
+    // La mayoria de los 64 vecindarios producen una copa distinta. Si todos
+    // dieran lo mismo, el sistema de conexion no estaria haciendo nada.
+    INFO("vecindarios con silueta distinta: ", distintas);
+    CHECK(distintas > 30);
+}
+
+TEST_CASE("Combinaciones: la celda con la rama dentro se comporta como sujeta") {
+    // BLOCK_LEAVES_OCOTE_RAMA lleva su rama en el mismo voxel, asi que su
+    // follaje nace de madera aunque no tenga vecinos leñosos. El mesher le
+    // pone MADERA_ABAJO por eso; aqui se comprueba que el efecto llega.
+    Acicula::Mechon buf[Acicula::MAX_MECHONES];
+    const int n = Acicula::MechonesDe(BLOCK_LEAVES_OCOTE_RAMA, 4, 68, 4,
+                                      buf, Acicula::MAX_MECHONES,
+                                      Acicula::MADERA_ABAJO);
+    int sujetos = 0;
+    for (int i = 0; i < n; ++i) if (buf[i].sujecion > 0.3f) ++sujetos;
+    INFO("sujetos ", sujetos, " de ", n);
+    CHECK(sujetos > 0);
+}
+
+// ============================================================================
+// CON QUIEN COMPARTE CELDA LA ACICULA
+// ============================================================================
+
+TEST_CASE("Celda compartida: la acicula solo admite raices") {
+    // Lo pedido: en el espacio de una hoja de ocote solo cabe ademas una raiz.
+    const BlockType raices[4] = {
+        BLOCK_RAIZ_PEQUENA, BLOCK_RAIZ_MEDIANA,
+        BLOCK_RAIZ_GRANDE,  BLOCK_RAIZ_ENORME
+    };
+
+    for (BlockType r : raices) {
+        INFO("raiz ", (int)r);
+        // En los dos ordenes: da igual quien llegue primero a la celda.
+        CHECK(combinar(BLOCK_LEAVES_OCOTE, r) != BLOCK_AIR);
+        CHECK(combinar(r, BLOCK_LEAVES_OCOTE) != BLOCK_AIR);
+        // Y lo que queda en la celda es la HOJA, que es lo que se ve.
+        CHECK(combinar(BLOCK_LEAVES_OCOTE, r) == BLOCK_LEAVES_OCOTE);
+    }
+}
+
+TEST_CASE("Celda compartida: la acicula NO admite nada mas") {
+    // Todo lo demas queda fuera. Sin este corte, cualquier sprite que cayera
+    // en la celda podria fundirse con el follaje.
+    const BlockType prohibidos[6] = {
+        BLOCK_TALLGRASS, BLOCK_ORANGE_FLOWER, BLOCK_IXTLE_HOJA,
+        BLOCK_STONE, BLOCK_WATER, BLOCK_LEAVES
+    };
+
+    for (BlockType p : prohibidos) {
+        INFO("con ", (int)p);
+        CHECK(combinar(BLOCK_LEAVES_OCOTE, p) == BLOCK_AIR);
+        CHECK(combinar(p, BLOCK_LEAVES_OCOTE) == BLOCK_AIR);
+    }
+
+    // Las cuatro variantes de follaje siguen la misma regla.
+    const BlockType follaje[4] = {
+        BLOCK_LEAVES_OCOTE, BLOCK_LEAVES_OCOTE_RAMA,
+        BLOCK_LEAVES_OCOTE_CHINO, BLOCK_LEAVES_OCOTE_CHINO_RAMA
+    };
+    for (BlockType f : follaje) {
+        INFO("follaje ", (int)f);
+        CHECK(combinar(f, BLOCK_TALLGRASS) == BLOCK_AIR);
+        CHECK(combinar(f, BLOCK_RAIZ_MEDIANA) != BLOCK_AIR);
+    }
+}
+
+TEST_CASE("Celda compartida: el ixtle conserva sus parejas de siempre") {
+    // La regla nueva del ocote se resuelve ANTES que la del ixtle. Hay que
+    // comprobar que no se ha llevado por delante lo que ya funcionaba.
+    CHECK(combinar(BLOCK_IXTLE_HOJA, BLOCK_TALLGRASS) == BLOCK_IXTLE_CON_HIERBA);
+    CHECK(combinar(BLOCK_IXTLE_HOJA, BLOCK_ORANGE_FLOWER) == BLOCK_IXTLE_CON_FLOR);
+    CHECK(combinar(BLOCK_IXTLE_HOJA, BLOCK_IXTLE_HOJA) == BLOCK_IXTLE_DOBLE);
+}
+
 TEST_CASE("Ocote: sigue siendo compatible con el formato de guardado") {
     // Los IDs nuevos van al FINAL del enum. Insertar en medio correria los
     // valores y un mundo guardado leeria otro bloque en su lugar.

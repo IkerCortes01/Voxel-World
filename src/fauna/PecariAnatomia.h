@@ -565,21 +565,119 @@ private:
 
         for (const auto& d : defs) {
             std::vector<SeccionCuerpo> secs;
-            const int N = cfg.seccionesPata;
+
+            // ================================================================
+            // ⭐ LA PATA TIENE TRES SEGMENTOS Y DOS ARTICULACIONES
+            // ================================================================
+            // Antes era un CONO RECTO: `centroY = yHombro - largoPata * t` es
+            // una linea, y `z = d.sz` constante. Un palo liso que se estrecha.
+            //
+            // Y era una contradiccion con el resto del sistema, porque el
+            // esqueleto SI tiene las articulaciones -- PecariEsqueleto.h
+            // declara CODO/RODILLA/CORVEJON con sus amplitudes (AMP_CODO 0.30,
+            // AMP_RODILLA 0.42...) y el skinning las dobla. Pero doblar un palo
+            // liso por un punto solo produce un palo con un pliegue: no hay
+            // codo que ver porque la geometria no lo tiene.
+            //
+            // Aqui la pata pasa a tener la forma real:
+            //
+            //        DELANTERA              TRASERA
+            //        hombro |               cadera |
+            //               |                      |\
+            //         codo  /                rodilla \      <- angulos
+            //              |                          |        OPUESTOS
+            //         cana |                corvejon  /
+            //              |                         |
+            //           pezuna                    pezuna
+            //
+            // LOS ANGULOS VAN AL REVES entre delantera y trasera, y eso NO es
+            // un detalle: es lo que hace que un cuadrupedo se lea como tal. El
+            // codo apunta hacia ATRAS y la rodilla hacia ADELANTE. Es el mismo
+            // SENTIDO_DELANTERA/SENTIDO_TRASERA (-1/+1) que ya usa el
+            // esqueleto, asi que la malla y los huesos coinciden.
+            //
+            // COSTE: dos secciones mas por pata. Ocho anillos en todo el
+            // animal, y solo en LOD 0-1 (de cerca). En LOD 2-3 el reparto se
+            // mantiene y no se paga nada.
+
+            // Fracciones de los tres segmentos. Son las MISMAS que
+            // PecariEsqueleto.h usa para colocar los pivotes (FRAC_SUPERIOR
+            // 0.38, FRAC_MEDIA 0.34), asi que el codo de la malla cae
+            // exactamente donde esta el hueso que la dobla.
+            constexpr float FRAC_SUP   = 0.38f;   // humero / femur
+            constexpr float FRAC_MED   = 0.34f;   // radioulna / tibia
+            // El resto (0.28) es la cana: larga, porque el pecari es
+            // digitigrado -- camina de puntillas. Es lo que lo hace corredor.
+
+            // Cuanto se adelanta o atrasa cada articulacion, en fraccion del
+            // largo de la pata. Un cuadrupedo en reposo no tiene las patas
+            // rectas: estan en zigzag suave. ESTIMADO (ajuste visual).
+            const float sentido = d.delantera ? -1.0f : +1.0f;
+            constexpr float QUIEBRE = 0.085f;
+
+            // Los cuatro puntos de control de la pata, de arriba abajo. La
+            // seccion intermedia de cada tramo se interpola entre ellos, asi
+            // que la pata queda continua y no en tramos rectos pegados.
+            struct Nodo { float t, dz, grosor; };
+            const Nodo nodos[4] = {
+                // t (0 arriba .. 1 abajo)  |  desplazamiento Z  |  grosor rel.
+                { 0.0f,                      0.0f,                 1.35f },
+                { FRAC_SUP,                  sentido * QUIEBRE,    1.02f },
+                { FRAC_SUP + FRAC_MED,      -sentido * QUIEBRE * 0.55f, 0.74f },
+                { 1.0f,                      0.0f,                 0.62f }
+            };
+
+            // Al menos un anillo por articulacion, mas los que pida el LOD.
+            // Con seccionesPata=5 (LOD 0) salen 7; con 2 (LOD 3) salen 4, que
+            // sigue bastando para una silueta a 60 metros.
+            const int N = cfg.seccionesPata + 2;
 
             for (int i = 0; i < N; ++i) {
                 const float t = (float)i / (float)(N - 1);   // 0 arriba, 1 abajo
 
+                // Localizar t entre los nodos e interpolar. Suave (smoothstep)
+                // para que el codo sea un codo y no un pico anguloso.
+                int k = 0;
+                while (k < 2 && t > nodos[k + 1].t) ++k;
+                const float span = nodos[k + 1].t - nodos[k].t;
+                float u = (span > 1e-6f) ? (t - nodos[k].t) / span : 0.0f;
+                if (u < 0.0f) u = 0.0f;
+                if (u > 1.0f) u = 1.0f;
+                const float su = u * u * (3.0f - 2.0f * u);   // smoothstep
+
+                const float dz     = nodos[k].dz     + (nodos[k + 1].dz     - nodos[k].dz)     * su;
+                const float gFactor= nodos[k].grosor + (nodos[k + 1].grosor - nodos[k].grosor) * su;
+
                 SeccionCuerpo s;
-                s.z = d.sz;
+                s.z = d.sz + dz;
                 s.centroY = yHombro - largoPata * t;
 
                 // --- AFINADO ---
                 // De 1.35x en el hombro (donde hay musculo) a 0.62x en la
                 // cana. La pata de un pecari es notablemente mas fina abajo.
-                const float grosor = p.grosorPata * (1.35f - 0.73f * t);
+                // Ahora el perfil viene de los nodos, asi que el grosor cambia
+                // por TRAMO: el muslo es macizo, la cana es un palillo.
+                const float grosor = p.grosorPata * gFactor;
                 s.radioX = grosor * 0.5f;
                 s.radioY = grosor * 0.5f;
+
+                // ⭐ LA ARTICULACION ES MAS ANCHA QUE EL HUESO.
+                //
+                // Un codo o una rodilla abultan: hay epifisis, ligamento y
+                // tendon. Sin esto la pata se ve como una manguera doblada.
+                // El bulto es sutil (12%) y solo en la vecindad del nodo.
+                const float dCodo = std::fabs(t - FRAC_SUP);
+                const float dRod  = std::fabs(t - (FRAC_SUP + FRAC_MED));
+                const float cerca = (dCodo < dRod) ? dCodo : dRod;
+                if (cerca < 0.10f) {
+                    const float bulto = 1.0f + 0.12f * (1.0f - cerca / 0.10f);
+                    s.radioX *= bulto;
+                    s.radioY *= bulto;
+                }
+
+                // La articulacion es mas ANCHA que PROFUNDA: se dobla en un
+                // solo plano, como una bisagra, y eso se nota en la silueta.
+                if (cerca < 0.10f) s.radioX *= 1.06f;
 
                 // Las patas traseras son algo mas gruesas arriba: llevan la
                 // masa muscular del cuarto trasero.
@@ -780,40 +878,144 @@ private:
         const float ejeY = p.alturaCruz - p.altoTorso * 0.5f;
         const float zCraneo = largoTronco * 0.48f + p.largoCuello;
 
+        // ⭐ EL OJO SE APOYA EN EL CRANEO, NO FLOTA A UNA ALTURA FIJA
+        //
+        // Antes el ojo era un tubito colocado en una coordenada calculada a
+        // ojo, del mismo diametro por delante y por detras, y con el eje en Z
+        // -- o sea apuntando hacia ADELANTE. En un animal con los ojos
+        // LATERALES eso lo dejaba medio enterrado en la mejilla: existia en la
+        // malla pero apenas se veia asomar.
+        //
+        // Aqui se calcula donde esta de verdad la superficie del craneo a la
+        // altura del ojo, con las mismas formulas de construirCuelloYCabeza, y
+        // el ojo se pone AHI. La cuenca sigue a la cabeza aunque cambien las
+        // proporciones (una cria tiene la cara mas corta y mas redonda).
+        const float zOjo = zCraneo + p.largoCabeza * 0.34f;
+
+        // Interpolar el craneo entre su seccion trasera (z=zCraneo) y la
+        // mejilla (z=zCraneo+largoCabeza*0.42): son las dos que rodean al ojo.
+        const float tOjo = 0.34f / 0.42f;
+        const float radioXCraneo = p.anchoCabeza * 0.5f
+                                 + (p.anchoCabeza * 0.46f - p.anchoCabeza * 0.5f) * tOjo;
+        const float radioYCraneo = p.altoCabeza * 0.5f
+                                 + (p.altoCabeza * 0.44f - p.altoCabeza * 0.5f) * tOjo;
+        const float centroYCraneo = (ejeY + p.altoTorso * 0.12f)
+                                  - p.altoCabeza * 0.045f * tOjo;
+
+        // Altura del ojo: en el tercio superior de la cara, que es donde esta
+        // en un suido. Va como fraccion del radio para que escale con la edad.
+        const float yOjo = centroYCraneo + radioYCraneo * 0.42f;
+
+        // A esa altura el craneo ya no es tan ancho como en su ecuador: se
+        // toma el semieje real de la elipse para no dejar el ojo ni hundido ni
+        // despegado.  x = radioX * sqrt(1 - (y/radioY)^2)
+        const float ky = 0.42f;
+        const float xCraneo = radioXCraneo * std::sqrt(1.0f - ky * ky);
+
         for (int lado = 0; lado < 2; ++lado) {
             const float sx = (lado == 0) ? -1.0f : 1.0f;
 
+            // ================================================================
+            // EL GLOBO OCULAR
+            // ================================================================
+            // Un elipsoide corto en el eje X (o sea, MIRANDO HACIA EL LADO) en
+            // vez de un tubo hacia adelante. Tres anillos: entra en la cuenca,
+            // asoma en su punto mas ancho, y cierra en la cornea.
+            //
+            // El eje se construye en Z y se rota 90 grados llevando la
+            // coordenada Z a la X, que es lo que apunta el ojo hacia fuera.
             std::vector<SeccionCuerpo> secs;
-            SeccionCuerpo a, b;
-            a.z = zCraneo + p.largoCabeza * 0.34f;
-            a.centroY = ejeY + p.altoTorso * 0.12f + p.altoCabeza * 0.16f;
-            a.radioX = p.diametroOjo * 0.5f;
-            a.radioY = p.diametroOjo * 0.42f;   // ligeramente ovalado
-            a.zonaLomo = a.zonaFlanco = a.zonaVientre = ZonaCuerpo::CABEZA;
+            const float rOjo = p.diametroOjo * 0.5f;
 
-            b = a;
-            b.z = a.z + p.diametroOjo * 0.55f;
-            b.radioX *= 0.55f;
-            b.radioY *= 0.55f;
-
+            // Dentro de la cuenca (queda oculto: da el cierre).
+            SeccionCuerpo a;
+            a.z = -rOjo * 0.75f;
+            a.radioX = rOjo * 0.52f;
+            a.radioY = rOjo * 0.52f;
+            a.centroY = 0.0f;
+            a.zonaLomo = a.zonaFlanco = a.zonaVientre = ZonaCuerpo::OJO;
             secs.push_back(a);
+
+            // El ecuador: el punto mas ancho, justo en la superficie.
+            SeccionCuerpo b = a;
+            b.z = 0.0f;
+            b.radioX = rOjo;
+            b.radioY = rOjo * 0.86f;      // ligeramente ovalado, como un ojo real
             secs.push_back(b);
 
-            const size_t base = malla.vertices.size();
+            // La cornea, que sobresale un poco: es lo que capta la luz y hace
+            // que el ojo se lea como una esfera humeda y no como un disco.
+            SeccionCuerpo c = a;
+            c.z = rOjo * 0.62f;
+            c.radioX = rOjo * 0.60f;
+            c.radioY = rOjo * 0.52f;
+            secs.push_back(c);
+
+            const size_t baseOjo = malla.vertices.size();
             GeneradorMalla::coserTubo(malla, secs, cfg.ladosPata, p.semilla,
                                       true, true);
-            GeneradorMalla::transformar(malla, base,
-                V3(sx * p.separacionOjo * 0.5f, 0.0f, 0.0f));
 
-            // Piel desnuda, y color propio muy oscuro.
-            //
-            // ⭐ ZONA OJO, no CABEZA. Estaba puesto CABEZA, asi que colorear()
-            // caia en su rama por defecto y les daba el color de la cara: los
-            // ojos existian en la malla pero eran invisibles, y el comentario
-            // de "color propio muy oscuro" no lo cumplia nadie.
-            for (size_t i = base; i < malla.vertices.size(); ++i) {
+            // Girar el ojo para que MIRE HACIA EL LADO y llevarlo a su sitio.
+            // Los ojos laterales son la firma de una presa: campo visual casi
+            // panoramico a costa de poca vision binocular.
+            for (size_t i = baseOjo; i < malla.vertices.size(); ++i) {
+                V3& q = malla.vertices[i].pos;
+                const float ejeLateral = q.z;    // el eje del elipsoide
+                const float anchoZ     = q.x;    // su seccion, hacia adelante
+                q.x = sx * (xCraneo * 0.94f + ejeLateral);
+                q.z = zOjo + anchoZ;
+                q.y = yOjo + q.y;
+            }
+
+            for (size_t i = baseOjo; i < malla.vertices.size(); ++i) {
                 malla.vertices[i].zona = ZonaCuerpo::OJO;
                 malla.vertices[i].pelo = 0.0f;
+            }
+
+            // ================================================================
+            // EL PARPADO / REBORDE DE LA ORBITA
+            // ================================================================
+            // Lo que hace que el ojo PAREZCA un ojo y no una canica pegada: un
+            // anillo de piel algo mas oscura alrededor, ligeramente elevado.
+            // Sin el, el globo sale del craneo sin transicion y se ve como una
+            // pelota incrustada.
+            //
+            // Es barato: un solo anillo, y solo en los LOD que ya dibujan ojos.
+            {
+                std::vector<SeccionCuerpo> orb;
+                SeccionCuerpo o1;
+                o1.z = -rOjo * 0.30f;
+                o1.radioX = rOjo * 1.30f;
+                o1.radioY = rOjo * 1.12f;
+                o1.centroY = 0.0f;
+                o1.zonaLomo = o1.zonaFlanco = o1.zonaVientre = ZonaCuerpo::CABEZA;
+                orb.push_back(o1);
+
+                SeccionCuerpo o2 = o1;
+                o2.z = rOjo * 0.16f;
+                o2.radioX = rOjo * 1.16f;
+                o2.radioY = rOjo * 0.98f;
+                orb.push_back(o2);
+
+                const size_t baseOrb = malla.vertices.size();
+                GeneradorMalla::coserTubo(malla, orb, cfg.ladosPata, p.semilla,
+                                          false, false);
+
+                for (size_t i = baseOrb; i < malla.vertices.size(); ++i) {
+                    V3& q = malla.vertices[i].pos;
+                    const float ejeLateral = q.z;
+                    const float anchoZ     = q.x;
+                    q.x = sx * (xCraneo * 0.92f + ejeLateral);
+                    q.z = zOjo + anchoZ;
+                    q.y = yOjo + q.y;
+                }
+
+                // Piel desnuda alrededor del ojo: sin pelo, y se queda con el
+                // color de la cabeza (lo oscurece el sombreado del reborde).
+                for (size_t i = baseOrb; i < malla.vertices.size(); ++i) {
+                    malla.vertices[i].zona = ZonaCuerpo::CABEZA;
+                    malla.vertices[i].pelo = 0.0f;
+                }
             }
         }
     }
@@ -835,6 +1037,51 @@ private:
         const float zGrupa = -largoTronco * 0.50f;
         const float zNuca  = largoTronco * 0.48f + p.largoCuello * 0.9f;
 
+        // Los mismos numeros con los que construirTronco define el barril. Se
+        // repiten aqui a proposito: es lo que permite EVALUAR la superficie del
+        // lomo en cualquier z en vez de aproximarla.
+        const float z0Tronco = -largoTronco * 0.52f;
+        const float z1Tronco =  largoTronco * 0.48f;
+
+        // ⭐ LA CRIN VA PEGADA AL LOMO, Y ANTES FLOTABA
+        //
+        // Estaba colgada de una constante: `ejeY + altoTorso*0.5*1.30`. Ese
+        // 1.30 la subia un 30% por encima del radio del torso, o sea unos 2 cm
+        // de aire entre el lomo y la crin. Se veia como una linea suelta
+        // flotando sobre la espalda -- que es exactamente lo que hay que
+        // corregir.
+        //
+        // Y ademas era una linea RECTA sobre un lomo que NO lo es: el tronco
+        // tiene perfil de barril (mas grueso al centro), la grupa caida, y el
+        // lomo alzado de forma creciente hacia la cruz. Aunque se bajara el
+        // 1.30 al valor justo, la crin solo tocaria el lomo en un punto y
+        // seguiria despegada en el resto.
+        //
+        // Asi que aqui se EVALUA la altura real de la superficie dorsal para
+        // cada z, con las mismas formulas de construirTronco. La crin se apoya
+        // sobre lo que hay debajo, sea cual sea la forma.
+        auto alturaLomoEn = [&](float z) -> float {
+            // Donde cae esta z dentro del tronco (0 grupa .. 1 pecho).
+            float t = (z - z0Tronco) / (z1Tronco - z0Tronco);
+            if (t < 0.0f) t = 0.0f;
+            if (t > 1.0f) t = 1.0f;
+
+            // Perfil de barril: identico a construirTronco.
+            const float d = (t - 0.58f) / 0.58f;
+            const float perfil = 1.0f - 0.22f * d * d;
+            const float radioY = p.altoTorso * 0.5f * perfil;
+
+            // Grupa caida: identico a construirTronco.
+            const float caidaGrupa = (1.0f - t) * (1.0f - t) * 0.035f;
+            const float centroY = ejeY - caidaGrupa * p.alturaCruz;
+
+            // El alzado del lomo estira la mitad superior del anillo un 30%
+            // como maximo (ver la deformacion 2 de coserTubo). La cresta del
+            // lomo es justo ese punto mas alto.
+            const float alzado = 0.12f + 0.22f * t;
+            return centroY + radioY * (1.0f + alzado * 0.30f);
+        };
+
         std::vector<SeccionCuerpo> secs;
         const int N = cfg.seccionesCuerpo;
 
@@ -848,8 +1095,25 @@ private:
             s.radioX = p.anchoCollar * 0.16f;
             s.radioY = p.altoCrinReposo * 0.5f * (0.5f + 0.9f * perfil);
 
-            // Se apoya sobre la linea del lomo.
-            s.centroY = ejeY + p.altoTorso * 0.5f * 1.30f + s.radioY * 0.5f;
+            // ⭐ SE HUNDE EN EL LOMO, NO SE POSA ENCIMA.
+            //
+            // El centro del tubo se coloca de modo que su mitad baja quede
+            // METIDA bajo la piel. Dos razones:
+            //
+            //   1. Las cerdas de verdad SALEN de la piel: nacen dentro. Una
+            //      crin apoyada justo encima deja una costura visible.
+            //   2. Sin solape, el hueco entre dos superficies curvas se abre
+            //      en cuanto la malla se dobla al animarse.
+            //
+            // EL CENTRO VA EN LA PROPIA LINEA DEL LOMO. Asi la mitad inferior
+            // del tubo queda por debajo de la piel y solo asoma la mitad de
+            // arriba, que es la cresta de pelo visible. Medido sobre la malla:
+            // el vertice mas bajo de la crin queda ~1 cm POR DEBAJO de la
+            // superficie del lomo, y el mas alto sobresale ~2 cm -- que es
+            // justo la altura de crin en reposo que declara la anatomia.
+            const float yLomo = alturaLomoEn(s.z);
+            s.centroY = yLomo;
+
             s.zonaLomo = s.zonaFlanco = s.zonaVientre = ZonaCuerpo::LOMO;
             secs.push_back(s);
         }

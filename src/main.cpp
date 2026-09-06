@@ -302,6 +302,7 @@ struct Vec3i {
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "render/MallaChunk.h"  // geometria de chunk SIN OpenGL (movible entre hilos)
 #include "render/PerfilRendimiento.h"  // que maquina es esta y cuanto aguanta
+#include "render/BordeVecinos.h"       // copia del borde de los 4 chunks vecinos
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "BloqueCompuesto.h" // bloques con estado y varias partes en un voxel
 #include "WorldName.h"
@@ -14574,6 +14575,94 @@ public:
                                 !eastChunk || !eastChunk->isGenerated ||
                                 !westChunk || !westChunk->isGenerated;
 
+        // ====================================================================
+        // ⭐ LA FOTO DEL BORDE DE LOS VECINOS
+        // ====================================================================
+        // A partir de aqui el mesher NO vuelve a tocar los punteros de los
+        // chunks vecinos: lee esta copia.
+        //
+        // POR QUE. Los punteros se guardaban y se leian durante las ~6.500
+        // lineas siguientes. Mientras el mallado corria en el hilo principal
+        // eso era seguro -- el que descarga chunks es el mismo hilo, asi que
+        // no podia pasar entre medias. En cuanto el mallado se va a un worker
+        // deja de serlo: updateChunks hace chunks.erase() y devuelve el chunk
+        // al pool, que RECICLA objetos. El puntero del worker no apuntaria a
+        // memoria liberada, apuntaria a OTRO CHUNK -- y la malla saldria con
+        // datos de otro sitio del mundo, o se cerraria el juego.
+        //
+        // Copiar el borde elimina esa clase de fallo entera: lo que el worker
+        // lee es suyo y nadie mas lo toca.
+        //
+        // CUESTA 32 KB por chunk en vuelo. Solo se copia la columna que da a
+        // este chunk (16x128 por lado), no los vecinos enteros, porque es lo
+        // unico que el mesher llegaba a leer -- comprobado rama por rama en
+        // getNeighborBlockCached.
+        //
+        // Es una FOTO: si el jugador rompe un bloque en el vecino mientras
+        // esto se malla, la cara del borde sale con el estado anterior. No
+        // importa, porque romper un bloque ya marca needsRebuild en los chunks
+        // afectados y el siguiente mallado usa la foto nueva. Lo peor es un
+        // frame de retraso en una cara del borde.
+        Render::BordeVecinos bordeVec;
+        {
+            // Se copia la columna del vecino que TOCA a este chunk:
+            //   norte (+Z) -> su z=0        sur (-Z) -> su z=15
+            //   este  (+X) -> su x=0        oeste (-X) -> su x=15
+            // Cada celda copia DOS cosas: el bloque y su nivel de luz. Las dos
+            // hacen falta porque el mesher tenia dos funciones leyendo los
+            // vecinos (getNeighborBlockCached y faceLightLevel).
+            if (northChunk && northChunk->isGenerated) {
+                bordeVec.norte.reservar();
+                for (int i = 0; i < CHUNK_SIZE; ++i) {
+                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                        bordeVec.norte.poner(i, y, northChunk->getBlock(i, y, 0));
+                        bordeVec.norte.ponerLuz(i, y,
+                            northChunk->getLightLevel(i, y, 0));
+                    }
+                }
+            }
+            if (southChunk && southChunk->isGenerated) {
+                bordeVec.sur.reservar();
+                for (int i = 0; i < CHUNK_SIZE; ++i) {
+                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                        bordeVec.sur.poner(i, y,
+                            southChunk->getBlock(i, y, CHUNK_SIZE - 1));
+                        bordeVec.sur.ponerLuz(i, y,
+                            southChunk->getLightLevel(i, y, CHUNK_SIZE - 1));
+                    }
+                }
+            }
+            if (eastChunk && eastChunk->isGenerated) {
+                bordeVec.este.reservar();
+                for (int i = 0; i < CHUNK_SIZE; ++i) {
+                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                        bordeVec.este.poner(i, y, eastChunk->getBlock(0, y, i));
+                        bordeVec.este.ponerLuz(i, y,
+                            eastChunk->getLightLevel(0, y, i));
+                    }
+                }
+            }
+            if (westChunk && westChunk->isGenerated) {
+                bordeVec.oeste.reservar();
+                for (int i = 0; i < CHUNK_SIZE; ++i) {
+                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                        bordeVec.oeste.poner(i, y,
+                            westChunk->getBlock(CHUNK_SIZE - 1, y, i));
+                        bordeVec.oeste.ponerLuz(i, y,
+                            westChunk->getLightLevel(CHUNK_SIZE - 1, y, i));
+                    }
+                }
+            }
+        }
+
+        // Las medidas del snapshot tienen que ser las del motor. Si alguien
+        // cambia una de las dos, el build para aqui en vez de leer fuera del
+        // vector en un hilo de trabajo.
+        static_assert(Render::BORDE_LADO == CHUNK_SIZE,
+                      "BordeVecinos y el motor no coinciden en el lado del chunk");
+        static_assert(Render::BORDE_ALTO == CHUNK_HEIGHT,
+                      "BordeVecinos y el motor no coinciden en la altura del chunk");
+
         if (missingNeighbors) {
             chunk->buildRetries++;
 
@@ -14637,41 +14726,19 @@ public:
                 return chunk->getBlock(nx, ny, nz);
             }
 
-            // Chunk vecino norte (+Z)
-            if (nz >= CHUNK_SIZE && northChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                return northChunk->getBlock(nx, ny, nz - CHUNK_SIZE);
-            }
-
-            // Chunk vecino sur (-Z)
-            if (nz < 0 && southChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                return southChunk->getBlock(nx, ny, nz + CHUNK_SIZE);
-            }
-
-            // Chunk vecino este (+X)
-            if (nx >= CHUNK_SIZE && eastChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                return eastChunk->getBlock(nx - CHUNK_SIZE, ny, nz);
-            }
-
-            // Chunk vecino oeste (-X)
-            if (nx < 0 && westChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                return westChunk->getBlock(nx + CHUNK_SIZE, ny, nz);
-            }
-
-            // ⭐ CRITICAL FIX: Manejar esquinas diagonales correctamente
-            // Si llegamos aquí, es porque el bloque está en una esquina diagonal
-            // o coordenadas muy fuera de rango
-
-            // Caso 1: Esquina diagonal (X y Z fuera de rango) - renderizar cara para evitar huecos
-            bool isXOutOfRange = (nx < 0 || nx >= CHUNK_SIZE);
-            bool isZOutOfRange = (nz < 0 || nz >= CHUNK_SIZE);
-
-            if (isXOutOfRange && isZOutOfRange) {
-                // Esquina diagonal - renderizar la cara para evitar huecos visuales
-                return BLOCK_AIR;
-            }
-
-            // Caso 2: Coordenadas muy fuera de rango (no debería pasar) - optimizar no renderizando
-            return BLOCK_STONE;
+            // ⭐ FUERA DEL CHUNK: SE LEE LA FOTO, NO EL VECINO.
+            //
+            // Aqui habia cuatro ramas que desreferenciaban northChunk,
+            // southChunk, eastChunk y westChunk. Ahora las cuatro viven dentro
+            // de BordeVecinos::consultar, que lee una copia propia de este
+            // mallado -- ver la nota larga donde se toma la foto.
+            //
+            // El comportamiento es el MISMO, y hay tests que lo fijan
+            // (tests/test_borde_vecinos.cpp): cada lado responde con su
+            // vecino, la esquina diagonal da AIRE para no dejar huecos, y una
+            // coordenada imposible da PIEDRA, que es el lado seguro (no
+            // dibujar una cara de mas).
+            return bordeVec.consultar(nx, ny, nz);
         };
 
         // ⭐ LUZ POR CARA: cada cara toma el skylight del bloque ADYACENTE a
@@ -14696,21 +14763,18 @@ public:
             if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
                 return chunk->getLightLevel(nx, ny, nz);
             }
-            if (nz >= CHUNK_SIZE && northChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                return northChunk->getLightLevel(nx, ny, nz - CHUNK_SIZE);
-            }
-            if (nz < 0 && southChunk && nx >= 0 && nx < CHUNK_SIZE) {
-                return southChunk->getLightLevel(nx, ny, nz + CHUNK_SIZE);
-            }
-            if (nx >= CHUNK_SIZE && eastChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                return eastChunk->getLightLevel(nx - CHUNK_SIZE, ny, nz);
-            }
-            if (nx < 0 && westChunk && nz >= 0 && nz < CHUNK_SIZE) {
-                return westChunk->getLightLevel(nx + CHUNK_SIZE, ny, nz);
-            }
-            // Vecino aún no cargado: iluminar de más antes que pintar negro
-            // un borde; el rebuild al integrarse el vecino lo corrige.
-            return 18;
+
+            // ⭐ FUERA DEL CHUNK: LA FOTO, NO EL VECINO.
+            //
+            // Esta era la SEGUNDA funcion que desreferenciaba los punteros a
+            // los chunks vecinos (la otra es getNeighborBlockCached). Copiar
+            // solo los bloques habria dejado la mitad del problema en pie, y
+            // esa mitad cierra el juego igual.
+            //
+            // Sigue devolviendo 18 (luz plena) cuando no hay dato: iluminar de
+            // mas en un borde es mucho menos visible que pintarlo negro, y el
+            // remallado al integrarse el vecino lo corrige.
+            return bordeVec.consultarLuz(nx, ny, nz);
         };
 
         // ⭐ LA NOCHE OSCURECE LO QUE ESTA A LA INTEMPERIE

@@ -45,6 +45,7 @@ add_executable(voxel_tests
     test_pecari_malla.cpp
     test_pecari_pulido.cpp
     test_agua_simplificada.cpp
+    test_perfil.cpp
     test_items_sueltos.cpp
     test_malla_chunk.cpp
     test_creativo_agua.cpp

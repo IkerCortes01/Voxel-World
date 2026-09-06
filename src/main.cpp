@@ -301,6 +301,7 @@ struct Vec3i {
 #include "Dormir.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "render/MallaChunk.h"  // geometria de chunk SIN OpenGL (movible entre hilos)
+#include "render/PerfilRendimiento.h"  // que maquina es esta y cuanto aguanta
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "BloqueCompuesto.h" // bloques con estado y varias partes en un voxel
 #include "WorldName.h"
@@ -6685,6 +6686,19 @@ UI::ItemTextureManager g_itemTextures;
 // Se alterna con F6.
 bool DEBUG_HOTBAR = false;
 
+// ============================================================================
+// EL PERFIL DE ESTA MAQUINA
+// ============================================================================
+// Se rellena una sola vez al arrancar, en cuanto hay contexto de OpenGL (ver
+// main()). Antes de eso lleva valores prudentes, que es lo que corresponde a
+// "todavia no se sabe que hardware es esto".
+//
+// Es global por la misma razon que g_textureManager: lo consultan el mundo, el
+// regulador y la niebla, y pasarlo por parametro obligaria a tocar firmas por
+// medio motor. Se escribe UNA vez y a partir de ahi solo se lee, asi que no
+// tiene el problema de estado compartido mutable que si tiene g_gameState.
+Render::Perfil g_perfil;
+
 // --- Callbacks que el ItemTextureManager usa para hablar con OpenGL ---
 // Se pasan como punteros a función para que el header de UI no dependa de GL.
 
@@ -7319,6 +7333,67 @@ struct Chunk {
     // Legacy: setLightLevel (ahora usa sunlight)
     void setLightLevel(int x, int y, int z, uint8_t level) {
         setSunlight(x, y, z, level);
+    }
+};
+
+// ============================================================================
+// EL CANDADO DEL MALLADO, QUE SE SUELTA SOLO
+// ============================================================================
+// `isUpdatingMesh` impide dos cosas a la vez: que un chunk se malle dos veces
+// en paralelo, y que se dibuje mientras se le cambian los batches. Se toma con
+// compare_exchange al entrar en buildChunkMesh y se soltaba A MANO en tres
+// puntos distintos.
+//
+// ----------------------------------------------------------------------------
+// POR QUE SOLTARLO A MANO ES UN FALLO ESPERANDO
+// ----------------------------------------------------------------------------
+// Entre la toma y la suelta hay ~6.400 lineas que reservan vectores de
+// vertices, colores y UV para cientos de miles de caras. Cualquier excepcion
+// por el camino -- un bad_alloc en un chunk denso es el caso realista -- salta
+// por encima de los tres puntos de suelta y deja el candado PUESTO PARA
+// SIEMPRE.
+//
+// Y un candado filtrado no es un detalle cosmetico: cierra LAS DOS salidas del
+// chunk a la vez.
+//   - no se vuelve a mallar, porque el compare_exchange de la entrada falla
+//   - no se dibuja, porque el render salta los chunks con el candado puesto
+// El resultado es un agujero permanente en el mundo por el que se ve el
+// interior del terreno.
+//
+// La red que lo salvaba es un vigilante en render() que cuenta 60 frames y
+// fuerza la suelta. Eso es un TEMPORIZADOR, no una garantia: actua un segundo
+// tarde, y solo si el chunk ademas se quedo sin batches.
+//
+// ----------------------------------------------------------------------------
+// LO QUE HACE ESTE GUARD
+// ----------------------------------------------------------------------------
+// El destructor de un objeto local se ejecuta SIEMPRE: al salir por return, al
+// llegar al final, y tambien cuando una excepcion desenrolla la pila. Con eso
+// el candado se suelta solo y las tres sueltas manuales desaparecen.
+//
+// `entregar()` existe para el unico sitio que necesita conservarlo mas alla
+// del guard: el swap de batches del final, que vuelve a armar el candado a
+// proposito para protegerse y lo suelta el mismo. A partir de esa llamada el
+// guard se desentiende.
+//
+// Esto ademas es requisito para sacar el mallado a un hilo de trabajo: con
+// varios hilos mallando, un candado que se filtra deja de ser un chunk
+// invisible y pasa a ser un chunk que nadie puede tocar nunca mas.
+// ============================================================================
+class GuardMallado {
+    Chunk* chunk;
+public:
+    explicit GuardMallado(Chunk* c) : chunk(c) {}
+
+    // Ni copiar ni mover: es un candado, y duplicarlo lo soltaria dos veces.
+    GuardMallado(const GuardMallado&)            = delete;
+    GuardMallado& operator=(const GuardMallado&) = delete;
+
+    // A partir de aqui el guard no toca el candado: se hace cargo el llamador.
+    void entregar() { chunk = nullptr; }
+
+    ~GuardMallado() {
+        if (chunk) chunk->isUpdatingMesh.store(false, std::memory_order_release);
     }
 };
 
@@ -8905,6 +8980,66 @@ private:
         return true;
     }
 
+    // ========================================================================
+    // ⭐ EL AGUA QUE NACE SIN SUELO SE PONE A CAER SOLA
+    // ========================================================================
+    // LO QUE ESTO ARREGLA: un rio que pasa sobre una cueva.
+    //
+    // La proteccion de CaveGenerator::LOSA_LECHO impide que la generacion abra
+    // el suelo JUSTO bajo un cauce, pero no puede cubrir todos los casos: un
+    // mundo ya guardado con el bug, una galeria que llega por un lado, o el
+    // propio jugador picando bajo el rio. En cualquiera de esos, queda agua
+    // apoyada en nada.
+    //
+    // Y el motor no la tira, porque su simulacion es PEREZOSA a proposito: la
+    // cola de agua solo se llena cuando el jugador toca algo (es lo que hace
+    // que un oceano intacto no gaste un ciclo de CPU). Un rio sobre un vacio se
+    // queda flotando indefinidamente porque nadie lo ha empujado.
+    //
+    // Esto lo despierta al integrar el chunk: se busca agua con aire debajo y
+    // se encola. A partir de ahi el flujo normal hace el resto -- el agua cae,
+    // y si abajo hay una galeria, entra en ella. Eso ES la cascada que se
+    // pidio: no hay codigo de "cascada", hay agua a la que se deja caer.
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE ES BARATO
+    // ------------------------------------------------------------------------
+    // Solo se mira la franja de alturas donde puede haber rios (por encima del
+    // nivel del mar), y solo las celdas que YA son agua. En un chunk sin agua
+    // en esa franja no se encola nada y el barrido es una pasada de lecturas
+    // de paleta, sin escribir.
+    void despertarAguaSinSuelo(Chunk* c) {
+        if (!c || !c->isGenerated) return;
+
+        // La franja util: del nivel del mar hacia arriba. Por debajo esta el
+        // oceano, que se sostiene solo y no hay que tocar -- despertarlo seria
+        // justo lo que la simulacion perezosa evita.
+        const int yMin = TerrainGen::ChunkGenerator::SEA_LEVEL + 1;
+
+        const int baseX = c->position.x * CHUNK_SIZE;
+        const int baseZ = c->position.z * CHUNK_SIZE;
+
+        int encoladas = 0;
+        // Tope por chunk: si un mundo viejo tiene mucha agua colgando, se
+        // despierta a lo largo de varios frames en vez de llenar la cola de
+        // golpe. La simulacion ya reencola lo que quede pendiente.
+        constexpr int MAX_POR_CHUNK = 64;
+
+        for (int x = 0; x < CHUNK_SIZE && encoladas < MAX_POR_CHUNK; ++x)
+            for (int z = 0; z < CHUNK_SIZE && encoladas < MAX_POR_CHUNK; ++z)
+                for (int y = yMin; y < CHUNK_HEIGHT - 1; ++y) {
+                    const BlockType b = c->getBlock(x, y, z);
+                    if (!esAguaCualquiera(b)) continue;
+
+                    // ¿Que hay debajo? Si es aire, esta agua no se sostiene.
+                    const BlockType abajo = c->getBlock(x, y - 1, z);
+                    if (abajo != BLOCK_AIR) continue;
+
+                    scheduleWaterUpdate(baseX + x, y, baseZ + z);
+                    if (++encoladas >= MAX_POR_CHUNK) break;
+                }
+    }
+
     // Cose un chunk con sus cuatro vecinos, en los DOS sentidos.
     //
     // Los dos sentidos importan: al llegar un chunk nuevo puede tanto RECIBIR
@@ -8979,6 +9114,10 @@ private:
             // frame siguiente.
             coserLuzConVecinos(r.pos);
 
+            // ⭐ Y despertar el agua que haya quedado sin suelo, para que caiga
+            // en vez de flotar sobre una cueva (ver despertarAguaSinSuelo).
+            despertarAguaSinSuelo(r.chunk);
+
             // Los vecinos deben rehacer su mesh: sus caras hacia este chunk
             // dejan de estar contra el vacío.
             const Vec3i neighbors[] = {
@@ -8993,15 +9132,25 @@ private:
     }
     TerrainGen::WorldGeneratorAAA* worldGen;  // Nuevo generador AAA
     int seed;
-    // Bajado de 6 a 5 para sostener 26 FPS.
+    // ========================================================================
+    // ⭐ LA DISTANCIA DE RENDER YA NO ES UNA CONSTANTE
+    // ========================================================================
+    // Era `const int RENDER_DISTANCE = 5`, con esta justificacion: "bajado de
+    // 6 a 5 para sostener 26 FPS. Medido: con 6 el circulo abarca ~113 chunks
+    // y el juego caia a 12-19 FPS en los tramos malos".
     //
-    // Medido: con 6 el circulo abarca ~113 chunks y el juego caia a
-    // 12-19 FPS en los tramos malos. Con 5 son ~78: un 31% menos de
-    // geometria que dibujar cada frame, que es de donde sale el margen.
+    // El razonamiento era correcto PARA ESTA MAQUINA. El problema es que el
+    // numero se aplicaba igual a todas: una integrada de 2012 y una RTX de
+    // 2024 cargaban los mismos 78 chunks. La primera iba a tirones y la
+    // segunda desperdiciaba tarjeta viendo cerca.
     //
-    // Se ve algo menos lejos, pero la niebla ya difumina el borde, asi
-    // que el corte no canta.
-    const int RENDER_DISTANCE = 5;
+    // Ahora lo decide PerfilRendimiento.h al arrancar, mirando la GPU, los
+    // nucleos y la RAM, y el regulador adaptativo lo afina en caliente segun
+    // los FPS que se esten dando de verdad.
+    //
+    // Sigue siendo una sola variable leida desde muchos sitios, asi que el
+    // resto del motor no se entera del cambio.
+    int RENDER_DISTANCE = 4;
     bool isGeneratingInitialWorld;  // Flag para evitar reconstrucciones durante generación inicial
     std::string currentWorldPath;  // Ruta del mundo actual para guardar/cargar chunks
 
@@ -9285,6 +9434,40 @@ public:
         // ⭐ ASYNC DESHABILITADO - causaba crashes
         // Worker threads desactivados, usando generación sincrónica
         std::cout << "✅ Sistema de chunks inicializado (modo sincrónico)" << std::endl;
+    }
+
+    // ------------------------------------------------------------------------
+    // ⭐ ADOPTAR EL PERFIL DE LA MAQUINA
+    // ------------------------------------------------------------------------
+    // Se llama una vez, desde main(), en cuanto se ha detectado el hardware.
+    //
+    // No se hace en el constructor a proposito: el World se crea ANTES de que
+    // exista contexto de OpenGL, y sin contexto glGetString devuelve nullptr,
+    // asi que ahi todavia no hay nada que adoptar.
+    void aplicarPerfil(const Render::Perfil& p) {
+        RENDER_DISTANCE = Render::acotarDistancia(p.distanciaRender);
+    }
+
+    // La distancia que se esta usando ahora mismo. La consultan la niebla (que
+    // tiene que apagarse justo en el borde de lo cargado) y el regulador.
+    int distanciaRender() const { return RENDER_DISTANCE; }
+
+    // ------------------------------------------------------------------------
+    // ⭐ MOVER LA DISTANCIA EN CALIENTE
+    // ------------------------------------------------------------------------
+    // Lo usa el regulador adaptativo. Devuelve true si cambio de verdad, que
+    // es lo que permite al llamador avisar solo cuando hay noticia.
+    //
+    // Bajarla NO descarga chunks aqui: de eso ya se encarga updateChunks en su
+    // barrido normal, comparando contra el radio actual. Subirla tampoco carga
+    // nada de golpe -- los chunks nuevos entran por la cola de generacion, con
+    // su presupuesto de siempre. Es lo que evita que un cambio de distancia
+    // produzca justo el tiron que se intenta evitar.
+    bool ajustarDistancia(int nueva) {
+        const int d = Render::acotarDistancia(nueva);
+        if (d == RENDER_DISTANCE) return false;
+        RENDER_DISTANCE = d;
+        return true;
     }
 
     int getSeed() const { return seed; }
@@ -14241,11 +14424,46 @@ public:
         if (!chunk->needsRebuild && !chunk->waitingForNeighbors) return;
         if (!chunk->isGenerated) return;
 
+        // ====================================================================
+        // ⭐ EL FRENO DEL CHUNK QUE NO ENCUENTRA SU TEXTURA
+        // ====================================================================
+        // Si getBlockTexture devuelve 0 de forma PERMANENTE (el archivo no
+        // existe), este chunk vuelve a entrar aqui cada frame para siempre, y
+        // cada vuelta cuesta el mesher completo: ~330.000 iteraciones de
+        // celda, el escaneo de NaN de todos los vertices y VBOs nuevos. Sesenta
+        // veces por segundo. Un solo chunk asi se come el presupuesto de
+        // mallado entero y el mundo deja de cargar.
+        //
+        // Reintentar SIEMPRE es deliberado y se conserva -- una textura que
+        // falta suele ser transitoria y rendirse hornea un chunk gris para
+        // siempre. Lo que se anade es el ESPACIADO: los primeros 30 intentos
+        // van seguidos (medio segundo, que es donde se resuelve el caso
+        // normal) y a partir de ahi uno de cada 30 frames.
+        //
+        // ⚠️ TIENE QUE ESTAR AQUI Y NO AL FINAL. El rescate de render() vuelve
+        // a poner needsRebuild=true en el mismo frame a todo chunk que se
+        // quede sin batches -- que es exactamente este caso. Bajar la bandera
+        // al final no frena nada; salir por aqui, si.
+        if (chunk->buildRetries > 30 && (chunk->buildRetries % 30) != 0) {
+            chunk->buildRetries++;
+            return;
+        }
+
         // ⭐ PROTECCIÓN: Evitar race conditions en threading
         bool expected = false;
         if (!chunk->isUpdatingMesh.compare_exchange_strong(expected, true)) {
             return; // Ya se está procesando este chunk
         }
+
+        // ⭐ A PARTIR DE AQUI EL CANDADO SE SUELTA SOLO.
+        //
+        // Salga esta funcion por donde salga -- por cualquiera de sus return,
+        // por el final, o porque una excepcion desenrolle la pila -- el
+        // destructor del guard suelta el candado. Antes habia tres sueltas
+        // escritas a mano y cualquier excepcion entre medias dejaba el chunk
+        // bloqueado para siempre, invisible y sin posibilidad de remallarse.
+        // Ver la nota larga en GuardMallado.
+        GuardMallado guardCandado(chunk);
 
         // ¿Alguna cara se quedó sin textura durante ESTA construcción? Si es
         // así el mesh está incompleto y hay que rehacerlo (ver más abajo).
@@ -14334,7 +14552,7 @@ public:
             chunk->batches.clear();
             chunk->needsRebuild = false;
             chunk->waitingForNeighbors = false;
-            chunk->isUpdatingMesh.store(false);  // ⭐ CRÍTICO: Desbloquear
+            // El candado lo suelta el guard al salir (ver GuardMallado).
             return;
         }
 
@@ -14367,7 +14585,7 @@ public:
                 // pierde este flag el chunk deja de reconstruirse para
                 // siempre; mantenerlos juntos cierra ese agujero.
                 chunk->needsRebuild = true;
-                chunk->isUpdatingMesh.store(false);
+                // El candado lo suelta el guard al salir (ver GuardMallado).
                 return;  // Se reintentará en el próximo frame
             }
             // Si llega aquí (>= 3 reintentos), construir de todas formas (mejor visible que invisible)
@@ -20601,6 +20819,15 @@ public:
         // AHORA es seguro desbloquear (swap ya completado y visible)
         chunk->isUpdatingMesh.store(false, std::memory_order_release);
 
+        // ⭐ EL GUARD YA NO TIENE NADA QUE SOLTAR.
+        //
+        // Este tramo se protege el candado el mismo -- lo re-arma para el
+        // swap y lo suelta aqui -- asi que se lo quita al guard. Dejarselo no
+        // romperia nada (soltar dos veces un atomico es inofensivo), pero
+        // entonces el codigo tendria dos duenos del mismo candado y no se
+        // sabria cual manda. Con esto hay uno solo en cada tramo.
+        guardCandado.entregar();
+
         // ⭐⭐⭐ Limpiar batches viejos DESPUÉS del swap (ya no se están usando)
         try {
             for (auto batch : oldBatches) {
@@ -20660,7 +20887,38 @@ public:
                                  "(intento " << chunk->buildRetries << ")."
                               << std::endl;
                 }
-                chunk->needsRebuild = true;   // rehacer el próximo frame
+
+                // ⭐ SE SIGUE REINTENTANDO SIEMPRE, PERO NO A 60 POR SEGUNDO.
+                //
+                // El reintento sin tope es correcto y se queda: una textura que
+                // falta suele ser transitoria (se estan subiendo a OpenGL
+                // mientras el mesher trabaja) y rendirse hornea un chunk gris
+                // para siempre.
+                //
+                // Lo que faltaba era distinguir TRANSITORIO de DEFINITIVO. Si
+                // el archivo no existe en disco, getBlockTexture devuelve 0
+                // para siempre, y con reintento inmediato este chunk paga el
+                // mesher completo -- ~330.000 iteraciones de celda, mas el
+                // escaneo de NaN, mas VBOs nuevos -- SESENTA VECES POR SEGUNDO
+                // hasta que se cierre el juego. Un solo chunk asi se come el
+                // presupuesto de mallado entero y el mundo deja de cargar.
+                //
+                // Con esto, los primeros 30 intentos van seguidos (que es el
+                // medio segundo en el que se resuelve el caso normal), y a
+                // partir de ahi se espacia: uno de cada 30 frames. No se
+                // abandona nunca -- el chunk se arregla solo en cuanto la
+                // textura aparezca -- pero un fallo permanente cuesta un 3% de
+                // lo que costaba en vez de bloquear el mallado.
+                //
+                // ⚠️ EL FRENO SE PONE A LA ENTRADA, NO AQUI.
+                //
+                // No sirve de nada bajar `needsRebuild` en este punto: el
+                // rescate de render() lo vuelve a subir en el MISMO frame para
+                // cualquier chunk que se haya quedado sin batches -- que es
+                // justo el estado de un chunk al que le falta la textura. El
+                // espaciado real vive en la guarda del principio de esta
+                // funcion, que es la unica que el rescate no puede deshacer.
+                chunk->needsRebuild = true;   // rehacer, con el freno de la entrada
                 return;
             }
 
@@ -20801,6 +21059,101 @@ public:
             else {
                 if (MAX_CHUNKS_PER_FRAME > 1) MAX_CHUNKS_PER_FRAME--;
                 if (MAX_MESHES_PER_FRAME_DYNAMIC > 1) MAX_MESHES_PER_FRAME_DYNAMIC--;
+            }
+
+            // ================================================================
+            // ⭐ Y SI CON ESO NO BASTA, SE MUEVE LA DISTANCIA DE RENDER
+            // ================================================================
+            // El regulador de arriba reparte el presupuesto del frame entre
+            // generar y mallar. Pero hay un limite a lo que puede conseguir:
+            // si la vista tiene 750.000 caras, la GPU tarda lo que tarda
+            // aunque la CPU no haga nada. En la maquina de referencia eso son
+            // 10,4 ms de swap -- un techo de ~96 FPS que ningun reparto de
+            // trabajo puede saltarse.
+            //
+            // Lo unico que baja ese techo es DIBUJAR MENOS. Y como el area
+            // crece con el cuadrado del radio, un solo escalon de distancia
+            // quita muchisima geometria: de 5 a 4 son un 36% menos de chunks.
+            //
+            // POR QUE VA MUCHO MAS DESPACIO QUE EL RESTO DEL REGULADOR:
+            // cambiar la distancia carga o descarga un anillo entero de
+            // chunks, que cuesta trabajo. Hacerlo cada 12 frames produciria
+            // justo el tiron que se intenta evitar, y ademas oscilaria: bajar
+            // la distancia sube los FPS, lo que invita a subirla otra vez.
+            //
+            // De ahi las tres cautelas:
+            //   1. Solo cada 4 segundos (SEGUNDOS_ENTRE_CAMBIOS).
+            //   2. Banda muerta ancha: se baja por debajo del objetivo y se
+            //      sube solo con un 35% de margen de sobra, no al primer
+            //      frame bueno.
+            //   3. Nunca por encima de lo que dijo el perfil de hardware: si
+            //      la GPU es una integrada de 2012, que vaya sobrada un rato
+            //      no la convierte en otra cosa.
+            {
+                static float relojDistancia = 0.0f;
+                relojDistancia += deltaTime * 12.0f;   // este bloque corre 1 de cada 12
+
+                // ⭐ SUBIR CUESTA MUCHO MAS QUE BAJAR, Y ESO ES DELIBERADO.
+                //
+                // Medido en la maquina de referencia, con estos tiempos
+                // simetricos (4 s en los dos sentidos), el regulador OSCILABA:
+                //
+                //     74 FPS -> baja a 2
+                //     238 FPS -> sube a 3      <- el 238 es falso
+                //     96 FPS -> baja a 2 otra vez
+                //
+                // El 238 no era la maquina yendo sobrada: era el hueco justo
+                // despues de recortar, con los chunks del anillo exterior ya
+                // descargados y los nuevos aun sin cargar. Se media un mundo
+                // mas pequeño del que iba a haber, se subia la distancia, y al
+                // llegar los chunks los FPS se hundian otra vez.
+                //
+                // Con la subida a 15 segundos, para cuando se plantea subir ya
+                // se ha pagado el coste de lo que se cargo: la medida es del
+                // estado estacionario y no del hueco. Bajar sigue siendo
+                // rapido (4 s) porque perder FPS SI hay que corregirlo ya.
+                //
+                // Es la misma asimetria que usa la cresta del pecari o la
+                // respuesta de sobresalto de una presa: reaccionar deprisa a
+                // lo malo, volver despacio a lo bueno.
+                constexpr float SEGUNDOS_PARA_BAJAR = 4.0f;
+                constexpr float SEGUNDOS_PARA_SUBIR = 15.0f;
+
+                const float msObjetivo = 1000.0f / (float)g_perfil.fpsObjetivo;
+                const float msActual   = performanceSmoothed * 1000.0f;
+
+                // ---- BAJAR: se esta perdiendo el objetivo ----
+                if (msActual > msObjetivo * 1.15f) {
+                    if (relojDistancia >= SEGUNDOS_PARA_BAJAR) {
+                        relojDistancia = 0.0f;
+                        if (ajustarDistancia(RENDER_DISTANCE - 1)) {
+                            std::cout << "[CALIDAD] " << (int)(1000.0f / msActual)
+                                      << " FPS, por debajo de " << g_perfil.fpsObjetivo
+                                      << ": distancia de render -> "
+                                      << RENDER_DISTANCE << std::endl;
+                        }
+                    }
+                }
+                // ---- SUBIR: sobra margen Y aun no se llego al tope ----
+                else if (msActual < msObjetivo * 0.65f &&
+                         RENDER_DISTANCE < g_perfil.distanciaRender) {
+                    if (relojDistancia >= SEGUNDOS_PARA_SUBIR) {
+                        relojDistancia = 0.0f;
+                        if (ajustarDistancia(RENDER_DISTANCE + 1)) {
+                            std::cout << "[CALIDAD] " << (int)(1000.0f / msActual)
+                                      << " FPS, sobra margen: distancia de render -> "
+                                      << RENDER_DISTANCE << std::endl;
+                        }
+                    }
+                }
+                // ---- EN LA BANDA BUENA: el reloj se reinicia ----
+                // Sin esto, un rato en el objetivo seguido de un bajon
+                // momentaneo dispararia el cambio al instante, porque el reloj
+                // llegaria ya cargado. Solo cuenta el tiempo SEGUIDO fuera de
+                // la banda.
+                else {
+                    relojDistancia = 0.0f;
+                }
             }
 
             // ⭐ LÍMITES ABSOLUTOS: Nunca exceder para garantizar estabilidad
@@ -21588,12 +21941,18 @@ public:
                 const float dzc = chunkWorldZ + CHUNK_SIZE * 0.5f - playerPos.z;
                 const float dist = sqrtf(dxc * dxc + dzc * dzc)
                                  - CHUNK_SIZE * 0.7072f;   // media diagonal
-                // Se usa RENDER_DISTANCE, la constante que de verdad decide
-                // hasta donde se CARGAN chunks. (El renderDistance de
-                // GameState, que es el que configura la niebla, no se puede
-                // leer aqui: su tipo aun no esta definido en este punto del
-                // archivo. Da igual, porque nunca se dibuja mas alla de lo
-                // que se carga.)
+                // Se usa RENDER_DISTANCE, que es lo que de verdad decide hasta
+                // donde se CARGAN chunks. (El renderDistance de GameState, que
+                // es el que configura la niebla, no se puede leer aqui: su
+                // tipo aun no esta definido en este punto del archivo. Da
+                // igual, porque nunca se dibuja mas alla de lo que se carga.)
+                //
+                // ⭐ Y ahora que RENDER_DISTANCE cambia en caliente -- lo mueve
+                // el perfil de hardware al arrancar y el regulador durante la
+                // partida -- la niebla lo sigue SOLA. Es justo lo que hace que
+                // recortar la vista no se note: el borde de lo cargado y el
+                // punto donde la niebla se vuelve opaca son el mismo sitio,
+                // asi que el terreno no aparece cortado, se desvanece.
                 const float fogEnd = RENDER_DISTANCE * (float)CHUNK_SIZE * 0.98f;
                 if (dist > fogEnd) { chunksCulled++; continue; }
             }
@@ -34176,6 +34535,53 @@ int main() {
     std::cout << "Cargando extensiones VBO..." << std::endl;
     loadVBOFunctions();
 
+    // ========================================================================
+    // ⭐ QUE MAQUINA ES ESTA
+    // ========================================================================
+    // Va AQUI y no antes porque glGetString necesita un contexto de OpenGL ya
+    // creado: sin el devuelve nullptr.
+    //
+    // De aqui sale la distancia de render, los hilos de trabajo y el
+    // presupuesto de mallado. Antes eran constantes pensadas para la maquina
+    // de desarrollo, lo que significaba que en un equipo mas lento el juego
+    // iba a tirones y en uno mejor desperdiciaba tarjeta.
+    //
+    // El perfil es solo el PUNTO DE PARTIDA: el regulador adaptativo lo afina
+    // en caliente con los FPS reales. Reconocer la GPU evita los primeros
+    // segundos de tirones que costaria descubrirlo midiendo.
+    {
+        const char* glRenderer = (const char*)glGetString(GL_RENDERER);
+        const char* glVendor   = (const char*)glGetString(GL_VENDOR);
+
+        // RAM del sistema, en MB. Si la consulta falla se pasa 0 y el
+        // clasificador lo trata como "no se sabe" (o sea, prudente).
+        uint64_t ramMB = 0;
+        MEMORYSTATUSEX mem;
+        mem.dwLength = sizeof(mem);
+        if (GlobalMemoryStatusEx(&mem)) {
+            ramMB = (uint64_t)(mem.ullTotalPhys / (1024ull * 1024ull));
+        }
+
+        g_perfil = Render::detectar(glRenderer, glVendor,
+                                    std::thread::hardware_concurrency(),
+                                    ramMB);
+
+        std::cout << "======================================" << std::endl;
+        std::cout << "  HARDWARE DETECTADO" << std::endl;
+        std::cout << "======================================" << std::endl;
+        std::cout << "GPU:        " << g_perfil.descripcionGPU << std::endl;
+        std::cout << "Nucleos:    " << std::thread::hardware_concurrency()
+                  << "   RAM: " << ramMB << " MB" << std::endl;
+        std::cout << "Nivel:      " << Render::nombreNivel(g_perfil.nivel)
+                  << std::endl;
+        std::cout << "Distancia:  " << g_perfil.distanciaRender << " chunks"
+                  << std::endl;
+        std::cout << "Hilos:      " << g_perfil.hilosTrabajo << std::endl;
+        std::cout << "Objetivo:   " << g_perfil.fpsObjetivo << " FPS"
+                  << std::endl;
+        std::cout << "======================================" << std::endl;
+    }
+
     // Inicializar TextureManager (debe hacerse DESPUÉS de crear contexto OpenGL)
     std::cout << "Inicializando sistema de texturas..." << std::endl;
     g_textureManager = new TextureManager();
@@ -34206,6 +34612,12 @@ int main() {
         std::cout << "Seed del mundo: " << g_gameState->world.getSeed() << std::endl;
         std::cout << "Guarda esta semilla para regenerar este mundo!" << std::endl;
         std::cout << "======================================" << std::endl;
+
+        // ⭐ El mundo adopta la distancia de render que decidio el perfil.
+        // Tiene que ser DESPUES de crearlo (obviamente) y despues de detectar
+        // el hardware, que ocurre en cuanto hay contexto de OpenGL.
+        g_gameState->world.aplicarPerfil(g_perfil);
+        g_gameState->renderDistance = g_perfil.distanciaRender;
     } catch (const std::exception& e) {
         // El "Presiona Enter" no servía de nada: sin consola, cin.get() vuelve
         // por EOF al instante y la ventana se cerraba sola.

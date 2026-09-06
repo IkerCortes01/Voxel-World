@@ -62,7 +62,60 @@ public:
     // Margen bajo la superficie: evita agujeros que perforen el terreno.
     static constexpr int SURFACE_MARGIN  = 5;
 
+    // ========================================================================
+    // ⭐ EL SUELO DE UN RIO NO SE PERFORA
+    // ========================================================================
+    // EL BUG QUE ESTO CORRIGE, medido sobre 160.000 columnas con seed 12345:
+    //
+    //     columnas de rio                          7.412
+    //     con una BOCA que abre el propio lecho      725   ->  9.78%
+    //
+    // O sea: una de cada diez columnas de cauce tenia un pozo de entrada
+    // perforandola. El agua del rio se rellena desde `surfaceY + 1` (ver
+    // ChunkGenerator, etapa 4), asi que al abrirse el suelo bajo ella el agua
+    // quedaba FLOTANDO sobre el agujero, o se derramaba en una cueva sin que
+    // nada la sostuviera.
+    //
+    // La causa es que IsCave respeta SURFACE_MARGIN --por eso el hueco minimo
+    // medido bajo un cauce son 5 bloques, nunca menos-- pero IsCaveEntrance NO:
+    // baja hasta 56 bloques desde la superficie, sin mirar si lo que perfora es
+    // tierra firme o el fondo de un rio.
+    //
+    // ------------------------------------------------------------------------
+    // LO QUE **NO** SE PROHIBE, Y ES DELIBERADO
+    // ------------------------------------------------------------------------
+    // No se prohiben las cuevas "bajo un rio" en general: eso vaciaria el
+    // subsuelo de medio mundo y ademas es justo lo contrario de lo que se pidio.
+    // Lo que se protege es una LOSA DE ROCA fina bajo el lecho.
+    //
+    //   AL LADO del cauce  -> la cueva sigue existiendo, intacta.
+    //   MUY POR DEBAJO     -> tambien: a partir de LOSA_LECHO bloques de
+    //                         hondura la cueva vuelve a estar permitida, asi
+    //                         que se puede pasar por debajo de un rio.
+    //   PEGADA AL LECHO    -> prohibida. Es la que dejaba el agua sin fondo.
+    //
+    // Con eso, una galeria profunda puede seguir cruzando bajo el cauce y
+    // conectarse con el a distancia -- que es la cascada que se pidio -- sin
+    // que el agua se quede en el aire.
+    //
+    // 8 bloques: por encima del margen de 5 de IsCave (asi que anade proteccion
+    // de verdad) y muy por debajo de la hondura tipica de una galeria (10-20
+    // segun la medicion de IsCaveEntrance), asi que no vacia el subsuelo.
+    static constexpr int LOSA_LECHO = 8;
+
     explicit CaveGenerator(int s) : seed(s) {}
+
+    // ¿Esta este voxel dentro de la losa protegida bajo el lecho de un rio?
+    //
+    // `esLecho` lo dice el generador de terreno (ColumnData::isRiverBed): esta
+    // clase no calcula rios, se le pasa el dato. Es la misma inversion que ya
+    // usa con surfaceHeight -- CaveGenerator no sabe de biomas ni de cauces.
+    static bool BajoLechoDeRio(int y, int surfaceHeight, bool esLecho) {
+        if (!esLecho) return false;
+        // La franja que va del lecho hacia abajo. Por debajo de ella la cueva
+        // vuelve a ser legal.
+        return y > surfaceHeight - LOSA_LECHO;
+    }
 
     // ========================================================================
     // TEST PRINCIPAL: hay cueva en este voxel?
@@ -71,13 +124,22 @@ public:
     // surfaceHeight    : altura del terreno en esta columna
     //
     // Devuelve true si el voxel debe ser AIRE.
-    bool IsCave(float x, int y, float z, int surfaceHeight) const {
+    //
+    // `esLechoDeRio` protege la losa de roca bajo un cauce (ver LOSA_LECHO).
+    // Por omision es false, de modo que todo el codigo que no sepa de rios
+    // sigue comportandose igual que antes.
+    bool IsCave(float x, int y, float z, int surfaceHeight,
+                bool esLechoDeRio = false) const {
         // --- Limites verticales ---
         if (y < CAVE_MIN_Y || y > CAVE_MAX_Y) return false;
 
         // No perforar la superficie: deja un techo solido.
         // Las entradas a cuevas se generan aparte (ver IsCaveEntrance).
         if (y > surfaceHeight - SURFACE_MARGIN) return false;
+
+        // ⭐ Ni el suelo de un rio. Mas abajo de la losa la cueva vuelve a
+        // estar permitida, asi que se puede pasar por debajo del cauce.
+        if (BajoLechoDeRio(y, surfaceHeight, esLechoDeRio)) return false;
 
         const float fy = (float)y;
 
@@ -301,7 +363,26 @@ public:
     // no la profundidad tipica.
     static constexpr int ENTRADA_MAX_HONDURA = 56;
 
-    bool IsCaveEntrance(float x, int y, float z, int surfaceHeight) const {
+    bool IsCaveEntrance(float x, int y, float z, int surfaceHeight,
+                        bool esLechoDeRio = false) const {
+        // ⭐ UNA BOCA NO SE ABRE EN EL FONDO DE UN RIO.
+        //
+        // AQUI ESTABA EL BUG PRINCIPAL, y es el que dejaba el agua flotando.
+        //
+        // Medido con seed 12345 sobre 160.000 columnas: de las 7.412 columnas
+        // de cauce, 725 --el 9.78%-- tenian una boca perforando el lecho. El
+        // agua del rio se rellena desde surfaceY+1, asi que al abrirse el suelo
+        // bajo ella se quedaba en el aire.
+        //
+        // Se descarta la COLUMNA ENTERA, no solo la cota del lecho: un pozo que
+        // empezara un bloque mas abajo dejaria el mismo agujero con un paso
+        // extra. Si la columna es cauce, no hay boca y punto.
+        //
+        // Las bocas de al lado del rio no se tocan: `esLechoDeRio` solo es
+        // cierto donde IsRiverBed lo es (strength > 0.35), que es el cauce
+        // propiamente dicho, no su entorno.
+        if (esLechoDeRio) return false;
+
         // El pozo arranca EN la superficie -- no un bloque por debajo.
         //
         // Con `y > surfaceHeight - 1` la columna de superficie sobrevivia, asi

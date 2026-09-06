@@ -153,7 +153,12 @@ public:
             // Asi el cambio es REVERSIBLE: si algun dia se quiere lava en el
             // fondo, se vuelve a poner aqui y todo lo demas sigue en su sitio.
             // Lo unico que desaparece es la lava GENERADA de cero.
-            if (caves.IsCave((float)worldX, y, (float)worldZ, surfaceY)) {
+            // ⭐ `col.isRiverBed` viaja hasta el generador de cuevas para que
+            // no vacie la losa de roca que sostiene el agua del cauce (ver
+            // CaveGenerator::LOSA_LECHO). Mas abajo de esa losa la cueva sigue
+            // permitida: se puede pasar por debajo de un rio.
+            if (caves.IsCave((float)worldX, y, (float)worldZ, surfaceY,
+                             col.isRiverBed)) {
                 writer.Set(lx, y, lz, Blocks::AIR);
                 continue;
             }
@@ -227,10 +232,14 @@ public:
         // decide donde para: baja hasta encontrar la galeria (ver
         // ENTRADA_MAX_HONDURA).
         //
+        // ⭐ Y aqui igual: una boca no puede abrirse en el fondo de un cauce.
+        // Era el 9.78% de las columnas de rio (medido), y cada una dejaba el
+        // agua flotando sobre el agujero.
         for (int y = surfaceY;
              y >= surfaceY - CaveGenerator::ENTRADA_MAX_HONDURA; --y) {
             if (y < 1 || y >= worldHeight) continue;
-            if (caves.IsCaveEntrance((float)worldX, y, (float)worldZ, surfaceY)) {
+            if (caves.IsCaveEntrance((float)worldX, y, (float)worldZ, surfaceY,
+                                     col.isRiverBed)) {
                 writer.Set(lx, y, lz, Blocks::AIR);
             }
         }

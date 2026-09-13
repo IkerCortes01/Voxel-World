@@ -8727,6 +8727,22 @@ public:
     Streaming::Plazos plazosVigilante;
 
     float msFrameSuavizado = 8.0f;           // EMA del tiempo de frame
+
+    // ⭐ EMA del tiempo de **CPU** del frame (fisica + chunks + render), SIN el
+    // swap. Es contra esto que se ajusta el presupuesto de streaming, porque es
+    // lo unico con lo que el streaming compite de verdad: los dos usan el hilo
+    // principal. El swap es la GPU dibujando, y recortar el streaming no la
+    // acelera ni un microsegundo. Ver ajustarPresupuesto.
+    //
+    // Lo rellena el bucle principal cada frame (ver la llamada a
+    // anotarTiempoCpu); si nadie lo rellena, se queda en un valor prudente y el
+    // comportamiento es el de antes.
+    float msCpuSuavizado = 4.0f;
+
+    void anotarTiempoCpu(double physMs, double chunksMs, double renderMs) {
+        const float cpu = (float)(physMs + chunksMs + renderMs);
+        msCpuSuavizado = msCpuSuavizado * 0.9f + cpu * 0.1f;
+    }
     double ultimoTiempoStreaming = 0.0;
 
     // ⭐ CANCELACION MASIVA POR SALTO DE POSICION (§55).
@@ -22779,8 +22795,13 @@ public:
         metricas.anotarFrame(deltaTime * 1000.0f);
         const float msObjetivo = 1000.0f / (float)(g_perfil.fpsObjetivo > 0
                                                    ? g_perfil.fpsObjetivo : 120);
+        // ⚠️ Se pasa el tiempo de CPU, NO el del frame. Ver la nota larga de
+        // ajustarPresupuesto: con el frame entero, una GPU que va justa hacia
+        // que el regulador recortara el streaming hasta el suelo y lo dejara
+        // ahi para siempre -- con la CPU ociosa. Ese era el motivo de que el
+        // mundo cargara a empujones al moverse.
         presupuesto = Streaming::ajustarPresupuesto(presupuesto,
-                                                    msFrameSuavizado, msObjetivo);
+                                                    msCpuSuavizado, msObjetivo);
 
         // 3. Desatascar lo que lleve demasiado tiempo parado.
         //
@@ -37547,6 +37568,15 @@ int main() {
     const char* benchCaminarStr = getenv("VOXELWORLD_BENCH_CAMINAR");
     const bool benchCaminar = benchCaminarStr && *benchCaminarStr == '1';
 
+    // ⭐ Y CON =2, VOLANDO.
+    //
+    // Correr son 5,6 bloques/s; volar rapido son 21. Es una diferencia de casi
+    // 4x, y el streaming se comporta de forma COMPLETAMENTE distinta: a pie el
+    // pipeline va sobrado y a velocidad de vuelo el jugador adelanta al
+    // terreno. Sin poder medir este caso, "carga brusca al volar" es un
+    // sintoma que no se puede reproducir ni verificar.
+    const bool benchVolar = benchCaminarStr && *benchCaminarStr == '2';
+
     // ⭐ PROTECCIÓN CONTRA CRASHES: Try-catch en el game loop
     try {
         while (!glfwWindowShouldClose(window)) {
@@ -37558,12 +37588,53 @@ int main() {
             }
 
             // Avance automatico del banco de pruebas (ver benchCaminar).
-            if (benchCaminar && g_gameState &&
+            if ((benchCaminar || benchVolar) && g_gameState &&
                 g_gameState->screenState == SCREEN_IN_GAME) {
-                g_gameState->keys[GLFW_KEY_W] = true;
+                // ⚠️ keys['w'], NO keys[GLFW_KEY_W].
+                //
+                // GLFW_KEY_W vale 87 y 'w' vale 119: son casillas DISTINTAS del
+                // array. El motor indexa por caracter (lo pone asi keyCallback),
+                // asi que marcar la 87 no la leia nadie y el bench se quedaba
+                // quieto -- dando mediciones preciosas de un jugador parado
+                // (ent=278 sal=278 sin moverse, 160 FPS porque no habia nada
+                // que cargar).
+                g_gameState->keys['w'] = true;
                 if (g_playerController) {
                     g_playerController->getInput().setForward(true);
                     g_playerController->getInput().setSprint(true);
+
+                    // Volando: es el caso que de verdad estresa el streaming.
+                    //
+                    // Se espera 3 segundos antes de despegar. Sin esa espera el
+                    // vuelo se activa en el primer frame dentro del mundo,
+                    // cuando el terreno bajo el jugador todavia no esta mallado
+                    // -- y el bench se quedaba sin producir un solo informe.
+                    if (benchVolar && !g_playerController->isFlying() &&
+                        (glfwGetTime() - benchInicio) > 3.0) {
+                        g_playerController->setFlying(true);
+                    }
+
+                    // ⭐ Y SE GIRA DESPACIO, EN VEZ DE IR EN LINEA RECTA.
+                    //
+                    // Yendo recto el jugador acaba chocando contra una ladera o
+                    // saliendo a mar abierto, y en los dos casos deja de cargar
+                    // terreno: los contadores se congelan y la medicion no vale
+                    // (se vieron corridas con ent=244 sal=244 sin moverse en 20
+                    // segundos, dando 160 FPS porque no habia nada que hacer).
+                    //
+                    // Girando ~9 grados por segundo describe un circulo amplio,
+                    // asi que cruza chunks nuevos durante toda la prueba sin
+                    // alejarse tanto como para encallar. Es lo que hace que el
+                    // numero medido sea el del streaming y no el de un jugador
+                    // parado contra una pared.
+                    // Por FRAME y no por segundo: aqui todavia no se ha
+                    // calculado deltaTime (se hace mas abajo en el bucle). Para
+                    // el banco de pruebas da igual que el giro dependa de los
+                    // FPS -- lo que importa es que no vaya recto.
+                    g_gameState->player.yaw += 0.06f;
+                    if (g_playerController) {
+                        g_playerController->getState().yaw = g_gameState->player.yaw;
+                    }
                 }
             }
             // ⭐ Protección crítica: Verificar que el estado del juego es válido
@@ -38380,6 +38451,12 @@ int main() {
                     g_gameState->world.ctxJugador.miradaX = -sinf(yawRad);
                     g_gameState->world.ctxJugador.miradaZ = -cosf(yawRad);
                 }
+                // ⭐ El presupuesto de streaming se ajusta contra el tiempo de
+                // CPU, no contra el frame entero. Se le pasan los tiempos del
+                // frame ANTERIOR (los de este aun no existen: render y swap van
+                // despues), que es exactamente lo que se quiere: una media
+                // suavizada de lo que cuesta el trabajo de CPU.
+                g_gameState->world.anotarTiempoCpu(physics_ms, chunks_ms, render_ms);
                 g_gameState->world.updateChunks(g_gameState->player.position, g_gameState->player.previousPosition, deltaTime);
                 // Actualizar posición previa para el siguiente frame
                 g_gameState->player.previousPosition = g_gameState->player.position;

@@ -232,12 +232,44 @@ struct Presupuesto {
 
 // El objetivo del ajuste NO es cargar rapido: es no romper el frame.
 //
-// Se ajusta contra el tiempo de frame suavizado. La asimetria es deliberada:
-// se recorta DEPRISA (multiplicando) y se recupera DESPACIO (sumando). Un
-// tiron es inmediatamente visible para el jugador; recuperar medio milisegundo
-// de presupuesto medio segundo mas tarde no lo nota nadie.
+// La asimetria es deliberada: se recorta DEPRISA (multiplicando) y se recupera
+// DESPACIO (sumando). Un tiron es inmediatamente visible para el jugador;
+// recuperar medio milisegundo de presupuesto medio segundo mas tarde no lo nota
+// nadie.
+//
+// ============================================================================
+// ⚠️ SE MIDE CONTRA EL TIEMPO DE **CPU**, NO CONTRA EL FRAME ENTERO
+// ============================================================================
+// BUG QUE ESTO CORRIGE: la carga a tirones al moverse, y el presupuesto clavado
+// en su minimo para siempre.
+//
+// Antes entraba `msFrameSuavizado`, el frame COMPLETO. El problema es que en
+// este motor el frame esta dominado por la GPU, no por la CPU. Medido en la
+// maquina de referencia volando:
+//
+//     fis=0.06  chunks=0.04  render=2.0  swap=6.2 ms   -> 117 FPS
+//
+// O sea: la CPU gasta ~2,1 ms y se pasa 6,2 ms ESPERANDO a que la tarjeta
+// termine. Pero con el objetivo en 150 FPS (6,67 ms) y un frame real de 8,5 ms,
+// la holgura salia NEGATIVA, asi que el regulador recortaba el presupuesto en
+// cada revision hasta dejarlo en el suelo:
+//
+//     presup(ms) gen=0.5 malla=0.5    <- el minimo, en TODAS las mediciones
+//
+// El resultado es el sintoma que se reporto: el mundo carga a base de
+// empujones. Hay 4,5 ms de CPU libres cada frame y el streaming no los usa
+// porque cree que no hay sitio. Y es peor cuanto mas rapido va el jugador,
+// porque hace falta mas terreno por segundo justo cuando menos se concede.
+//
+// Recortar el streaming NO acelera el swap: la GPU tarda lo que tarda dibujando
+// lo que ya hay. Lo unico que consigue es cargar menos mundo por el mismo
+// precio.
+//
+// `msCpuSuavizado` es fis+chunks+render, o sea lo que de verdad compite con el
+// streaming por el hilo principal. `msObjetivo` sigue siendo el del frame
+// entero, y se reserva la mitad para la GPU (ver abajo).
 inline Presupuesto ajustarPresupuesto(const Presupuesto& actual,
-                                      float msFrameSuavizado,
+                                      float msCpuSuavizado,
                                       float msObjetivo) {
     Presupuesto p = actual;
 
@@ -263,7 +295,18 @@ inline Presupuesto ajustarPresupuesto(const Presupuesto& actual,
     constexpr float MIN_GEN = 0.5f, MIN_MALLA = 0.5f, MIN_SUBIDA = 1.0f, MIN_DESC = 0.25f;
     constexpr float MAX_GEN = 4.0f, MAX_MALLA = 5.0f, MAX_SUBIDA = 4.0f, MAX_DESC = 2.0f;
 
-    const float holgura = msObjetivo - msFrameSuavizado;
+    // ⭐ CUANTO DEL FRAME PUEDE GASTAR LA CPU EN NO-STREAMING.
+    //
+    // El presupuesto del frame se reparte entre la CPU (fisica, chunks, render:
+    // preparar los draw calls) y la GPU (swap: dibujarlos). Reservando la mitad
+    // para cada lado, el streaming solo cede cuando el trabajo de CPU se acerca
+    // a SU parte -- no cuando la tarjeta va justa, que es algo que el streaming
+    // no puede arreglar.
+    //
+    // El 0.5 es deliberadamente generoso: si la CPU va sobrada, que el mundo
+    // cargue deprisa. Si de verdad se pasa, el recorte sigue siendo inmediato.
+    const float presupuestoCpu = msObjetivo * 0.5f;
+    const float holgura = presupuestoCpu - msCpuSuavizado;
 
     if (holgura < -1.0f) {
         // Vamos claramente por encima del objetivo: recortar de golpe.

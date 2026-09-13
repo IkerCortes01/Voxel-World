@@ -146,9 +146,17 @@ TEST_CASE("Prioridad: la velocidad SI cuenta") {
     CHECK(radioBarrido(rapido) > radioBarrido(lento));
 
     // Y no se dispara sin control aunque el jugador vuele absurdamente rapido.
+    //
+    // El tope subio de 3 a 5 chunks al corregir la carga brusca al volar: con
+    // 0.75 s de anticipacion y vuelo rapido (21 bloques/s) el corredor salia de
+    // UN chunk, y el jugador cruza uno cada 0.76 s -- o sea que el terreno se
+    // pedia cuando ya casi se estaba pisando. Lo que importa aqui es que siga
+    // ACOTADO, no el numero exacto.
     ContextoJugador absurdo;
     absurdo.velX = 5000.0f;
-    CHECK(absurdo.chunksAnticipacion() <= 3);
+    CHECK(absurdo.chunksAnticipacion() <= 5);
+    // 80 bloques de corredor: lejos de pedir medio mundo.
+    CHECK(absurdo.chunksAnticipacion() * 16 <= 80);
 }
 
 TEST_CASE("Prioridad: se pide el terreno ANTES de llegar") {
@@ -269,19 +277,55 @@ TEST_CASE("Vigilante: se rinde con diagnostico, no en silencio ni en bucle") {
 TEST_CASE("Presupuesto: se recorta rapido y se recupera despacio") {
     // Un tiron se ve al instante; recuperar presupuesto medio segundo mas
     // tarde no lo nota nadie. Por eso la asimetria.
+    //
+    // ⚠️ EL PRIMER PARAMETRO ES TIEMPO DE **CPU**, NO EL FRAME ENTERO.
+    //
+    // Cambio al corregir la carga a empujones: el motor esta limitado por GPU,
+    // asi que medir contra el frame completo hacia que el regulador recortara
+    // el streaming hasta el suelo con la CPU ociosa. Se reserva la mitad del
+    // objetivo para la CPU, asi que con objetivo 8.3 el presupuesto de CPU es
+    // 4.15 ms.
     Presupuesto base;
-    const float objetivo = 8.3f;   // 120 FPS
+    const float objetivo = 8.3f;   // 120 FPS  -> 4.15 ms de CPU
 
     const Presupuesto apretado = ajustarPresupuesto(base, 20.0f, objetivo);
     CHECK(apretado.malladoMs < base.malladoMs);
 
-    const Presupuesto holgado = ajustarPresupuesto(base, 3.0f, objetivo);
+    // 1.0 ms de CPU contra 4.15 disponibles: sobra de verdad.
+    const Presupuesto holgado = ajustarPresupuesto(base, 1.0f, objetivo);
     CHECK(holgado.malladoMs > base.malladoMs);
 
     // La bajada tiene que ser mas brusca que la subida.
     const float caida  = base.malladoMs - apretado.malladoMs;
     const float subida = holgado.malladoMs - base.malladoMs;
     CHECK(caida > subida);
+}
+
+TEST_CASE("Presupuesto: una GPU lenta NO ahoga el streaming") {
+    // ⭐ EL TEST QUE FIJA EL ARREGLO DE LA CARGA A EMPUJONES.
+    //
+    // Caso real medido en la maquina de referencia (HD 4000) volando:
+    //
+    //     fis=0.06  chunks=0.04  render=2.0  swap=6.2 ms  -> 117 FPS
+    //
+    // La CPU gasta 2,1 ms y espera 6,2 a la tarjeta. Con el frame entero (8,3)
+    // contra un objetivo de 6,67 (150 FPS) la holgura salia NEGATIVA y el
+    // regulador recortaba en cada revision hasta dejar el presupuesto en el
+    // suelo -- con 2 ms de CPU libres por frame sin usar.
+    //
+    // Recortar el streaming no acelera el swap: la GPU tarda lo que tarda. Lo
+    // unico que consigue es cargar menos mundo por el mismo precio, y eso es
+    // justo lo que se veia como "el mundo carga a tirones al moverse".
+    const float objetivo = 6.67f;          // 150 FPS
+    const float cpuReal  = 2.1f;           // fis + chunks + render
+
+    Presupuesto p;
+    for (int i = 0; i < 100; ++i) p = ajustarPresupuesto(p, cpuReal, objetivo);
+
+    // Con la CPU tan holgada, el presupuesto tiene que SUBIR, no hundirse.
+    CHECK(p.malladoMs    > 1.0f);
+    CHECK(p.generacionMs > 1.0f);
+    CHECK(p.subidaMs     > 1.0f);
 }
 
 TEST_CASE("Presupuesto: nunca llega a cero") {
@@ -309,10 +353,19 @@ TEST_CASE("Presupuesto: acotado por arriba aunque sobre tiempo") {
 TEST_CASE("Presupuesto: banda muerta, no oscila") {
     // Dentro de la banda el presupuesto no se mueve. Sin ella cambiaria cada
     // frame y el ritmo de carga seria visiblemente irregular.
+    //
+    // El parametro es tiempo de CPU y se reserva la mitad del objetivo para
+    // ella, asi que con objetivo 8.3 el presupuesto de CPU es 4.15 ms. La banda
+    // muerta va de -1 a +2 respecto a eso: [2.15, 5.15]. Se prueba en 4.0, que
+    // cae dentro.
     Presupuesto base;
-    const Presupuesto igual = ajustarPresupuesto(base, 8.0f, 8.3f);
+    const Presupuesto igual = ajustarPresupuesto(base, 4.0f, 8.3f);
     CHECK(igual.malladoMs == doctest::Approx(base.malladoMs));
     CHECK(igual.generacionMs == doctest::Approx(base.generacionMs));
+
+    // Y fuera de la banda SI se mueve, en los dos sentidos.
+    CHECK(ajustarPresupuesto(base, 8.0f, 8.3f).malladoMs < base.malladoMs);
+    CHECK(ajustarPresupuesto(base, 1.0f, 8.3f).malladoMs > base.malladoMs);
 }
 
 // ============================================================================

@@ -107,12 +107,36 @@ struct ContextoJugador {
     // Se acota a 3 chunks para que un jugador en modo creativo volando muy
     // rapido no pida un corredor infinito y se coma el presupuesto entero.
     int chunksAnticipacion() const {
-        constexpr float SEGUNDOS_ANTICIPACION = 0.75f;
+        // ⭐ 1.5 s, NO 0.75.
+        //
+        // El 0.75 era "el presupuesto de latencia del pipeline completo
+        // (generar + mallar + subir)". Pero medido en la maquina de referencia,
+        // un chunk tarda bastante mas que eso en recorrer el pipeline cuando
+        // hay cola: pasa por la cola de generacion (tope 24), dos workers, la
+        // cola de mallado (tope 16), tres workers mas, y la cola de subida.
+        //
+        // Con 0.75 s y vuelo rapido (21 bloques/s) la anticipacion sale a 0.98
+        // chunks -- o sea UNO. El jugador cruza un chunk cada 0.76 s, asi que
+        // pedia el terreno justo cuando ya casi lo estaba pisando: llegaba
+        // tarde y el mundo aparecia de golpe delante. Ese es el sintoma de
+        // "carga brusca al volar".
+        //
+        // Con 1.5 s se pide con dos chunks de margen a velocidad de vuelo, que
+        // es el tiempo que el pipeline necesita de verdad. Pasarse tampoco es
+        // gratis (se precarga terreno que quiza no se pise), por eso no se sube
+        // mas: es el punto donde el corredor deja de llegar tarde sin empezar a
+        // desperdiciar.
+        constexpr float SEGUNDOS_ANTICIPACION = 1.5f;
         constexpr float BLOQUES_POR_CHUNK     = 16.0f;
         const float bloques = rapidez() * SEGUNDOS_ANTICIPACION;
         int n = (int)(bloques / BLOQUES_POR_CHUNK);
         if (n < 0) n = 0;
-        if (n > 3) n = 3;
+        // ⭐ Tope 5, no 3. A 21 bloques/s (vuelo rapido) la formula pide 1.97
+        // chunks; el tope de 3 no llegaba a estorbar ahi, pero SI recortaba en
+        // cuanto se volaba mas rapido o el pipeline iba cargado -- que es justo
+        // cuando mas falta hace mirar lejos. 5 chunks a 16 bloques son 80
+        // bloques de corredor, que sigue siendo una fraccion del radio cargado.
+        if (n > 5) n = 5;
         return n;
     }
 

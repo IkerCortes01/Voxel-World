@@ -213,6 +213,53 @@ public:
                 if (r < 0.93f) return TREE_OAK;
                 return TREE_ENCINO;
 
+            // ================================================================
+            // LOS TRES OCOTALES
+            // ================================================================
+            // La regla de los tres: la especie que da nombre al bioma se lleva
+            // ~75%, y el resto se reparte entre acompanantes.
+            //
+            // POR QUE NO 100%. Un pinar monoespecifico existe, pero es una
+            // PLANTACION: hileras de un solo arbol, y se ve artificial. Un
+            // ocotal real tiene la masa dominante de una especie con oyameles y
+            // encinos intercalados, y son justo esos arboles distintos los que
+            // dejan ver que la masa es de otra cosa. Sin ellos no hay contraste
+            // y el bosque se lee plano.
+            //
+            // El acompanante principal de cada ocotal puro es EL OTRO OCOTE, en
+            // proporcion pequena: es lo que hace que al cruzar de un ocotal al
+            // siguiente la transicion ya venga anunciada.
+            case BIOME_OCOTAL_BLANCO:
+                // Pinus montezumae manda. Es el pino de cota alta, asi que su
+                // acompanante de altura es el oyamel.
+                if (r < 0.75f) return TREE_OCOTE;
+                if (r < 0.87f) return TREE_OCOTE_CHINO;
+                if (r < 0.95f) return TREE_OYAMEL;
+                return TREE_ENCINO;
+
+            case BIOME_OCOTAL_CHINO:
+                // Pinus leiophylla manda. Es de cota media y algo mas seca, asi
+                // que aqui el acompanante es el ENCINO y no el oyamel: son los
+                // bosques de pino-encino de media montana.
+                if (r < 0.75f) return TREE_OCOTE_CHINO;
+                if (r < 0.87f) return TREE_OCOTE;
+                if (r < 0.95f) return TREE_ENCINO;
+                return TREE_OAK;
+
+            case BIOME_OCOTAL_MIXTO:
+                // Aqui NO hay especie dominante: es el punto donde los dos
+                // rangos se solapan, asi que van a partes iguales (43/43). Es
+                // lo que distingue a este bioma de los otros dos y la razon de
+                // que exista como bioma propio en vez de como frontera.
+                //
+                // El reparto simetrico importa: si uno se llevara el 60% se
+                // veria como un ocotal puro con intrusos, no como un bosque
+                // mezclado.
+                if (r < 0.43f) return TREE_OCOTE;
+                if (r < 0.86f) return TREE_OCOTE_CHINO;
+                if (r < 0.94f) return TREE_OYAMEL;
+                return TREE_ENCINO;
+
             case BIOME_MOUNTAINS:
                 // Alta montana: el oyamel domina la cota alta, pero el ocote
                 // es EL pino de la montana mexicana y aqui tiene su sitio.

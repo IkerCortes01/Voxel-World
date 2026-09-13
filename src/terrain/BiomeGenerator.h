@@ -85,6 +85,78 @@ private:
 
     static constexpr float FOREST_HUMID_MIN = 0.50f;
 
+    // ------------------------------------------------------------------------
+    // LOS OCOTALES: LA FRANJA FRESCA Y HUMEDA
+    // ------------------------------------------------------------------------
+    // Los pinares mexicanos ocupan la tierra fria templada: mas fresca que el
+    // bosque de encino y bastante mas humeda que el desierto. Esa es la region
+    // climatica que se les asigna aqui.
+    //
+    // POR QUE SE EVALUAN ANTES QUE EL BOSQUE
+    // El arbol de decision se queda con la PRIMERA rama que acierta, asi que
+    // el orden es prioridad. Si el bosque fuera primero, se llevaria toda la
+    // franja humeda (humidity > 0.50 lo cubre entero) y los ocotales no
+    // saldrian NUNCA -- el mismo fallo que ya tuvieron los biomas de montana,
+    // que se asignaban sin comprobar que hubiera montana debajo.
+    //
+    // Van despues del desierto porque el desierto pide temperatura ALTA y los
+    // ocotales temperatura BAJA: no compiten por el mismo terreno y el orden
+    // entre ellos da igual. Se deja el desierto delante para no mover un
+    // reparto que ya estaba medido.
+    static constexpr float OCOTAL_TEMP_MAX   = 0.46f;  // por debajo: tierra fria
+    static constexpr float OCOTAL_HUMID_MIN  = 0.42f;  // el pinar necesita agua
+
+    // ------------------------------------------------------------------------
+    // Y COMO SE REPARTEN LOS TRES ENTRE SI
+    // ------------------------------------------------------------------------
+    // Por HUMEDAD, que es lo que de verdad separa a las dos especies en campo:
+    //
+    //   Pinus montezumae (blanco)   sube mas de cota y aguanta mas frio, en la
+    //                               vertiente humeda. Se lleva la parte de
+    //                               ARRIBA de la franja.
+    //   Pinus leiophylla (chino)    es de cota media y tolera mas sequedad. Se
+    //                               lleva la parte de ABAJO.
+    //   Donde los dos rangos se tocan crecen mezclados: ese solape es el
+    //   OCOTAL MIXTO, y va EN MEDIO de los otros dos por construccion.
+    //
+    // Que el mixto quede en medio no es cosmetico: significa que nunca hay una
+    // frontera directa entre ocotal blanco y ocotal chino. Siempre se pasa por
+    // el mixto, que es justo lo que hace que la transicion se vea gradual --
+    // primero aparecen chinos sueltos entre los blancos, luego se igualan,
+    // luego se van los blancos.
+    //
+    // ⭐ LOS CORTES SALEN DE MEDIR LA HUMEDAD, NO DE ELEGIRLOS A OJO.
+    //
+    // El primer intento puso 0.52 y 0.62 razonando sobre el rango teorico
+    // [0,1]. El resultado medido fue un reparto de 3.3% / 3.2% / 16.9%: el
+    // ocotal blanco se llevaba cinco veces mas mundo que los otros dos juntos,
+    // y el chino y el mixto quedaban como franjas anecdoticas.
+    //
+    // La causa es que la humedad NO se reparte uniformemente en la franja
+    // fria. Medida sobre 12.759 columnas de tierra firme con temperatura por
+    // debajo de OCOTAL_TEMP_MAX, su distribucion es:
+    //
+    //     percentil   humedad
+    //        p10       0.492
+    //        p25       0.601
+    //        p50       0.787     <- la mediana esta MUY arriba
+    //        p75       0.941
+    //        p90       1.000     <- y se satura en el tope
+    //
+    // O sea que casi toda la franja esta por encima de 0.62, y cortar ahi
+    // mandaba el 72% de las columnas al blanco.
+    //
+    // Los cortes de ahora son los CUARTILES REALES de esa distribucion, asi
+    // que los tres ocotales reciben aproximadamente un tercio cada uno. Es el
+    // mismo metodo que se uso para ampliar el desierto: medir el reparto sobre
+    // el generador real y elegir el umbral que da el resultado buscado.
+    //
+    // ⚠️ Si algun dia se cambia ClimateGenerator::GetHumidity, estos dos
+    // numeros dejan de ser cuartiles y hay que volver a medirlos. El test
+    // "los tres salen en proporciones parecidas" es lo que avisa de eso.
+    static constexpr float OCOTAL_MIXTO_HUMID_MIN  = 0.66f;
+    static constexpr float OCOTAL_BLANCO_HUMID_MIN = 0.87f;
+
     // Montanas: erosion BAJA (roca joven) y altura suficiente.
     static constexpr float MOUNTAIN_EROSION_MAX = 0.38f;
     static constexpr float PEAKS_EROSION_MAX    = 0.24f;
@@ -150,6 +222,20 @@ public:
         // Desierto: caliente Y seco (ambas condiciones, ETAPA 8).
         if (c.temperature > DESERT_TEMP_MIN && c.humidity < DESERT_HUMID_MAX) {
             return BIOME_DESERT;
+        }
+
+        // ---- OCOTALES: la tierra fria y humeda ----
+        // Fresco Y humedo. Se evalua ANTES que el bosque a proposito (ver la
+        // nota de los umbrales): el bosque cubre toda la franja humeda, asi que
+        // si fuera primero se quedaria con esto tambien.
+        //
+        // Los tres se separan por humedad, de mas seco a mas humedo:
+        // chino -> mixto -> blanco. El mixto SIEMPRE queda entre los otros dos,
+        // asi que no existe frontera directa blanco/chino.
+        if (c.temperature < OCOTAL_TEMP_MAX && c.humidity > OCOTAL_HUMID_MIN) {
+            if (c.humidity > OCOTAL_BLANCO_HUMID_MIN) return BIOME_OCOTAL_BLANCO;
+            if (c.humidity > OCOTAL_MIXTO_HUMID_MIN)  return BIOME_OCOTAL_MIXTO;
+            return BIOME_OCOTAL_CHINO;
         }
 
         // Bosque: humedo, temperatura no extrema (ETAPA 7).

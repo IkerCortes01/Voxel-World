@@ -70,6 +70,9 @@ using TerrainGen::BIOME_FOREST;
 using TerrainGen::BIOME_DESERT;
 using TerrainGen::BIOME_MOUNTAINS;
 using TerrainGen::BIOME_MOUNTAIN_PEAKS;
+using TerrainGen::BIOME_OCOTAL_BLANCO;
+using TerrainGen::BIOME_OCOTAL_CHINO;
+using TerrainGen::BIOME_OCOTAL_MIXTO;
 
 // ----------------------------------------------------------------------------
 // DATOS DE LA ESPECIE
@@ -213,6 +216,19 @@ public:
             // Calakmul (57.9% frutos, 37 especies vegetales) es de selva.
             case BIOME_FOREST:    return 1.00f;
 
+            // Los tres OCOTALES cuentan como bosque. El pecari es generalista
+            // y esta registrado en bosque de pino-encino mexicano, que es
+            // exactamente este bioma.
+            //
+            // Se les da el mismo 1.00 que al bosque y no un valor menor: no hay
+            // dato publicado de densidad de D. tajacu en pinar puro, y bajarlo
+            // "porque un pinar da menos fruto" seria inventar biologia -- justo
+            // lo que el protocolo de este sistema prohibe. Si algun dia
+            // aparece el dato, este es el sitio donde cambiarlo.
+            case BIOME_OCOTAL_BLANCO:
+            case BIOME_OCOTAL_CHINO:
+            case BIOME_OCOTAL_MIXTO:  return 1.00f;
+
             // MEDIDO: en zona semiarida el nopal es el 25-80% de la dieta y
             // le resuelve la sed (contiene ~87% de agua). El desierto no es
             // habitat marginal para esta especie: es donde se le llama
@@ -257,6 +273,11 @@ public:
                 minOut = 5; maxOut = 15;
                 break;
             case BIOME_FOREST:
+            // Los ocotales usan el rango de bosque por el mismo motivo que
+            // comparten idoneidad: es bosque, y no hay dato propio de pinar.
+            case BIOME_OCOTAL_BLANCO:
+            case BIOME_OCOTAL_CHINO:
+            case BIOME_OCOTAL_MIXTO:
                 // MEDIDO: 6-10 en selva
                 minOut = 6; maxOut = 10;
                 break;

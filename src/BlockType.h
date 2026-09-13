@@ -996,6 +996,48 @@ inline bool admiteNiveles(BlockType t) {
 }
 
 // ============================================================================
+// ⭐ IDs DE NIVEL HUERFANOS: LA MADERA QUE SALIO DE LA TABLA
+// ============================================================================
+// EL BUG QUE ESTO CORRIGE: el inventario creativo mostraba 42 casillas con
+// textura de PIEDRA que no eran piedra.
+//
+// Son los niveles de la madera --BLOCK_PLANKS_L1..L7, PLANKE, PLANKO, WOOD,
+// WOODE, WOODO-- y quedaron en un limbo:
+//
+//   1. La madera SALIO de tablaNiveles() a proposito (ver la nota alli): un
+//      tronco es un tronco entero, no una loncha de 3 px.
+//   2. Pero sus 42 IDs SIGUEN en el enum, y con razon -- quitarlos correria
+//      los numeros de todo lo que va detras y los mundos guardados leerian
+//      bloques equivocados.
+//   3. Al salir de la tabla, `esNivelParcial()` empezo a decir NO sobre ellos.
+//   4. Y el filtro del inventario creativo es exactamente
+//      `if (esNivelParcial(bt)) continue;`
+//
+// O sea: dejaron de contar como nivel, asi que el filtro dejo de saltarlos y
+// entraron al creativo. Y como getBlockTexture tampoco tiene entrada para
+// ellos, caen en su `default:`, que devuelve Piedra.png. De ahi las 42
+// casillas de "piedra" que no son piedra.
+//
+// Esto los reconoce por su RANGO en el enum, que es la misma tecnica que ya
+// usa bloqueBaseDe para resolverlos: no dependen de la tabla, asi que la
+// respuesta es correcta aunque la madera nunca vuelva a ella.
+//
+// NO se borran ni se les da textura: son bloques MUERTOS. Lo que hace falta es
+// que nadie pueda colocarlos, y eso se consigue sacandolos del creativo.
+inline bool esNivelDeMaderaHuerfano(BlockType t) {
+    const int id = (int)t;
+    // Los seis rangos, en el orden en que estan declarados en el enum. Se
+    // comprueban contra los IDs de sus extremos, no contra numeros escritos a
+    // mano: si el enum se reordena, esto sigue apuntando a lo correcto.
+    return (id >= (int)BLOCK_PLANKS_L1 && id <= (int)BLOCK_PLANKS_L7) ||
+           (id >= (int)BLOCK_PLANKE_L1 && id <= (int)BLOCK_PLANKE_L7) ||
+           (id >= (int)BLOCK_PLANKO_L1 && id <= (int)BLOCK_PLANKO_L7) ||
+           (id >= (int)BLOCK_WOOD_L1   && id <= (int)BLOCK_WOOD_L7)   ||
+           (id >= (int)BLOCK_WOODE_L1  && id <= (int)BLOCK_WOODE_L7)  ||
+           (id >= (int)BLOCK_WOODO_L1  && id <= (int)BLOCK_WOODO_L7);
+}
+
+// ============================================================================
 // CELDAS MIXTAS: codificar y descodificar
 // ============================================================================
 // El ID no está en el enum: se calcula. Ver el comentario de BLOCK_MIXTO_BASE.
@@ -1077,6 +1119,111 @@ inline BlockType mixtoRelleno(BlockType t) {
 inline float alturaDe(BlockType t) {
     if (esMixto(t)) return 1.0f;
     return (float)alturaNivelPx(nivelDe(t)) / 16.0f;
+}
+
+// ============================================================================
+// ⭐ UN NIVEL QUE CAE SOBRE OTRO: SE JUNTAN, NO SE APILAN
+// ============================================================================
+// EL BUG QUE ESTO CORRIGE: un nivel de tierra que caía sobre un nivel de
+// piedra no se fundía con él. El motor lo trataba como "celda ocupada",
+// buscaba hueco en la celda de ARRIBA y lo dejaba ahí -- flotando sobre media
+// celda vacía -- o, si no encontraba sitio en tres intentos, LO BORRABA.
+//
+// Lo correcto, y lo que se pidió, es que se SUMEN las alturas:
+//
+//     nivel 1 de tierra  +  nivel 1 de piedra   ->  nivel 2
+//     nivel 3            +  nivel 4             ->  nivel 7
+//     nivel 5            +  nivel 6             ->  celda llena + sobra 3
+//
+// Las texturas no se mezclan ni se inventa un material nuevo: la celda
+// resultante conserva el material de ABAJO, que es el que estaba allí primero.
+// Lo que cambia es su TAMAÑO.
+//
+// ----------------------------------------------------------------------------
+// EL AGUA ES EL CASO APARTE
+// ----------------------------------------------------------------------------
+// Un sólido que cae en agua no se suma con ella: la DESPLAZA. Un nivel 1 de
+// tierra cayendo sobre agua deja un nivel 1 de tierra, y el agua se va. Es lo
+// que se pidió, y además es lo que ya hace el resto del motor -- colocar un
+// bloque dentro del agua la reparte a los lados en vez de borrarla (ver
+// repartirAguaDesplazada en main.cpp).
+//
+// Por eso esta función NO decide sobre el agua: devuelve SOLO_EL_QUE_CAE y
+// deja que el llamante haga el desplazamiento con las rutinas que ya existen.
+// ============================================================================
+
+// Qué hay que hacer cuando `queCae` aterriza sobre `enDestino`.
+enum class ResultadoFusion {
+    NO_FUSIONA,        // no son fusionables: el que cae se queda encima
+    SOLO_EL_QUE_CAE,   // el destino desaparece (agua desplazada)
+    FUSIONADOS         // se juntan: ver `nivelResultante` y `sobrante`
+};
+
+struct Fusion {
+    ResultadoFusion tipo = ResultadoFusion::NO_FUSIONA;
+    BlockType resultado  = BLOCK_AIR;   // lo que queda en la celda de destino
+    BlockType sobrante   = BLOCK_AIR;   // lo que no cupo, va en la celda de arriba
+};
+
+// ¿Es agua, en cualquiera de sus formas? Se declara aquí porque la fusión la
+// necesita y `esAguaVolumen` ya vive más arriba en este mismo archivo.
+inline bool esAguaParaFusion(BlockType t) {
+    return t == BLOCK_WATER || esAguaVolumen(t);
+}
+
+// Calcula qué pasa al caer `queCae` sobre `enDestino`.
+//
+// Funciona con CUALQUIER par de materiales con niveles y con cualquier
+// combinación de niveles, que es lo que se pidió: no hay tabla de casos ni
+// lista de parejas permitidas, solo aritmética sobre las alturas.
+inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
+    Fusion f;
+
+    // Solo se fusiona lo que TIENE niveles. Un bloque entero que cae sobre
+    // otro entero no tiene nada que sumar: son dos celdas llenas.
+    if (!esNivelParcial(queCae)) return f;
+
+    // --- EL AGUA SE DESPLAZA, NO SE SUMA ---
+    // El sólido ocupa la celda y el agua se va. El llamante es quien la
+    // reparte a los lados: aquí solo se dice qué queda.
+    if (esAguaParaFusion(enDestino)) {
+        f.tipo = ResultadoFusion::SOLO_EL_QUE_CAE;
+        f.resultado = queCae;
+        return f;
+    }
+
+    // El destino tiene que ser también un nivel parcial. Sobre una celda
+    // llena no hay nada que fundir: el que cae se queda encima, entero.
+    if (!esNivelParcial(enDestino)) return f;
+
+    const int nCae     = nivelDe(queCae);
+    const int nDestino = nivelDe(enDestino);
+    const int total    = nCae + nDestino;
+
+    // ⭐ EL MATERIAL RESULTANTE ES EL DE ABAJO.
+    //
+    // Es el que ya estaba en la celda; el que cae se le añade encima. Que la
+    // textura sea la de abajo es lo que se pidió ("aun sus texturas son
+    // iguales, solo se juntan"): no se inventa un material mezclado.
+    const BlockType material = bloqueBaseDe(enDestino);
+
+    f.tipo = ResultadoFusion::FUSIONADOS;
+
+    if (total <= 7) {
+        // Cabe entero en la misma celda.
+        f.resultado = conNivel(material, total);
+        f.sobrante  = BLOCK_AIR;
+    } else if (total == 8) {
+        // Justo una celda llena.
+        f.resultado = bloqueBaseDe(material);
+        f.sobrante  = BLOCK_AIR;
+    } else {
+        // Se llena la celda y lo que sobra sube a la de arriba, conservando
+        // el material del que CAÍA (es el que se queda arriba del todo).
+        f.resultado = bloqueBaseDe(material);
+        f.sobrante  = conNivel(bloqueBaseDe(queCae), total - 8);
+    }
+    return f;
 }
 
 // Altura (0..1) a la que acaba la capa de ABAJO de una celda mixta. Es donde

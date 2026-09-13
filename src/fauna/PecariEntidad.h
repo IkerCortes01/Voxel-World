@@ -212,6 +212,24 @@ struct PecariAgente {
     EtapaPecari etapa = EtapaPecari::ADULTO;
     ModoPecari  modo  = ModoPecari::QUIETO;
 
+    // ⭐ RITMO PERSONAL, DE 0 A 50.
+    //
+    // Es el "cuanto corre ESTE animal" dentro de lo que le permite su modo de
+    // locomocion. No sustituye a andar/trotar/huir: los modula.
+    //
+    //      0  -> el mas lento de su especie
+    //     25  -> el ritmo tipico (lo que hacia el motor antes, sin variacion)
+    //     50  -> el mas rapido
+    //
+    // POR QUE 0-50 Y NO 0-1: la escala se pidio asi, y ademas tiene una
+    // ventaja practica -- es un entero, asi que se puede comparar, mostrar en
+    // depuracion y guardar sin preocuparse de la precision del float.
+    //
+    // De donde sale: se DERIVA de la semilla del animal (ver RitmoDeSemilla),
+    // asi que no cuesta memoria persistente y el mismo pecari corre siempre
+    // igual, aunque su chunk se descargue y vuelva.
+    uint8_t ritmo = 25;
+
     // ------------------------------------------------------------------------
     // SALUD, en medios puntos
     // ------------------------------------------------------------------------
@@ -389,6 +407,61 @@ inline float AudaciaDeSemilla(uint32_t semilla) {
     if (a < 0.0f) a = 0.0f;
     if (a > 1.0f) a = 1.0f;
     return a;
+}
+
+// ============================================================================
+// ⭐ EL RITMO: DE 0 A 50
+// ============================================================================
+// Cuanto corre un animal CONCRETO dentro de lo que le permite su modo de
+// locomocion. Es lo que hace que una piara no se mueva como un bloque unico:
+// unos van delante y otros se rezagan, y siempre los mismos.
+//
+// ----------------------------------------------------------------------------
+// POR QUE SE DERIVA DE LA SEMILLA Y NO SE GUARDA
+// ----------------------------------------------------------------------------
+// Misma razon que el tono del pelaje (ver 00_LEEME.txt del AI simulator): un
+// valor derivado no cuesta memoria persistente y es REPRODUCIBLE. El mismo
+// pecari corre siempre igual aunque su chunk se descargue y vuelva a cargarse,
+// sin escribir un byte en el save.
+//
+// ----------------------------------------------------------------------------
+// EL REPARTO NO ES UNIFORME, Y ES DELIBERADO
+// ----------------------------------------------------------------------------
+// Se usa la misma tecnica que la audacia --sumar tres muestras-- porque un
+// reparto uniforme daria tantos animales extremos como medios, y una manada
+// donde la mitad va al minimo y la otra al maximo se ve rara. Con la suma, la
+// mayoria queda cerca de 25 y los extremos son escasos, que es como se reparte
+// cualquier rasgo en una poblacion real.
+inline uint8_t RitmoDeSemilla(uint32_t semilla) {
+    // Otro mezclador que el de la audacia: si compartieran constante, el
+    // animal mas audaz seria SIEMPRE el mas rapido, y eso es una correlacion
+    // que nadie ha medido.
+    uint32_t s = semilla ^ 0x85EBCA6Bu;
+    float suma = 0.0f;
+    for (int i = 0; i < 3; ++i) {
+        s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+        suma += (float)(s % 100000u) / 100000.0f;
+    }
+    const float u = suma / 3.0f;                 // 0..1, con moda en 0.5
+    int r = (int)(u * 50.0f + 0.5f);
+    if (r < 0)  r = 0;
+    if (r > 50) r = 50;
+    return (uint8_t)r;
+}
+
+// El multiplicador de velocidad que corresponde a un ritmo.
+//
+// El rango va de 0.70 a 1.30, centrado en 1.0 para ritmo 25. O sea: el animal
+// tipico se mueve EXACTAMENTE como antes de que existiera este sistema, y los
+// extremos se apartan un 30%.
+//
+// Ese 30% no es un numero libre: por encima, el mas lento de la manada se
+// queda tan atras que la cohesion no lo alcanza y se ve como un animal roto;
+// por debajo, la diferencia no se aprecia y el sistema no sirve de nada.
+inline float FactorDeRitmo(uint8_t ritmo) {
+    if (ritmo > 50) ritmo = 50;
+    const float t = (float)ritmo / 50.0f;        // 0..1
+    return 0.70f + t * 0.60f;                    // 0.70 .. 1.30
 }
 
 // ----------------------------------------------------------------------------
@@ -700,9 +773,16 @@ inline void ActualizarPecari(PecariAgente& p,
 
         p.modo = (corriendo || debeTrotar) ? ModoPecari::TROTANDO
                                            : ModoPecari::ANDANDO;
-        const float vel = corriendo  ? PecariAmenaza::VEL_HUIDA
-                        : debeTrotar ? VEL_TROTANDO
-                                     : VEL_ANDANDO;
+        // ⭐ Y CADA ANIMAL LLEVA SU PROPIO RITMO ENCIMA.
+        //
+        // El modo decide el rango (pasear, trotar, huir) y el ritmo decide
+        // donde cae ESTE animal dentro de el. Multiplicar en vez de sumar es
+        // lo correcto: un pecari rapido lo es tanto paseando como huyendo,
+        // que es como funciona la condicion fisica de verdad.
+        const float velBase = corriendo  ? PecariAmenaza::VEL_HUIDA
+                            : debeTrotar ? VEL_TROTANDO
+                                         : VEL_ANDANDO;
+        const float vel = velBase * FactorDeRitmo(p.ritmo);
 
         // ⭐ ACELERAR HACIA LA VELOCIDAD QUE TOCA, no saltar a ella.
         //

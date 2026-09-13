@@ -165,6 +165,10 @@ public:
         p.y = mundo.alturaSuelo(px, pz) + 1.0f;
         p.semilla = (uint32_t)(p.id * 2654435761u) | 1u;
         p.audacia = AudaciaDeSemilla(p.semilla);
+        // El ritmo (0-50) sale de la misma semilla, con otro mezclador: ver
+        // RitmoDeSemilla. Es lo que hace que unos vayan delante y otros se
+        // rezaguen, siempre los mismos.
+        p.ritmo   = RitmoDeSemilla(p.semilla);
         // Etapa ANTES que vida: VidaMaximaMedios() la lee.
         p.etapa = etapa;
         p.vidaMedios = VidaMaximaMedios(p.etapa);
@@ -565,6 +569,7 @@ private:
             // que el mismo animal es siempre igual de atrevido y aguanta lo
             // mismo. No hace falta guardarlos.
             p.audacia    = AudaciaDeSemilla(p.semilla);
+            p.ritmo      = RitmoDeSemilla(p.semilla);
             // ⭐ LA ETAPA VA ANTES QUE LA VIDA.
             //
             // Estaba al reves, y el fallo era silencioso: p.etapa tiene valor
@@ -614,6 +619,7 @@ private:
             // que el mismo animal es siempre igual de atrevido y aguanta lo
             // mismo. No hace falta guardarlos.
             p.audacia    = AudaciaDeSemilla(p.semilla);
+            p.ritmo      = RitmoDeSemilla(p.semilla);
             // Los grupos de repoblacion son dispersores: adultos y subadultos,
             // no crias. MEDIDO que la dispersion esta sesgada a machos y que
             // el 37-38% de ellos cambian de manada.
@@ -1270,23 +1276,105 @@ private:
         return true;
     }
 
+    // ========================================================================
+    // ⭐ EL PECARI CAE DE VERDAD
+    // ========================================================================
+    // BUG QUE ESTO CORRIGE: el animal no tenia gravedad. `vy` estaba declarado
+    // en PecariAgente pero NO SE USABA: la altura se resolvia interpolando
+    // suavemente hacia el suelo con 1 - exp(-12*dt).
+    //
+    // Eso funciona para un escalon de un bloque --que es para lo que se
+    // escribio-- pero es FALSO en cuanto hay altura de verdad: tirar un pecari
+    // por un acantilado de 30 bloques lo hacia DESCENDER FLOTANDO, cada vez
+    // mas despacio segun se acercaba al fondo, como una pluma. Nunca aceleraba.
+    //
+    // Ahora hay dos regimenes distintos, y esa es la clave:
+    //
+    //   DESNIVEL PEQUEÑO (<= PASO_MAXIMO)  -> se sube/baja suave, como antes.
+    //       Es andar por terreno irregular: el animal salva un escalon sin
+    //       despegarse del suelo. Aqui el suavizado exponencial es lo correcto
+    //       y se conserva tal cual.
+    //
+    //   CAIDA DE VERDAD (mas que eso)      -> gravedad real, con aceleracion.
+    //       El animal se despega, `vy` crece, y cae mas rapido cuanto mas
+    //       lleva cayendo. Desde cualquier altura.
+    //
+    // La frontera entre los dos es lo unico que hay que elegir bien: si fuera
+    // muy alta, saltarse un muro de 2 m se veria como flotar; si fuera muy
+    // baja, cada bache del terreno lanzaria al animal al aire.
+    // ========================================================================
+
+    // Gravedad, en bloques/s^2. El motor mide en bloques de 0.60 m, asi que
+    // 9.80665 m/s^2 son 16.34 bloques/s^2. Es la MISMA constante que usa la
+    // fisica de bloques que caen (ver FisicaCaida.h), para que un pecari y una
+    // piedra caigan igual -- que es lo que hacen en la realidad.
+    static constexpr float GRAVEDAD = 9.80665f / 0.60f;
+
+    // Velocidad terminal, en bloques/s. Sin tope, una caida larga acumularia
+    // velocidad sin limite y el animal atravesaria el suelo en un solo frame
+    // (a 30 fps, 50 bloques/s son 1.7 bloques por frame).
+    //
+    // 55 m/s es la velocidad terminal de un cuerpo humano en caida libre; para
+    // un animal de 18.7 kg y menos superficie sale del mismo orden. En bloques:
+    // ~90. Se toma algo menos porque a esa velocidad ya no se distingue.
+    static constexpr float VEL_TERMINAL = 75.0f;
+
+    // Desnivel que el animal salva sin despegarse, en bloques. Por encima de
+    // esto se considera una caida y entra la gravedad.
+    //
+    // 0.6 bloques = 36 cm reales. Un pecari mide 50 cm a la cruz, asi que es
+    // aproximadamente lo que sube sin saltar -- un bordillo, una raiz. Un
+    // bloque entero (60 cm) ya es un escalon que hay que subir, no un bache.
+    static constexpr float PASO_MAXIMO = 0.6f;
+
     static void posarEnSuelo(PecariAgente& p, const IPecariMundo& mundo,
                              float dt) {
         const int bx = (int)std::floor(p.x);
         const int bz = (int)std::floor(p.z);
         const float suelo = mundo.alturaSuelo(bx, bz) + 1.0f;
 
-        // Interpolacion suave: evita el escalon brusco al cruzar de un bloque
-        // a otro de distinta altura.
-        //
+        const float diferencia = suelo - p.y;
+
+        // --------------------------------------------------------------------
+        // CAIDA: el suelo esta MUY por debajo
+        // --------------------------------------------------------------------
+        if (diferencia < -PASO_MAXIMO || !p.enSuelo) {
+            p.enSuelo = false;
+
+            // Acelera. Es lo que hace que una caida de 30 bloques se vea como
+            // una caida y no como un descenso en paracaidas.
+            p.vy -= GRAVEDAD * dt;
+            if (p.vy < -VEL_TERMINAL) p.vy = -VEL_TERMINAL;
+
+            p.y += p.vy * dt;
+
+            // ¿Ha tocado suelo en este paso?
+            //
+            // Se comprueba DESPUES de mover, y contra el suelo de la columna
+            // donde ha acabado: cayendo en diagonal el animal puede cambiar de
+            // celda a mitad de la caida.
+            const int nx = (int)std::floor(p.x);
+            const int nz = (int)std::floor(p.z);
+            const float sueloAhora = mundo.alturaSuelo(nx, nz) + 1.0f;
+
+            if (p.y <= sueloAhora) {
+                p.y = sueloAhora;
+                p.vy = 0.0f;
+                p.enSuelo = true;
+            }
+            return;
+        }
+
+        // --------------------------------------------------------------------
+        // ANDANDO: terreno irregular, sin despegarse
+        // --------------------------------------------------------------------
         // ⭐ EL FACTOR VA CON dt, Y ANTES NO.
         //
         // Esto era `p.y += diferencia * 0.25f`, o sea un 25% POR FRAME. A 30
         // fps un escalon de un bloque se subia en ~0.32 s; a 144 fps, en
         // ~0.066 s. La altura del animal dependia del framerate, y en un PC
         // rapido los pecaries pegaban un salto vertical al cruzar cualquier
-        // desnivel -- justo el "no se mueven realista" en el eje mas visible
-        // al andar por terreno irregular.
+        // desnivel.
         //
         // 1 - exp(-k*dt) es el mismo suavizado pero medido en SEGUNDOS: con
         // k = 12 el animal cubre el 70% del desnivel en 0.1 s, vaya el juego
@@ -1294,7 +1382,7 @@ private:
         constexpr float K_SUELO = 12.0f;
         const float factor = 1.0f - std::exp(-K_SUELO * dt);
 
-        const float diferencia = suelo - p.y;
+        p.vy = 0.0f;
         if (std::fabs(diferencia) < 0.02f) {
             p.y = suelo;
         } else {

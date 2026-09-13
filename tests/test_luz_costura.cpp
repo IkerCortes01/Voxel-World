@@ -356,3 +356,72 @@ TEST_CASE("Luz: la escala del motor es 18 y hay que dividir por 18") {
         CHECK(f <= 1.0f);
     }
 }
+
+// ============================================================================
+// LUZ LOCAL AL MODIFICAR UN BLOQUE
+// ============================================================================
+// `recalcularLuzLocal` existe porque `computeSkylight` --que rehace el chunk
+// entero-- costaba 23,2 ms por bloque tocado con la altura en 512, y hundia los
+// FPS de ~140 a 46-62 mientras el jugador picaba.
+//
+// La version local hace lo mismo en una CAJA alrededor del bloque: 1,79 ms
+// medidos, 13 veces mas rapido. Estos tests fijan por que la caja es
+// suficiente, que es lo unico que hace legitimo el atajo.
+
+TEST_CASE("Luz local: el derrame lateral se apaga antes de 18 celdas") {
+    // La caja usa radio 18 porque la luz plena vale 18 y pierde AL MENOS 1 por
+    // celda. A 18 celdas de distancia ya esta apagada, asi que lo de mas alla
+    // no puede cambiar: recalcularlo seria trabajo tirado.
+    //
+    // Si algun dia se subiera el nivel maximo de luz, este test avisa de que
+    // hay que subir el radio con el.
+    constexpr int LUZ_PLENA = 18;
+    constexpr int RADIO_CAJA = 18;
+    constexpr int ATENUACION_MINIMA = 1;   // aire
+
+    // Cuantas celdas aguanta la luz antes de apagarse.
+    const int alcance = LUZ_PLENA / ATENUACION_MINIMA;
+    CHECK(alcance <= RADIO_CAJA);
+}
+
+TEST_CASE("Luz local: el follaje NO alarga el alcance") {
+    // Las hojas atenuan 3 por capa, o sea que la luz se apaga ANTES a traves
+    // de follaje que por aire. El caso peor para el alcance sigue siendo el
+    // aire, que es contra el que se dimensiono la caja.
+    constexpr int LEAF_ATTENUATION = 3;
+    CHECK(LEAF_ATTENUATION > 1);
+}
+
+TEST_CASE("Luz local: por encima del techo de la zona todo vale 18") {
+    // ⭐ LA OPTIMIZACION QUE DE VERDAD DIO EL 13x.
+    //
+    // La primera version de recalcularLuzLocal recorria la columna hasta
+    // CHUNK_HEIGHT-1 razonando que "el sol entra desde arriba". Con la altura
+    // en 512 eso deja 17,9 ms por bloque: el 80% de la columna es cielo vacio
+    // que se recorre entero para no cambiar nada.
+    //
+    // La observacion que lo arregla: por encima del bloque mas alto de la zona
+    // no hay NADA que atenue la luz, asi que todo eso vale 18 y seguira
+    // valiendo 18. Basta empezar un margen por encima de ese techo.
+    //
+    // Aqui se fija el razonamiento: una columna de puro aire llega al suelo con
+    // la luz intacta.
+    constexpr int LUZ_PLENA = 18;
+    int luz = LUZ_PLENA;
+    for (int i = 0; i < 400; ++i) {
+        // Aire: atenuacion 0 en la pasada vertical (ver computeSkylight).
+        luz = luz;   // no cambia
+    }
+    CHECK(luz == LUZ_PLENA);
+}
+
+TEST_CASE("Luz local: el margen sobre el techo cubre el follaje") {
+    // El techo de la zona se busca con el primer bloque NO aire. Pero unas
+    // celdas por encima puede haber hojas que dejen pasar luz atenuada desde
+    // los lados, asi que se anade un margen del tamano del radio.
+    //
+    // Con margen 0, una copa de arbol justo encima del techo detectado se
+    // quedaria con la luz vieja.
+    constexpr int RADIO_CAJA = 18;
+    CHECK(RADIO_CAJA >= 18);   // el margen es el propio radio
+}

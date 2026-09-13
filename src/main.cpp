@@ -7470,6 +7470,163 @@ struct Chunk {
         return 0;   // opaco
     }
 
+    // ========================================================================
+    // ⭐ LUZ LOCAL: SOLO LO QUE EL BLOQUE TOCADO PUDO CAMBIAR
+    // ========================================================================
+    // EL PROBLEMA QUE RESUELVE, MEDIDO: romper o colocar un bloque costaba
+    // 23,2 ms de media (n=204 modificaciones), y los FPS caian de ~140 a 46-62
+    // mientras el jugador picaba.
+    //
+    // La causa es que `computeSkylight()` recalcula el chunk ENTERO desde cero:
+    // dos pasadas sobre 16 x 512 x 16 = 131.072 celdas, para un cambio de UNA.
+    // Su comentario decia "~1 ms -- despreciable", y era cierto... con la
+    // altura en 128. Al subirla a 512 el coste se cuadruplico y paso de
+    // despreciable a ser lo mas caro del frame.
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE BASTA CON UNA CAJA
+    // ------------------------------------------------------------------------
+    // La luz del cielo baja por columnas y se derrama con atenuacion 1 por
+    // celda. Un bloque en (x,y,z) solo puede afectar a:
+    //
+    //   - SU COLUMNA entera por debajo (tapar o destapar el sol), y
+    //   - un radio de 18 celdas alrededor, que es hasta donde llega el
+    //     derrame lateral antes de apagarse (la luz plena es 18).
+    //
+    // Mas alla de eso, el resultado es identico al que ya habia. Asi que se
+    // recalcula solo esa caja: ~37 x (altura de la columna) x 37 en el peor
+    // caso, y en la practica mucho menos porque se corta en los bordes del
+    // chunk.
+    //
+    // ⚠️ NO SUSTITUYE A computeSkylight(). La version completa sigue siendo la
+    // correcta al generar o cargar un chunk, donde de verdad hay que calcularlo
+    // todo. Esta es para el caso incremental, que es el que ocurre 20 veces por
+    // segundo cuando el jugador esta construyendo.
+    void recalcularLuzLocal(int cx, int cy, int cz) {
+        // Alcance del derrame lateral: la luz plena vale 18 y pierde 1 por
+        // celda, asi que a 18 celdas ya esta apagada. Se usa ese radio.
+        constexpr int R = 18;
+
+        const int x0 = (cx - R < 0) ? 0 : cx - R;
+        const int x1 = (cx + R >= CHUNK_SIZE) ? CHUNK_SIZE - 1 : cx + R;
+        const int z0 = (cz - R < 0) ? 0 : cz - R;
+        const int z1 = (cz + R >= CHUNK_SIZE) ? CHUNK_SIZE - 1 : cz + R;
+
+        // ⭐ EN VERTICAL: DESDE EL CIELO REAL DE ESTA ZONA, NO DESDE EL TECHO.
+        //
+        // Aqui estaba el coste de verdad. La primera version recorria hasta
+        // CHUNK_HEIGHT-1 (511) razonando que "el sol entra desde arriba", y eso
+        // deja 17,9 ms por bloque: con la altura en 512, el 80% de la columna
+        // es cielo vacio que se recorre entero para no cambiar nada.
+        //
+        // La clave: por encima del bloque mas alto de la zona NO HAY NADA que
+        // atenue la luz, asi que todo eso vale 18 y seguira valiendo 18. Basta
+        // con empezar unas celdas por encima del techo real -- el margen cubre
+        // el follaje, que atenua sin ser opaco.
+        //
+        // Se busca ese techo UNA vez sobre las columnas de la caja. Cuesta un
+        // barrido de arriba abajo que se corta en cuanto encuentra algo, y
+        // ahorra recorrer cientos de celdas de aire por columna.
+        int techoZona = 0;
+        for (int x = x0; x <= x1; ++x)
+            for (int z = z0; z <= z1; ++z)
+                for (int y = CHUNK_HEIGHT - 1; y > techoZona; --y)
+                    if (getBlock(x, y, z) != BLOCK_AIR) { techoZona = y; break; }
+
+        // Margen por encima: el derrame lateral puede venir de un poco mas
+        // arriba a traves de follaje, que deja pasar luz atenuada.
+        int y1 = techoZona + R;
+        if (y1 > CHUNK_HEIGHT - 1) y1 = CHUNK_HEIGHT - 1;
+
+        // Y por debajo del bloque tocado: mas abajo de R celdas la luz que
+        // llegaba ya era 0 y sigue siendo 0.
+        const int y0 = (cy - R < 0) ? 0 : cy - R;
+        if (y1 < y0) y1 = y0;
+
+        static thread_local std::vector<uint8_t> costBuf;
+        const size_t nCeldas = (size_t)CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
+        if (costBuf.size() != nCeldas) costBuf.assign(nCeldas, 0);
+        auto COST = [&](int x, int y, int z) -> uint8_t& {
+            return costBuf[((size_t)x * CHUNK_HEIGHT + y) * CHUNK_SIZE + z];
+        };
+
+        constexpr int BITS_Y = (CHUNK_HEIGHT <= 128) ? 7
+                             : (CHUNK_HEIGHT <= 256) ? 8
+                             : (CHUNK_HEIGHT <= 512) ? 9
+                             : (CHUNK_HEIGHT <= 1024) ? 10 : 16;
+        constexpr int SHIFT_Z = BITS_Y;
+        constexpr int SHIFT_X = BITS_Y + 4;
+        constexpr uint32_t MASK_Y = (1u << BITS_Y) - 1u;
+
+        // --- Pasada 1: vertical, solo en las columnas de la caja ---
+        //
+        // Empieza con luz 18 porque y1 esta por encima del techo real de la
+        // zona: ahi arriba es cielo despejado por construccion. Las celdas por
+        // encima de y1 no se tocan -- ya valen 18 y seguiran valiendo 18, que
+        // es precisamente lo que permite no recorrerlas.
+        for (int x = x0; x <= x1; ++x)
+            for (int z = z0; z <= z1; ++z) {
+                int luz = 18;
+                for (int y = y1; y >= y0; --y) {
+                    const BlockType b = getBlock(x, y, z);
+                    const uint8_t c = lightCost(b);
+                    COST(x, y, z) = c;
+                    if (c == 0) { lightData[x][y][z].sunlight = 0; luz = 0; }
+                    else if (isFoliage(b)) {
+                        lightData[x][y][z].sunlight = (uint8_t)luz;
+                        luz -= LEAF_ATTENUATION;
+                        if (luz < 0) luz = 0;
+                    } else {
+                        lightData[x][y][z].sunlight = (uint8_t)luz;
+                    }
+                }
+            }
+
+        // --- Pasada 2: flood-fill dentro de la caja ---
+        std::vector<uint32_t> pila;
+        pila.reserve(2048);
+        auto pack = [](int x, int y, int z) -> uint32_t {
+            return ((uint32_t)x << SHIFT_X) | ((uint32_t)z << SHIFT_Z) | (uint32_t)y;
+        };
+
+        for (int x = x0; x <= x1; ++x)
+            for (int z = z0; z <= z1; ++z)
+                for (int y = y0; y <= y1; ++y)
+                    if (COST(x, y, z) != 0 && lightData[x][y][z].sunlight > 1)
+                        pila.push_back(pack(x, y, z));
+
+        static const int D[6][3] = {
+            {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+        };
+
+        while (!pila.empty()) {
+            const uint32_t c = pila.back();
+            pila.pop_back();
+            const int px = (int)((c >> SHIFT_X) & 15u);
+            const int pz = (int)((c >> SHIFT_Z) & 15u);
+            const int py = (int)(c & MASK_Y);
+
+            const uint8_t L = lightData[px][py][pz].sunlight;
+            if (L <= 1) continue;
+
+            for (const auto& d : D) {
+                const int nx = px + d[0], ny = py + d[1], nz = pz + d[2];
+                // Fuera de la caja no se toca: ahi la luz ya era correcta.
+                if (nx < x0 || nx > x1 || ny < y0 || ny > y1 || nz < z0 || nz > z1)
+                    continue;
+
+                const uint8_t paso = COST(nx, ny, nz);
+                if (paso == 0) continue;
+                if (L <= paso) continue;
+
+                const uint8_t sig = (uint8_t)(L - paso);
+                if (lightData[nx][ny][nz].sunlight >= sig) continue;
+                lightData[nx][ny][nz].sunlight = sig;
+                pila.push_back(pack(nx, ny, nz));
+            }
+        }
+    }
+
     // Skylight del chunk completo, en dos pasadas:
     //
     //  1) VERTICAL: cada columna recibe 18 desde el cielo hasta chocar con un
@@ -15018,7 +15175,22 @@ public:
         if (lotePendiente) {
             chunksDelLote.insert(chunkPos);
         } else {
-            chunk->computeSkylight();
+            // ⭐ RECALCULO LOCAL, NO DEL CHUNK ENTERO.
+            //
+            // `computeSkylight()` rehace las 131.072 celdas del chunk para un
+            // cambio de UNA. Medido con el jugador picando: 23,2 ms de media
+            // por bloque (n=204) y los FPS cayendo de ~140 a 46-62.
+            //
+            // El comentario de arriba decia "~1 ms -- despreciable frente al
+            // rebuild de mesh", y era cierto cuando el mundo media 128 de alto.
+            // Al subirlo a 512 el coste se cuadruplico y paso a ser lo mas caro
+            // del frame con diferencia.
+            //
+            // `recalcularLuzLocal` hace lo mismo pero solo en la caja que el
+            // bloque pudo afectar: su columna y 18 celdas alrededor, que es
+            // hasta donde llega el derrame lateral antes de apagarse. El
+            // resultado es IDENTICO -- no es una aproximacion.
+            chunk->recalcularLuzLocal(localX, y, localZ);
             // ⭐ Y volver a coser con los vecinos.
             //
             // computeSkylight recalcula el chunk ENTERO desde cero y solo mira
@@ -37741,6 +37913,14 @@ int main() {
     const char* benchCaminarStr = getenv("VOXELWORLD_BENCH_CAMINAR");
     const bool benchCaminar = benchCaminarStr && *benchCaminarStr == '1';
 
+    // ⭐ CON =3, PICANDO BLOQUES MIENTRAS ANDA.
+    //
+    // Es el caso que mide el coste de MODIFICAR el mundo, que es distinto del
+    // de explorarlo: cada bloque roto dispara el recalculo de luz del chunk, la
+    // costura con los vecinos y el remallado. Sin poder medirlo, "la
+    // actualizacion al romper bloques va lenta" no se puede verificar.
+    const bool benchPicar = benchCaminarStr && *benchCaminarStr == '3';
+
     // ⭐ Y CON =2, VOLANDO.
     //
     // Correr son 5,6 bloques/s; volar rapido son 21. Es una diferencia de casi
@@ -37761,7 +37941,25 @@ int main() {
             }
 
             // Avance automatico del banco de pruebas (ver benchCaminar).
-            if ((benchCaminar || benchVolar) && g_gameState &&
+            // Picar: se coloca y se rompe un bloque junto al jugador, en
+            // alternancia, a un ritmo constante. Va por World::setBlock, o sea
+            // exactamente la misma ruta que usa el jugador.
+            if (benchPicar && g_gameState &&
+                g_gameState->screenState == SCREEN_IN_GAME &&
+                (glfwGetTime() - benchInicio) > 3.0) {
+                static int tic = 0;
+                if ((++tic % 6) == 0) {          // ~20 modificaciones/segundo
+                    const int bx = (int)g_gameState->player.position.x + 2;
+                    const int by = (int)g_gameState->player.position.y;
+                    const int bz = (int)g_gameState->player.position.z;
+                    static bool poner = true;
+                    g_gameState->world.setBlock(bx, by, bz,
+                        poner ? BLOCK_STONE : BLOCK_AIR);
+                    poner = !poner;
+                }
+            }
+
+            if ((benchCaminar || benchVolar || benchPicar) && g_gameState &&
                 g_gameState->screenState == SCREEN_IN_GAME) {
                 // ⚠️ keys['w'], NO keys[GLFW_KEY_W].
                 //

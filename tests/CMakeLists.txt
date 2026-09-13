@@ -46,6 +46,10 @@ add_executable(voxel_tests
     test_pecari_pulido.cpp
     test_agua_simplificada.cpp
     test_perfil.cpp
+    test_ocotales.cpp
+    test_streaming.cpp
+    test_streaming_estres.cpp
+    test_distancia_vision.cpp
     test_borde_vecinos.cpp
     test_items_sueltos.cpp
     test_malla_chunk.cpp

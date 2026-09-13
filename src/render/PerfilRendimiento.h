@@ -315,7 +315,19 @@ inline Perfil detectar(const char* renderer,
 // limites dentro de los que puede moverse, para que ni se quede ciego ni
 // intente cargar medio mundo.
 constexpr int DISTANCIA_MINIMA = 2;
-constexpr int DISTANCIA_MAXIMA = 12;
+// ⭐ SUBIDO DE 12 A 28.
+//
+// 12 era el tope cuando la distancia solo la movia el regulador adaptativo por
+// FPS, y ahi 12 es mucho: son 625 columnas de chunk.
+//
+// Ahora el jugador puede pedir hasta 100 en la barra de opciones, y aunque ese
+// numero NO se carga literalmente (ver DistanciaVision.h: la barra 100 se
+// traduce a radio 28), el tope de aqui tiene que dejar pasar el maximo que ese
+// mapeo puede producir. Con 12 la barra se quedaba muda de 13 en adelante: se
+// movia el tirador y el mundo no cambiaba.
+//
+// 28 son ~3.249 columnas, el limite que DistanciaVision fija por memoria.
+constexpr int DISTANCIA_MAXIMA = 28;
 
 inline int acotarDistancia(int d) {
     if (d < DISTANCIA_MINIMA) return DISTANCIA_MINIMA;

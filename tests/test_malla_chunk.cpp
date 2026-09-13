@@ -217,3 +217,90 @@ TEST_CASE("Malla: se puede mover sin copiar (es lo que cruza de hilo)") {
     MallaChunk destino = std::move(origen);
     CHECK(destino.totalVertices() == antes);
 }
+
+// ============================================================================
+// EL BORDE PROVISIONAL: LA DEUDA QUE VIAJA CON LA MALLA
+// ============================================================================
+// Fija el contrato que cierra el parpadeo al caminar.
+//
+// EL BUG. Al avanzar, un chunk se malla antes de que sus cuatro vecinos esten
+// cargados. El mesher agota su paciencia y construye igual ("mejor visible que
+// invisible"), asi que las caras de la frontera se deciden contra un vecino que
+// no esta -- y cambian de aspecto unos frames despues, cuando el vecino llega y
+// dispara el remallado. Eso es lo que se ve parpadear.
+//
+// Medido caminando 40 s antes del arreglo: 94 mallas horneadas con el borde
+// incompleto, ninguna de ellas marcada como tal, asi que nadie las revisaba.
+//
+// EL CONTRATO. `bordeProvisional` viaja DENTRO de la MallaChunk, y eso no es un
+// detalle de estilo: el mesher termina con `*salidaCPU = mallaCPU;`, que
+// sobrescribe el objeto entero. Una marca escrita aparte en `salidaCPU` se
+// pierde ahi -- se detecto midiendo: 144 mallas provisionales y 0 marcas
+// llegando al chunk.
+
+TEST_CASE("MallaChunk: por defecto NO es provisional") {
+    // Lo normal es una malla buena. La marca tiene que ser opt-in, o todo el
+    // mundo acabaria con una deuda que no tiene.
+    Render::MallaChunk m;
+    CHECK(m.bordeProvisional == false);
+}
+
+TEST_CASE("MallaChunk: la marca sobrevive a desdeMapas") {
+    // ⭐ ESTE ES EL TEST QUE HABRIA CAZADO EL FALLO.
+    //
+    // desdeMapas CONSTRUYE una MallaChunk nueva. Si no recibe la marca por
+    // parametro, la malla que llega al hilo principal sale con el campo en
+    // false aunque el mesher supiera que el borde estaba roto.
+    std::map<Render::TexID, std::vector<float>> v, c, u;
+    std::set<Render::TexID> transp, recort;
+
+    // Un quad minimo y coherente (4 vertices).
+    v[1] = { 0,0,0,  1,0,0,  1,1,0,  0,1,0 };
+    c[1] = { 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1 };
+    u[1] = { 0,0, 1,0, 1,1, 0,1 };
+
+    const Render::MallaChunk buena =
+        Render::MallaChunk::desdeMapas(v, c, u, transp, recort, false, false);
+    CHECK(buena.bordeProvisional == false);
+
+    const Render::MallaChunk provisional =
+        Render::MallaChunk::desdeMapas(v, c, u, transp, recort, false, true);
+    CHECK(provisional.bordeProvisional == true);
+
+    // Y la geometria es la misma en los dos casos: la marca es metadato, no
+    // cambia lo que se dibuja.
+    CHECK(provisional.batches.size() == buena.batches.size());
+    CHECK(provisional.totalVertices() == buena.totalVertices());
+}
+
+TEST_CASE("MallaChunk: provisional es distinto de invalida") {
+    // Confundirlas deja el mundo invisible, que es peor que una costura:
+    //
+    //   valida=false       no se mallo nada -> DESCARTAR y reintentar
+    //   bordeProvisional   si se mallo, la geometria sirve -> SUBIR y revisar
+    //
+    // Una malla provisional es VALIDA: se sube, se ve, y se corrige luego.
+    std::map<Render::TexID, std::vector<float>> v, c, u;
+    std::set<Render::TexID> transp, recort;
+    v[1] = { 0,0,0,  1,0,0,  1,1,0,  0,1,0 };
+    c[1] = { 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1 };
+    u[1] = { 0,0, 1,0, 1,1, 0,1 };
+
+    const Render::MallaChunk m =
+        Render::MallaChunk::desdeMapas(v, c, u, transp, recort, false, true);
+
+    CHECK(m.bordeProvisional == true);
+    CHECK(m.valida == true);     // <- se sube igual
+    CHECK(m.vacia() == false);
+}
+
+TEST_CASE("MallaChunk: limpiar() borra tambien la deuda") {
+    // Una malla reutilizada no puede arrastrar la deuda de la anterior: el
+    // chunk pediria una revision sobre geometria que ya no es suya.
+    Render::MallaChunk m;
+    m.bordeProvisional = true;
+    m.valida = false;
+    m.limpiar();
+    CHECK(m.bordeProvisional == false);
+    CHECK(m.valida == true);
+}

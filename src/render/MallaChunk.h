@@ -108,6 +108,42 @@ struct MallaChunk {
     // para decidir si reintentar mas tarde en vez de dar la malla por buena.
     bool texturasFaltantes = false;
 
+    // ⭐ ¿ESTA MALLA LLEGO A CONSTRUIRSE?
+    //
+    // No es lo mismo que `vacia()`, y confundirlas deja el mundo invisible.
+    //
+    //   vacia()        SI se mallo, y el resultado es que no hay nada que
+    //                  dibujar. Es lo normal en un chunk de puro aire.
+    //   valida = false NO se mallo: el mesher salio antes de construir (por
+    //                  ejemplo esperando a que carguen los vecinos).
+    //
+    // Sin esta distincion, el hilo principal trata las dos igual y sube una
+    // malla sin batches como si fuera buena -- borrando la geometria anterior
+    // del chunk y dejandolo invisible. Es justo el fallo que se veia como "no
+    // se ve ninguna textura".
+    bool valida = true;
+
+    // ⭐ ¿SE CONSTRUYO CON EL BORDE INCOMPLETO?
+    //
+    // Distinto de `valida`, y la diferencia importa:
+    //
+    //   valida = false        no se mallo nada. Se descarta y se reintenta.
+    //   bordeProvisional      SI se mallo, y la geometria es buena para el
+    //                         interior del chunk -- pero las caras de la
+    //                         frontera se decidieron contra un vecino que aun
+    //                         no estaba. Se SUBE (mejor visible que invisible)
+    //                         y se anota para revisarla cuando el vecino llegue.
+    //
+    // Sin esta marca, una malla con el borde roto es indistinguible de una
+    // buena: el chunk pasa a LISTO y su costura se queda hasta que algo la
+    // toque por casualidad. Con ella, el motor sabe que tiene una deuda
+    // pendiente y la salda sola.
+    //
+    // Es lo que cierra el parpadeo al caminar: medido andando 40 s, 40 mallas
+    // se horneaban con el borde incompleto y luego cambiaban de aspecto al
+    // rehacerse.
+    bool bordeProvisional = false;
+
     // Un chunk sin nada que dibujar es un resultado VALIDO (aire puro), no un
     // error: hay que distinguirlo de "no se pudo mallar".
     bool vacia() const { return batches.empty(); }
@@ -121,6 +157,8 @@ struct MallaChunk {
     void limpiar() {
         batches.clear();
         texturasFaltantes = false;
+        valida = true;
+        bordeProvisional = false;
     }
 
     // ⭐ CONSTRUIR DESDE EL LAYOUT QUE YA USA EL MESHER
@@ -137,10 +175,18 @@ struct MallaChunk {
             const std::map<TexID, std::vector<float>>& uvs,
             const std::set<TexID>& transparentes,
             const std::set<TexID>& recortadas,
-            bool faltanTexturas) {
+            bool faltanTexturas,
+            // ⭐ Viaja DENTRO de la malla, no se escribe aparte en el chunk.
+            //
+            // El mesher termina con `*salidaCPU = mallaCPU;`, que sobrescribe
+            // el objeto entero: una marca puesta antes directamente en
+            // `salidaCPU` se perderia ahi. Pasandola por aqui, llega al hilo
+            // principal junto con la geometria a la que se refiere.
+            bool bordeIncompleto = false) {
 
         MallaChunk m;
-        m.texturasFaltantes = faltanTexturas;
+        m.texturasFaltantes  = faltanTexturas;
+        m.bordeProvisional   = bordeIncompleto;
         m.batches.reserve(vertices.size());
 
         for (const auto& par : vertices) {

@@ -303,6 +303,11 @@ struct Vec3i {
 #include "render/MallaChunk.h"  // geometria de chunk SIN OpenGL (movible entre hilos)
 #include "render/PerfilRendimiento.h"  // que maquina es esta y cuanto aguanta
 #include "render/BordeVecinos.h"       // copia del borde de los 4 chunks vecinos
+// --- Streaming de chunks (logica pura, sin OpenGL; ver tests/test_streaming.cpp) ---
+#include "render/EstadoChunk.h"        // maquina de estados: en que punto esta un chunk
+#include "render/PrioridadChunk.h"     // que chunk va primero: anillos + prediccion
+#include "render/VigilanteChunk.h"     // ningun chunk se queda atascado + presupuesto
+#include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "BloqueCompuesto.h" // bloques con estado y varias partes en un voxel
 #include "WorldName.h"
@@ -4569,6 +4574,37 @@ private:
     std::map<std::string, GLuint> textures;
     std::string resourcePath;
 
+    // ========================================================================
+    // ⭐ LA BARRERA QUE PROTEGE EL CONTEXTO DE OPENGL
+    // ========================================================================
+    // getTexture() es caché-primero, pero si la textura NO está cargada llama
+    // a loadTexture(), que hace DOS cosas prohibidas fuera del hilo principal:
+    // lee un PNG del disco y crea una textura de OpenGL (glGenTextures +
+    // glTexImage2D).
+    //
+    // Y el mesher pide texturas — nueve métodos distintos del gestor. Mientras
+    // el mallado corría en el hilo principal eso era correcto. Al moverlo a un
+    // worker, una sola textura que faltara metería llamadas de GL desde otro
+    // hilo: comportamiento indefinido, y en la práctica el contexto corrupto o
+    // el juego cerrándose.
+    //
+    // La precarga (loadAllBlockTextures + prewarmItemTextures) debería
+    // cubrirlo todo, pero es una LISTA ESCRITA A MANO: basta una textura
+    // nueva que alguien olvide añadir para que el fallo aparezca meses
+    // después, de forma intermitente y solo en la máquina donde ese bloque
+    // llegue a generarse.
+    //
+    // Así que no se confía en la lista: se cierra la puerta. Fuera del hilo
+    // principal, una textura ausente devuelve 0 — que es el valor que el
+    // mesher YA sabe interpretar ("textura no lista, reintentar el chunk en
+    // el próximo frame"). El chunk se remalla cuando el hilo principal la haya
+    // cargado, y nadie toca GL desde donde no debe.
+    std::thread::id hiloPrincipal = std::this_thread::get_id();
+
+    bool puedeCargar() const {
+        return std::this_thread::get_id() == hiloPrincipal;
+    }
+
     // OPTIMIZACIÓN: Cache del último bind para evitar binds redundantes
     GLuint lastBoundTexture;
 
@@ -4614,6 +4650,18 @@ public:
         if (textures.find(filename) != textures.end()) {
             return textures[filename];
         }
+
+        // ⭐ SEGUNDA PUERTA, POR SI ALGUIEN NO PASA POR getTexture().
+        //
+        // Esta funcion hace I/O de disco y crea texturas de OpenGL. Desde un
+        // hilo de trabajo eso es comportamiento indefinido, y el sintoma seria
+        // el contexto corrupto o el juego cerrandose -- de forma intermitente
+        // y dificil de reproducir.
+        //
+        // Se comprueba tambien aqui y no solo en getTexture porque hay nueve
+        // metodos del gestor que el mesher usa, y basta que uno llame directo
+        // a loadTexture para saltarse la primera puerta.
+        if (!puedeCargar()) return 0;
 
         std::string fullPath = resourcePath + filename;
 
@@ -4717,6 +4765,15 @@ public:
         if (it != textures.end()) {
             return it->second;
         }
+
+        // ⭐ FUERA DEL HILO PRINCIPAL NO SE CARGA NADA (ver `puedeCargar`).
+        //
+        // Devolver 0 no es un fallo silencioso: es exactamente lo que el
+        // mesher espera de "esta textura todavia no esta". Marca el chunk como
+        // texturasFaltantes y lo reintenta, y para entonces el hilo principal
+        // ya la habra cargado.
+        if (!puedeCargar()) return 0;
+
         // Si no existe, intentar cargarla
         return loadTexture(filename);
     }
@@ -5472,6 +5529,44 @@ public:
         snprintf(id, sizeof(id), "%s#macizo", clave);
         auto it = textures.find(id);
         if (it != textures.end()) return it->second;
+
+        // ⭐ TERCERA PUERTA. ESTA FALTABA, Y COLGABA EL JUEGO.
+        //
+        // BUG QUE ESTO CORRIGE: los tres hilos de mallado se quedaban muertos
+        // dentro del mesher y el mundo dejaba de dibujarse — 4 chunks LISTO de
+        // 47 cargados, la cola de entrada clavada en su tope de 16 y
+        // MALLA_EN_COLA=19 para siempre. Reproducido de forma determinista con
+        // VOXELWORLD_BENCH en (42,79,149): el proceso no termina nunca.
+        //
+        // El diagnostico salio de las balizas: `dentro=3 baliza=1` con
+        // `ticks` y `celdas` CONGELADOS. Congelados es el dato que lo resuelve
+        // — un bucle infinito seguiria contando celdas; que no cuente significa
+        // que los hilos estan BLOQUEADOS, no girando. Y `ultBloque=40`
+        // (BLOCK_TUNA) señalaba donde.
+        //
+        // POR QUE SE ESCAPO DE LAS OTRAS DOS PUERTAS. Las demas rutas de
+        // textura del mesher (getBlockTexture, getTexturaHoja,
+        // getTexturaRaices, getTexturaPastoFlores...) acaban TODAS en
+        // getTexture(), que ya comprueba `puedeCargar()` y devuelve 0 — el
+        // valor que el mesher sabe interpretar como "aun no esta, reintenta".
+        //
+        // getTexturaTuna es la unica que se sale de ese camino: llama aqui
+        // directamente. Y aqui se hacia stbi_load (I/O de disco), glGenTextures,
+        // glTexImage2D y una escritura en el mapa `textures` — las cuatro cosas
+        // desde un hilo de trabajo, sobre un contexto de OpenGL que pertenece
+        // al hilo principal. Tocar GL desde otro hilo sin contexto es
+        // comportamiento indefinido, y en este driver se manifiesta como un
+        // bloqueo dentro del propio driver: de ahi los tres workers muertos.
+        //
+        // La nota de la cabecera de esta funcion decia "se hace una sola vez al
+        // cargar y se cachea como cualquier otra textura". Eso era cierto
+        // cuando el mallado corria en el hilo principal; dejo de serlo al
+        // sacarlo a workers, y nadie volvio a mirar esta puerta.
+        //
+        // Devolver 0 es el contrato correcto: el mesher marca el chunk como
+        // texturasFaltantes y lo reintenta, y para entonces el hilo principal
+        // ya habra creado la textura por la ruta normal.
+        if (!puedeCargar()) return 0;
 
         int w = 0, h = 0, canales = 0;
         stbi_set_flip_vertically_on_load(true);
@@ -6491,6 +6586,22 @@ private:
             return textures[fullPath];
         }
 
+        // ⭐ CUARTA PUERTA, POR EL MISMO MOTIVO QUE LAS OTRAS TRES.
+        //
+        // Esta funcion hace I/O y crea texturas de GL igual que loadTexture, y
+        // no tenia barrera. Se alcanza desde un worker por dos vias, las dos
+        // reales: es el fallback de cargarTunaSinHuecos (tres veces: PNG que no
+        // carga, glGenTextures que devuelve 0, y error de glTexImage2D), asi
+        // que arreglar solo la tuna habria dejado el mismo cuelgue detras de
+        // cualquier fallo de carga.
+        //
+        // Ademas escribe en el mapa `textures` (la cache negativa de abajo), y
+        // ese mapa lo lee y muta el hilo principal sin ningun mutex: un
+        // std::map reestructurandose mientras otro hilo lo recorre es la misma
+        // clase de fallo que ya obligo a copiar el borde de los vecinos en vez
+        // de guardar punteros (ver BordeVecinos.h).
+        if (!puedeCargar()) return 0;
+
         int width, height, channels;
         stbi_set_flip_vertically_on_load(true);
         unsigned char* data = stbi_load(fullPath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
@@ -6813,9 +6924,20 @@ struct Chunk {
 
     // VBO OPTIMIZATION: Múltiples VBOs por textura para renderizado correcto
     struct TextureBatch {
+        // ⭐ UN SOLO VBO, ENTRELAZADO. Antes habia tres.
+        //
+        // `colorVBO` y `uvVBO` sobrevivieron a la migracion al formato
+        // entrelazado como fantasmas: se creaban con glGenBuffers, se
+        // validaban en cuatro sitios y se liberaban en seis, pero NUNCA
+        // recibian un glBufferData ni se pasaban a un puntero de atributo. El
+        // render dibuja exclusivamente desde `vbo` con
+        // glInterleavedArrays(GL_T2F_C4F_N3F_V3F), que ya lleva UV y color
+        // dentro.
+        //
+        // O sea: dos nombres de buffer reservados en el driver por cada batch,
+        // con ~1.000 batches por frame, para no contener nada. Quitarlos elimina
+        // dos glGenBuffers y dos glDeleteBuffers por batch en cada remallado.
         GLuint vbo;
-        GLuint colorVBO;
-        GLuint uvVBO;
         int vertexCount;
         GLuint texture;
 
@@ -6845,13 +6967,11 @@ struct Chunk {
         // en todo el terreno.
         bool recortado;
 
-        TextureBatch() : vbo(0), colorVBO(0), uvVBO(0), vertexCount(0), texture(0),
+        TextureBatch() : vbo(0), vertexCount(0), texture(0),
                          transparente(false), recortado(false) {}
 
         ~TextureBatch() {
             if (vbo) glDeleteBuffers(1, &vbo);
-            if (colorVBO) glDeleteBuffers(1, &colorVBO);
-            if (uvVBO) glDeleteBuffers(1, &uvVBO);
         }
     };
 
@@ -6865,7 +6985,86 @@ struct Chunk {
     bool isModified;  // ⭐ Flag para saber si el chunk fue modificado por el jugador
     std::atomic<bool> isBeingGenerated;  // ⭐ Flag para prevenir liberación durante generación async
     int buildRetries;  // ⭐⭐⭐ Contador de reintentos de construcción
+
+    // ⭐ Esperas por vecinos ANTES de encolar a un worker. Contador aparte.
+    //
+    // No se reutiliza buildRetries a proposito: ese ya lleva TRES frenos
+    // distintos (espera de vecinos dentro del mesher, textura ausente, y el
+    // rescate de subirMallaAGPU que se rinde a los 8). Sumarle un cuarto
+    // significaria que esperar a un vecino acerca al chunk al limite de "no
+    // pudo mallarse tras 8 intentos", que es otra cosa y ademas emite error.
+    int esperasVecinos = 0;
     int framesConCandado;  // Frames seguidos con isUpdatingMesh puesto y sin mesh
+
+    // ⭐ ESTA MALLA SE HIZO CON EL BORDE INCOMPLETO (deuda pendiente).
+    //
+    // La pone el mesher cuando agota las esperas y malla igual ("mejor visible
+    // que invisible"). La geometria del interior es correcta; lo que puede
+    // estar mal son las caras de la frontera, que se decidieron contra un
+    // vecino que todavia no estaba cargado.
+    //
+    // Mientras este puesta, el chunk tiene una revision pendiente: en cuanto
+    // sus cuatro vecinos esten generados, se remalla UNA vez con la foto buena
+    // y la marca se baja. Ver revisarBordesProvisionales.
+    //
+    // Es lo que convierte "mejor visible que invisible" de una concesion
+    // permanente en una PROVISIONAL: se sigue viendo terreno al instante, pero
+    // la costura se corrige sola en vez de quedarse.
+    bool bordeProvisional = false;
+
+    // ========================================================================
+    // ⭐ EL ESTADO EXPLICITO DEL CHUNK (Streaming::Estado)
+    // ========================================================================
+    // Hasta aqui, "en que punto esta este chunk" habia que deducirlo cruzando
+    // SIETE banderas (las de arriba) con TRES conjuntos de World (genInFlight,
+    // mallaInFlight, mallaDone). Catorce combinaciones alcanzables, seis con
+    // sentido, y las otras ocho son la lista de bugs de chunks atrapados que
+    // documentan los comentarios de este archivo.
+    //
+    // ⚠️ CONVIVE CON LAS BANDERAS, NO LAS SUSTITUYE (todavia).
+    //
+    // Las banderas siguen mandando sobre el pipeline: quitarlas de golpe
+    // significaria reescribir a la vez el mesher, la descarga, el guardado y
+    // la luz -- y sin poder bisectar si algo se rompe. El estado se mantiene
+    // AL DIA junto a ellas y es lo que leen el vigilante, las metricas y el
+    // overlay. Cuando la Fase 2 parta buildChunkMesh, las banderas se van y
+    // este campo se queda como unica fuente de verdad.
+    //
+    // El coste de la convivencia es una linea de marcado en cada transicion;
+    // el beneficio es que el vigilante y el diagnostico funcionan YA, y que
+    // cada paso siguiente se puede verificar por separado.
+    Streaming::Estado estado = Streaming::Estado::DESCARGADO;
+
+    // Cuando se entro en el estado actual (glfwGetTime, segundos).
+    //
+    // Es lo que le faltaba al vigilante anterior para poder preguntar "¿cuanto
+    // lleva este chunk sin avanzar?" sin inventarse una heuristica. Contar
+    // frames no vale: a 200 FPS y a 20 FPS el mismo umbral significa cosas
+    // distintas, y justo cuando el sistema va mal es cuando mas tardaba en
+    // reaccionar.
+    double tiempoEstado = 0.0;
+
+    // Reintentos del vigilante (distinto de buildRetries y de esperasVecinos:
+    // aquellos frenan el mallado, este cuenta rescates por trabajo perdido).
+    int rescatesVigilante = 0;
+
+    // ⭐ VERSION PARA CANCELAR TRABAJO OBSOLETO (§14, §55).
+    //
+    // Se incrementa cada vez que el chunk se invalida o se recicla del pool.
+    // Los trabajos en vuelo llevan copia de la version con la que salieron;
+    // al volver, si no coincide, el resultado se tira sin aplicarlo.
+    //
+    // Es lo que hace segura la cancelacion: sin esto, cancelar un trabajo
+    // significa o esperar a que termine (bloquea) o arriesgarse a que un
+    // resultado viejo pise datos nuevos. Con un contador, el trabajo obsoleto
+    // se reconoce y se descarta al llegar.
+    uint32_t version = 0;
+
+    void cambiarEstado(Streaming::Estado nuevo, double ahora) {
+        if (estado == nuevo) return;
+        estado = nuevo;
+        tiempoEstado = ahora;
+    }
 
     // ⭐ ¿HAY FOLLAJE DE OCOTE AQUI DENTRO?
     //
@@ -6882,7 +7081,8 @@ struct Chunk {
     Chunk(Vec3i pos) : position(pos),
                        needsRebuild(true), isGenerated(false), needsLightUpdate(false),
                        isUpdatingMesh(false), waitingForNeighbors(false), isModified(false),
-                       isBeingGenerated(false), buildRetries(0), framesConCandado(0),
+                       isBeingGenerated(false), buildRetries(0), esperasVecinos(0),
+                       framesConCandado(0),
                        tieneAciculas(false) {
         // ⭐ INICIALIZAR SUBCHUNKS CON PALETAS (todos empiezan con BLOCK_AIR)
         subchunks.reserve(SUBCHUNKS_PER_CHUNK);
@@ -8184,6 +8384,92 @@ private:
 struct GameState;
 extern GameState* g_gameState;
 
+// TEMPORAL (diagnostico): reparto del coste de la carga sincrona de un chunk.
+// Se rellena en getOrCreateChunk y lo imprime updateChunks cuando pasa de 20 ms.
+static double g_perfCargaDisco   = 0.0;
+static double g_perfCargaLuz     = 0.0;
+static double g_perfCargaCostura = 0.0;
+
+// TEMPORAL (diagnostico): chunks que el render se salta por tener el candado
+// de mallado puesto. `SinDueno` = el candado esta puesto pero NADIE lo tiene
+// (no esta en mallaInFlight), o sea que se filtro. `ConMalla` = ademas ya
+// tenia geometria, que es el caso que el rescate de render() NO cubre.
+static long long g_diagSaltadosPorCandado = 0;
+static long long g_diagCandadoSinDueno    = 0;
+static long long g_diagCandadoConMalla    = 0;
+static int       g_diagTopeMallas         = 0;   // espejo de MAX_MESHES_PER_FRAME_DYNAMIC
+static std::atomic<long long> g_diagWorkerEntradas{0};  // veces que un worker cogio trabajo
+static std::atomic<long long> g_diagWorkerSalidas{0};   // veces que lo devolvio
+static std::atomic<long long> g_diagWorkerDentro{0};    // ahora mismo dentro del mesher
+// ============================================================================
+// BALIZAS DEL MESHER: UNA POR WORKER, NO UNA GLOBAL
+// ============================================================================
+// Sirven para localizar un cuelgue dentro del mesher sin depurador: si los
+// contadores no cambian entre dos informes, ese worker no esta avanzando.
+//
+// ⭐ POR QUE SON POR WORKER Y ANTES ERAN GLOBALES.
+//
+// Con una sola baliza compartida, los tres hilos escribian encima del mismo
+// dato, asi que el informe no distinguia dos situaciones muy distintas:
+//
+//     UN worker colgado y dos trabajando   -> degradacion, el mundo carga lento
+//     TRES workers colgados                -> parada total, el mundo no carga
+//
+// Las dos se ven igual: `dentro=3` y unos contadores que no se mueven. Para
+// saber cual era hubo que razonar indirectamente sobre la cola de entrada.
+// Con una baliza por hilo la respuesta esta en el informe.
+//
+// ⭐ Y POR QUE LLEVAN MARCA DE TIEMPO.
+//
+// "El contador no cambia entre dos informes" solo se puede evaluar comparando
+// dos informes a mano. Guardando CUANDO se actualizo por ultima vez, un solo
+// informe ya dice cuantos segundos lleva parado cada worker — y eso es lo que
+// permite que el vigilante actue solo, sin que nadie lea el log.
+static constexpr int MAX_WORKERS_MALLA = 8;   // tope duro de hilos de mallado
+
+struct BalizaWorker {
+    std::atomic<int>       fase{0};       // 0=fuera 1=bucle 2=greedy 3=empaquetando
+    std::atomic<long long> ticks{0};      // una por columna x del chunk
+    std::atomic<long long> celdas{0};     // celdas procesadas
+    std::atomic<int>       celda{-1};     // (x<<20)|(y<<8)|z
+    std::atomic<int>       bloque{-1};    // BlockType en curso
+    std::atomic<int>       chunkX{0}, chunkZ{0};
+    std::atomic<double>    ultimoLatido{0.0};   // glfwGetTime del ultimo avance
+    std::atomic<bool>      activo{false};       // dentro del mesher ahora mismo
+};
+
+static BalizaWorker g_baliza[MAX_WORKERS_MALLA];
+
+// TEMPORAL (medicion del parpadeo al caminar):
+//   SinVecinos = veces que el mesher encontro la foto del borde incompleta.
+//   BordeRoto  = veces que, agotados los 3 reintentos, mallo IGUAL con el
+//                borde incompleto. Cada una de estas es una costura que
+//                aparece y luego cambia: es el parpadeo que se ve al andar.
+//   Remallados = remallados disparados por el refresco de follaje al caminar.
+static std::atomic<long long> g_diagMalladoSinVecinos{0};
+static std::atomic<long long> g_diagMalladoBordeRoto{0};
+static std::atomic<long long> g_diagRemalladoFollaje{0};
+// Costuras provisionales que se corrigieron solas al llegar los vecinos.
+static long long g_diagBordesSaldados = 0;
+
+// Cada hilo de mallado se queda con su hueco al arrancar. -1 = no es un worker
+// de mallado (el hilo principal cuando malla por el camino sincrono), y en ese
+// caso no se toca ninguna baliza: el hilo principal colgado no es un caso que
+// el vigilante pueda arreglar, y ademas se veria como FPS cero.
+static thread_local int t_indiceWorkerMalla = -1;
+
+// Los globales se conservan porque hay codigo de diagnostico que los imprime;
+// ahora son la SUMA de los por-worker, que es lo que antes representaban de
+// forma aproximada (el ultimo que escribiera).
+static std::atomic<int>       g_diagBalizaFase{0};
+static std::atomic<long long> g_diagBalizaTicks{0};
+static std::atomic<int>       g_diagBalizaCelda{-1};    // (x<<20)|(y<<8)|z
+static std::atomic<int>       g_diagBalizaBloque{-1};   // BlockType en curso
+static std::atomic<long long> g_diagBalizaCeldas{0};    // celdas procesadas
+static long long g_diagIntegradas         = 0;   // mallas subidas a GPU
+static long long g_diagDescartadasPos     = 0;   // descartadas: el chunk ya no esta
+static long long g_diagDescartadasNoOk    = 0;   // descartadas: !ok o !valida
+
 class World {
 private:
     std::map<Vec3i, Chunk*> chunks;
@@ -8273,6 +8559,528 @@ private:
     // Cuántos chunks puede haber encolados a la vez: más allá de esto solo se
     // acumula latencia, y al alejarse el jugador el trabajo ya no sirve.
     static const size_t MAX_GEN_QUEUE = 24;
+
+    // ========================================================================
+    // ⭐ EL MALLADO EN HILOS DE TRABAJO
+    // ========================================================================
+    // El problema que resuelve, MEDIDO en el juego real:
+    //
+    //     estado estacionario:  chunks = 0.02 ms   (nada)
+    //     al explorar:          chunks = 5.8 ms    <- el tiron
+    //
+    // Generar terreno ya corre en hilos y cuesta 0.06 ms. Lo caro es MALLARLO,
+    // y eso seguia en el hilo principal, de uno en uno, con un presupuesto de
+    // 2.5 ms que un solo chunk puede desbordar entero (un chunk son ~330.000
+    // iteraciones de celda).
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE AHORA SE PUEDE, Y ANTES NO
+    // ------------------------------------------------------------------------
+    // Hicieron falta tres piezas, y las tres estan ya puestas:
+    //
+    //   1. La FRONTERA CPU/GPU. buildChunkMesh acepta `salidaCPU` y se para
+    //      justo donde acaba el trabajo de CPU. Las 6.324 lineas anteriores no
+    //      tienen una sola llamada a OpenGL -- comprobado, no supuesto.
+    //
+    //   2. La FOTO DEL BORDE (BordeVecinos.h). Antes el mesher guardaba
+    //      punteros crudos a los cuatro chunks vecinos. En un worker eso seria
+    //      leer memoria que el hilo principal puede devolver al pool y
+    //      reciclar como OTRO chunk.
+    //
+    //   3. La BARRERA DE TEXTURAS (TextureManager::puedeCargar). El mesher
+    //      pide texturas, y pedir una que falta abria un PNG y creaba una
+    //      textura de GL. Desde un worker eso corrompe el contexto.
+    //
+    // ------------------------------------------------------------------------
+    // EL REPARTO DE TRABAJO
+    // ------------------------------------------------------------------------
+    //   hilo principal  ->  decide QUE chunks mallar y los encola
+    //   workers         ->  construyen la geometria (lo caro)
+    //   hilo principal  ->  sube los VBOs (lo unico que exige contexto GL)
+    //
+    // El hilo principal NUNCA espera a un worker: si la malla no esta lista,
+    // el chunk se dibuja con la anterior y se recoge en otro frame.
+    // ------------------------------------------------------------------------
+    // QUE VIAJA EN LA COLA, Y POR QUE EL PUNTERO
+    // ------------------------------------------------------------------------
+    // La primera version encolaba la POSICION y el worker hacia getChunk()
+    // para resolverla. Parecia lo prudente -- un puntero puede morir, una
+    // posicion no -- pero es exactamente al reves:
+    //
+    //   getChunk() lee `chunks`, que es un std::map SIN proteger, y el hilo
+    //   principal lo modifica constantemente (insert al generar, erase al
+    //   descargar). Leer un map mientras otro hilo lo reestructura es
+    //   comportamiento indefinido: el recorrido puede seguir un nodo a medio
+    //   enlazar y devolver basura, o no volver nunca.
+    //
+    // El puntero, en cambio, es SEGURO aqui, y lo es por una razon concreta:
+    // el chunk se encola con su candado (isUpdatingMesh) ya puesto, y la
+    // descarga se salta todo chunk con el candado puesto. O sea que mientras
+    // esta en la cola nadie puede liberarlo ni reciclarlo.
+    //
+    // El candado es lo que convierte el puntero en la opcion segura y el
+    // getChunk() en la peligrosa.
+    struct MallaPendiente {
+        Chunk* chunk = nullptr;       // valido: lo protege el candado
+        Vec3i pos;                    // para localizarlo al integrar
+        Render::MallaChunk malla;     // la geometria ya construida
+        bool ok = false;              // false = el worker no pudo terminarla
+    };
+
+    // Lo mismo en la cola de entrada: puntero + posicion.
+    //
+    // ⭐ Y LA FOTO DEL BORDE, TOMADA EN EL HILO PRINCIPAL.
+    //
+    // El encargo la trae ya hecha porque tomarla exige leer el mapa `chunks`
+    // (para localizar a los cuatro vecinos) y desreferenciar sus punteros. Las
+    // dos cosas son seguras aqui —el hilo principal es el unico que reestructura
+    // el mapa y el unico que descarga chunks— y ninguna lo es dentro de un
+    // worker. Ver capturarBorde().
+    struct EncargoMalla {
+        Chunk* chunk;
+        Vec3i  pos;
+        Render::BordeVecinos borde;   // foto ya tomada: el worker no consulta nada
+        bool   vecinosCompletos;      // ¿estaban los cuatro al fotografiar?
+    };
+
+    std::deque<EncargoMalla> mallaQueue;          // principal -> workers
+    std::mutex mallaQueueMutex;
+    std::condition_variable mallaQueueCV;
+
+    std::vector<MallaPendiente> mallaDone;        // workers -> principal
+    std::mutex mallaDoneMutex;
+
+    std::set<Vec3i> mallaInFlight;                // solo hilo principal
+    std::vector<std::thread> mallaThreads;
+    std::atomic<bool> mallaRunning{false};
+
+    // Tope de la cola. Mas alla de esto el trabajo encolado ya no sirve: el
+    // jugador se ha movido y esos chunks o se descargaron o cambiaron.
+    static const size_t MAX_MALLA_QUEUE = 16;
+
+public:
+    // ========================================================================
+    // ⭐ EL GESTOR DE STREAMING
+    // ========================================================================
+    // Lo que antes vivia disperso en variables `static` dentro de updateChunks
+    // -- y por tanto NO se reiniciaba al cambiar de mundo, arrastrando el
+    // estado del anterior -- vive aqui, como estado de World con vida propia.
+    Streaming::Presupuesto presupuesto;      // ms por fase, adaptativo
+    Streaming::ContextoJugador ctxJugador;   // posicion, velocidad, mirada
+    Streaming::Plazos plazosVigilante;
+
+    float msFrameSuavizado = 8.0f;           // EMA del tiempo de frame
+    double ultimoTiempoStreaming = 0.0;
+
+    // ⭐ CANCELACION MASIVA POR SALTO DE POSICION (§55).
+    //
+    // Al teletransportarse, todo lo encolado deja de servir de golpe. El
+    // sistema anterior no tenia forma de expresar eso: los 24 chunks del sitio
+    // viejo se generaban enteros antes de que entrara uno solo del destino, y
+    // como la cola llena corta el encolado, el mundo nuevo tardaba segundos en
+    // empezar siquiera a pedirse.
+    //
+    // Subir esta epoca invalida de una vez todo el trabajo en vuelo sin
+    // tener que recorrer ninguna cola ni esperar a ningun worker.
+    uint32_t epocaStreaming = 0;
+
+    // --- Metricas (§62) ---
+    struct MetricasStreaming {
+        int enEstado[(int)Streaming::Estado::_COUNT] = {0};
+        int rescatados = 0;      // chunks que el vigilante desatasco
+        int cancelados = 0;      // trabajos obsoletos descartados al volver
+        int fallidos = 0;
+        // Hilos de mallado que se quedaron muertos dentro del mesher. Cualquier
+        // valor distinto de 0 es un BUG, no una condicion de carga: ver
+        // vigilarWorkers y Streaming::workerColgado.
+        int workersColgados = 0;
+        double msGeneracion = 0.0, msMallado = 0.0, msSubida = 0.0;
+        int    nGeneracion = 0,   nMallado = 0,    nSubida = 0;
+
+        // Frame pacing (§52): la media no basta. Un juego a 140 FPS de media
+        // con caidas a 20 se siente peor que uno clavado a 90.
+        std::vector<float> muestrasFrame;
+
+        void anotarFrame(float ms) {
+            muestrasFrame.push_back(ms);
+            if (muestrasFrame.size() > 2048) muestrasFrame.erase(muestrasFrame.begin());
+        }
+
+        // Percentil de los PEORES frames: p=0.01 devuelve el 1% low.
+        float percentilPeor(float p) const {
+            if (muestrasFrame.empty()) return 0.0f;
+            std::vector<float> v = muestrasFrame;
+            std::sort(v.begin(), v.end(), std::greater<float>());
+            size_t n = (size_t)(v.size() * p);
+            if (n >= v.size()) n = v.size() - 1;
+            return v[n];
+        }
+        void limpiar() {
+            for (int i = 0; i < (int)Streaming::Estado::_COUNT; ++i) enEstado[i] = 0;
+        }
+    } metricas;
+
+    // ------------------------------------------------------------------------
+    // Refrescar el contexto del jugador (posicion, velocidad REAL, mirada)
+    // ------------------------------------------------------------------------
+    // La velocidad se deriva del desplazamiento entre frames y NO se normaliza:
+    // su magnitud es justo el dato que el sistema anterior tiraba (main.cpp
+    // normalizaba moveDir, asi que volar a 50 m/s priorizaba igual que
+    // caminar).
+    void actualizarContextoJugador(const Vec3& pos, const Vec3& prev,
+                                   float dt, float mirX, float mirZ) {
+        ctxJugador.chunkX = (int)std::floor(pos.x / (float)CHUNK_SIZE);
+        ctxJugador.chunkZ = (int)std::floor(pos.z / (float)CHUNK_SIZE);
+        ctxJugador.distanciaRender = RENDER_DISTANCE;
+
+        if (dt > 0.0001f) {
+            // Suavizado: sin el, un solo frame largo dispara la velocidad
+            // aparente y el corredor de precarga da un bandazo.
+            const float vx = (pos.x - prev.x) / dt;
+            const float vz = (pos.z - prev.z) / dt;
+            ctxJugador.velX = ctxJugador.velX * 0.7f + vx * 0.3f;
+            ctxJugador.velZ = ctxJugador.velZ * 0.7f + vz * 0.3f;
+        }
+
+        const float len = std::sqrt(mirX * mirX + mirZ * mirZ);
+        if (len > 0.001f) {
+            ctxJugador.miradaX = mirX / len;
+            ctxJugador.miradaZ = mirZ / len;
+        }
+
+        // ⭐ DETECCION DE TELETRANSPORTE (§55).
+        //
+        // Un salto de mas de 8 chunks no lo produce ningun movimiento normal
+        // (ni volando): es un teletransporte, una carga de partida o el rescate
+        // anti-void. Todo lo encolado apunta al sitio viejo.
+        static int ultimoCX = 0, ultimoCZ = 0;
+        static bool primeraVez = true;
+        if (!primeraVez) {
+            const int sx = ctxJugador.chunkX - ultimoCX;
+            const int sz = ctxJugador.chunkZ - ultimoCZ;
+            if (sx * sx + sz * sz > 64) {
+                cancelarTodoElTrabajo();
+                ctxJugador.velX = ctxJugador.velZ = 0.0f;  // la velocidad vieja no vale
+            }
+        }
+        primeraVez = false;
+        ultimoCX = ctxJugador.chunkX;
+        ultimoCZ = ctxJugador.chunkZ;
+    }
+
+    // ------------------------------------------------------------------------
+    // Tirar todo el trabajo en vuelo (teletransporte / cambio de mundo)
+    // ------------------------------------------------------------------------
+    // ⚠️ NO se tocan los chunks que un worker esta usando: solo se vacian las
+    // colas de ENTRADA y se sube la epoca. Los trabajos ya cogidos terminaran
+    // solos y sus resultados se descartaran al llegar por no coincidir la
+    // epoca. Interrumpir a un worker a media faena es justo la clase de cosa
+    // que deja punteros colgando.
+    void cancelarTodoElTrabajo() {
+        ++epocaStreaming;
+
+        std::vector<Vec3i> soltar;
+        {
+            std::lock_guard<std::mutex> lock(genQueueMutex);
+            soltar.assign(genQueue.begin(), genQueue.end());
+            genQueue.clear();
+        }
+        for (const Vec3i& p : soltar) genInFlight.erase(p);
+
+        // La cola de mallado guarda punteros con el candado puesto: hay que
+        // soltarlo o esos chunks quedan bloqueados para siempre.
+        std::vector<Chunk*> soltarMalla;
+        {
+            std::lock_guard<std::mutex> lock(mallaQueueMutex);
+            for (const auto& e : mallaQueue) soltarMalla.push_back(e.chunk);
+            mallaQueue.clear();
+        }
+        for (Chunk* c : soltarMalla) {
+            if (!c) continue;
+            c->isUpdatingMesh.store(false, std::memory_order_release);
+            c->needsRebuild = true;
+            mallaInFlight.erase(c->position);
+            c->cambiarEstado(Streaming::Estado::GENERADO, glfwGetTime());
+        }
+
+        metricas.cancelados += (int)(soltar.size() + soltarMalla.size());
+        std::cout << "[STREAM] Salto de posicion: " << soltar.size()
+                  << " generaciones y " << soltarMalla.size()
+                  << " mallados cancelados (epoca " << epocaStreaming << ")"
+                  << std::endl;
+    }
+
+    // ------------------------------------------------------------------------
+    // ⭐ NIEBLA ADAPTATIVA: el anti-hole de la Fase 1 (§26)
+    // ------------------------------------------------------------------------
+    // Devuelve hasta donde se puede ver SIN que se vea el borde de lo cargado.
+    //
+    // El problema: la niebla se calculaba desde `g_gameState->renderDistance`,
+    // un ajuste de usuario, mientras que lo que de verdad esta cargado lo
+    // decide `RENDER_DISTANCE`, que el regulador mueve en caliente. Cuando el
+    // regulador recorta la distancia por falta de FPS, la niebla NO le sigue:
+    // se queda abierta mostrando exactamente la franja que se acaba de dejar
+    // de cargar. Ese es el "borde recto de terreno" al fondo.
+    //
+    // Ademas, aunque coincidieran, el radio cargado no dice cuanto esta LISTO:
+    // durante una carga fuerte hay chunks dentro del radio que todavia no
+    // tienen geometria. Si la niebla se calibra contra el radio nominal, esos
+    // huecos quedan a la vista.
+    //
+    // La solucion: medir el radio REALMENTE COMPLETO -- el mayor anillo en el
+    // que todos los chunks estan LISTO -- y cerrar la niebla ahi. Cuando el
+    // streaming se pone al dia, la niebla se abre sola.
+    //
+    // Se mueve despacio (0.02 por frame) a proposito: saltar de golpe seria un
+    // parpadeo mucho mas visible que el hueco que se intenta tapar.
+    float radioNieblaSuavizado = -1.0f;
+
+    float radioVisibleSeguro() {
+        int radioCompleto = 0;
+        const int maxRadio = RENDER_DISTANCE;
+
+        for (int r = 1; r <= maxRadio; ++r) {
+            bool anilloCompleto = true;
+            // Solo el perimetro del anillo: los interiores ya se validaron en
+            // iteraciones anteriores.
+            for (int dx = -r; dx <= r && anilloCompleto; ++dx) {
+                for (int dz = -r; dz <= r; ++dz) {
+                    if (std::abs(dx) != r && std::abs(dz) != r) continue;
+                    if (dx * dx + dz * dz > r * r) continue;
+
+                    auto it = chunks.find(Vec3i(ctxJugador.chunkX + dx, 0,
+                                                ctxJugador.chunkZ + dz));
+                    if (it == chunks.end() || !it->second ||
+                        !Streaming::esDibujable(it->second->estado)) {
+                        anilloCompleto = false;
+                        break;
+                    }
+                }
+            }
+            if (!anilloCompleto) break;
+            radioCompleto = r;
+        }
+
+        // Nunca por debajo de 2 chunks: cerrar mas seria peor que el hueco
+        // (el jugador se quedaria dentro de una bola de niebla).
+        if (radioCompleto < 2) radioCompleto = 2;
+
+        const float objetivo = (float)radioCompleto * (float)CHUNK_SIZE;
+        if (radioNieblaSuavizado < 0.0f) radioNieblaSuavizado = objetivo;
+        else radioNieblaSuavizado += (objetivo - radioNieblaSuavizado) * 0.02f;
+        return radioNieblaSuavizado;
+    }
+
+    // ------------------------------------------------------------------------
+    // ⭐ EL VIGILANTE (§5, §65): ningun chunk se queda atascado
+    // ------------------------------------------------------------------------
+    // Recorre los chunks vivos y desatasca los que llevan demasiado tiempo sin
+    // avanzar. A diferencia del vigilante anterior (que contaba frames, miraba
+    // un solo estado y podia soltar el candado de un chunk en uso), este mide
+    // TIEMPO REAL, cubre todos los estados transitorios y respeta a los
+    // workers.
+    // ------------------------------------------------------------------------
+    // ⭐ Y ALGUIEN TIENE QUE VIGILAR A LOS VIGILADOS (los workers)
+    // ------------------------------------------------------------------------
+    // Ver la nota larga de Streaming::workerColgado. En resumen: el vigilante
+    // de chunks salta a proposito todo chunk que un worker tenga en las manos
+    // (soltarle el candado autorizaria a reciclar memoria viva), asi que si el
+    // que se cuelga es el WORKER no lo mira nadie y el mundo deja de cargar.
+    //
+    // Esto NO rescata: diagnostica. Un worker colgado es un fallo de
+    // programacion -- alguien toco OpenGL o un mutex del hilo principal desde
+    // un hilo de trabajo -- y lo unico util es dejar escrito DONDE, con el
+    // chunk y el bloque exactos, en vez de dejar al jugador delante de un
+    // mundo a medias sin ninguna pista.
+    void vigilarWorkers(double ahora) {
+        for (int i = 0; i < MAX_WORKERS_MALLA; ++i) {
+            BalizaWorker& b = g_baliza[i];
+            const bool activo = b.activo.load();
+            const float sinLatir = (float)(ahora - b.ultimoLatido.load());
+
+            if (!Streaming::workerColgado(activo, sinLatir)) {
+                // Volvio a la vida: se rearma el aviso para que, si se cuelga
+                // otra vez mas adelante, se vuelva a reportar.
+                if (!activo) workerAvisado[i] = false;
+                continue;
+            }
+
+            // Se avisa UNA VEZ por cuelgue, no cada frame: a 150 FPS serian
+            // 150 lineas de log por segundo y el log dejaria de servir para
+            // nada justo cuando hace falta leerlo.
+            if (workerAvisado[i]) continue;
+            workerAvisado[i] = true;
+            metricas.workersColgados++;
+
+            const int celda = b.celda.load();
+            std::cerr << "[WORKER-COLGADO] hilo de mallado " << i << " lleva "
+                      << sinLatir << "s sin avanzar. chunk ("
+                      << b.chunkX.load() << "," << b.chunkZ.load()
+                      << ") fase=" << b.fase.load()
+                      << " celda=(" << ((celda >> 20) & 0xFFF) << ","
+                      << ((celda >> 8) & 0xFFF) << "," << (celda & 0xFF) << ")"
+                      << " bloque=" << b.bloque.load()
+                      << " columnas=" << b.ticks.load()
+                      << " celdas=" << b.celdas.load() << "\n"
+                      << "[WORKER-COLGADO] NO se suelta el candado a proposito: "
+                         "el hilo sigue vivo leyendo ese chunk. Esto es un fallo "
+                         "de programacion (OpenGL o un mutex del hilo principal "
+                         "tocados desde un worker), no algo transitorio.\n";
+            std::cerr.flush();
+        }
+    }
+
+    // Un aviso por cuelgue y por hilo. Solo lo toca el hilo principal.
+    bool workerAvisado[MAX_WORKERS_MALLA] = { false };
+
+    // ------------------------------------------------------------------------
+    // ⭐ SALDAR LAS COSTURAS PENDIENTES (el parpadeo al caminar)
+    // ------------------------------------------------------------------------
+    // Un chunk que se mallo con el borde incompleto queda marcado
+    // `bordeProvisional`. Aqui se le da la revision que se le debe, pero SOLO
+    // cuando de verdad puede salir mejor: con los cuatro vecinos ya generados.
+    //
+    // ⚠️ LA CONDICION "LOS CUATRO VECINOS" ES LO QUE IMPIDE EL BUCLE.
+    //
+    // Sin ella, un chunk en el borde del mundo cargado -- donde el vecino NO
+    // va a existir nunca, porque esta fuera del radio -- se remallaria cada
+    // frame para volver a salir provisional. Seria un remallado infinito, y
+    // ademas del chunk mas caro (los del borde son los que mas caras emiten).
+    //
+    // Con la condicion, ese chunk simplemente conserva su marca sin costar
+    // nada, y la salda el dia que el jugador se acerque y el vecino se cargue.
+    // Que es exactamente cuando importa: mientras el vecino no exista, no hay
+    // costura visible que corregir -- no hay nada dibujado al otro lado.
+    //
+    // Se limita a unos pocos por frame por lo mismo que todo lo demas: un
+    // remallado es caro, y saldar treinta deudas de golpe seria el tiron que se
+    // intenta quitar.
+    void revisarBordesProvisionales() {
+        constexpr int MAX_REVISIONES_POR_FRAME = 2;
+        int hechas = 0;
+
+        for (auto& par : chunks) {
+            if (hechas >= MAX_REVISIONES_POR_FRAME) break;
+            Chunk* c = par.second;
+            if (!c || !c->bordeProvisional) continue;
+            if (!c->isGenerated) continue;
+
+            // Ya hay trabajo en marcha para este chunk: no encolar otro encima.
+            if (c->needsRebuild || c->isUpdatingMesh.load(std::memory_order_acquire))
+                continue;
+            if (mallaInFlight.count(c->position) || genInFlight.count(c->position))
+                continue;
+
+            // ¿Estan ya los cuatro? Si falta alguno, la revision saldria igual
+            // de provisional: se deja la marca y se vuelve a mirar mas adelante.
+            const Vec3i vecinos[4] = {
+                Vec3i(c->position.x + 1, 0, c->position.z),
+                Vec3i(c->position.x - 1, 0, c->position.z),
+                Vec3i(c->position.x, 0, c->position.z + 1),
+                Vec3i(c->position.x, 0, c->position.z - 1)
+            };
+            bool completos = true;
+            for (const Vec3i& v : vecinos) {
+                auto it = chunks.find(v);
+                if (it == chunks.end() || !it->second || !it->second->isGenerated) {
+                    completos = false;
+                    break;
+                }
+            }
+            if (!completos) continue;
+
+            // Se salda la deuda: una revision y la marca baja. Si por lo que
+            // sea volviera a salir provisional, el mesher la pondra otra vez.
+            c->bordeProvisional = false;
+            c->esperasVecinos = 0;      // con los cuatro presentes, sin excusa
+            invalidarMalla(c);
+            ++hechas;
+            ++g_diagBordesSaldados;
+        }
+    }
+
+    void pasarVigilante(double ahora) {
+        // Los workers primero: si estan colgados, lo que el vigilante de chunks
+        // vea a continuacion (chunks clavados en MALLA_EN_COLA) es consecuencia
+        // de eso y no una causa aparte. Tenerlo en el log en ese orden ahorra
+        // perseguir el sintoma.
+        vigilarWorkers(ahora);
+
+        int rescatados = 0;
+        constexpr int MAX_RESCATES_POR_PASADA = 8;   // no monopolizar el frame
+
+        for (auto& par : chunks) {
+            if (rescatados >= MAX_RESCATES_POR_PASADA) break;
+            Chunk* c = par.second;
+            if (!c) continue;
+
+            const float enEstado = (float)(ahora - c->tiempoEstado);
+            const Streaming::Accion accion = Streaming::decidir(
+                c->estado, enEstado, c->rescatesVigilante, plazosVigilante);
+            if (accion == Streaming::Accion::NINGUNA) continue;
+
+            // ⚠️ RESPETO ABSOLUTO A LOS WORKERS.
+            //
+            // Si el chunk esta en manos de un worker, NO se toca por mucho que
+            // haya vencido el plazo. El candado es lo unico que impide que la
+            // descarga por distancia lo devuelva al pool mientras otro hilo lo
+            // lee; soltarlo aqui autorizaria a reciclar memoria viva.
+            //
+            // Este es el fallo exacto del vigilante anterior: pensado como red
+            // de seguridad, era capaz de provocar el use-after-recycle que
+            // pretendia evitar. Y lo hacia con pocos FPS, que es justo cuando
+            // las colas se llenan y los plazos vencen.
+            if (mallaInFlight.count(c->position) || genInFlight.count(c->position))
+                continue;
+
+            std::cerr << "[VIGILANTE] chunk (" << c->position.x << ","
+                      << c->position.z << ") lleva " << enEstado << "s en "
+                      << Streaming::nombreEstado(c->estado) << " -> "
+                      << Streaming::nombreAccion(accion) << std::endl;
+
+            switch (accion) {
+                case Streaming::Accion::REENCOLAR:
+                    c->rescatesVigilante++;
+                    ++c->version;                 // invalida lo que venga tarde
+                    c->isUpdatingMesh.store(false, std::memory_order_release);
+                    c->needsRebuild = true;
+                    c->waitingForNeighbors = false;
+                    c->buildRetries = 0;
+                    c->esperasVecinos = 0;
+                    c->cambiarEstado(c->isGenerated ? Streaming::Estado::GENERADO
+                                                    : Streaming::Estado::DESCARGADO,
+                                     ahora);
+                    break;
+
+                case Streaming::Accion::FORZAR_MALLADO:
+                    // Dejar de esperar al vecino y mallar con el borde
+                    // incompleto. Sale una costura en esa frontera, pero hay
+                    // terreno donde antes habia un agujero -- y se corrige sola
+                    // cuando el vecino llegue y dispare la invalidacion.
+                    c->rescatesVigilante++;
+                    c->esperasVecinos = 99;       // agota el freno del encolado
+                    c->buildRetries   = 99;       // y el del mesher
+                    c->waitingForNeighbors = false;
+                    c->needsRebuild = true;
+                    c->cambiarEstado(Streaming::Estado::GENERADO, ahora);
+                    break;
+
+                case Streaming::Accion::MARCAR_FALLIDO:
+                    // No es abandono silencioso: queda contado, sale en el
+                    // overlay en rojo, y volvera a intentarse si el jugador se
+                    // aleja y regresa.
+                    c->cambiarEstado(Streaming::Estado::FALLIDO, ahora);
+                    metricas.fallidos++;
+                    break;
+
+                default: break;
+            }
+            rescatados++;
+            metricas.rescatados++;
+        }
+    }
+
+private:   // se restaura la visibilidad que habia antes del bloque de streaming
 
     void generationWorker() {
         while (genRunning.load()) {
@@ -8372,6 +9180,37 @@ public:
     // Marca para rehacer el chunk que contiene ese bloque. Lo usa la
     // animacion de caida de la penca: hay que rehacer el mesh para que se vea
     // girar, pero solo el chunk afectado y solo mientras dura la caida.
+    // ⭐ INVALIDAR LA GEOMETRIA DE UN CHUNK (§58)
+    //
+    // Un solo punto de entrada para "esto hay que volver a mallarlo", de modo
+    // que la bandera y el estado no puedan separarse. Vuelve a GENERADO, no a
+    // SOLICITADO: el terreno sigue siendo bueno -- y regenerarlo borraria justo
+    // la modificacion del jugador que provoco la invalidacion.
+    // `renuevaEsperas` decide si el chunk recupera su paciencia con los vecinos.
+    //
+    // ⚠️ POR DEFECTO NO, Y ESO IMPORTA. Se probo lo contrario y el resultado
+    // esta medido: devolver la paciencia en CADA invalidacion multiplico por
+    // 4,5 el trabajo tirado del mesher (de 289 a 1.309 mallados con la foto
+    // incompleta en 40 s de caminata). La razon es que la mayoria de las
+    // invalidaciones son automaticas -- el vecino que entra, la luz que cambia,
+    // el follaje -- y reiniciar el contador en todas ellas deja al chunk
+    // reintentando indefinidamente contra un vecino que no esta.
+    //
+    // Solo la accion del JUGADOR la renueva: romper o colocar un bloque es un
+    // evento nuevo y poco frecuente, y ahi si interesa volver a esperar para
+    // que la cara del borde salga bien a la primera.
+    void invalidarMalla(Chunk* c, bool renuevaEsperas = false) {
+        if (!c || !c->isGenerated) return;
+        c->needsRebuild = true;
+
+        if (renuevaEsperas) c->esperasVecinos = 0;
+
+        if (c->estado == Streaming::Estado::LISTO ||
+            c->estado == Streaming::Estado::ESPERA_VECINO) {
+            c->cambiarEstado(Streaming::Estado::GENERADO, glfwGetTime());
+        }
+    }
+
     void marcarChunkDe(int wx, int wy, int wz) {
         (void)wy;
         const int cx = (wx >= 0) ? (wx / CHUNK_SIZE)
@@ -8380,7 +9219,27 @@ public:
                                  : ((wz - CHUNK_SIZE + 1) / CHUNK_SIZE);
         auto it = chunks.find(Vec3i(cx, 0, cz));
         if (it != chunks.end() && it->second && it->second->isGenerated)
-            it->second->needsRebuild = true;
+            invalidarMalla(it->second);
+
+        // ⭐ Y EL VECINO, SI EL BLOQUE ESTA EN EL BORDE.
+        //
+        // Esto faltaba, y producia costuras reales: `setBlock` si remalla el
+        // vecino cuando el bloque cae en la frontera (localX==0, etc), pero
+        // esta ruta -- que usan varios sistemas de plantas y el horno -- solo
+        // marcaba el chunk propio. La cara del vecino que da al bloque
+        // modificado se quedaba con la geometria vieja hasta que ese vecino se
+        // remallara por cualquier otro motivo, que podia no pasar nunca.
+        const int lx = wx - cx * CHUNK_SIZE;
+        const int lz = wz - cz * CHUNK_SIZE;
+        auto marcarVecino = [&](int dx, int dz) {
+            auto v = chunks.find(Vec3i(cx + dx, 0, cz + dz));
+            if (v != chunks.end() && v->second && v->second->isGenerated)
+                invalidarMalla(v->second);
+        };
+        if (lx == 0)              marcarVecino(-1, 0);
+        if (lx == CHUNK_SIZE - 1) marcarVecino(+1, 0);
+        if (lz == 0)              marcarVecino(0, -1);
+        if (lz == CHUNK_SIZE - 1) marcarVecino(0, +1);
     }
 
 
@@ -8773,6 +9632,7 @@ public:
                 // bool -- no recorrer los 32.768 bloques.
                 if (!c->tieneAciculas) continue;
 
+                g_diagRemalladoFollaje.fetch_add(1);   // TEMPORAL (medicion)
                 c->needsRebuild = true;
         }
     }
@@ -8786,6 +9646,423 @@ public:
             genThreads.emplace_back(&World::generationWorker, this);
         }
         std::cout << "⚡ Generacion asincrona: " << count << " hilos" << std::endl;
+    }
+
+    // ------------------------------------------------------------------------
+    // EL WORKER DE MALLADO
+    // ------------------------------------------------------------------------
+    // Saca una posicion de la cola, busca el chunk, construye su geometria y
+    // deja el resultado para el hilo principal. No toca OpenGL ni una vez.
+    // ------------------------------------------------------------------------
+    // RECOGER LO QUE LOS WORKERS HAYAN TERMINADO
+    // ------------------------------------------------------------------------
+    // Solo hilo principal: aqui se suben los VBOs, que es lo unico del mallado
+    // que exige contexto de OpenGL.
+    //
+    // Devuelve cuantas mallas se integraron.
+    int integrarMallasDeWorkers(int tope) {
+        std::vector<MallaPendiente> lote;
+        {
+            std::lock_guard<std::mutex> lock(mallaDoneMutex);
+            if (mallaDone.empty()) return 0;
+
+            // Se coge un LOTE ACOTADO, no todo lo que haya. Subir VBOs cuesta,
+            // y vaciar la lista entera en un frame produciria justo el tiron
+            // que se intenta evitar -- solo que en otro sitio.
+            const int n = (int)mallaDone.size() < tope ? (int)mallaDone.size() : tope;
+            lote.reserve(n);
+            for (int i = 0; i < n; ++i) {
+                lote.push_back(std::move(mallaDone[i]));
+            }
+            mallaDone.erase(mallaDone.begin(), mallaDone.begin() + n);
+        }
+
+        int integradas = 0;
+        for (MallaPendiente& r : lote) {
+            mallaInFlight.erase(r.pos);
+
+            // Aqui SI se puede usar getChunk: esto corre en el hilo principal,
+            // que es el dueño del mapa. Se comprueba que el chunk siga siendo
+            // el mismo objeto -- si se descargo y el pool reciclo su hueco, el
+            // puntero de la cola ya no vale.
+            Chunk* c = getChunk(r.pos);
+            if (!c || c != r.chunk) {
+                // El chunk se descargo mientras se mallaba. No hay nada que
+                // soltar (se fue con el chunk) ni nada que subir.
+                ++g_diagDescartadasPos;
+                continue;
+            }
+
+            // ⭐ DOS FORMAS DE NO TENER MALLA, Y LAS DOS SE REINTENTAN.
+            //
+            //   !r.ok            el worker lanzo una excepcion.
+            //   !r.malla.valida  el mesher salio antes de construir nada (por
+            //                    ejemplo esperando a que carguen los vecinos).
+            //
+            // El segundo caso hay que mirarlo aparte: el worker marca ok=true
+            // en cuanto buildChunkMesh vuelve sin excepcion, aunque no haya
+            // llegado a mallar. Sin esta comprobacion se subia una malla sin
+            // batches como si fuera buena, lo que BORRA la geometria que el
+            // chunk ya tenia y lo deja invisible.
+            //
+            // Ojo con no confundirlo con un chunk de puro aire: ese tiene
+            // valida=true y batches vacios, y es un resultado correcto que SI
+            // hay que integrar (para que borre lo que hubiera antes).
+            if (!r.ok || !r.malla.valida) {
+                ++g_diagDescartadasNoOk;
+                // El worker no pudo: se suelta el candado.
+                c->isUpdatingMesh.store(false, std::memory_order_release);
+
+                // ⭐ NO SE REENCOLA A CIEGAS. SE ESPERA AL VECINO.
+                //
+                // Aqui habia un `needsRebuild = true` incondicional, y era un
+                // ciclo caro: el chunk volvia a la cola en el MISMO frame, un
+                // worker lo cogia, encontraba al mismo vecino todavia ausente y
+                // devolvia otra malla invalida. Una y otra vez hasta que el
+                // vecino llegaba por su cuenta.
+                //
+                // Medido caminando 40 s: 868 mallados con la foto incompleta
+                // para 94 costuras reales. O sea que ~9 de cada 10 pasadas del
+                // mesher -- la parte mas cara del motor, ~330.000 iteraciones de
+                // celda cada una -- eran trabajo tirado, y ademas ocupaban los
+                // huecos de worker que necesitaban los chunks que SI podian
+                // mallarse.
+                //
+                // Ahora solo se reencola si hay alguna posibilidad de que salga
+                // mejor: si los cuatro vecinos ya estan. Si no, el chunk se
+                // queda en ESPERA_VECINO sin pedir nada, y lo despierta:
+                //
+                //   - integrateGeneratedChunks, que marca a los cuatro vecinos
+                //     en cuanto uno nuevo entra (que es justo lo que faltaba), o
+                //   - el vigilante a los 6 s con FORZAR_MALLADO, si el vecino no
+                //     va a llegar nunca (borde del mundo cargado).
+                //
+                // ⚠️ Esto NO es la espera preventiva que hubo que quitar de
+                // updateChunks. Aquella retenia el chunk ANTES de encolarlo,
+                // suponiendo el resultado; esta actua DESPUES, con la respuesta
+                // del mesher en la mano. La diferencia importa: aquella creaba
+                // un frente de 20+ chunks esperandose en cascada porque nadie
+                // llegaba a mirar la foto. Aqui la foto ya se miro.
+                bool puedeMejorar = true;
+                {
+                    const Vec3i vec[4] = {
+                        Vec3i(c->position.x + 1, 0, c->position.z),
+                        Vec3i(c->position.x - 1, 0, c->position.z),
+                        Vec3i(c->position.x, 0, c->position.z + 1),
+                        Vec3i(c->position.x, 0, c->position.z - 1)
+                    };
+                    for (const Vec3i& v : vec) {
+                        auto iv = chunks.find(v);
+                        if (iv == chunks.end() || !iv->second || !iv->second->isGenerated) {
+                            puedeMejorar = false;
+                            break;
+                        }
+                    }
+                }
+                c->needsRebuild = puedeMejorar;
+
+                // ⭐ UN CHUNK QUE YA SE VE NO DEJA DE VERSE POR ESTO.
+                //
+                // Sus batches siguen intactos -- aqui no se ha tocado la
+                // geometria, solo se ha descartado una malla nueva que no valia.
+                // Asi que mandarlo a ESPERA_VECINO seria mentir sobre lo que el
+                // jugador tiene delante: el chunk esta dibujado y es correcto.
+                //
+                // Y no es cosmetico. El estado lo leen la niebla adaptativa
+                // (radioVisibleSeguro cuenta solo los LISTO para decidir hasta
+                // donde abrir) y el vigilante. Con un chunk visible marcado como
+                // "esperando", la niebla se cierra sobre terreno que SI esta
+                // dibujado: el mundo se estrecha de golpe y vuelve a abrirse un
+                // instante despues. Eso es parpadeo, y del que mas se nota
+                // porque afecta a la vista entera, no a una costura.
+                //
+                // Solo baja a ESPERA_VECINO el que de verdad no tiene nada que
+                // enseñar.
+                if (c->batches.empty()) {
+                    // El estado se marca AQUI y no en el worker: estos campos
+                    // los lee y escribe el hilo principal, y tocarlos desde
+                    // otro hilo seria una carrera. La causa mas comun de volver
+                    // de vacio es que faltaran vecinos, asi que el chunk queda
+                    // vigilado y, si el vecino no llega en 6 s, el vigilante
+                    // fuerza el mallado.
+                    c->cambiarEstado(Streaming::Estado::ESPERA_VECINO, glfwGetTime());
+                }
+                continue;
+            }
+
+            // El candado sigue puesto desde que el worker entro en
+            // buildChunkMesh. El guard se lo queda hasta el swap de batches,
+            // igual que en el camino sincrono.
+            GuardMallado guard(c);
+            subirMallaAGPU(c, r.malla, r.malla.texturasFaltantes, guard);
+            ++integradas;
+            ++g_diagIntegradas;
+        }
+        return integradas;
+    }
+
+    // ========================================================================
+    // ⭐ LA FOTO DEL BORDE SE TOMA AQUI, EN EL HILO PRINCIPAL
+    // ========================================================================
+    // Devuelve true si los cuatro vecinos estaban presentes y generados.
+    //
+    // POR QUE ESTA FUNCION EXISTE, SI EL MESHER YA COPIABA EL BORDE.
+    //
+    // El mesher tomaba la foto EL MISMO, y para eso necesitaba primero los
+    // cuatro punteros:
+    //
+    //     Chunk* northChunk = getChunk(northChunkPos);   // <- lee `chunks`
+    //     ...
+    //     bordeVec.norte.poner(i, y, northChunk->getBlock(i, y, 0));
+    //
+    // Con el mallado en el hilo principal eso era seguro. Con workers no: esas
+    // cuatro llamadas a getChunk() hacen `chunks.find()` sobre un std::map que
+    // el hilo principal reestructura con insert() y erase() sin ningun mutex.
+    // Recorrer un arbol rojo-negro mientras otro hilo lo reequilibra puede
+    // devolver basura o saltar a un nodo a medio enlazar.
+    //
+    // Y aunque el find() saliera bien, los punteros devueltos se
+    // desreferencian durante las ~40 lineas de la copia. La descarga por
+    // distancia respeta el candado DEL CHUNK QUE SE MALLA, pero no el de sus
+    // vecinos: nada impedia que uno de los cuatro volviera al pool justo ahi.
+    // Y el pool RECICLA, asi que el puntero no apunta a memoria liberada:
+    // apunta a otro chunk del mundo.
+    //
+    // Trayendo la captura aqui, el worker recibe un objeto que es SUYO y que
+    // nadie mas toca. Es la misma razon por la que el borde se copiaba en vez
+    // de guardarse por puntero; lo que faltaba era mover el momento de la copia
+    // al unico hilo donde leer el mapa es legitimo.
+    bool capturarBorde(Chunk* chunk, Render::BordeVecinos& borde) {
+        // Las medidas del snapshot tienen que ser las del motor. Si alguien
+        // cambia una de las dos, el build para aqui en vez de leer fuera del
+        // vector en un hilo de trabajo.
+        static_assert(Render::BORDE_LADO == CHUNK_SIZE,
+                      "BordeVecinos y el motor no coinciden en el lado del chunk");
+        static_assert(Render::BORDE_ALTO == CHUNK_HEIGHT,
+                      "BordeVecinos y el motor no coinciden en la altura del chunk");
+
+        borde.limpiar();
+        if (!chunk) return false;
+
+        Chunk* northChunk = getChunk(Vec3i(chunk->position.x, 0, chunk->position.z + 1));
+        Chunk* southChunk = getChunk(Vec3i(chunk->position.x, 0, chunk->position.z - 1));
+        Chunk* eastChunk  = getChunk(Vec3i(chunk->position.x + 1, 0, chunk->position.z));
+        Chunk* westChunk  = getChunk(Vec3i(chunk->position.x - 1, 0, chunk->position.z));
+
+        // Se copia la columna del vecino que TOCA a este chunk:
+        //   norte (+Z) -> su z=0        sur (-Z) -> su z=15
+        //   este  (+X) -> su x=0        oeste (-X) -> su x=15
+        // Cada celda copia DOS cosas: el bloque y su nivel de luz. Las dos
+        // hacen falta porque el mesher tenia dos funciones leyendo los vecinos
+        // (getNeighborBlockCached y faceLightLevel).
+        if (northChunk && northChunk->isGenerated) {
+            borde.norte.reservar();
+            for (int i = 0; i < CHUNK_SIZE; ++i)
+                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                    borde.norte.poner(i, y, northChunk->getBlock(i, y, 0));
+                    borde.norte.ponerLuz(i, y, northChunk->getLightLevel(i, y, 0));
+                }
+        }
+        if (southChunk && southChunk->isGenerated) {
+            borde.sur.reservar();
+            for (int i = 0; i < CHUNK_SIZE; ++i)
+                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                    borde.sur.poner(i, y, southChunk->getBlock(i, y, CHUNK_SIZE - 1));
+                    borde.sur.ponerLuz(i, y, southChunk->getLightLevel(i, y, CHUNK_SIZE - 1));
+                }
+        }
+        if (eastChunk && eastChunk->isGenerated) {
+            borde.este.reservar();
+            for (int i = 0; i < CHUNK_SIZE; ++i)
+                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                    borde.este.poner(i, y, eastChunk->getBlock(0, y, i));
+                    borde.este.ponerLuz(i, y, eastChunk->getLightLevel(0, y, i));
+                }
+        }
+        if (westChunk && westChunk->isGenerated) {
+            borde.oeste.reservar();
+            for (int i = 0; i < CHUNK_SIZE; ++i)
+                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                    borde.oeste.poner(i, y, westChunk->getBlock(CHUNK_SIZE - 1, y, i));
+                    borde.oeste.ponerLuz(i, y, westChunk->getLightLevel(CHUNK_SIZE - 1, y, i));
+                }
+        }
+
+        return borde.completo();
+    }
+
+    // `indice` es el hueco de baliza que le toca a este hilo. Se asigna al
+    // crearlo (no se reparte con un contador atomico dentro del hilo) para que
+    // sea estable y reproducible: el worker 2 es siempre el worker 2, tambien
+    // entre arranques, lo que hace comparables dos logs distintos.
+    void mallaWorker(int indice) {
+        t_indiceWorkerMalla = indice;
+
+        while (mallaRunning.load()) {
+            EncargoMalla enc{ nullptr, Vec3i(0, 0, 0), Render::BordeVecinos{}, false };
+            {
+                std::unique_lock<std::mutex> lock(mallaQueueMutex);
+                mallaQueueCV.wait_for(lock, std::chrono::milliseconds(50),
+                    [this] { return !mallaQueue.empty() || !mallaRunning.load(); });
+                if (!mallaRunning.load()) return;
+                if (mallaQueue.empty()) continue;
+                enc = mallaQueue.front();
+                mallaQueue.pop_front();
+            }
+
+            MallaPendiente res;
+            res.chunk = enc.chunk;
+            res.pos   = enc.pos;
+            res.ok    = false;
+
+            try {
+                // ⚠️ NO SE LLAMA A getChunk() DESDE AQUI.
+                //
+                // getChunk lee el mapa `chunks`, que el hilo principal
+                // modifica sin proteccion. Se usa el puntero que vino en la
+                // cola, que es valido porque el chunk se encolo con el candado
+                // puesto y la descarga respeta el candado (ver la nota de
+                // EncargoMalla y la guarda de chunksToRemove).
+                //
+                // ⭐ Y LA FOTO DEL BORDE VIENE HECHA, por lo mismo. Hasta ahora
+                // el mesher la tomaba el mismo, lo que le obligaba a llamar a
+                // getChunk() cuatro veces DESDE ESTE HILO para localizar a los
+                // vecinos. Pasandola ya tomada, esta funcion cumple lo que su
+                // propio comentario prometia: cero accesos al mapa compartido.
+                if (enc.chunk && enc.chunk->isGenerated) {
+                    // ⭐ ENTRADA Y SALIDA CON GUARD RAII, NO A MANO.
+                    //
+                    // `dentro` y la baliza tienen que desarmarse SIEMPRE, y una
+                    // excepcion a mitad del mesher se salta cualquier linea que
+                    // pongamos despues de la llamada. Desarmarlo en el catch
+                    // tampoco vale: la excepcion puede saltar antes de haberlo
+                    // armado, y entonces se restaria de mas y el contador
+                    // quedaria en negativo.
+                    //
+                    // El destructor de un objeto local corre en los tres
+                    // caminos (return, final, y desenrollado por excepcion), que
+                    // es exactamente la garantia que hace falta. Es el mismo
+                    // razonamiento que llevo a GuardMallado para el candado.
+                    struct GuardBaliza {
+                        BalizaWorker* b;
+                        explicit GuardBaliza(const Vec3i& pos) : b(nullptr) {
+                            g_diagWorkerEntradas.fetch_add(1);
+                            g_diagWorkerDentro.fetch_add(1);
+                            if (t_indiceWorkerMalla >= 0 &&
+                                t_indiceWorkerMalla < MAX_WORKERS_MALLA) {
+                                b = &g_baliza[t_indiceWorkerMalla];
+                                b->chunkX.store(pos.x);
+                                b->chunkZ.store(pos.z);
+                                b->fase.store(0);
+                                b->ultimoLatido.store(glfwGetTime());
+                                b->activo.store(true);
+                            }
+                        }
+                        ~GuardBaliza() {
+                            if (b) {
+                                b->activo.store(false);
+                                b->fase.store(0);
+                            }
+                            g_diagWorkerDentro.fetch_sub(1);
+                            g_diagWorkerSalidas.fetch_add(1);
+                        }
+                    } guardBaliza(enc.pos);
+
+                    buildChunkMesh(enc.chunk, &res.malla, &enc.borde, enc.vecinosCompletos);
+                    res.ok = true;
+                }
+            } catch (...) {
+                // Un fallo mallando NO puede tirar el hilo: se descarta esa
+                // malla y el chunk se reintenta desde el hilo principal.
+                // (La baliza y los contadores los desarma el guard de arriba,
+                // tambien por este camino.)
+                res.ok = false;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(mallaDoneMutex);
+                mallaDone.push_back(std::move(res));
+            }
+        }
+    }
+
+    void startMallaWorkers() {
+        if (mallaRunning.load()) return;
+
+        // Los hilos salen del perfil de la maquina, que ya reserva uno para el
+        // hilo principal (que dibuja) y otro para el sistema. Se limita a 3
+        // porque a partir de ahi el cuello deja de ser construir la geometria
+        // y pasa a ser subirla a la GPU, que es de un solo hilo por definicion.
+        int count = g_perfil.hilosTrabajo - 2;
+        if (count < 1) count = 1;
+        if (count > 3) count = 3;
+        // Nunca mas hilos que huecos de baliza: el indice se usa para indexar
+        // g_baliza sin comprobar nada mas alla de esto.
+        if (count > MAX_WORKERS_MALLA) count = MAX_WORKERS_MALLA;
+
+        // Las balizas arrancan limpias. Importa al reabrir un mundo: una baliza
+        // heredada de la partida anterior, con `activo` puesto y un latido
+        // viejisimo, dispararia el vigilante en el primer frame.
+        for (int i = 0; i < MAX_WORKERS_MALLA; ++i) {
+            g_baliza[i].activo.store(false);
+            g_baliza[i].fase.store(0);
+            g_baliza[i].ticks.store(0);
+            g_baliza[i].celdas.store(0);
+            g_baliza[i].ultimoLatido.store(glfwGetTime());
+        }
+
+        mallaRunning.store(true);
+        for (int i = 0; i < count; i++) {
+            mallaThreads.emplace_back(&World::mallaWorker, this, i);
+        }
+        std::cout << "⚡ Mallado asincrono: " << count << " hilos" << std::endl;
+    }
+
+    void stopMallaWorkers() {
+        if (!mallaRunning.load()) return;
+        mallaRunning.store(false);
+        mallaQueueCV.notify_all();
+        for (auto& t : mallaThreads) {
+            if (t.joinable()) t.join();
+        }
+        mallaThreads.clear();
+
+        {
+            std::lock_guard<std::mutex> lock(mallaQueueMutex);
+            mallaQueue.clear();
+        }
+        // ⭐ HAY QUE SOLTAR EL CANDADO DE LO QUE QUEDO A MEDIAS.
+        //
+        // Un chunk encolado tiene isUpdatingMesh puesto. Si se descarta su
+        // malla sin soltarlo, ese chunk queda bloqueado para siempre: ni se
+        // malla ni se dibuja. Es el mismo agujero que cerro el guard RAII,
+        // por otra puerta.
+        //
+        // ⚠️ LAS POSICIONES SE COPIAN Y EL LOCK SE SUELTA ANTES DE USARLAS.
+        //
+        // Llamar a getChunk() con mallaDoneMutex tomado es pedir un
+        // interbloqueo: getChunk toca el mapa de chunks y el cache, que otros
+        // caminos tocan en el orden contrario. El sintoma fue exactamente ese
+        // -- el juego se colgaba al cargar un mundo, sin error ni crash, con
+        // el log cortado justo despues de arrancar los hilos.
+        std::vector<Chunk*> aSoltar;
+        {
+            std::lock_guard<std::mutex> lock(mallaDoneMutex);
+            aSoltar.reserve(mallaDone.size());
+            for (auto& r : mallaDone) aSoltar.push_back(r.chunk);
+            mallaDone.clear();
+        }
+
+        // Los hilos ya estan parados (el join de arriba), asi que estos
+        // punteros no los esta tocando nadie y sus chunks siguen vivos: la
+        // descarga no puede haberlos soltado porque el candado estaba puesto.
+        for (Chunk* c : aSoltar) {
+            if (c) {
+                c->isUpdatingMesh.store(false, std::memory_order_release);
+                c->needsRebuild = true;
+            }
+        }
+        mallaInFlight.clear();
     }
 
     void stopGenerationWorkers() {
@@ -9101,6 +10378,10 @@ private:
             chunks[r.pos] = r.chunk;
             addToCache(r.pos, r.chunk, true);
             r.chunk->needsRebuild = true;
+            // Terreno listo, geometria no: es GENERADO, no LISTO. La distincion
+            // importa porque a partir de aqui la fisica y el guardado ya pueden
+            // usarlo aunque todavia no se dibuje.
+            r.chunk->cambiarEstado(Streaming::Estado::GENERADO, glfwGetTime());
 
             // ⭐ COSER LA LUZ CON LOS VECINOS.
             //
@@ -9127,7 +10408,23 @@ private:
             };
             for (const Vec3i& n : neighbors) {
                 Chunk* nc = getChunk(n);
-                if (nc && nc->isGenerated) nc->needsRebuild = true;
+                if (!nc || !nc->isGenerated) continue;
+
+                // ⭐ POR invalidarMalla, NO poniendo la bandera a mano.
+                //
+                // Es el punto de entrada unico que mantiene juntos `needsRebuild`
+                // y el `Streaming::Estado` -- separarlos es lo que produce chunks
+                // que el vigilante ve en un estado y el pipeline en otro.
+                //
+                // Y ahora ademas es lo que DESPIERTA a un vecino que estaba en
+                // ESPERA_VECINO sin pedir nada: desde que el reintento dejo de
+                // ser a ciegas (ver integrarMallasDeWorkers), esta linea es su
+                // via normal de vuelta al trabajo, no solo una invalidacion mas.
+                // ⚠️ SIN renovar las esperas: esta es una ruta AUTOMATICA y
+                // se dispara para los 4 vecinos cada vez que entra un chunk.
+                // Renovarlas aqui fue medido y multiplicaba por 4,5 el trabajo
+                // tirado del mesher (ver invalidarMalla).
+                invalidarMalla(nc);
             }
         }
     }
@@ -9249,8 +10546,25 @@ private:
             // Un chunk del pool debe salir como uno recién construido.
             chunk->waitingForNeighbors = false;
             chunk->buildRetries = 0;
+            chunk->esperasVecinos = 0;   // mismo motivo que buildRetries
             chunk->framesConCandado = 0;
+            // La deuda de costura es del chunk ANTERIOR, no de este: heredarla
+            // provocaria una revision (un remallado completo) sobre geometria
+            // que aun no existe.
+            chunk->bordeProvisional = false;
             chunk->isUpdatingMesh.store(false, std::memory_order_release);
+
+            // ⭐ Y el estado de streaming, por lo mismo: un chunk reciclado que
+            // heredara "LISTO" se daria por dibujable sin tener geometria, y el
+            // vigilante veria un cronometro del mundo anterior.
+            //
+            // La version SUBE (no se resetea): es lo que invalida cualquier
+            // trabajo en vuelo que aun apunte a este objeto con su identidad
+            // antigua. Es la garantia de que reciclar memoria nunca hace que un
+            // resultado viejo se aplique al chunk equivocado.
+            ++chunk->version;
+            chunk->rescatesVigilante = 0;
+            chunk->cambiarEstado(Streaming::Estado::DESCARGADO, glfwGetTime());
 
             // ⭐ CRÍTICO: limpiar los SUBCHUNKS PALETIZADOS.
             //
@@ -9288,43 +10602,24 @@ private:
         if (!chunk) return;
 
         try {
-            // Si el pool no está lleno, agregar el chunk para reutilizar
+            // ⭐ EL VBO LO LIBERA EL DESTRUCTOR DE TextureBatch, Y SOLO EL.
+            //
+            // Aqui se liberaba a mano y ACTO SEGUIDO se hacia `delete batch`,
+            // cuyo destructor vuelve a liberar el mismo nombre. El segundo
+            // glDeleteBuffers recibe un nombre ya borrado; hoy es inofensivo
+            // (OpenGL ignora nombres desconocidos en silencio), pero si el
+            // driver hubiera reciclado ese nombre para otro buffer entre medias
+            // se estaria borrando geometria viva de otro chunk.
+            //
+            // Con un solo dueño esa ventana desaparece. `delete batch` basta.
             if (chunkPool.size() < CHUNK_POOL_SIZE) {
-                // Limpiar VBOs antes de reutilizar
-                for (auto batch : chunk->batches) {
-                    if (batch) {
-                        // ⭐ Liberar VBOs de OpenGL si existen
-                        if (glDeleteBuffers && batch->vbo != 0) {
-                            glDeleteBuffers(1, &batch->vbo);
-                        }
-                        if (glDeleteBuffers && batch->colorVBO != 0) {
-                            glDeleteBuffers(1, &batch->colorVBO);
-                        }
-                        if (glDeleteBuffers && batch->uvVBO != 0) {
-                            glDeleteBuffers(1, &batch->uvVBO);
-                        }
-                        delete batch;
-                    }
-                }
+                for (auto batch : chunk->batches) delete batch;
                 chunk->batches.clear();
 
                 chunkPool.push_back(chunk);
             } else {
                 // Si el pool está lleno, eliminar el chunk
-                for (auto batch : chunk->batches) {
-                    if (batch) {
-                        if (glDeleteBuffers && batch->vbo != 0) {
-                            glDeleteBuffers(1, &batch->vbo);
-                        }
-                        if (glDeleteBuffers && batch->colorVBO != 0) {
-                            glDeleteBuffers(1, &batch->colorVBO);
-                        }
-                        if (glDeleteBuffers && batch->uvVBO != 0) {
-                            glDeleteBuffers(1, &batch->uvVBO);
-                        }
-                        delete batch;
-                    }
-                }
+                for (auto batch : chunk->batches) delete batch;
                 chunk->batches.clear();
                 delete chunk;
             }
@@ -9471,6 +10766,22 @@ public:
         return true;
     }
 
+    // ⭐ HASTA DONDE PUEDE SUBIR EL REGULADOR AUTOMATICO.
+    //
+    // Es lo que el jugador tenga puesto en la barra (traducido a radio real por
+    // DistanciaVision), o el perfil de hardware si aun no ha tocado nada.
+    //
+    // Se define aqui, en World, y no se lee g_gameState directamente desde el
+    // regulador porque en este punto del archivo GameState todavia no esta
+    // definido -- el mismo motivo que ya obligaba a usar RENDER_DISTANCE para
+    // la niebla en vez del ajuste del usuario.
+    int techoDistanciaUsuario = 0;   // 0 = sin tocar: manda el perfil
+
+    int techoDistanciaJugador() const {
+        return (techoDistanciaUsuario > 0) ? techoDistanciaUsuario
+                                           : g_perfil.distanciaRender;
+    }
+
     int getSeed() const { return seed; }
 
     // ⭐ Acceso al generador para sistemas que necesitan CONSULTAR el terreno
@@ -9579,6 +10890,12 @@ public:
         // generación inicial se hace sincrónica a propósito: el jugador no
         // puede entrar al mundo hasta que esté lista.
         startGenerationWorkers();
+
+        // ⭐ Y el MALLADO tambien. Va despues de la generacion inicial a
+        // proposito: durante la carga interesa que el hilo principal malle en
+        // serie con su barra de progreso, no repartir un trabajo que de todas
+        // formas hay que terminar antes de entrar.
+        startMallaWorkers();
     }
 
     // ========================================================================
@@ -9595,6 +10912,9 @@ public:
     // recrea los archivos que acabamos de intentar eliminar.
     void closeWorld(bool descartarCambios) {
         // 1) Parar los hilos de generacion: siguen tocando el pool y el mapa.
+        // El mallado va PRIMERO: sus workers leen chunks que la parada de
+        // generacion puede devolver al pool.
+        stopMallaWorkers();
         stopGenerationWorkers();
 
         // 2) Cerrar el sistema de guardado (cierra los ficheros de region).
@@ -9624,6 +10944,7 @@ public:
     ~World() {
         // ⭐ Parar los hilos de generación ANTES de tocar nada más: siguen
         // usando worldGen, el pool de chunks y el mapa de pendientes.
+        stopMallaWorkers();
         stopGenerationWorkers();
 
         // ⭐ Guardar chunks pendientes antes de cerrar
@@ -9758,7 +11079,10 @@ public:
             // Buffer temporal para el volcado crudo del save (mismo layout de
             // siempre); de ahí pasa a la paleta, la única fuente de verdad.
             std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
-            if (saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata)) {
+            const double t0Disco = glfwGetTime();
+            const bool cargoDeDisco = saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata);
+            g_perfCargaDisco += (glfwGetTime() - t0Disco) * 1000.0;
+            if (cargoDeDisco) {
                 // ⭐ MUNDOS ANTIGUOS: los IDs de bloque se reordenaron, asi que
                 // un chunk guardado con el formato viejo trae numeros que hoy
                 // significan otra cosa (el 11 era "tablones" y ahora es
@@ -9794,7 +11118,11 @@ public:
                 chunk->isGenerated = true;
                 chunk->isModified = false;
                 // El save no guarda la luz: recalcularla al cargar.
-                chunk->computeSkylight();
+                {
+                    const double t0Luz = glfwGetTime();
+                    chunk->computeSkylight();
+                    g_perfCargaLuz += (glfwGetTime() - t0Luz) * 1000.0;
+                }
                 chunks[chunkPos] = chunk;
                 loaded = true;
                 totalChunksLoaded++;
@@ -9841,7 +11169,9 @@ public:
             // las tres acaban con un chunk cuyo skylight se calculo mirando
             // solo hacia dentro, asi que las tres necesitan lo mismo. Un solo
             // punto es tambien un solo sitio que mantener.
+            const double t0Costura = glfwGetTime();
             coserLuzConVecinos(chunkPos);
+            g_perfCargaCostura += (glfwGetTime() - t0Costura) * 1000.0;
         }
 
         // Marcar chunks vecinos para reconstrucción
@@ -13464,41 +14794,60 @@ public:
         // ⭐⭐⭐ SISTEMA DE DIRTY CHUNKS OPTIMIZADO: Solo marcar, NO reconstruir inmediatamente
         // Las reconstrucciones se harán en updateChunks() de forma progresiva
 
-        // Borde X negativo (localX == 0)
-        if (localX == 0) {
-            Chunk* neighborChunk = getChunk(Vec3i(chunkPos.x - 1, 0, chunkPos.z));
-            if (neighborChunk && neighborChunk->isGenerated) {
-                neighborChunk->needsRebuild = true;
-                // ⭐ NO rebuild inmediato - se procesará en el próximo frame
-            }
-        }
+        // ====================================================================
+        // ⭐ LA INVALIDACION VA POR invalidarMalla(), NO POR LA BANDERA A PELO
+        // ====================================================================
+        // BUG QUE ESTO CORRIGE: el parpadeo al romper o colocar un bloque.
+        //
+        // Aqui se ponia `needsRebuild = true` directamente, saltandose el unico
+        // punto de entrada que mantiene juntos la bandera y el
+        // `Streaming::Estado`. El resultado es un chunk con needsRebuild=true
+        // que sigue diciendo que esta LISTO, y esa incoherencia se paga:
+        //
+        //   - El chunk se encola al worker. Si vuelve con la malla invalida
+        //     (vecino ausente, textura a medio cargar), integrarMallasDeWorkers
+        //     lo manda a ESPERA_VECINO -- y en ese salto la geometria anterior
+        //     ya no se considera buena.
+        //   - El vigilante ve un estado que no se corresponde con lo que el
+        //     pipeline esta haciendo, asi que sus plazos cuentan desde el
+        //     momento equivocado.
+        //
+        // `invalidarMalla` vuelve a GENERADO, que es lo correcto: el terreno
+        // sigue siendo valido -- solo hay que rehacer la geometria -- y el
+        // chunk conserva sus batches hasta que la malla nueva este lista (el
+        // doble buffer de subirMallaAGPU). Asi el bloque cambia sin que el
+        // chunk desaparezca ni un frame.
+        //
+        // ⭐ Y SE INVALIDA TAMBIEN EL CHUNK PROPIO.
+        //
+        // Antes no se hacia: se confiaba en que `Chunk::setBlock` pone
+        // needsRebuild. Pero esa funcion NO toca el estado (no lo conoce), asi
+        // que el chunk donde el jugador acaba de picar era precisamente el que
+        // quedaba descuadrado. El que mas se ve.
+        // ⚠️ SIN renovar las esperas.
+        //
+        // Es tentador tratar esto como "accion del jugador" y devolver la
+        // paciencia, pero por aqui NO pasa solo el jugador: el agua fluyendo,
+        // las plantas creciendo y los bloques que caen usan esta misma funcion,
+        // y entre todos hacen decenas de escrituras por segundo.
+        //
+        // Medido: renovando aqui, el trabajo tirado del mesher subio de 289 a
+        // 1.115 mallados con la foto incompleta en 40 s. La renovacion tiene
+        // que quedarse en la ruta del jugador (ver placeBlock/breakBlock), que
+        // es la unica de verdad esporadica.
+        invalidarMalla(chunk);
 
-        // Borde X positivo (localX == CHUNK_SIZE - 1)
-        if (localX == CHUNK_SIZE - 1) {
-            Chunk* neighborChunk = getChunk(Vec3i(chunkPos.x + 1, 0, chunkPos.z));
-            if (neighborChunk && neighborChunk->isGenerated) {
-                neighborChunk->needsRebuild = true;
-                // ⭐ NO rebuild inmediato - se procesará en el próximo frame
-            }
-        }
+        // Los cuatro vecinos, solo si el bloque toca su frontera: su cara hacia
+        // este chunk cambia de estar contra terreno a estar contra aire.
+        auto invalidarVecino = [&](int dx, int dz) {
+            Chunk* nc = getChunk(Vec3i(chunkPos.x + dx, 0, chunkPos.z + dz));
+            if (nc && nc->isGenerated) invalidarMalla(nc);
+        };
 
-        // Borde Z negativo (localZ == 0)
-        if (localZ == 0) {
-            Chunk* neighborChunk = getChunk(Vec3i(chunkPos.x, 0, chunkPos.z - 1));
-            if (neighborChunk && neighborChunk->isGenerated) {
-                neighborChunk->needsRebuild = true;
-                // ⭐ NO rebuild inmediato - se procesará en el próximo frame
-            }
-        }
-
-        // Borde Z positivo (localZ == CHUNK_SIZE - 1)
-        if (localZ == CHUNK_SIZE - 1) {
-            Chunk* neighborChunk = getChunk(Vec3i(chunkPos.x, 0, chunkPos.z + 1));
-            if (neighborChunk && neighborChunk->isGenerated) {
-                neighborChunk->needsRebuild = true;
-                // ⭐ NO rebuild inmediato - se procesará en el próximo frame
-            }
-        }
+        if (localX == 0)              invalidarVecino(-1, 0);
+        if (localX == CHUNK_SIZE - 1) invalidarVecino(+1, 0);
+        if (localZ == 0)              invalidarVecino(0, -1);
+        if (localZ == CHUNK_SIZE - 1) invalidarVecino(0, +1);
     }
 
     BlockType getBlockInChunk(int x, int y, int z) {
@@ -14412,7 +15761,45 @@ public:
     }
 
 
-    void buildChunkMesh(Chunk* chunk) {
+    // ========================================================================
+    // EL MALLADO, EN DOS MITADES
+    // ========================================================================
+    // `salidaCPU` es lo que parte esta funcion en dos:
+    //
+    //   nullptr  -> comportamiento de siempre: construye la geometria Y la
+    //               sube a la GPU. Es lo que usa el hilo principal.
+    //
+    //   != null  -> se para JUSTO donde acaba el trabajo de CPU, deja ahi la
+    //               malla y no toca OpenGL. Es lo que usa un hilo de trabajo.
+    //
+    // Se hace asi, con un parametro, y no duplicando la funcion: las 6.300
+    // lineas de geometria son las mismas en los dos caminos, y tener dos
+    // copias garantizaria que se separaran a la primera correccion que alguien
+    // aplicara solo a una.
+    //
+    // La frontera existe de verdad y esta comprobada: de las 6.324 lineas que
+    // hay hasta ese punto, NINGUNA llama a OpenGL. Todas las llamadas de GL
+    // (glGenBuffers, glBufferData, glDeleteBuffers) viven en las ~200 finales.
+    //
+    // `bordePrehecho` cierra la ultima carrera del mallado en hilos: la foto
+    // del borde se toma con getChunk(), que lee el mapa `chunks` sin proteger
+    // mientras el hilo principal lo modifica. Cuando la foto viene ya hecha
+    // desde el hilo principal, el worker no toca el mapa NI UNA VEZ.
+    //
+    // ⭐ YA ESTA CABLEADO. Durante un tiempo este parametro existio y nadie lo
+    // pasaba (mallaWorker llamaba con nullptr), asi que la carrera que describe
+    // seguia abierta: el worker hacia sus cuatro getChunk() igual. Ahora
+    // updateChunks toma la foto con capturarBorde() antes de encolar y viaja
+    // dentro del EncargoMalla.
+    //
+    // `vecinosCompletos` acompaña a la foto porque la respuesta a "¿estaban los
+    // cuatro vecinos?" tiene que salir de la MISMA foto que se va a usar para
+    // mallar. Deducirlo despues volveria a exigir consultar el mapa, que es
+    // justo lo que se esta evitando.
+    void buildChunkMesh(Chunk* chunk,
+                        Render::MallaChunk* salidaCPU = nullptr,
+                        const Render::BordeVecinos* bordePrehecho = nullptr,
+                        bool vecinosCompletosPrehecho = false) {
         PROFILE_SCOPE("World::buildChunkMesh");
         // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Validar chunk antes de procesar
         if (!chunk) return;
@@ -14422,8 +15809,31 @@ public:
         // los chunks con waitingForNeighbors) se topaba con este return: el
         // chunk se encolaba cada frame y salía por la puerta sin hacer nada.
         // Estado atrapado: waitingForNeighbors=true + needsRebuild=false.
-        if (!chunk->needsRebuild && !chunk->waitingForNeighbors) return;
-        if (!chunk->isGenerated) return;
+        //
+        // ⚠️ ESTAS DOS SALIDAS TIENEN QUE MARCAR LA MALLA COMO NO VALIDA.
+        //
+        // Estan ANTES del GuardMallado, asi que en el camino del worker nadie
+        // suelta el candado por ellas -- lo puso el hilo principal al encolar.
+        // Y peor: mallaWorker daria el encargo por bueno (`res.ok = true`, no
+        // hubo excepcion) con una MallaChunk recien construida, o sea
+        // `valida = true` y cero batches. subirMallaAGPU haria el swap y
+        // BORRARIA la geometria que el chunk ya tenia, dejandolo invisible.
+        //
+        // Marcar `valida = false` es la señal que integrarMallasDeWorkers ya
+        // sabe interpretar: descarta la malla, suelta el candado y reencola.
+        // Es el mismo contrato que usa la salida por vecinos incompletos.
+        //
+        // Se alcanza de verdad: entre que el chunk se encola y el worker lo
+        // coge, otro encargo del mismo chunk puede haberse integrado y dejado
+        // needsRebuild en false.
+        if (!chunk->needsRebuild && !chunk->waitingForNeighbors) {
+            if (salidaCPU) salidaCPU->valida = false;
+            return;
+        }
+        if (!chunk->isGenerated) {
+            if (salidaCPU) salidaCPU->valida = false;
+            return;
+        }
 
         // ====================================================================
         // ⭐ EL FRENO DEL CHUNK QUE NO ENCUENTRA SU TEXTURA
@@ -14445,15 +15855,38 @@ public:
         // a poner needsRebuild=true en el mismo frame a todo chunk que se
         // quede sin batches -- que es exactamente este caso. Bajar la bandera
         // al final no frena nada; salir por aqui, si.
-        if (chunk->buildRetries > 30 && (chunk->buildRetries % 30) != 0) {
-            chunk->buildRetries++;
-            return;
-        }
+        // ⚠️ LAS DOS GUARDAS DE ABAJO SON DEL HILO PRINCIPAL, NO DEL WORKER.
+        //
+        // Cuando `salidaCPU` viene puesto, esta llamada la hace un hilo de
+        // trabajo sobre un chunk que el hilo principal YA preparo: le tomo el
+        // candado antes de encolarlo y decidio que tocaba mallarlo.
+        //
+        // Aplicarle aqui las mismas guardas rompia el mallado entero:
+        //
+        //   EL FRENO POR REINTENTOS no es suyo. buildRetries lo lleva el hilo
+        //   principal; el worker solo tiene que construir lo que le mandaron.
+        //
+        //   EL COMPARE_EXCHANGE era el fallo grave. El candado ya esta puesto
+        //   -- lo puso el hilo principal al encolar -- asi que el intercambio
+        //   SIEMPRE fallaba y el worker salia por el return de "ya se esta
+        //   procesando" sin mallar ni una cara. Pero el worker marcaba
+        //   res.ok = true igualmente, asi que el hilo principal integraba una
+        //   malla VACIA como si fuera buena: el chunk se quedaba con cero
+        //   batches y por tanto invisible.
+        //
+        // Ese es el otro motor del bug de "no se ve ninguna textura", y explica
+        // por que fallaban TODOS los chunks a la vez y en bucle.
+        if (!salidaCPU) {
+            if (chunk->buildRetries > 30 && (chunk->buildRetries % 30) != 0) {
+                chunk->buildRetries++;
+                return;
+            }
 
-        // ⭐ PROTECCIÓN: Evitar race conditions en threading
-        bool expected = false;
-        if (!chunk->isUpdatingMesh.compare_exchange_strong(expected, true)) {
-            return; // Ya se está procesando este chunk
+            // ⭐ PROTECCIÓN: Evitar race conditions en threading
+            bool expected = false;
+            if (!chunk->isUpdatingMesh.compare_exchange_strong(expected, true)) {
+                return; // Ya se está procesando este chunk
+            }
         }
 
         // ⭐ A PARTIR DE AQUI EL CANDADO SE SUELTA SOLO.
@@ -14546,7 +15979,29 @@ public:
         }
 
         if (!hasBlocks) {
-            // Limpiar batches existentes si los hay
+            // ⭐ UN WORKER NO PUEDE TOCAR LOS BATCHES.
+            //
+            // `delete batch` libera VBOs de OpenGL, y `chunk->batches` es lo
+            // que el hilo principal recorre para dibujar. Las dos cosas son
+            // suyas: hacerlas desde un hilo de trabajo es borrar geometria por
+            // debajo del que esta dibujando.
+            //
+            // Un chunk vacio de verdad existe -- todo aire por encima de una
+            // cueva, o el cielo sobre el terreno -- asi que este camino se
+            // recorre de continuo, no es un caso raro.
+            //
+            // El worker se limita a devolver una malla VACIA. El hilo
+            // principal la recoge en integrarMallasDeWorkers y es el quien
+            // borra los batches viejos, con su contexto de OpenGL y sin
+            // carreras. Y el candado se ENTREGA, por lo mismo que en el final
+            // de la funcion: su dueño es el hilo principal.
+            if (salidaCPU) {
+                *salidaCPU = Render::MallaChunk{};   // sin batches: chunk vacio
+                guardCandado.entregar();
+                return;
+            }
+
+            // Camino sincrono: aqui SI estamos en el hilo principal.
             for (auto batch : chunk->batches) {
                 if (batch) delete batch;
             }
@@ -14557,23 +16012,28 @@ public:
             return;
         }
 
-        // ⭐ CRITICAL FIX: Verificar que TODOS los vecinos horizontales existan
-        Vec3i northChunkPos(chunk->position.x, 0, chunk->position.z + 1);
-        Vec3i southChunkPos(chunk->position.x, 0, chunk->position.z - 1);
-        Vec3i eastChunkPos(chunk->position.x + 1, 0, chunk->position.z);
-        Vec3i westChunkPos(chunk->position.x - 1, 0, chunk->position.z);
-
-        Chunk* northChunk = getChunk(northChunkPos);
-        Chunk* southChunk = getChunk(southChunkPos);
-        Chunk* eastChunk = getChunk(eastChunkPos);
-        Chunk* westChunk = getChunk(westChunkPos);
-
         // ⭐⭐⭐ CORREGIDO: Verificar vecinos pero REDUCIR reintentos de 10 a 3
         // 10 reintentos era muy alto y causaba chunks visibles tardíos
-        bool missingNeighbors = !northChunk || !northChunk->isGenerated ||
-                                !southChunk || !southChunk->isGenerated ||
-                                !eastChunk || !eastChunk->isGenerated ||
-                                !westChunk || !westChunk->isGenerated;
+        //
+        // ⚠️ CUANDO LA FOTO VIENE HECHA, ESTO NO CONSULTA EL MAPA.
+        //
+        // Antes habia aqui cuatro getChunk() incondicionales, y son justo los
+        // que hacian que un worker leyera `chunks` mientras el hilo principal
+        // lo reestructuraba. Ahora solo se ejecutan en el camino sincrono, que
+        // ES el hilo principal y por tanto puede.
+        bool missingNeighbors;
+
+        // ⭐ ¿ESTA MALLA SE VA A CONSTRUIR CON EL BORDE INCOMPLETO?
+        //
+        // Tiene que ser una variable local y viajar DENTRO de la MallaChunk,
+        // no escribirse en `*salidaCPU` sobre la marcha. Razon medida: el final
+        // del mesher hace `*salidaCPU = mallaCPU;`, que SOBRESCRIBE el objeto
+        // entero con el que devuelve `desdeMapas` -- cualquier campo puesto
+        // antes en salidaCPU se pierde ahi.
+        //
+        // (Se detecto con el contador `marcadas`: 144 mallas provisionales y 0
+        // marcas llegando al chunk.)
+        bool bordeIncompleto = false;
 
         // ====================================================================
         // ⭐ LA FOTO DEL BORDE DE LOS VECINOS
@@ -14603,91 +16063,147 @@ public:
         // importa, porque romper un bloque ya marca needsRebuild en los chunks
         // afectados y el siguiente mallado usa la foto nueva. Lo peor es un
         // frame de retraso en una cara del borde.
-        Render::BordeVecinos bordeVec;
-        {
-            // Se copia la columna del vecino que TOCA a este chunk:
-            //   norte (+Z) -> su z=0        sur (-Z) -> su z=15
-            //   este  (+X) -> su x=0        oeste (-X) -> su x=15
-            // Cada celda copia DOS cosas: el bloque y su nivel de luz. Las dos
-            // hacen falta porque el mesher tenia dos funciones leyendo los
-            // vecinos (getNeighborBlockCached y faceLightLevel).
-            if (northChunk && northChunk->isGenerated) {
-                bordeVec.norte.reservar();
-                for (int i = 0; i < CHUNK_SIZE; ++i) {
-                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
-                        bordeVec.norte.poner(i, y, northChunk->getBlock(i, y, 0));
-                        bordeVec.norte.ponerLuz(i, y,
-                            northChunk->getLightLevel(i, y, 0));
-                    }
-                }
-            }
-            if (southChunk && southChunk->isGenerated) {
-                bordeVec.sur.reservar();
-                for (int i = 0; i < CHUNK_SIZE; ++i) {
-                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
-                        bordeVec.sur.poner(i, y,
-                            southChunk->getBlock(i, y, CHUNK_SIZE - 1));
-                        bordeVec.sur.ponerLuz(i, y,
-                            southChunk->getLightLevel(i, y, CHUNK_SIZE - 1));
-                    }
-                }
-            }
-            if (eastChunk && eastChunk->isGenerated) {
-                bordeVec.este.reservar();
-                for (int i = 0; i < CHUNK_SIZE; ++i) {
-                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
-                        bordeVec.este.poner(i, y, eastChunk->getBlock(0, y, i));
-                        bordeVec.este.ponerLuz(i, y,
-                            eastChunk->getLightLevel(0, y, i));
-                    }
-                }
-            }
-            if (westChunk && westChunk->isGenerated) {
-                bordeVec.oeste.reservar();
-                for (int i = 0; i < CHUNK_SIZE; ++i) {
-                    for (int y = 0; y < CHUNK_HEIGHT; ++y) {
-                        bordeVec.oeste.poner(i, y,
-                            westChunk->getBlock(CHUNK_SIZE - 1, y, i));
-                        bordeVec.oeste.ponerLuz(i, y,
-                            westChunk->getLightLevel(CHUNK_SIZE - 1, y, i));
-                    }
-                }
-            }
+        Render::BordeVecinos bordeLocal;
+
+        // ⭐ DOS PROCEDENCIAS, UNA SOLA REFERENCIA A PARTIR DE AQUI.
+        //
+        // Camino asincrono: la foto viene del hilo principal (capturarBorde),
+        // que es el unico que puede leer `chunks` con seguridad.
+        //
+        // Camino sincrono: la toma esta misma funcion, porque ya ESTA en el
+        // hilo principal y hacerlo aqui evita recorrer el mapa dos veces.
+        //
+        // El resto del mesher lee `bordeVec` y no sabe —ni necesita saber— de
+        // donde salio.
+        if (bordePrehecho) {
+            missingNeighbors = !vecinosCompletosPrehecho;
+        } else {
+            missingNeighbors = !capturarBorde(chunk, bordeLocal);
         }
 
-        // Las medidas del snapshot tienen que ser las del motor. Si alguien
-        // cambia una de las dos, el build para aqui en vez de leer fuera del
-        // vector en un hilo de trabajo.
-        static_assert(Render::BORDE_LADO == CHUNK_SIZE,
-                      "BordeVecinos y el motor no coinciden en el lado del chunk");
-        static_assert(Render::BORDE_ALTO == CHUNK_HEIGHT,
-                      "BordeVecinos y el motor no coinciden en la altura del chunk");
+        const Render::BordeVecinos& bordeVec = bordePrehecho ? *bordePrehecho
+                                                             : bordeLocal;
 
         if (missingNeighbors) {
-            chunk->buildRetries++;
+            // ⭐ ESTE CONTADOR ES `esperasVecinos`, NO `buildRetries`.
+            //
+            // BUG QUE ESTO CORRIGE (el parpadeo al caminar). Medido andando 40
+            // segundos: 132 mallados con la foto del borde incompleta, y 40 de
+            // ellos HORNEADOS ASI. Cada uno es una costura que aparece con el
+            // borde mal y cambia unos frames despues, cuando el vecino llega y
+            // dispara el remallado. Eso es exactamente lo que se ve parpadear.
+            //
+            // Aqui se usaba `buildRetries`, que ya tenia DOS duenos mas: el
+            // freno de la textura que falta (que cuenta hasta 30 y luego
+            // espacia) y el rescate de subirMallaAGPU (que se rinde a los 8).
+            // Mezclar los tres tiene dos consecuencias, y las dos se notan:
+            //
+            //   - Un chunk que espero 2 veces por vecinos llega al freno de
+            //     texturas con el contador ya gastado.
+            //   - Y al reves: `chunk->buildRetries = 0` unas lineas mas abajo
+            //     (cuando el mallado sale bien) borraba tambien la cuenta de
+            //     esperas, asi que un chunk en el borde del mundo podia
+            //     alternar espera/exito indefinidamente sin agotarlas nunca.
+            //
+            // `esperasVecinos` existe DESDE HACE TIEMPO para esto exacto -- su
+            // comentario en `struct Chunk` dice "Esperas por vecinos ANTES de
+            // encolar a un worker. Contador aparte. No se reutiliza
+            // buildRetries a proposito" -- pero el mesher nunca llego a usarlo.
+            chunk->esperasVecinos++;
+            g_diagMalladoSinVecinos.fetch_add(1);   // TEMPORAL (medicion)
 
-            // ⭐⭐⭐ Después de SOLO 3 reintentos, construir de todas formas
-            // Esto evita chunks cortados esperando demasiado tiempo por vecinos
-            if (chunk->buildRetries < 3) {
+            // ⭐ EL PLAZO SUBE DE 3 A 8 INTENTOS.
+            //
+            // Los 3 venian de cuando el mallado era SINCRONO: 3 reintentos eran
+            // 3 frames, ~50 ms, y pasado eso era razonable suponer que el
+            // vecino no iba a llegar. Con el mallado en workers un reintento ya
+            // no es un frame: el chunk pasa por la cola de entrada (tope 16),
+            // el turno de un worker y la cola de salida, asi que 3 intentos se
+            // agotan mientras el vecino todavia se esta generando.
+            //
+            // De ahi los 40 horneados con el borde roto: no es que el vecino no
+            // existiera, es que no habia llegado TODAVIA.
+            //
+            // 8 intentos siguen siendo un plazo corto (decimas de segundo) y no
+            // reintroducen el bloqueo en cascada, porque esto NO es una espera
+            // preventiva: el chunk se encola igual y el mesher decide con la
+            // foto en la mano. Lo unico que cambia es cuanta paciencia tiene
+            // antes de dar el borde por definitivo.
+            //
+            // El vigilante sigue siendo la red: si el vecino de verdad no llega
+            // nunca (borde del mundo cargado), a los 6 segundos fuerza el
+            // mallado con FORZAR_MALLADO, que pone esperasVecinos=99.
+            constexpr int MAX_ESPERAS_VECINOS = 8;
+
+            if (chunk->esperasVecinos < MAX_ESPERAS_VECINOS) {
                 chunk->waitingForNeighbors = true;
                 // INVARIANTE: esperar vecinos implica seguir pendiente. Si se
                 // pierde este flag el chunk deja de reconstruirse para
                 // siempre; mantenerlos juntos cierra ese agujero.
                 chunk->needsRebuild = true;
+
+                // En un worker hay que ENTREGAR el candado (su dueño es el
+                // hilo principal) y dejar la malla marcada como no valida:
+                // aqui no se construyo nada, y sin la marca el hilo principal
+                // subiria una malla vacia y dejaria el chunk invisible.
+                if (salidaCPU) {
+                    salidaCPU->valida = false;
+                    guardCandado.entregar();
+                    // ⚠️ El estado NO se toca desde el worker: `estado` y
+                    // `tiempoEstado` son campos planos que el hilo principal
+                    // lee y escribe, y escribirlos desde aqui seria una carrera.
+                    // Lo marca integrarMallasDeWorkers al recoger el resultado,
+                    // que ya corre en el hilo principal.
+                    return;
+                }
+
+                // Camino sincrono: aqui SI estamos en el hilo principal.
+                //
+                // Este es el unico sitio donde ESPERA_VECINO es real: el mesher
+                // miro la foto y de verdad no puede construir. (Hubo un filtro
+                // equivalente antes del encolado, y habia que quitarlo: al
+                // retener los chunks *preventivamente* creaba un frente de 20+
+                // chunks esperandose unos a otros en cascada. Ver la nota en
+                // updateChunks.)
+                chunk->cambiarEstado(Streaming::Estado::ESPERA_VECINO,
+                                     glfwGetTime());
+
                 // El candado lo suelta el guard al salir (ver GuardMallado).
                 return;  // Se reintentará en el próximo frame
             }
-            // Si llega aquí (>= 3 reintentos), construir de todas formas (mejor visible que invisible)
+            // Si llega aquí, se agotó la paciencia: construir de todas formas
+            // (mejor visible que invisible).
+            //
+            // ⭐ PERO SE DEJA ANOTADO QUE ESTA MALLA ES PROVISIONAL.
+            //
+            // Sin esta marca, la malla con el borde roto es indistinguible de
+            // una buena: el chunk pasa a LISTO y nadie vuelve a mirarlo. Si el
+            // vecino llega mas tarde, el remallado depende de que ALGUIEN lo
+            // pida -- y esa peticion existe (integrateGeneratedChunks marca a
+            // los cuatro vecinos), pero solo cuando el vecino se INTEGRA. Un
+            // vecino que ya estaba en memoria y simplemente no tenia la malla
+            // hecha no dispara nada.
+            //
+            // Marcandolo, el chunk queda pendiente de una revision barata en
+            // cuanto sus cuatro vecinos esten (ver revisarBordesProvisionales).
+            g_diagMalladoBordeRoto.fetch_add(1);   // TEMPORAL (medicion)
+            bordeIncompleto = true;
         }
 
-        // Reset contador de reintentos
+        // Reset del contador de reintentos de TEXTURA.
+        //
+        // ⚠️ `esperasVecinos` NO se toca aqui, y es deliberado: si se pusiera a
+        // cero, un chunk en el borde del mundo cargado alternaria espera/exito
+        // sin agotar las esperas jamas. Se limpia en subirMallaAGPU, cuando la
+        // malla de verdad entra con los cuatro vecinos presentes.
         chunk->buildRetries = 0;
 
         // Todos los vecinos existen, proceder con construcción
         chunk->waitingForNeighbors = false;
 
-        // DOBLE BUFFER: Construir nuevos batches sin borrar los viejos (evita parpadeo)
-        std::vector<Chunk::TextureBatch*> newBatches;
+        // (El doble buffer de batches vive ahora en subirMallaAGPU, que es
+        // donde de verdad se usa: un TextureBatch lleva handles de OpenGL, asi
+        // que no tiene sentido en la mitad que puede correr en un worker.)
 
         // MAPA TEMPORAL: agrupar vértices por textura
         std::map<GLuint, std::vector<float>> verticesByTexture;
@@ -14829,11 +16345,39 @@ public:
             return lightToFactor(faceLightLevel(bx, by, bz, dx, dy, dz));
         };
 
+        // Baliza propia de este hilo (nullptr si malla el hilo principal).
+        BalizaWorker* bal = (t_indiceWorkerMalla >= 0 &&
+                             t_indiceWorkerMalla < MAX_WORKERS_MALLA)
+                          ? &g_baliza[t_indiceWorkerMalla] : nullptr;
+
+        g_diagBalizaFase.store(1);   // baliza: entrando al bucle principal
+        if (bal) {
+            bal->fase.store(1);
+            bal->ultimoLatido.store(glfwGetTime());
+        }
         for (int x = 0; x < CHUNK_SIZE; x++) {
+            g_diagBalizaTicks.fetch_add(1);
+            // El latido se refresca UNA VEZ POR COLUMNA, no por celda: son 16
+            // latidos por chunk, bastantes para que el vigilante distinga
+            // "avanzando despacio" de "parado", y lo bastante pocos para que
+            // llamar al reloj no aparezca en el perfil.
+            if (bal) {
+                bal->ticks.fetch_add(1);
+                bal->ultimoLatido.store(glfwGetTime());
+            }
             for (int z = 0; z < CHUNK_SIZE; z++) {
                 for (int y = 0; y < CHUNK_HEIGHT; y++) {
                     BlockType block = chunk->getBlock(x, y, z);
                     if (block == BLOCK_AIR) continue;
+                    // Baliza fina: que celda y que bloque se esta procesando.
+                    g_diagBalizaCelda.store((x << 20) | (y << 8) | z);
+                    g_diagBalizaBloque.store((int)block);
+                    g_diagBalizaCeldas.fetch_add(1);
+                    if (bal) {
+                        bal->celda.store((x << 20) | (y << 8) | z);
+                        bal->bloque.store((int)block);
+                        bal->celdas.fetch_add(1);
+                    }
 
                     // ⭐ OPTIMIZACIÓN: Early exit si el bloque está completamente rodeado (no tiene caras visibles)
                     // Solo aplica a bloques opacos (no agua/lava/vegetación)
@@ -20076,6 +21620,7 @@ public:
         // ====================================================================
         // ⭐ GREEDY MESHING (bloques opacos)
         // ====================================================================
+        // (baliza: el bucle principal termino; empieza el greedy)
         // Fusiona caras coplanares contiguas con la misma textura, la misma
         // luz y el mismo brillo direccional en un único quad. En terreno
         // llano esto colapsa cientos de caras en unas pocas: menos vértices,
@@ -20091,6 +21636,8 @@ public:
         // GL_REPEAT, así que la textura se tesela una vez por bloque, igual
         // que con caras individuales.
         {
+            g_diagBalizaFase.store(2);   // baliza: dentro del greedy
+            if (bal) { bal->fase.store(2); bal->ultimoLatido.store(glfwGetTime()); }
             struct FaceCell {
                 GLuint tex = 0;
                 uint8_t light = 0;
@@ -20735,11 +22282,93 @@ public:
         // De paso, la VALIDACION (tamaños coherentes, quads completos) vive
         // ahora dentro de MallaChunk y esta cubierta por tests que corren sin
         // arrancar OpenGL (ver tests/test_malla_chunk.cpp).
+        g_diagBalizaFase.store(3);   // baliza: greedy terminado, empaquetando
+        if (bal) { bal->fase.store(3); bal->ultimoLatido.store(glfwGetTime()); }
         const Render::MallaChunk mallaCPU = Render::MallaChunk::desdeMapas(
             verticesByTexture, colorsByTexture, uvsByTexture,
-            texturasTransparentes, texturasRecortadas, texturasFaltantes);
+            texturasTransparentes, texturasRecortadas, texturasFaltantes,
+            bordeIncompleto);
+
+        // ====================================================================
+        // ⭐ FIN DEL CAMINO PARA UN HILO DE TRABAJO
+        // ====================================================================
+        // Todo lo de arriba es CPU pura. Lo de abajo es OpenGL, y OpenGL solo
+        // se puede tocar desde el hilo que tiene el contexto.
+        //
+        // Un worker deja la malla aqui y se va. El hilo principal la recoge
+        // mas tarde y hace la subida a GPU, que es lo unico que le queda.
+        //
+        // NO se marca needsRebuild=false: la malla existe pero todavia no se
+        // puede dibujar, asi que el chunk sigue pendiente hasta que el hilo
+        // principal suba sus VBOs. Si se limpiara aqui, un chunk mallado por
+        // un worker se daria por terminado y no se dibujaria nunca.
+        if (salidaCPU) {
+            *salidaCPU = mallaCPU;
+
+            // ⭐ EL CANDADO NO SE SUELTA AQUI: SE ENTREGA.
+            //
+            // ESTE ERA EL BUG DE "NO SE VE NINGUNA TEXTURA".
+            //
+            // El candado de un chunk encolado NO lo tomo esta funcion: lo tomo
+            // el HILO PRINCIPAL antes de meterlo en la cola (ver el
+            // compare_exchange de updateChunks), y su dueño es
+            // integrarMallasDeWorkers, que lo conserva hasta el swap de
+            // batches y lo suelta alli.
+            //
+            // Pero al entrar en buildChunkMesh se construye un GuardMallado
+            // sobre el MISMO chunk. Sin este entregar(), el destructor de ese
+            // guard soltaba el candado al salir por aqui -- o sea que el
+            // candado quedaba libre mientras la malla seguia viajando en la
+            // cola hacia el hilo principal.
+            //
+            // A partir de ahi, dos dueños del mismo candado:
+            //   1. El chunk sigue con needsRebuild (correcto: aun no se ha
+            //      subido a la GPU), pero ya sin candado.
+            //   2. updateChunks lo ve libre y pendiente, y lo vuelve a tomar.
+            //   3. integrarMallasDeWorkers llega despues y arma su guard sobre
+            //      un candado que ya es de otro.
+            //   4. La malla que se sube y la que se estaba construyendo se
+            //      pisan, y el chunk termina con CERO batches.
+            //
+            // Y un chunk sin batches es un chunk invisible: se ve el mundo sin
+            // una sola textura. El sintoma se veia en el log como "sin mesh
+            // pese a tener bloques" en TODOS los chunks, en bucle -- porque el
+            // rescate de render() los volvia a marcar y la carrera se repetia.
+            //
+            // Es exactamente la situacion que la nota de entregar() describe:
+            // "dejarselo no romperia nada... pero entonces el codigo tendria
+            // dos dueños del mismo candado y no se sabria cual manda". Aqui SI
+            // rompia, porque los dos dueños estan en hilos distintos.
+            guardCandado.entregar();
+            return;
+        }
 
         // ---- SUBIDA A GPU (esto SI tiene que correr en el hilo principal) ----
+        subirMallaAGPU(chunk, mallaCPU, texturasFaltantes, guardCandado);
+    }
+
+    // ========================================================================
+    // LA OTRA MITAD: DE MALLA A VBOs
+    // ========================================================================
+    // Recibe una malla ya construida -- por este mismo hilo o por un worker --
+    // y la convierte en batches dibujables.
+    //
+    // TIENE QUE CORRER EN EL HILO PRINCIPAL, siempre: aqui viven todas las
+    // llamadas a OpenGL del mallado (glGenBuffers, glBufferData,
+    // glDeleteBuffers), y OpenGL solo responde al hilo que tiene el contexto.
+    //
+    // Se llama desde dos sitios:
+    //   - el final de buildChunkMesh, cuando malla el propio hilo principal
+    //   - integrarMallasDeWorkers, cuando la malla la trajo un worker
+    void subirMallaAGPU(Chunk* chunk,
+                        const Render::MallaChunk& mallaCPU,
+                        bool texturasFaltantes,
+                        GuardMallado& guardCandado) {
+        // DOBLE BUFFER: se construyen los batches nuevos sin tocar los viejos,
+        // asi el chunk sigue dibujandose con su malla anterior hasta que la
+        // nueva esta lista. Sin esto se veria parpadear.
+        std::vector<Chunk::TextureBatch*> newBatches;
+
         for (const Render::BatchCPU& src : mallaCPU.batches) {
             const GLuint texture = (GLuint)src.textura;
             const std::vector<float>& verts    = src.vertices;
@@ -20794,19 +22423,14 @@ public:
             batch->transparente = src.transparente;
             batch->recortado    = src.recortado;
 
-            // Generar VBOs para este batch
+            // Generar el VBO de este batch (uno solo: el entrelazado)
             glGenBuffers(1, &batch->vbo);
-            glGenBuffers(1, &batch->colorVBO);
-            glGenBuffers(1, &batch->uvVBO);
 
-            // VALIDACIÓN CRÍTICA: Verificar que los VBOs se crearon exitosamente
-            // Si algún buffer es inválido (0), NO agregar este batch corrupto
-            if (batch->vbo == 0 || batch->colorVBO == 0 || batch->uvVBO == 0) {
-                glDeleteBuffers(1, &batch->vbo);
-                glDeleteBuffers(1, &batch->colorVBO);
-                glDeleteBuffers(1, &batch->uvVBO);
-                delete batch;
-                continue; // Skip este batch corrupto
+            // VALIDACIÓN CRÍTICA: Verificar que el VBO se creó exitosamente.
+            // Si es inválido (0), NO agregar este batch corrupto.
+            if (batch->vbo == 0) {
+                delete batch;   // el destructor no libera nada: vbo es 0
+                continue;
             }
 
             // ⭐ OPTIMIZACIÓN: Siempre usar GL_STATIC_DRAW (más rápido para este caso de uso)
@@ -20893,18 +22517,10 @@ public:
         guardCandado.entregar();
 
         // ⭐⭐⭐ Limpiar batches viejos DESPUÉS del swap (ya no se están usando)
+        // El destructor de TextureBatch libera el VBO; no se toca aqui para no
+        // borrar dos veces el mismo nombre (ver la nota de deallocateChunk).
         try {
-            for (auto batch : oldBatches) {
-                if (batch) {
-                    // Liberar VBOs de OpenGL
-                    if (glDeleteBuffers) {
-                        if (batch->vbo != 0) glDeleteBuffers(1, &batch->vbo);
-                        if (batch->colorVBO != 0) glDeleteBuffers(1, &batch->colorVBO);
-                        if (batch->uvVBO != 0) glDeleteBuffers(1, &batch->uvVBO);
-                    }
-                    delete batch;
-                }
-            }
+            for (auto batch : oldBatches) delete batch;
         } catch (...) {
             std::cerr << "⚠️ Error al limpiar batches viejos" << std::endl;
         }
@@ -21012,6 +22628,31 @@ public:
         }
 
         chunk->needsRebuild = false;
+
+        // La malla entro bien: la proxima vez que este chunk necesite
+        // remallarse vuelve a tener derecho a esperar por sus vecinos. Sin
+        // esto, un chunk que agoto las esperas en el borde del mundo no las
+        // recuperaria nunca, y al avanzar el jugador -- cuando ya SI tiene
+        // vecinos que valdria la pena esperar -- se mallaria con la foto
+        // incompleta y dejaria una costura.
+        chunk->esperasVecinos = 0;
+
+        // ⭐ ¿ESTA MALLA QUEDO CON UNA COSTURA PENDIENTE?
+        //
+        // La marca viaja con la malla desde el worker (mallaCPU) o la dejo
+        // puesta el camino sincrono en el propio chunk. Si esta, el chunk queda
+        // apuntado para revisarse cuando sus vecinos esten; si no, se BORRA --
+        // esta malla ya es buena y la deuda anterior (si la habia) esta saldada.
+        if (mallaCPU.bordeProvisional) chunk->bordeProvisional = true;
+
+        // ⭐ LISTO: tiene VBOs validos y el render puede dibujarlo.
+        //
+        // Es el unico sitio del motor que produce este estado, que es lo que
+        // hace cierta la separacion "el renderer solo recibe chunks LISTO".
+        // Se limpian los contadores de rescate: el chunk completo el camino,
+        // asi que el historial de tropiezos deja de ser relevante.
+        chunk->rescatesVigilante = 0;
+        chunk->cambiarEstado(Streaming::Estado::LISTO, glfwGetTime());
     }
 
     // ¿Existe ya este chunk guardado? Si sí conviene cargarlo (rápido) en vez
@@ -21030,8 +22671,44 @@ public:
     void updateChunks(const Vec3& playerPos, const Vec3& previousPos, float deltaTime = 0.016f) {
         PROFILE_SCOPE("World::updateChunks");
 
+        // ====================================================================
+        // ⭐ CICLO DE STREAMING: contexto, presupuesto y vigilante
+        // ====================================================================
+        const double inicioStreaming = glfwGetTime();
+
+        // 1. Quien es el jugador y hacia donde va (con la velocidad REAL).
+        //    Detecta ademas el teletransporte y cancela lo obsoleto.
+        actualizarContextoJugador(playerPos, previousPos, deltaTime,
+                                  ctxJugador.miradaX, ctxJugador.miradaZ);
+
+        // 2. Repartir el tiempo del frame entre las fases.
+        //
+        //    Se mide contra el objetivo del perfil de hardware, no contra un
+        //    numero fijo: la misma logica sirve para la maquina que aspira a
+        //    150 FPS y para la que se conforma con 60.
+        msFrameSuavizado = msFrameSuavizado * 0.9f + (deltaTime * 1000.0f) * 0.1f;
+        metricas.anotarFrame(deltaTime * 1000.0f);
+        const float msObjetivo = 1000.0f / (float)(g_perfil.fpsObjetivo > 0
+                                                   ? g_perfil.fpsObjetivo : 120);
+        presupuesto = Streaming::ajustarPresupuesto(presupuesto,
+                                                    msFrameSuavizado, msObjetivo);
+
+        // 3. Desatascar lo que lleve demasiado tiempo parado.
+        //
+        //    Va ANTES del resto a proposito: un chunk rescatado aqui puede
+        //    volver a entrar en las colas en este mismo frame, en vez de
+        //    perder uno entero.
+        pasarVigilante(inicioStreaming);
+
         // Incorporar lo que los hilos de trabajo hayan terminado
         integrateGeneratedChunks();
+
+        // ⭐ Y saldar las costuras que quedaron a deber.
+        //
+        // Va DESPUES de integrar a proposito: los chunks que acaban de entrar
+        // son justo los vecinos que faltaban, asi que la revision de este mismo
+        // frame ya los ve y la costura se corrige una vuelta antes.
+        revisarBordesProvisionales();
 
         // ⭐⭐⭐ Actualizar tiempo de frame para cache LRU
         currentFrameTime++;
@@ -21199,8 +22876,20 @@ public:
                     }
                 }
                 // ---- SUBIR: sobra margen Y aun no se llego al tope ----
+                //
+                // ⭐ EL TECHO ES LO QUE PIDIO EL JUGADOR, NO LO QUE DIJO EL PERFIL.
+                //
+                // `g_perfil.distanciaRender` es la estimacion del arranque
+                // mirando la GPU. Sirve como punto de partida, pero en cuanto el
+                // jugador mueve la barra de opciones deja de mandar: si pide 60
+                // y el perfil dijo 3, subir solo hasta 3 hace que la barra
+                // parezca rota.
+                //
+                // El regulador conserva su trabajo real, que es BAJAR cuando los
+                // FPS caen -- eso protege la jugabilidad y no contradice al
+                // jugador, porque nadie pide ir a tirones.
                 else if (msActual < msObjetivo * 0.65f &&
-                         RENDER_DISTANCE < g_perfil.distanciaRender) {
+                         RENDER_DISTANCE < techoDistanciaJugador()) {
                     if (relojDistancia >= SEGUNDOS_PARA_SUBIR) {
                         relojDistancia = 0.0f;
                         if (ajustarDistancia(RENDER_DISTANCE + 1)) {
@@ -21245,17 +22934,8 @@ public:
         };
         std::vector<ChunkPriority> chunksToGenerate;
 
-        // ⭐⭐⭐ CALCULAR DIRECCIÓN DE MOVIMIENTO
-        Vec3 moveDir(0, 0, 0);
-        if (previousPos.x != playerPos.x || previousPos.z != playerPos.z) {
-            moveDir.x = playerPos.x - previousPos.x;
-            moveDir.z = playerPos.z - previousPos.z;
-            float len = sqrtf(moveDir.x * moveDir.x + moveDir.z * moveDir.z);
-            if (len > 0.001f) {
-                moveDir.x /= len;
-                moveDir.z /= len;
-            }
-        }
+        // (La direccion de movimiento la lleva ahora ctxJugador, que conserva
+        // la MAGNITUD de la velocidad. Ver actualizarContextoJugador.)
 
         // ESCANEO CIRCULAR, SOLO CUANDO HACE FALTA.
         //
@@ -21300,33 +22980,57 @@ public:
         const bool escanear = cambioDeChunk || hayTrabajo;
         if (cambioDeChunk) ultimoChunkJugador = playerChunk;
 
-        // ⭐⭐⭐ ESCANEO CIRCULAR: Solo chunks dentro del radio circular
-        for (int x = -RENDER_DISTANCE; escanear && x <= RENDER_DISTANCE; x++) {
-            for (int z = -RENDER_DISTANCE; z <= RENDER_DISTANCE; z++) {
-                // ⭐ CLAVE: Verificar distancia circular (no cuadrada)
-                // Se compara al CUADRADO para no calcular una raiz por
-                // cada chunk: da el mismo circulo y ahorra ~169 sqrt.
+        // ====================================================================
+        // ⭐ ESCANEO POR ANILLOS, CON PREDICCION (Streaming::calcularPrioridad)
+        // ====================================================================
+        // Lo que habia aqui era `priority = distance * (1 - dot*0.5)`, y tenia
+        // tres defectos de fondo, todos medibles:
+        //
+        //   1. EL SESGO ERA DEMASIADO DEBIL PARA IMPORTAR. Delante multiplica
+        //      por 0.5 y detras por 1.5, asi que un chunk a distancia 4 delante
+        //      (2.0) PIERDE contra uno a distancia 1 detras (1.5). Nunca
+        //      adelantaba mas de un anillo: en la practica seguia siendo carga
+        //      por distancia pura.
+        //
+        //   2. LA VELOCIDAD SE TIRABA A LA BASURA. moveDir se normalizaba
+        //      (lineas de arriba), asi que volar a 50 m/s pedia terreno con la
+        //      misma antelacion que caminar a 4. Exactamente al reves de lo que
+        //      hace falta: cuanto mas rapido va el jugador, mas lejos hay que
+        //      mirar porque llegara antes.
+        //
+        //   3. NO MIRABA LA CAMARA NI ENVEJECIA. Girar la vista no recalculaba
+        //      nada, y un chunk lateral podia esperar indefinidamente.
+        //
+        // El modelo nuevo usa el ANILLO como barrera dura (R0 gana a cualquier
+        // R1 pase lo que pase) y una puntuacion continua solo para ordenar
+        // dentro del anillo. Es la unica forma de garantizar que "el suelo bajo
+        // mis pies" nunca pierde contra "una vista bonita a lo lejos", en vez
+        // de dejarlo al azar de una suma de pesos. Ver tests/test_streaming.cpp,
+        // caso "el suelo bajo los pies gana a todo".
+        //
+        // El radio barrido incluye el corredor de anticipacion: sin eso, los
+        // chunks del corredor no llegarian a pedirse nunca, porque un chunk
+        // fuera del radio de carga no entra en la lista de candidatos por muy
+        // urgente que fuese su anillo.
+        const int radioEscaneo = Streaming::radioBarrido(ctxJugador);
+
+        for (int x = -radioEscaneo; escanear && x <= radioEscaneo; x++) {
+            for (int z = -radioEscaneo; z <= radioEscaneo; z++) {
                 const int d2 = x*x + z*z;
-                if (d2 > RENDER_DISTANCE * RENDER_DISTANCE) continue;
-                float distance = sqrtf((float)d2);
+                if (d2 > radioEscaneo * radioEscaneo) continue;
 
                 Vec3i chunkPos(playerChunk.x + x, 0, playerChunk.z + z);
-
-                // Solo chunks no generados
                 if (chunks.find(chunkPos) != chunks.end()) continue;
 
-                // ⭐⭐⭐ PRIORIDAD MEJORADA: Distancia + Dirección de movimiento
-                float priority = distance;
+                const Streaming::EntradaPrioridad e =
+                    Streaming::calcularPrioridad(chunkPos.x, chunkPos.z, ctxJugador);
 
-                // Si el jugador se está moviendo, dar bonus a chunks adelante
-                if (moveDir.x != 0 || moveDir.z != 0) {
-                    float dotProduct = (x * moveDir.x + z * moveDir.z) / (distance + 0.1f);
-                    // dotProduct = 1.0 si el chunk está exactamente adelante
-                    // dotProduct = -1.0 si está exactamente atrás
-                    priority = distance * (1.0f - dotProduct * 0.5f); // Chunks adelante tienen menor prioridad (se cargan primero)
-                }
+                // Fuera del radio de carga solo entran los del corredor
+                // predicho: es precarga dirigida, no ensanchar la vista.
+                if (e.distancia > (float)Streaming::radioCarga(ctxJugador) &&
+                    e.anillo != Streaming::Anillo::R3_PREDICHO) continue;
 
-                chunksToGenerate.push_back({chunkPos, distance, priority});
+                chunksToGenerate.push_back({chunkPos, e.distancia, e.valor});
             }
         }
 
@@ -21355,14 +23059,50 @@ public:
                 }
                 genInFlight.insert(cp.pos);
                 genQueueCV.notify_one();
+                // El chunk aun no existe como objeto, asi que su estado vive
+                // en genInFlight hasta que integrateGeneratedChunks lo cree.
                 continue;
             }
 
-            // Sin workers (o ya está en disco): ruta sincrónica de siempre
+            // Sin workers (o ya está en disco): ruta sincrónica de siempre.
+            //
+            // ⭐ PRESUPUESTO POR TIEMPO, NO POR CONTEO.
+            //
+            // Antes el unico freno era MAX_CHUNKS_PER_FRAME (1 o 2). El
+            // problema del conteo es que la unidad no es constante: este
+            // camino hace lectura de disco + descompresion + un vector de
+            // 65.536 + computeSkylight completo + costura de luz con los
+            // vecinos. Un chunk puede costar 0.5 ms y otro 40, asi que
+            // "2 chunks" no acota nada. Un solo chunk lento se comia el frame
+            // entero sin que nada lo detectara hasta el frame siguiente.
+            //
+            // Se conserva el tope por conteo como segunda barrera, pero el que
+            // manda es el reloj: se comprueba ANTES de cada chunk, asi que el
+            // desbordamiento maximo es el coste de UNO, no de todos.
             if (chunksGeneratedThisFrame >= MAX_CHUNKS_PER_FRAME) break;
+            {
+                const double msGastados =
+                    (glfwGetTime() - inicioStreaming) * 1000.0;
+                if (msGastados > presupuesto.generacionMs) break;
+            }
+
+            const double t0Carga = glfwGetTime();
+            g_perfCargaDisco = g_perfCargaLuz = g_perfCargaCostura = 0.0;
             Chunk* chunk = getOrCreateChunk(cp.pos);
             if (chunk) {
                 chunksGeneratedThisFrame++;
+                const double msTotal = (glfwGetTime() - t0Carga) * 1000.0;
+                metricas.msGeneracion += msTotal;
+                metricas.nGeneracion++;
+                if (msTotal > 20.0) {
+                    std::cout << "[CARGA-LENTA] (" << cp.pos.x << "," << cp.pos.z
+                              << ") total=" << msTotal
+                              << "ms disco=" << g_perfCargaDisco
+                              << " luz=" << g_perfCargaLuz
+                              << " costura=" << g_perfCargaCostura << std::endl;
+                }
+                // Vino de disco o del cache ya generado: se salta GENERANDO.
+                chunk->cambiarEstado(Streaming::Estado::GENERADO, glfwGetTime());
             }
         }
 
@@ -21373,7 +23113,22 @@ public:
         // cada pasada, para obtener exactamente la misma respuesta: comparar
         // d contra R es lo mismo que comparar d² contra R², y las dos
         // cantidades son positivas.
-        const float limiteDescarga = RENDER_DISTANCE + 1.0f;
+        // ⭐ HISTERESIS DE VERDAD (§34), no un buffer fijo.
+        //
+        // Era RENDER_DISTANCE + 1. Ese "+1" no es histeresis: es un margen, y
+        // como carga y descarga se mueven pegados, un jugador que oscile sobre
+        // una frontera de chunk (caminar en diagonal por un borde, muy comun)
+        // cruza los dos umbrales a la vez y produce carga/descarga en bucle --
+        // regenerando terreno que acababa de tirar.
+        //
+        // Con margen 2 hay banda real: para que un chunk recien cargado se
+        // descargue, el jugador tiene que alejarse DOS chunks completos (32
+        // bloques), no volver sobre sus pasos medio metro.
+        //
+        // Cuesta memoria (el area crece con el cuadrado del radio: ~113 chunks
+        // mantenidos frente a 81 cargados, unos 6 MB), y es un cambio barato
+        // comparado con el tiron de regenerar lo que se acaba de tirar.
+        const float limiteDescarga = (float)Streaming::radioDescarga(ctxJugador);
         const float limiteDescarga2 = limiteDescarga * limiteDescarga;
 
         std::vector<Vec3i> chunksToRemove;
@@ -21416,6 +23171,31 @@ public:
             if (descargados >= MAX_DESCARGAS_POR_FRAME) break;
             Chunk* chunk = chunks[pos];
             if (!chunk) continue;
+
+            // ================================================================
+            // ⭐ NO SE DESCARGA LO QUE UN WORKER ESTA MALLANDO
+            // ================================================================
+            // Es la proteccion que hace seguro el mallado en hilos, y sin ella
+            // todo lo demas no sirve.
+            //
+            // Este bucle borra el chunk del mapa y devuelve el objeto al pool,
+            // que lo RECICLA como otro chunk distinto. Si un worker lo estaba
+            // mallando, a partir de ese momento estaria escribiendo geometria
+            // leyendo bloques de un sitio del mundo que ya no es ese -- o
+            // directamente sobre memoria que el pool ya reasigno.
+            //
+            // El candado (isUpdatingMesh) es justo la señal de "alguien lo
+            // esta usando": lo pone el hilo principal al encolar y no se
+            // suelta hasta que la malla vuelve y se sube.
+            //
+            // Saltarselo NO pierde el chunk: sigue en chunksToRemove, y como
+            // la distancia no va a mejorar sola, el frame siguiente vuelve a
+            // intentarlo. Para entonces el worker ya habra terminado -- mallar
+            // un chunk son milisegundos, no segundos.
+            if (chunk->isUpdatingMesh.load(std::memory_order_acquire)) {
+                continue;
+            }
+
             ++descargados;
 
             // ⭐ SOLO SE GUARDA LO QUE EL JUGADOR TOCÓ
@@ -21582,6 +23362,22 @@ public:
         int meshesBuiltThisFrame = 0;
         auto meshBuildStart = std::chrono::high_resolution_clock::now();
 
+        // ====================================================================
+        // ⭐ PRIMERO: RECOGER LO QUE LOS WORKERS YA TERMINARON
+        // ====================================================================
+        // Va ANTES de encolar mas trabajo, por dos razones:
+        //
+        //   1. Un chunk cuya malla ya esta hecha se dibuja este frame en vez
+        //      del siguiente.
+        //   2. Recogerlo lo saca de mallaInFlight, asi que su hueco queda
+        //      libre para encolar otro justo debajo.
+        //
+        // El tope existe porque subir VBOs cuesta: vaciar la lista entera en
+        // un frame produciria el mismo tiron que se intenta evitar, solo que
+        // movido de sitio.
+        g_diagTopeMallas = MAX_MESHES_PER_FRAME_DYNAMIC;
+        meshesBuiltThisFrame += integrarMallasDeWorkers(MAX_MESHES_PER_FRAME_DYNAMIC);
+
         for (Chunk* chunk : chunksToRebuild) {
             // ⭐ Verificar límite de meshes
             if (meshesBuiltThisFrame >= MAX_MESHES_PER_FRAME_DYNAMIC) break;
@@ -21605,6 +23401,105 @@ public:
                 break;
             }
 
+            // ================================================================
+            // ⭐ ENCOLAR A UN WORKER EN VEZ DE MALLAR AQUI
+            // ================================================================
+            // Construir la geometria es lo caro: ~330.000 iteraciones de celda
+            // por chunk, y medido en 5,8 ms por frame al explorar. Ahora lo
+            // hacen los hilos de trabajo y el hilo principal solo sube los
+            // VBOs cuando la malla ya esta.
+            //
+            // El chunk NO se marca como hecho al encolar: sigue con
+            // needsRebuild hasta que su malla vuelve y se sube. Si se limpiara
+            // aqui, un chunk encolado se daria por terminado y no se dibujaria
+            // nunca.
+            if (mallaRunning.load()) {
+                // Ya esta en manos de un worker: no encolarlo dos veces.
+                if (mallaInFlight.count(chunk->position)) continue;
+
+                // El candado se toma AQUI, en el hilo principal, y no dentro
+                // del worker. Es lo que impide que entre el encolado y el
+                // turno del worker alguien mas malle el mismo chunk -- o que
+                // la descarga lo libere mientras esta en la cola.
+                bool esperado = false;
+                if (!chunk->isUpdatingMesh.compare_exchange_strong(esperado, true)) {
+                    continue;   // otro lo tiene
+                }
+
+                // ⭐ LA FOTO DEL BORDE SE TOMA AQUI, NO EN EL WORKER.
+                //
+                // Es lo que cierra la ultima carrera del mallado asincrono:
+                // capturarBorde() consulta el mapa `chunks` y desreferencia a
+                // los cuatro vecinos, y las dos cosas solo son seguras en este
+                // hilo. Ver capturarBorde() y buildChunkMesh().
+                //
+                // Cuesta 32 KB y ~4.000 lecturas por chunk encolado. Se paga en
+                // el hilo principal, que es precisamente lo que se intentaba
+                // descargar — pero es copiar memoria, no construir geometria:
+                // frente a las ~330.000 iteraciones de celda que se lleva el
+                // worker, es ruido. Y es el unico sitio donde puede hacerse.
+                EncargoMalla encargo{ chunk, chunk->position,
+                                      Render::BordeVecinos{}, false };
+                encargo.vecinosCompletos = capturarBorde(chunk, encargo.borde);
+
+                // ⚠️ AQUI NO SE FILTRA POR VECINOS. SE ENCOLA IGUAL.
+                //
+                // Hubo aqui un filtro que retenia el chunk si la foto salia
+                // incompleta, con la idea de no gastar un turno de worker en un
+                // mallado que iba a volver de vacio. MEDIDO EN EL JUEGO: era
+                // mucho peor.
+                //
+                //     [STREAM] ... LISTO=2 ESPERA_VECINO=21 | rescatados=37
+                //
+                // El fallo es que la espera se PROPAGA EN CASCADA. El chunk A
+                // espera a B, que a su vez espera a C, que espera a D... y como
+                // ninguno se encola, ninguno progresa. Se formaba un frente de
+                // veinte y pico chunks bloqueados mutuamente, y lo unico que lo
+                // rompia era el vigilante disparando a los 6 segundos, uno por
+                // uno. El resultado era un mundo que tardaba medio minuto en
+                // dibujarse en vez de dos segundos.
+                //
+                // La leccion: en un grafo donde todos dependen de todos, "no
+                // empieces hasta que tus dependencias esten listas" es un
+                // interbloqueo, no una optimizacion.
+                //
+                // Encolar siempre es lo correcto porque el mesher YA sabe
+                // decidir: con la foto incompleta construye lo que puede y su
+                // freno de buildRetries lo malla igual tras 3 intentos ("mejor
+                // visible que invisible"). Gastar un turno de worker de vez en
+                // cuando es infinitamente mas barato que un frente bloqueado.
+                //
+                // El estado ESPERA_VECINO se conserva para diagnostico -- lo
+                // pone el mesher cuando de verdad no puede construir -- y el
+                // vigilante lo sigue vigilando. Lo que desaparece es la espera
+                // PREVENTIVA, que era la que generaba la cascada.
+
+                bool encolado = false;
+                {
+                    std::lock_guard<std::mutex> lock(mallaQueueMutex);
+                    if (mallaQueue.size() < MAX_MALLA_QUEUE) {
+                        mallaQueue.push_back(std::move(encargo));
+                        encolado = true;
+                    }
+                }
+
+                if (encolado) {
+                    mallaInFlight.insert(chunk->position);
+                    chunk->cambiarEstado(Streaming::Estado::MALLA_EN_COLA,
+                                         glfwGetTime());
+                    mallaQueueCV.notify_one();
+                    // NO cuenta como mesh construido: todavia no hay geometria.
+                    // Contarlo agotaria el presupuesto sin haber hecho nada.
+                } else {
+                    // Cola llena: se suelta el candado y se reintenta en otro
+                    // frame. Sin esto el chunk quedaria bloqueado para siempre.
+                    chunk->isUpdatingMesh.store(false, std::memory_order_release);
+                }
+                continue;
+            }
+
+            // Camino sincrono: sin workers (o antes de arrancarlos), el hilo
+            // principal malla como toda la vida.
             buildChunkMesh(chunk);
             meshesBuiltThisFrame++;
         }
@@ -21613,7 +23508,12 @@ public:
         // tiempo ni a empezar, se malla uno de todas formas. Sin esto, con el
         // presupuesto agotado de forma sostenida el terreno dejaria de
         // aparecer.
-        if (meshesBuiltThisFrame == 0 && !chunksToRebuild.empty()) {
+        //
+        // ⚠️ SOLO EN EL CAMINO SINCRONO. Con workers, este "uno gratis" seria
+        // exactamente el pico de 30 ms que se esta intentando quitar -- y
+        // ademas innecesario, porque el progreso ya lo garantizan los hilos.
+        if (!mallaRunning.load() &&
+            meshesBuiltThisFrame == 0 && !chunksToRebuild.empty()) {
             buildChunkMesh(chunksToRebuild[0]);
         }
 
@@ -21934,9 +23834,61 @@ public:
         };
         std::vector<ChunkRenderInfo> visibleChunks;
 
-        // Primera pasada: Recopilar chunks visibles
-        for (auto& pair : chunks) {
-            Chunk* chunk = pair.second;
+        // ====================================================================
+        // ⭐ SOLO SE MIRAN LOS CHUNKS QUE PODRIAN VERSE
+        // ====================================================================
+        // Antes esta pasada recorria `chunks` ENTERO y descartaba por distancia
+        // dentro del bucle. Pero `chunks` no contiene solo lo visible: la
+        // descarga por distancia va a 4 chunks por frame como mucho, asi que
+        // tras un viaje rapido o un cambio de distancia de render el mapa
+        // arrastra cientos de chunks que ya nadie va a dibujar. Cada uno
+        // costaba un salto de puntero de std::map (nodos dispersos en memoria,
+        // que es lo peor para el cache) mas una raiz cuadrada.
+        //
+        // El area que de verdad puede verse es el cuadrado de lado
+        // 2*RENDER_DISTANCE+1 centrado en el jugador: 81 chunks con la
+        // distancia por defecto de 4. Recorrer ESE cuadrado y buscar cada
+        // posicion es trabajo acotado y predecible -- no depende de cuantos
+        // chunks queden sin descargar.
+        //
+        // ⚠️ EL RADIO QUE SE BARRE ES RENDER_DISTANCE + 1, NO RENDER_DISTANCE.
+        //
+        // Es tentador usar RENDER_DISTANCE a secas razonando que la niebla ya
+        // tapa lo que hay mas alla, pero NO es cierto y la diferencia se ve:
+        //
+        //   - fogEnd es RENDER_DISTANCE*16*0.98, y la distancia se mide contra
+        //     la esquina MAS CERCANA del chunk (se resta media diagonal,
+        //     11.3 bloques), no contra su centro.
+        //   - Se mide desde la posicion del jugador, no desde el centro de su
+        //     chunk, asi que estando pegado a un borde el alcance efectivo se
+        //     corre casi 16 bloques hacia ese lado.
+        //
+        // Con RENDER_DISTANCE=4 y el jugador en el borde de su chunk, un chunk
+        // del anillo RD+1 queda a 60.7 de distancia efectiva contra un fogEnd
+        // de 62.7: pasaba el corte de niebla y SE DIBUJABA. Barrer solo RD lo
+        // haria desaparecer de golpe en vez de desvanecerse, que es justo el
+        // borde recto de terreno que la niebla existe para evitar.
+        //
+        // RD+1 es ademas el radio que usa la descarga (ver limiteDescarga), o
+        // sea el conjunto exacto de lo que puede estar cargado. Coincidir con
+        // el hace que este bucle no pueda dejarse nada fuera por definicion.
+        const int radioBarrido = RENDER_DISTANCE + 1;
+
+        const Vec3i centroJugador(
+            (int)std::floor(playerPos.x / (float)CHUNK_SIZE), 0,
+            (int)std::floor(playerPos.z / (float)CHUNK_SIZE));
+
+        visibleChunks.reserve((size_t)(2 * radioBarrido + 1) *
+                              (size_t)(2 * radioBarrido + 1));
+
+        for (int cx = centroJugador.x - radioBarrido;
+                 cx <= centroJugador.x + radioBarrido; ++cx)
+        for (int cz = centroJugador.z - radioBarrido;
+                 cz <= centroJugador.z + radioBarrido; ++cz) {
+
+            auto itChunk = chunks.find(Vec3i(cx, 0, cz));
+            if (itChunk == chunks.end()) continue;
+            Chunk* chunk = itChunk->second;
 
             // ⭐ PROTECCIÓN CRÍTICA: Validar puntero del chunk
             if (!chunk) continue;
@@ -21946,17 +23898,40 @@ public:
 
             // Si está actualizando mesh, skip (normal)
             //
-            // ⭐ VIGILANTE DEL CANDADO. El mallado es síncrono: ocupa UN frame
-            // y libera. Un chunk generado, sin mesh y con el candado puesto
-            // muchos frames seguidos no está trabajando — el candado se
-            // filtró (excepción, return sin liberar, estado heredado). Y
-            // mientras siga puesto bloquea las DOS salidas: no se malla
-            // (compare_exchange falla) y no se dibuja (este mismo skip).
+            // ⭐ VIGILANTE DEL CANDADO. Un chunk generado, sin mesh y con el
+            // candado puesto muchos frames seguidos puede no estar trabajando:
+            // el candado se filtró (excepción, return sin liberar, estado
+            // heredado). Y mientras siga puesto bloquea las DOS salidas: no se
+            // malla (compare_exchange falla) y no se dibuja (este mismo skip).
             //
-            // Se libera y se reencola. Si de verdad estuviera mallando, el
-            // umbral de 60 frames no se alcanza jamás.
+            // ⚠️ PERO SOLO SI NADIE LO TIENE DE VERDAD.
+            //
+            // El texto original decia "el mallado es sincrono: ocupa UN frame y
+            // libera", y de ahi salia el umbral de 60 frames. Con el mallado en
+            // workers eso ya no es cierto: un chunk puede estar legitimamente
+            // en `mallaQueue` (tope 16) o esperando en `mallaDone` a que
+            // integrarMallasDeWorkers lo recoja (1-6 por frame). Si la maquina
+            // va cargada, superar 60 frames ahi es normal, no un fallo.
+            //
+            // Y soltarle el candado a un chunk que un worker esta leyendo no es
+            // inofensivo: el candado es JUSTO lo que impide que la descarga por
+            // distancia lo devuelva al pool (ver la guarda de chunksToRemove).
+            // Liberarlo autoriza a reciclar memoria que otro hilo esta usando.
+            // O sea que el vigilante, pensado como red de seguridad, era capaz
+            // de provocar el fallo que pretendia evitar -- y precisamente con
+            // pocos FPS, que es cuando la cola se llena.
+            //
+            // `mallaInFlight` es la respuesta exacta a "¿lo tiene un worker?":
+            // solo lo toca el hilo principal, que es este. Si el chunk esta
+            // ahi, el candado tiene dueño y no se toca.
             if (chunk->isUpdatingMesh.load(std::memory_order_acquire)) {
-                if (chunk->batches.empty()) {
+                // TEMPORAL (diagnostico): contar los que se saltan por candado.
+                ++g_diagSaltadosPorCandado;
+                if (!mallaInFlight.count(chunk->position)) {
+                    ++g_diagCandadoSinDueno;
+                    if (!chunk->batches.empty()) ++g_diagCandadoConMalla;
+                }
+                if (chunk->batches.empty() && !mallaInFlight.count(chunk->position)) {
                     if (++chunk->framesConCandado > 60) {
                         std::cerr << "AVISO: chunk (" << chunk->position.x << ","
                                   << chunk->position.z << ") con el candado de "
@@ -21965,6 +23940,10 @@ public:
                         chunk->needsRebuild = true;
                         chunk->framesConCandado = 0;
                     }
+                } else {
+                    // En vuelo o ya con geometria: el contador se reinicia para
+                    // que el tiempo en cola no cuente como atasco.
+                    chunk->framesConCandado = 0;
                 }
                 continue;
             }
@@ -22017,7 +23996,25 @@ public:
                 // recortar la vista no se note: el borde de lo cargado y el
                 // punto donde la niebla se vuelve opaca son el mismo sitio,
                 // asi que el terreno no aparece cortado, se desvanece.
-                const float fogEnd = RENDER_DISTANCE * (float)CHUNK_SIZE * 0.98f;
+                //
+                // ⭐ AHORA SE MIDE CONTRA EL RADIO REALMENTE VISIBLE.
+                //
+                // Es el mismo numero que configura la niebla (ver
+                // radioVisibleSeguro), asi que los dos no pueden separarse. Si
+                // el culling usara el radio nominal y la niebla el real, el
+                // motor dibujaria una franja que la niebla ya tapa por
+                // completo: puro trabajo invisible.
+                //
+                // El maximo con RENDER_DISTANCE-1 evita el caso degenerado de
+                // que un radio seguro momentaneamente pequeño (durante una
+                // carga fuerte) recorte terreno que SI se esta viendo. Ante la
+                // duda se dibuja de mas, que solo cuesta rendimiento; dibujar
+                // de menos cuesta un agujero.
+                const float fogEndSeguro = radioNieblaSuavizado > 0.0f
+                    ? radioNieblaSuavizado * 0.98f
+                    : RENDER_DISTANCE * (float)CHUNK_SIZE * 0.98f;
+                const float fogEndMin = (RENDER_DISTANCE - 1) * (float)CHUNK_SIZE * 0.98f;
+                const float fogEnd = fogEndSeguro > fogEndMin ? fogEndSeguro : fogEndMin;
                 if (dist > fogEnd) { chunksCulled++; continue; }
             }
 
@@ -22130,36 +24127,63 @@ public:
 
             // Chunk::TextureBatch, cualificado: el tipo esta anidado en Chunk
             // y aqui estamos en World, asi que sin el prefijo no se resuelve.
-            static std::vector<Chunk::TextureBatch*> opacosPorTextura;
+            //
+            // ⭐ SE GUARDA LA DISTANCIA JUNTO AL BATCH.
+            //
+            // Hace falta para el desempate de abajo, y no se puede recuperar
+            // despues: un TextureBatch no sabe de que chunk salio.
+            struct OpacoOrdenable {
+                Chunk::TextureBatch* batch;
+                float distSq;
+            };
+            static std::vector<OpacoOrdenable> opacosPorTextura;
             opacosPorTextura.clear();
 
             for (const auto& info : visibleChunks) {
                 for (auto* batch : info.chunk->batches) {
                     if (!batch) continue;
                     if (batch->transparente) { batchesVacios++; continue; }
-                    opacosPorTextura.push_back(batch);
+                    opacosPorTextura.push_back({ batch, info.distanceSquared });
                 }
             }
 
-            // Ordenar por (recortado, textura): agrupa los dos cambios de
-            // estado que cuestan, y deja juntos los batches que comparten
-            // ambos.
+            // Ordenar por (recortado, textura, DISTANCIA): agrupa los dos
+            // cambios de estado que cuestan, y dentro de cada grupo dibuja de
+            // cerca a lejos.
             //
-            // Sin agrupar, el orden es el de recorrido por chunk -- que es
-            // exactamente lo que hacia el codigo anterior.
+            // ⭐ EL TERCER CRITERIO ES NUEVO, Y RECUPERA EL EARLY-Z.
+            //
+            // `visibleChunks` se ordena front-to-back unas lineas mas arriba
+            // ("mejora la coherencia de cache y el early Z-testing"), pero esa
+            // ordenacion se PERDIA aqui: al reagrupar por textura, los batches
+            // de una misma textura quedaban en orden arbitrario de distancia.
+            //
+            // Eso importa porque el early-Z de la GPU descarta un fragmento
+            // antes de texturizarlo solo si el z-buffer YA tiene algo delante.
+            // Dibujando de lejos a cerca, cada pared pintada se sobrescribe
+            // luego por la que tiene delante: se paga el sombreado de pixeles
+            // que acaban tapados. Con 358.000 caras a la vista y el frame
+            // dominado por `swap` (la GPU terminando de dibujar), es justo el
+            // trabajo que sobra.
+            //
+            // Se desempata DENTRO del grupo de textura, asi que no cuesta ni un
+            // bind extra: el numero de cambios de estado es exactamente el
+            // mismo que antes. Es ordenacion gratis.
             if (agrupar) {
                 std::sort(opacosPorTextura.begin(), opacosPorTextura.end(),
-                    [](const Chunk::TextureBatch* a, const Chunk::TextureBatch* b) {
-                        if (a->recortado != b->recortado)
-                            return !a->recortado;   // primero los macizos
-                        return a->texture < b->texture;
+                    [](const OpacoOrdenable& a, const OpacoOrdenable& b) {
+                        if (a.batch->recortado != b.batch->recortado)
+                            return !a.batch->recortado;   // primero los macizos
+                        if (a.batch->texture != b.batch->texture)
+                            return a.batch->texture < b.batch->texture;
+                        return a.distSq < b.distSq;       // cerca -> lejos
                     });
             }
 
-            for (auto* batch : opacosPorTextura) {
+            for (const auto& op : opacosPorTextura) {
+                Chunk::TextureBatch* batch = op.batch;
                 // ⭐ VALIDACION EXHAUSTIVA: Detectar batches corruptos
-                if (batch->vbo == 0 || batch->colorVBO == 0 ||
-                    batch->uvVBO == 0) continue;
+                if (batch->vbo == 0) continue;
                 if (batch->vertexCount == 0 ||
                     batch->vertexCount > 1000000) continue;
                 if (batch->vertexCount % 4 != 0) {
@@ -22210,54 +24234,65 @@ public:
         if (!alphaTestActivo) glEnable(GL_ALPHA_TEST);
 
         // ⭐ OPTIMIZACIÓN: Renderizar transparentes de atrás hacia adelante (back-to-front)
-        // Para blending correcto, invertir el orden de los chunks
-        for (auto it = visibleChunks.rbegin(); it != visibleChunks.rend(); ++it) {
-            Chunk* chunk = it->chunk;
+        // Para blending correcto, invertir el orden de los chunks.
+        //
+        // ⚠️ AQUI NO SE PUEDE AGRUPAR POR TEXTURA COMO EN EL PASE OPACO.
+        //
+        // El pase 1 ordena por textura porque con el z-buffer el orden de
+        // dibujo no altera el resultado. Con blending SI lo altera: dos laminas
+        // de agua se mezclan en el orden en que se pintan, asi que agruparlas
+        // por textura rompe el resultado. El orden lejos->cerca es obligatorio.
+        //
+        // Lo que SI se puede quitar es el trabajo por batch que no depende del
+        // orden, y eso es lo que se hace aqui:
+        //
+        //   1. La matriz de textura se pone UNA VEZ para todo el pase en vez de
+        //      un glPushMatrix/glTranslatef/glPopMatrix por batch. Todos los
+        //      batches de este pase reciben el mismo desplazamiento (agua y
+        //      lava comparten el scroll), asi que empujarla y sacarla mil veces
+        //      dejaba exactamente la misma matriz que ponerla una.
+        //
+        //   2. Los batches opacos se filtran ANTES de pagar las validaciones.
+        //      Estaban al reves: se validaba el batch entero -- cinco
+        //      comprobaciones -- y solo despues se miraba si era del otro pase,
+        //      descartando la mayoria. En un chunk tipico casi todos los
+        //      batches son opacos.
+        {
+            const bool hayVBO = (glBindBuffer != nullptr);
 
-            // VBO BATCHING: Renderizar solo batches de agua/lava
-            for (auto* batch : chunk->batches) {
-                // ⭐ PROTECCIÓN CRÍTICA: Validar puntero del batch
-                if (!batch) continue;
+            glMatrixMode(GL_TEXTURE);
+            glPushMatrix();
+            glTranslatef(waterOffsetU, waterOffsetV, 0.0f);
+            glMatrixMode(GL_MODELVIEW);
 
-                // ⭐⭐⭐ VALIDACIÓN EXHAUSTIVA: Detectar batches corruptos
-                if (batch->vbo == 0 || batch->colorVBO == 0 || batch->uvVBO == 0) continue;
-                if (batch->vertexCount == 0 || batch->vertexCount > 1000000) continue;
-                if (batch->vertexCount % 4 != 0) continue;
-                if (batch->texture == 0) continue;
+            for (auto it = visibleChunks.rbegin(); hayVBO && it != visibleChunks.rend(); ++it) {
+                for (auto* batch : it->chunk->batches) {
+                    if (!batch) continue;
 
-                // ⭐ PASE 2: Solo el agua (marca del mesh, no comparar IDs).
-                if (!batch->transparente) continue;
+                    // ⭐ PASE 2: solo el agua/lava (marca del mesh, no comparar
+                    // IDs). Va PRIMERO: descarta la mayoria sin validar nada.
+                    if (!batch->transparente) continue;
 
-                // Bind textura para este batch (optimizado con cache)
-                g_textureManager->bindOptimized(batch->texture);
+                    // ⭐⭐⭐ VALIDACIÓN EXHAUSTIVA: Detectar batches corruptos
+                    if (batch->vbo == 0) continue;
+                    if (batch->vertexCount == 0 || batch->vertexCount > 1000000) continue;
+                    if (batch->vertexCount % 4 != 0) continue;
+                    if (batch->texture == 0) continue;
 
-                // ANIMACIÓN DE AGUA/LAVA: Aplicar transformación UV
-                glMatrixMode(GL_TEXTURE);
-                glPushMatrix();
-                glTranslatef(waterOffsetU, waterOffsetV, 0.0f);
-                glMatrixMode(GL_MODELVIEW);
+                    g_textureManager->bindOptimized(batch->texture);
 
-                // ⭐ PROTECCIÓN: Verificar funciones VBO antes de usar
-                // (glVertexPointer es estática de GL 1.1, no necesita chequeo)
-                if (!glBindBuffer) {
-                    glMatrixMode(GL_TEXTURE);
-                    glPopMatrix();
-                    glMatrixMode(GL_MODELVIEW);
-                    continue;
+                    glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
+                    glInterleavedArrays(GL_T2F_C4F_N3F_V3F, 0, 0);
+                    glDrawArrays(GL_QUADS, 0, batch->vertexCount);
+
+                    facesRendered += batch->vertexCount / 4;
+                    batchesRendered++;
                 }
-
-                // ⭐ Igual que en el pase opaco: un bind y una llamada.
-                glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                glInterleavedArrays(GL_T2F_C4F_N3F_V3F, 0, 0);
-
-                // Renderizar como GL_QUADS
-                glDrawArrays(GL_QUADS, 0, batch->vertexCount);
-
-                // ANIMACIÓN DE AGUA: Restaurar matriz de textura
-                glMatrixMode(GL_TEXTURE);
-                glPopMatrix();
-                glMatrixMode(GL_MODELVIEW);
             }
+
+            glMatrixMode(GL_TEXTURE);
+            glPopMatrix();
+            glMatrixMode(GL_MODELVIEW);
         }
 
         // Restaurar depth write
@@ -22293,6 +24328,124 @@ public:
                           << " batches=" << batchesRendered
                           << " vacios=" << batchesVacios
                           << " caras=" << facesRendered << std::endl;
+
+                // ============================================================
+                // ⭐ CENSO DE ESTADOS Y FRAME PACING (§61, §62)
+                // ============================================================
+                // Esto es lo que convierte "a veces se ven agujeros" en un
+                // dato accionable. Sin el censo, un chunk atascado es
+                // indistinguible de un chunk que todavia no ha llegado, y las
+                // dos cosas se arreglan de forma distinta.
+                //
+                // Se imprime solo lo que NO esta en el camino feliz: en
+                // regimen estacionario la linea sale corta (todo LISTO) y
+                // cualquier cosa rara salta a la vista.
+                metricas.limpiar();
+                for (const auto& p : chunks)
+                    if (p.second) metricas.enEstado[(int)p.second->estado]++;
+
+                std::cout << "[STREAM]";
+                for (int i = 0; i < (int)Streaming::Estado::_COUNT; ++i) {
+                    if (metricas.enEstado[i] == 0) continue;
+                    std::cout << " " << Streaming::nombreEstado((Streaming::Estado)i)
+                              << "=" << metricas.enEstado[i];
+                }
+                std::cout << " | rescatados=" << metricas.rescatados
+                          << " cancelados=" << metricas.cancelados
+                          << " fallidos=" << metricas.fallidos;
+
+                // ⭐ Solo aparece si vale algo distinto de 0, y si aparece es un
+                // BUG: un hilo de mallado muerto dentro del mesher. El detalle
+                // (chunk, celda, bloque) va a cerr desde vigilarWorkers; aqui
+                // solo el recuento, para que salte a la vista en el informe.
+                if (metricas.workersColgados > 0)
+                    std::cout << " | ⚠️ WORKERS COLGADOS=" << metricas.workersColgados;
+
+                // Costuras: cuantas veces se mallo sin los cuatro vecinos,
+                // cuantas se horneo igual (cada una es un parpadeo potencial) y
+                // cuantas de esas se corrigieron solas al llegar el vecino.
+                {
+                    int deuda = 0;
+                    for (const auto& p : chunks)
+                        if (p.second && p.second->bordeProvisional) ++deuda;
+                    std::cout << " | costuras: sinVecinos=" << g_diagMalladoSinVecinos.load()
+                              << " provisionales=" << g_diagMalladoBordeRoto.load()
+                              << " saldadas=" << g_diagBordesSaldados
+                              << " pendientes=" << deuda
+                              << " follaje=" << g_diagRemalladoFollaje.load();
+                }
+
+                std::cout << " | presup(ms) gen=" << presupuesto.generacionMs
+                          << " malla=" << presupuesto.malladoMs
+                          << " subida=" << presupuesto.subidaMs;
+
+                // Estado por worker: cual esta dentro del mesher, en que chunk y
+                // cuanto lleva. Sustituye a la baliza global, que con tres hilos
+                // escribiendo encima no distinguia "uno colgado" de "tres".
+                {
+                    const double ahoraB = glfwGetTime();
+                    std::cout << " | hilos:";
+                    for (size_t i = 0; i < mallaThreads.size() &&
+                                       i < (size_t)MAX_WORKERS_MALLA; ++i) {
+                        const BalizaWorker& b = g_baliza[i];
+                        if (!b.activo.load()) { std::cout << " [" << i << "]libre"; continue; }
+                        std::cout << " [" << i << "](" << b.chunkX.load() << ","
+                                  << b.chunkZ.load() << ")f" << b.fase.load()
+                                  << " " << (ahoraB - b.ultimoLatido.load()) << "s";
+                    }
+                }
+
+                // TEMPORAL (diagnostico del candado atascado).
+                std::cout << " | candado: saltados=" << g_diagSaltadosPorCandado
+                          << " sinDueno=" << g_diagCandadoSinDueno
+                          << " conMalla=" << g_diagCandadoConMalla;
+                g_diagSaltadosPorCandado = 0;
+                g_diagCandadoSinDueno = 0;
+                g_diagCandadoConMalla = 0;
+
+                // TEMPORAL: estado real de las colas de mallado.
+                {
+                    size_t qIn = 0, qOut = 0;
+                    { std::lock_guard<std::mutex> l(mallaQueueMutex); qIn = mallaQueue.size(); }
+                    { std::lock_guard<std::mutex> l(mallaDoneMutex);  qOut = mallaDone.size(); }
+                    std::cout << " | colas: entrada=" << qIn << " salida=" << qOut
+                              << " inFlight=" << mallaInFlight.size()
+                              << " topeMallas=" << g_diagTopeMallas
+                              << " workers=" << mallaThreads.size()
+                              << " run=" << (mallaRunning.load() ? 1 : 0)
+                              << " | integradas=" << g_diagIntegradas
+                              << " descPos=" << g_diagDescartadasPos
+                              << " descNoOk=" << g_diagDescartadasNoOk
+                              << " | worker: ent=" << g_diagWorkerEntradas.load()
+                              << " sal=" << g_diagWorkerSalidas.load()
+                              << " dentro=" << g_diagWorkerDentro.load()
+                              << " baliza=" << g_diagBalizaFase.load()
+                              << " ticks=" << g_diagBalizaTicks.load()
+                              << " celdas=" << g_diagBalizaCeldas.load()
+                              << " ultCelda=(" << ((g_diagBalizaCelda.load() >> 20) & 0xFFF)
+                              << "," << ((g_diagBalizaCelda.load() >> 8) & 0xFFF)
+                              << "," << (g_diagBalizaCelda.load() & 0xFF) << ")"
+                              << " ultBloque=" << g_diagBalizaBloque.load();
+                    g_diagIntegradas = 0;
+                    g_diagDescartadasPos = 0;
+                    g_diagDescartadasNoOk = 0;
+                }
+
+                // ⭐ FRAME PACING (§52): la media miente.
+                //
+                // Un juego a 140 FPS de media con caidas a 20 se siente peor
+                // que uno clavado a 90. El 1% y el 0.1% low son los que
+                // delatan el microstuttering que el promedio esconde.
+                if (!metricas.muestrasFrame.empty()) {
+                    std::cout << " | 1%low=" << metricas.percentilPeor(0.01f)
+                              << "ms 0.1%low=" << metricas.percentilPeor(0.001f)
+                              << "ms";
+                }
+
+                // Coste medio por fase, para saber DONDE se va el tiempo.
+                if (metricas.nGeneracion > 0)
+                    std::cout << " | genMed=" << (metricas.msGeneracion / metricas.nGeneracion) << "ms";
+                std::cout << std::endl;
             }
         }
     }
@@ -23771,6 +25924,12 @@ struct GameState {
 
     // Configuraciones
     int renderDistance;
+    // ⭐ ¿Se esta arrastrando la barra de distancia de render?
+    //
+    // Sin esto la barra solo respondería al clic inicial: habria que soltar y
+    // volver a pulsar para cada valor, lo que en un rango de 2 a 100 es
+    // inusable. Lo pone el clic y lo quita soltar el boton.
+    bool arrastrandoBarraRender = false;
     float mouseSensitivity;
     bool invertYAxis;  // ⭐ NUEVO: Invertir eje Y del mouse (para quien prefiera controles de avión)
 
@@ -25930,6 +28089,52 @@ void prewarmItemTextures() {
               << "/" << g_itemTextures.getCachedCount()
               << " items con textura valida" << std::endl;
 
+    // ========================================================================
+    // ⭐ AUDITORIA: QUE ITEMS DEL CREATIVO SALEN CON TEXTURA DE PIEDRA
+    // ========================================================================
+    // El `default:` de getBlockTexture devuelve Piedra.png cuando un bloque no
+    // tiene entrada propia. Eso convierte cualquier ID sin textura en un
+    // "bloque de piedra" a la vista, y llena el inventario creativo de
+    // cuadritos identicos que no son piedra.
+    //
+    // Esto los localiza comparando su textura resuelta con la de la piedra: si
+    // coinciden y el bloque NO es de la familia de la piedra, esta cayendo en
+    // el fallback. Se escribe al log al arrancar, que es donde se puede leer
+    // sin tener que abrir el inventario.
+    //
+    // Solo se recorre el rango que el creativo muestra de verdad
+    // (1..BLOCK_LAST_PLACEABLE, saltando niveles parciales), que es
+    // exactamente lo que el jugador ve.
+    {
+        const GLuint texPiedra = g_textureManager->getTexture("Piedra.png");
+        int sinTextura = 0;
+
+        std::cout << "[AUDIT] Items del creativo que caen en el fallback de "
+                     "piedra:" << std::endl;
+
+        for (int id = 1; id <= BLOCK_LAST_PLACEABLE; ++id) {
+            const BlockType bt = (BlockType)id;
+            if (esNivelParcial(bt)) continue;
+
+            // Los que SI son piedra de verdad no son un fallo.
+            if (bt == BLOCK_STONE || bt == BLOCK_COBBLESTONE) continue;
+
+            const GLuint tex = g_textureManager->getBlockTexture(bt, 0);
+            if (tex != texPiedra || texPiedra == 0) continue;
+
+            ++sinTextura;
+            std::cout << "  id=" << id
+                      << "  nivelParcial=" << (esNivelParcial(bt) ? "SI" : "no")
+                      << "  admiteNiveles=" << (admiteNiveles(bt) ? "SI" : "no")
+                      << "  base=" << (int)bloqueBaseDe(bt)
+                      << "  nivel=" << nivelDe(bt)
+                      << std::endl;
+        }
+
+        std::cout << "[AUDIT] total sin textura propia: " << sinTextura
+                  << " de los " << "items del creativo" << std::endl;
+    }
+
     // Volcado detallado solo bajo DEBUG_HOTBAR (F6 lo activa en runtime,
     // pero aquí sirve para diagnosticar la precarga desde consola).
     if (DEBUG_HOTBAR) {
@@ -26991,8 +29196,76 @@ void actualizarBloquesCayendo(GameState* state, float deltaTime) {
             aterriza = true;
             destinoY = celdaAbajo + 1;
         }
+        // ⭐ UN NIVEL QUE CAE EN AGUA TAMBIEN SE PARA AHI.
+        //
+        // Antes el agua no contaba como destino, asi que un nivel de tierra la
+        // ATRAVESABA y seguia cayendo hasta topar con roca. Lo que se pidio es
+        // que la desplace y ocupe su sitio, y para eso hay que detenerlo en la
+        // celda del agua -- la fusion de mas abajo hace el resto.
+        else if (esNivelParcial(b.tipo) && esAguaCualquiera(enDestino)) {
+            aterriza = true;
+            destinoY = celdaAbajo;
+        }
 
         if (aterriza) {
+            // ================================================================
+            // ⭐ SI CAE UN NIVEL SOBRE OTRO, SE JUNTAN
+            // ================================================================
+            // Antes esto no existia: la celda de abajo contaba como "ocupada",
+            // el nivel que caia se colocaba en la de ARRIBA --flotando sobre
+            // media celda vacia-- y si no habia hueco en tres intentos se
+            // BORRABA.
+            //
+            // Ahora se suman las alturas (ver fusionarNiveles en BlockType.h):
+            // un nivel 1 sobre un nivel 1 da un nivel 2, con la textura del
+            // que ya estaba. Y si el destino es agua, el solido la desplaza
+            // en vez de sumarse con ella.
+            //
+            // Vale para CUALQUIER par de materiales y cualquier combinacion de
+            // niveles: es aritmetica sobre las alturas, no una tabla de casos.
+            {
+                const BlockType debajo =
+                    world.getBlock(celdaX, celdaAbajo, celdaZ);
+                const Fusion fus = fusionarNiveles(b.tipo, debajo);
+
+                if (fus.tipo != ResultadoFusion::NO_FUSIONA) {
+                    // El agua desplazada se reparte a los lados con la rutina
+                    // que ya existe, para no crear ni destruir agua.
+                    if (fus.tipo == ResultadoFusion::SOLO_EL_QUE_CAE &&
+                        esAguaCualquiera(debajo)) {
+                        // Cuanta agua habia, en octavos. El BLOCK_WATER de los
+                        // mundos viejos cuenta como celda llena.
+                        const int oct = (debajo == BLOCK_WATER)
+                                      ? (int)Compuesto::Agua::LLENA
+                                      : (int)Compuesto::Agua::nivelDe(debajo);
+                        world.repartirAguaDesplazada(celdaX, celdaAbajo,
+                                                     celdaZ, oct);
+                    }
+
+                    world.setBlock(celdaX, celdaAbajo, celdaZ, fus.resultado);
+
+                    // Lo que no cupo sube a la celda de encima.
+                    if (fus.sobrante != BLOCK_AIR &&
+                        celdaAbajo + 1 < CHUNK_HEIGHT &&
+                        world.getBlock(celdaX, celdaAbajo + 1, celdaZ) == BLOCK_AIR) {
+                        world.setBlock(celdaX, celdaAbajo + 1, celdaZ,
+                                       fus.sobrante);
+                    }
+
+                    if (g_soundManager)
+                        g_soundManager->playBreakBlock(b.tipo, glfwGetTime());
+                    state->particles.spawnMiningParticles(
+                        Vec3((float)celdaX + 0.5f, (float)celdaAbajo + 0.5f,
+                             (float)celdaZ + 0.5f), b.tipo);
+
+                    revisarSoporte(world, celdaX, celdaAbajo, celdaZ);
+
+                    g_bloquesCayendo[i] = g_bloquesCayendo.back();
+                    g_bloquesCayendo.pop_back();
+                    continue;
+                }
+            }
+
             // Si la celda de aterrizaje esta ocupada, se busca hueco arriba.
             // Si no lo hay en tres intentos, el bloque se pierde antes que
             // machacar lo que haya.
@@ -30338,6 +32611,38 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
 
     // Si el cursor no está bloqueado (estamos en menús), actualizar hover de botones
     if (!g_gameState->cursorLocked) {
+        // ⭐ ARRASTRE DE LA BARRA DE DISTANCIA DE RENDER.
+        //
+        // Va antes del hover porque mientras se arrastra el raton puede salirse
+        // de la barra (es normal: se mueve rapido) y el ajuste tiene que seguir
+        // respondiendo. Es el comportamiento de cualquier slider: lo que manda
+        // es donde EMPEZO el arrastre, no donde esta el cursor ahora.
+        if (g_gameState->arrastrandoBarraRender &&
+            g_gameState->pauseMenuState == PAUSE_MENU_GRAPHICS) {
+
+            int w = 0, h = 0;
+            glfwGetWindowSize(window, &w, &h);
+            const float centerX = w / 2.0f;
+            const float barX = centerX - 200.0f;
+            const float barW = 400.0f;
+
+            float t = ((float)xpos - barX) / barW;
+            if (t < 0.0f) t = 0.0f;
+            if (t > 1.0f) t = 1.0f;
+
+            const int rango = Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN;
+            const int nuevo = Render::acotarBarra(
+                Render::DISTANCIA_BARRA_MIN + (int)(t * rango + 0.5f));
+
+            if (nuevo != g_gameState->renderDistance) {
+                g_gameState->renderDistance = nuevo;
+                const int radio = Render::radioCargado(nuevo);
+                g_gameState->world.techoDistanciaUsuario = radio;
+                g_gameState->world.ajustarDistancia(radio);
+            }
+            return;
+        }
+
         updateButtonHover(g_gameState, (float)xpos, (float)ypos);
         return;
     }
@@ -30399,6 +32704,17 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
     if (!g_gameState) return;
+
+    // ⭐ SOLTAR EL BOTON TERMINA EL ARRASTRE DE LA BARRA, SIEMPRE.
+    //
+    // Va lo PRIMERO y sin condiciones de pantalla a proposito: si el jugador
+    // suelta el raton fuera de la barra, o cierra el menu a media pasada, el
+    // flag tiene que bajar igual. Un flag de arrastre que se queda puesto hace
+    // que la barra siga siguiendo al raton despues de soltarlo, que es el fallo
+    // clasico de los sliders hechos a mano.
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+        g_gameState->arrastrandoBarraRender = false;
+    }
 
     // Manejar clics en menús
     if (g_gameState->screenState == SCREEN_MAIN_MENU ||
@@ -30727,21 +33043,44 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         // Menú de gráficos
         float startY = height / 2.0f - 100.0f;
 
-        // Botones para cambiar render distance
-        Button btnMinus(centerX - 150, startY + 60, 50, 40, "-");
-        if (btnMinus.contains((float)xpos, (float)ypos)) {
-            if (g_gameState->renderDistance > 2) {
-                g_gameState->renderDistance--;
-            }
-            return;
-        }
+        // ⭐ LA BARRA DE DISTANCIA: clic en cualquier punto para saltar ahi.
+        //
+        // Las coordenadas son LAS MISMAS que usa el dibujo (ver el bloque de
+        // PAUSE_MENU_GRAPHICS en el render). Estan duplicadas porque el motor
+        // separa dibujo y hit-test en dos funciones distintas; si alguna vez se
+        // mueven, hay que moverlas en los dos sitios.
+        //
+        // La zona sensible es mas alta que la barra (de -12 a +30 sobre ella)
+        // para que no haya que acertar 18 pixeles exactos: un slider que exige
+        // punteria se siente roto.
+        {
+            const float barX = centerX - 200.0f;
+            const float barY = startY + 85.0f;
+            const float barW = 400.0f;
 
-        Button btnPlus(centerX + 100, startY + 60, 50, 40, "+");
-        if (btnPlus.contains((float)xpos, (float)ypos)) {
-            if (g_gameState->renderDistance < 16) {
-                g_gameState->renderDistance++;
+            if (xpos >= barX - 10 && xpos <= barX + barW + 10 &&
+                ypos >= barY - 12 && ypos <= barY + 30) {
+
+                float t = ((float)xpos - barX) / barW;
+                if (t < 0.0f) t = 0.0f;
+                if (t > 1.0f) t = 1.0f;
+
+                const int rango = Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN;
+                const int nuevo = Render::DISTANCIA_BARRA_MIN + (int)(t * rango + 0.5f);
+
+                g_gameState->renderDistance = Render::acotarBarra(nuevo);
+                // Se aplica EN CALIENTE: el mundo reacciona mientras se arrastra,
+                // que es lo que convierte el ajuste en algo que se puede juzgar.
+                //
+                // El techo se fija ANTES de ajustar: si no, el regulador
+                // automatico volveria a bajar la distancia al valor del perfil
+                // en la siguiente revision y la barra pareceria no hacer nada.
+                const int radio = Render::radioCargado(g_gameState->renderDistance);
+                g_gameState->world.techoDistanciaUsuario = radio;
+                g_gameState->world.ajustarDistancia(radio);
+                g_gameState->arrastrandoBarraRender = true;
+                return;
             }
-            return;
         }
 
         // Botón volver
@@ -33861,7 +36200,16 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
         while (std::getline(cfgFile, line)) {
             try {
                 if (line.find("render_distance=") == 0) {
-                    state->renderDistance = std::stoi(line.substr(16));
+                    // ⭐ Se acota al rango de la barra: un world.cfg viejo (o
+                    // editado a mano) podria traer cualquier cosa, y un valor
+                    // fuera de rango acabaria en radioCargado() como basura.
+                    state->renderDistance =
+                        Render::acotarBarra(std::stoi(line.substr(16)));
+                    // Y se fija el techo, para que el regulador automatico no
+                    // deshaga la preferencia guardada en la primera revision.
+                    const int radio = Render::radioCargado(state->renderDistance);
+                    state->world.techoDistanciaUsuario = radio;
+                    state->world.ajustarDistancia(radio);
                 }
                 else if (line.find("last_save=") == 0) {
                     time_t lastSave = std::stoll(line.substr(10));
@@ -35027,6 +37375,18 @@ int main() {
     const double benchSegundos = benchSegundosStr ? atof(benchSegundosStr) : 0.0;
     const double benchInicio = glfwGetTime();
 
+    // ⭐ CAMINAR SOLO, PARA MEDIR EL STREAMING
+    //
+    // La posicion fija de arriba sirve para comparar el coste de DIBUJAR una
+    // misma vista. Pero el fallo que de verdad sufre el jugador --"solo se ven
+    // los chunks del arranque"-- solo aparece MOVIENDOSE: es el pipeline de
+    // carga el que se atasca, y con el jugador quieto no hay nada que cargar.
+    //
+    // Con VOXELWORLD_BENCH_CAMINAR=1 el jugador avanza en linea recta a
+    // velocidad de carrera, que es el caso que llena las colas.
+    const char* benchCaminarStr = getenv("VOXELWORLD_BENCH_CAMINAR");
+    const bool benchCaminar = benchCaminarStr && *benchCaminarStr == '1';
+
     // ⭐ PROTECCIÓN CONTRA CRASHES: Try-catch en el game loop
     try {
         while (!glfwWindowShouldClose(window)) {
@@ -35035,6 +37395,16 @@ int main() {
                 glfwGetTime() - benchInicio > benchSegundos) {
                 std::cout << "[BENCH] Fin de la medicion" << std::endl;
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+
+            // Avance automatico del banco de pruebas (ver benchCaminar).
+            if (benchCaminar && g_gameState &&
+                g_gameState->screenState == SCREEN_IN_GAME) {
+                g_gameState->keys[GLFW_KEY_W] = true;
+                if (g_playerController) {
+                    g_playerController->getInput().setForward(true);
+                    g_playerController->getInput().setSprint(true);
+                }
             }
             // ⭐ Protección crítica: Verificar que el estado del juego es válido
             if (!g_gameState) {
@@ -35831,6 +38201,23 @@ int main() {
                 physics_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
                 t1 = t2;
                 // ⭐⭐⭐ CARGA PREDICTIVA: Actualizar chunks con dirección de movimiento y throttling dinámico
+                //
+                // ⭐ LA CAMARA TAMBIEN PRIORIZA (§8, §24).
+                //
+                // Girar la vista tiene que recalcular que se carga primero: es
+                // el caso "el jugador gira rapido y aparecen zonas sin
+                // terreno". El sistema anterior no miraba la camara en
+                // absoluto -- solo el movimiento -- asi que quedarse quieto
+                // girando sobre uno mismo no reordenaba nada.
+                //
+                // La convencion del motor: forward = (-sin(yaw), -cos(yaw)),
+                // la misma que usa MovementSystem::getForwardXZ y la matriz de
+                // camara. Se toma de ahi para que no puedan divergir.
+                {
+                    const float yawRad = g_gameState->player.yaw * 3.14159265f / 180.0f;
+                    g_gameState->world.ctxJugador.miradaX = -sinf(yawRad);
+                    g_gameState->world.ctxJugador.miradaZ = -cosf(yawRad);
+                }
                 g_gameState->world.updateChunks(g_gameState->player.position, g_gameState->player.previousPosition, deltaTime);
                 // Actualizar posición previa para el siguiente frame
                 g_gameState->player.previousPosition = g_gameState->player.position;
@@ -36073,9 +38460,35 @@ int main() {
             float finalDensity = g_gameState->fogSystem.getFinalDensity(g_gameState->player.position.y);
 
             if (fogConfig.mode == VoxelFog::FOG_LINEAR) {
-                // Modo linear: usar start/end
-                float chunkRadius = g_gameState->renderDistance * CHUNK_SIZE;
-                float fogStart = chunkRadius * 0.70f;
+                // ⭐ EL RADIO SALE DE LO QUE ESTA LISTO, NO DEL AJUSTE.
+                //
+                // Antes: `g_gameState->renderDistance * CHUNK_SIZE`, o sea la
+                // preferencia del usuario. Pero lo que de verdad esta cargado
+                // lo decide RENDER_DISTANCE del mundo, que el regulador mueve
+                // en caliente por FPS -- y durante una carga fuerte ni siquiera
+                // todo lo cargado esta mallado. Calibrar contra el numero
+                // nominal deja a la vista justo la franja que falta.
+                float chunkRadius = g_gameState->world.radioVisibleSeguro();
+
+                // ⭐ DONDE EMPIEZA LA NIEBLA DEPENDE DE LA BARRA (Render::DistanciaVision)
+                //
+                // Era un 0.70 fijo: la niebla ocupaba siempre el ultimo 30% de
+                // la vista, viera el jugador 2 chunks o 100. Eso hace imposible
+                // lo que se pidio -- que a 40 difumine "un poco pero poco
+                // notorio" y de 70 en adelante sea "totalmente difuminado".
+                //
+                // Ahora la fraccion sale de la barra y baja de 0.75 a 0.28, que
+                // es lo que imita la perspectiva aerea: cuanto mas lejos
+                // pretendes ver, antes empieza la bruma a comerse el detalle --
+                // igual que en un paisaje real, donde lo que hay a 20 km ya se
+                // ve lavado aunque la visibilidad teorica sea de 50.
+                //
+                // Y es lo que hace que la barra a 100 no mate la maquina: el
+                // terreno lejano acaba siendo color de niebla, asi que ni se
+                // malla fino ni se distingue que esta simplificado.
+                const float fracInicio = Render::nieblaInicioFraccion(
+                    g_gameState->renderDistance);
+                float fogStart = chunkRadius * fracInicio;
                 float fogEnd = chunkRadius * 0.98f;
 
                 // Ajustar por densidad (más denso = empieza antes)
@@ -36093,7 +38506,7 @@ int main() {
             glFogi(GL_FOG_MODE, GL_LINEAR);
             float fogColor[4] = {0.53f, 0.81f, 0.92f, 1.0f};
             glFogfv(GL_FOG_COLOR, fogColor);
-            float chunkRadius = g_gameState->renderDistance * CHUNK_SIZE;
+            float chunkRadius = g_gameState->world.radioVisibleSeguro();
             glFogf(GL_FOG_START, chunkRadius * 0.70f);
             glFogf(GL_FOG_END, chunkRadius * 0.98f);
         }
@@ -37187,8 +39600,23 @@ int main() {
             auto acumularCubo = [&](BlockType tipo, float bx, float by, float bz) {
                 if (!g_textureManager) return;
 
+                // ⭐ UN NIVEL QUE CAE CONSERVA SU FORMA.
+                //
+                // BUG QUE ESTO CORRIGE: la altura estaba fijada a `by + 1.0f`,
+                // o sea un CUBO ENTERO, para todo lo que cayera. Un nivel 1 de
+                // tierra --que sobre el suelo se ve como una lamina de 2 px--
+                // al desprenderse se hinchaba de golpe a bloque completo, caia
+                // como un cubo, y al aterrizar volvia a encogerse. Cambiaba de
+                // tamaño dos veces en el mismo movimiento.
+                //
+                // `alturaDe` es la misma funcion que usa el mesher del mundo y
+                // la colision, asi que el bloque cayendo se ve EXACTAMENTE del
+                // tamaño que tenia puesto. Para un bloque entero devuelve 1.0
+                // y el comportamiento es el de siempre.
+                const float alto = alturaDe(tipo);
+
                 const float X0 = bx, X1 = bx + 1.0f;
-                const float Y0 = by, Y1 = by + 1.0f;
+                const float Y0 = by, Y1 = by + alto;
                 const float Z0 = bz, Z1 = bz + 1.0f;
 
                 // Las seis caras, en el orden que espera getBlockTexture.
@@ -37990,74 +40418,109 @@ int main() {
                 // MENÚ DE GRÁFICOS
                 float startY = height / 2.0f - 100.0f;
 
-                // Título "GRAFICOS"
-                glColor4f(0.2f, 0.6f, 1.0f, 1.0f);
+                // ============================================================
+                // ⭐ LA BARRA DE DISTANCIA DE RENDER (2 a 100)
+                // ============================================================
+                // Sustituye a los dos botones +/- que habia (con tope 16). Una
+                // barra es lo correcto aqui: el rango es largo, y pulsar "+"
+                // ochenta y cuatro veces para llegar al maximo no es una
+                // interfaz.
+                //
+                // Ademas los "titulos" de antes eran RECTANGULOS DE COLOR sin
+                // texto dentro -- placeholders que nunca se completaron. Ahora
+                // se escribe de verdad lo que hay.
+                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                renderText("GRAFICOS", centerX - 55, startY + 8, 22);
+
+                const int rdActual = Render::acotarBarra(g_gameState->renderDistance);
+
+                // Etiqueta: numero + nombre del tramo + lo que se carga de
+                // verdad. Lo ultimo es honestidad con el jugador: la barra dice
+                // 100 pero el motor carga 28, y ocultarlo seria mentir.
+                {
+                    char txt[128];
+                    snprintf(txt, sizeof(txt), "DISTANCIA: %d  (%s)",
+                             rdActual, Render::nombreCalidad(rdActual));
+                    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                    renderText(txt, centerX - 150, startY + 52, 18);
+                }
+
+                // --- La barra ---
+                const float barX = centerX - 200.0f;
+                const float barY = startY + 85.0f;
+                const float barW = 400.0f;     // "algo larga", como se pidio
+                const float barH = 18.0f;
+
+                // Canal de fondo.
+                glColor4f(0.15f, 0.15f, 0.18f, 0.95f);
                 glBegin(GL_QUADS);
-                glVertex2f(centerX - 100, startY);
-                glVertex2f(centerX + 100, startY);
-                glVertex2f(centerX + 100, startY + 40);
-                glVertex2f(centerX - 100, startY + 40);
+                glVertex2f(barX, barY);
+                glVertex2f(barX + barW, barY);
+                glVertex2f(barX + barW, barY + barH);
+                glVertex2f(barX, barY + barH);
                 glEnd();
 
-                // Texto "Distancia de Render"
+                // Parte rellena, con color por tramo: verde mientras es barato,
+                // ambar cuando empieza a simplificar, rojo en la zona extrema.
+                // Es informacion, no adorno: el color dice cuanto cuesta.
+                const float t01 = (float)(rdActual - Render::DISTANCIA_BARRA_MIN) /
+                                  (float)(Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN);
+                if (rdActual <= 16)      glColor4f(0.30f, 0.80f, 0.35f, 0.95f);
+                else if (rdActual <= 40) glColor4f(0.55f, 0.75f, 0.30f, 0.95f);
+                else if (rdActual <= 70) glColor4f(0.90f, 0.70f, 0.25f, 0.95f);
+                else                     glColor4f(0.90f, 0.40f, 0.25f, 0.95f);
+                glBegin(GL_QUADS);
+                glVertex2f(barX, barY);
+                glVertex2f(barX + barW * t01, barY);
+                glVertex2f(barX + barW * t01, barY + barH);
+                glVertex2f(barX, barY + barH);
+                glEnd();
+
+                // Marcas en 16, 40 y 70: son las fronteras reales de los tramos
+                // de difuminado, asi que el jugador ve DONDE cambia el
+                // comportamiento en vez de tener que adivinarlo.
+                glColor4f(1.0f, 1.0f, 1.0f, 0.35f);
+                glBegin(GL_LINES);
+                for (int marca : { 16, 40, 70 }) {
+                    const float mx = barX + barW *
+                        ((float)(marca - Render::DISTANCIA_BARRA_MIN) /
+                         (float)(Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN));
+                    glVertex2f(mx, barY - 4.0f);
+                    glVertex2f(mx, barY + barH + 4.0f);
+                }
+                glEnd();
+
+                // ⭐ EL RECTANGULO BLANCO QUE SE MUEVE (el tirador).
+                const float tirX = barX + barW * t01;
+                const float tirW = 12.0f, tirH = barH + 14.0f;
                 glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
                 glBegin(GL_QUADS);
-                glVertex2f(centerX - 120, startY + 50);
-                glVertex2f(centerX + 120, startY + 50);
-                glVertex2f(centerX + 120, startY + 70);
-                glVertex2f(centerX - 120, startY + 70);
+                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f);
+                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f);
+                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f + tirH);
+                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f + tirH);
                 glEnd();
-
-                // Botón -
-                Button btnMinus(centerX - 150, startY + 80, 50, 40, "-");
-                bool hoverMinus = btnMinus.contains((float)mouseX, (float)mouseY);
-                glColor4f(hoverMinus ? 0.5f : 0.3f, hoverMinus ? 0.5f : 0.3f, hoverMinus ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btnMinus.x, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y + btnMinus.height);
-                glVertex2f(btnMinus.x, btnMinus.y + btnMinus.height);
-                glEnd();
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
+                glColor4f(0.1f, 0.1f, 0.1f, 1.0f);
                 glBegin(GL_LINE_LOOP);
-                glVertex2f(btnMinus.x, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y + btnMinus.height);
-                glVertex2f(btnMinus.x, btnMinus.y + btnMinus.height);
-                glEnd();
-                // Texto "-" blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("-", btnMinus.x + 18, btnMinus.y + 10, 20);
-
-                // Valor actual
-                glColor4f(1.0f, 1.0f, 0.0f, 1.0f);
-                glBegin(GL_QUADS);
-                glVertex2f(centerX - 40, startY + 80);
-                glVertex2f(centerX + 40, startY + 80);
-                glVertex2f(centerX + 40, startY + 120);
-                glVertex2f(centerX - 40, startY + 120);
+                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f);
+                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f);
+                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f + tirH);
+                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f + tirH);
                 glEnd();
 
-                // Botón +
-                Button btnPlus(centerX + 100, startY + 80, 50, 40, "+");
-                bool hoverPlus = btnPlus.contains((float)mouseX, (float)mouseY);
-                glColor4f(hoverPlus ? 0.5f : 0.3f, hoverPlus ? 0.5f : 0.3f, hoverPlus ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btnPlus.x, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y + btnPlus.height);
-                glVertex2f(btnPlus.x, btnPlus.y + btnPlus.height);
-                glEnd();
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btnPlus.x, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y + btnPlus.height);
-                glVertex2f(btnPlus.x, btnPlus.y + btnPlus.height);
-                glEnd();
-                // Texto "+" blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("+", btnPlus.x + 18, btnPlus.y + 10, 20);
+                // Extremos, para que se lea el rango de un vistazo.
+                glColor4f(0.7f, 0.7f, 0.7f, 1.0f);
+                renderText("2", barX - 18, barY + 2, 14);
+                renderText("100", barX + barW + 8, barY + 2, 14);
+
+                // Aviso en la zona cara. No prohibe nada -- es decision del
+                // jugador -- pero le dice lo que va a pasar antes de que lo
+                // note en los FPS.
+                if (rdActual > 40) {
+                    glColor4f(0.95f, 0.75f, 0.35f, 1.0f);
+                    renderText("LO LEJANO SE SIMPLIFICA Y DIFUMINA",
+                               centerX - 165, startY + 118, 14);
+                }
 
                 // Botón volver
                 Button btnBack(centerX - buttonWidth / 2, startY + 160, buttonWidth, buttonHeight, "Volver");

@@ -243,7 +243,24 @@ inline Presupuesto ajustarPresupuesto(const Presupuesto& actual,
 
     // Suelo: por debajo de esto el streaming no progresa y el jugador se queda
     // sin mundo, que es peor que un frame irregular. Nunca se baja de aqui.
-    constexpr float MIN_GEN = 0.5f, MIN_MALLA = 0.5f, MIN_SUBIDA = 0.5f, MIN_DESC = 0.25f;
+    //
+    // ⭐ EL SUELO DE LA SUBIDA ES EL DOBLE QUE EL RESTO, Y NO ES CAPRICHO.
+    //
+    // Las tres fases no son intercambiables desde el punto de vista del
+    // jugador. Generar y mallar producen datos que NO SE VEN; subir es la
+    // unica que convierte trabajo ya hecho en pixeles.
+    //
+    // Con el suelo a 0.5 ms se midio la patologia: explorando, la cola de
+    // mallas terminadas crecia sin parar (130 -> 815) mientras los tres
+    // workers aparecian `libre` en el log. Habia 815 chunks mallados, en
+    // memoria, invisibles -- y el regulador, al ver FPS bajos, recortaba justo
+    // la fase que habria arreglado el problema. Un lazo de realimentacion:
+    // menos subidas -> mas cola -> peor percepcion -> menos presupuesto.
+    //
+    // 1.0 ms de suelo son ~10 subidas por frame (glBufferData ronda 0.1 ms),
+    // suficiente para drenar cualquier acumulacion en un par de segundos sin
+    // que el frame lo note. Recortar aqui es lo ultimo que conviene hacer.
+    constexpr float MIN_GEN = 0.5f, MIN_MALLA = 0.5f, MIN_SUBIDA = 1.0f, MIN_DESC = 0.25f;
     constexpr float MAX_GEN = 4.0f, MAX_MALLA = 5.0f, MAX_SUBIDA = 4.0f, MAX_DESC = 2.0f;
 
     const float holgura = msObjetivo - msFrameSuavizado;

@@ -5419,6 +5419,63 @@ public:
         loadTexture("Animaciones/Animacion de Carga.gif");   // respaldo
         loadCargaAnimation();
         std::cout << "=== Animación de carga inicializada ===" << std::endl;
+
+        // La precarga EXHAUSTIVA va aparte, en precargarTodasLasCaras(): tiene
+        // que llamar a getBlockTexture, que se define mas abajo en esta misma
+        // clase. Se invoca justo despues de esta funcion.
+    }
+
+    // ========================================================================
+    // ⭐ BARRIDO EXHAUSTIVO: NINGUNA TEXTURA SIN CARGAR AL ARRANCAR
+    // ========================================================================
+    // `loadAllBlockTextures` es una LISTA ESCRITA A MANO, y el comentario de
+    // `puedeCargar` ya advertia del riesgo: "basta una textura nueva que
+    // alguien olvide anadir para que el fallo aparezca meses despues, de forma
+    // intermitente y solo en la maquina donde ese bloque llegue a generarse".
+    //
+    // Ese fallo ES el bug de "al romper un bloque desaparecen las texturas del
+    // chunk durante un segundo", y el mecanismo es este:
+    //
+    //   1. El mallado corre en WORKERS, y ahi getBlockTexture devuelve 0 para
+    //      cualquier textura que no este ya en el cache -- la barrera
+    //      puedeCargar() lo impone a proposito, porque abrir un PNG y crear una
+    //      textura de GL desde un hilo de trabajo cuelga el driver (es
+    //      exactamente lo que paso con cargarTunaSinHuecos).
+    //   2. El jugador pica un bloque y destapa una cara que nadie habia pedido
+    //      todavia: el interior de la tierra, una veta, una raiz.
+    //   3. texSegura marca `texturasFaltantes`, el chunk no llegaba a LISTO, el
+    //      rescate lo reencolaba, y el ciclo se repetia hasta que el hilo
+    //      principal cargaba esa textura por otra via. Durante ese rato el
+    //      chunk parpadea.
+    //
+    // La solucion de fondo no es tratar mejor el 0: es que NO HAYA CEROS. Aqui
+    // se recorre el enum entero pidiendo las seis caras de cada bloque, desde
+    // el hilo principal y una sola vez al arrancar.
+    //
+    // COSTE: unos 1.100 getBlockTexture sobre texturas que en su mayoria YA
+    // estan cargadas por la lista (la llamada es un find en un mapa). Las que
+    // no, se cargan ahora en vez de a mitad de partida, que es lo que se busca.
+    void precargarTodasLasCaras() {
+        const size_t antes = textures.size();
+
+        // Hasta BLOCK_TYPE_MAX, que es el centinela que ya usa
+        // prewarmItemTextures para lo mismo. Los bloques COMPUESTOS (maguey,
+        // agave, agua con nivel) viven en el espacio de IDs alto y resuelven su
+        // textura por familia, asi que no entran aqui: sus imagenes las pide la
+        // lista de loadAllBlockTextures.
+        for (int id = 0; id <= BLOCK_TYPE_MAX; ++id) {
+            const BlockType b = (BlockType)id;
+            if (b == BLOCK_AIR) continue;
+            // Las seis caras: un bloque puede usar una imagen distinta arriba,
+            // abajo y a los lados (el pasto usa tres).
+            for (int cara = 0; cara < 6; ++cara) {
+                getBlockTexture(b, cara);
+            }
+        }
+
+        std::cout << "=== Precarga exhaustiva: "
+                  << (int)(textures.size() - antes) << " texturas nuevas, "
+                  << textures.size() << " en cache ===" << std::endl;
     }
 
     // ========================================================================
@@ -22599,6 +22656,38 @@ public:
                 // espaciado real vive en la guarda del principio de esta
                 // funcion, que es la unica que el rescate no puede deshacer.
                 chunk->needsRebuild = true;   // rehacer, con el freno de la entrada
+
+                // ⭐ PERO NO SE SALE SIN MAS: EL CHUNK SE QUEDA VISIBLE.
+                //
+                // BUG QUE ESTO CORRIGE: al romper o colocar un bloque, las
+                // texturas del chunk DESAPARECIAN cerca de un segundo.
+                //
+                // Aqui habia un `return` seco. Para cuando se llega a esta
+                // linea el swap de batches YA SE HIZO -- la geometria nueva
+                // esta puesta -- pero salir por aqui se saltaba las dos lineas
+                // del final: `needsRebuild = false` y el paso a LISTO.
+                //
+                // POR QUE SE DISPARA JUSTO AL PICAR UN BLOQUE. `texSegura`
+                // marca `texturasFaltantes` en cuanto getBlockTexture devuelve
+                // 0, y en un WORKER eso pasa con cualquier textura que no este
+                // ya en el cache: la barrera puedeCargar() devuelve 0 a
+                // proposito (cargar un PNG y crear una textura de GL desde un
+                // hilo de trabajo cuelga el driver -- ver cargarTunaSinHuecos).
+                //
+                // Asi que basta romper un bloque que destape una textura aun no
+                // usada --la cara interior de la tierra, una veta, una raiz--
+                // para que ese chunk entre en el ciclo: se malla, se marca
+                // "faltan texturas", no llega a LISTO, el rescate lo reencola,
+                // y vuelta a empezar hasta que el hilo principal carga la
+                // textura por su cuenta. Durante ese rato el chunk parpadea.
+                //
+                // La correccion es no tratar "falta UNA textura" como "la malla
+                // no vale". La geometria construida es buena: lo que pueda
+                // faltar es que algun batch salga con la textura de reserva.
+                // Mucho mejor eso --que apenas se nota-- que un chunk que se
+                // apaga y se enciende. El reintento se conserva, asi que en
+                // cuanto la textura este el chunk se rehace y queda perfecto.
+                chunk->cambiarEstado(Streaming::Estado::LISTO, glfwGetTime());
                 return;
             }
 
@@ -23372,14 +23461,81 @@ public:
         //   2. Recogerlo lo saca de mallaInFlight, asi que su hueco queda
         //      libre para encolar otro justo debajo.
         //
-        // El tope existe porque subir VBOs cuesta: vaciar la lista entera en
-        // un frame produciria el mismo tiron que se intenta evitar, solo que
-        // movido de sitio.
-        g_diagTopeMallas = MAX_MESHES_PER_FRAME_DYNAMIC;
-        meshesBuiltThisFrame += integrarMallasDeWorkers(MAX_MESHES_PER_FRAME_DYNAMIC);
+        // ====================================================================
+        // ⭐ SUBIR A GPU TIENE SU PROPIO PRESUPUESTO, Y NO ES EL DEL MALLADO
+        // ====================================================================
+        // BUG QUE ESTO CORRIGE: al generar terreno nuevo, la mayoria de los
+        // chunks tardaban SEGUNDOS en aparecer aunque su malla ya estuviera
+        // hecha. Medido explorando 45 s, la cola de SALIDA no paraba de crecer:
+        //
+        //     salida=130 -> 316 -> 572 -> 642 -> 815     (mallas terminadas)
+        //     topeMallas=1                               (se subia UNA por frame)
+        //     hilos: [0]libre [1]libre [2]libre          (los workers, ociosos)
+        //     1% low: 30 -> 34 -> 47 -> 50 -> 73 ms      (y encima empeorando)
+        //
+        // O sea: los tres workers mallaban a toda velocidad (2.275 chunks en la
+        // sesion) y el hilo principal solo subia una malla por frame. Con 815
+        // esperando, vaciar la cola son 815 frames: SIETE SEGUNDOS de terreno
+        // mallado que existe, ocupa memoria, y no se ve.
+        //
+        // LA CAUSA: un solo contador (MAX_MESHES_PER_FRAME_DYNAMIC) limitaba
+        // dos operaciones de coste completamente distinto:
+        //
+        //   SUBIR una malla ya hecha  ->  glBufferData, ~0,1 ms. Es lo unico
+        //                                 que hace que un chunk SE VEA.
+        //   ENCOLAR a un worker       ->  copiar 32 KB de borde, casi gratis.
+        //
+        // Y el regulador baja ese contador a 1 en cuanto los FPS caen -- que es
+        // justo lo que pasa al explorar. Resultado: el freno se aplicaba con
+        // toda su fuerza a la unica fase que el jugador nota, y ademas se
+        // realimentaba (menos chunks visibles -> mas cola -> peor todo).
+        //
+        // AHORA: la subida se mide en MILISEGUNDOS, como el resto del ciclo.
+        // Se sube todo lo que quepa en el presupuesto en vez de un numero fijo,
+        // asi que con mallas baratas entran muchas y con una cara entra una.
+        // Es la misma leccion que ya estaba escrita para la generacion:
+        // presupuestar por conteo es presupuestar a ciegas, porque la unidad no
+        // es constante.
+        {
+            const double t0Subida = glfwGetTime();
+
+            // Un tope de seguridad por si el reloj se comporta raro: sin el,
+            // un glfwGetTime() que no avanzara vaciaria la cola entera de golpe.
+            constexpr int MAX_SUBIDAS_POR_FRAME = 64;
+            int subidas = 0;
+
+            while (subidas < MAX_SUBIDAS_POR_FRAME) {
+                // De una en una, comprobando el reloj entre medias: asi el
+                // desbordamiento maximo es el coste de UNA subida, no el de
+                // todas las que se hubieran pedido a ciegas.
+                const int n = integrarMallasDeWorkers(1);
+                if (n == 0) break;                  // no queda nada que subir
+                subidas += n;
+
+                // ⚠️ NO se suma a `meshesBuiltThisFrame`.
+                //
+                // Ese contador es el cupo del ENCOLADO, y sumarle las subidas
+                // era parte del mismo bug: un frame que subia 6 mallas se
+                // quedaba sin poder encolar ni una, asi que los workers se
+                // vaciaban de trabajo (se les veia `libre` en el log con 815
+                // chunks pendientes). Las dos fases tienen presupuestos
+                // separados porque hacen cosas distintas.
+
+                const double msGastados = (glfwGetTime() - t0Subida) * 1000.0;
+                if (msGastados > presupuesto.subidaMs) break;
+            }
+
+            metricas.msSubida += (glfwGetTime() - t0Subida) * 1000.0;
+            metricas.nSubida  += subidas;
+            g_diagTopeMallas = subidas;   // lo que de verdad entro este frame
+        }
 
         for (Chunk* chunk : chunksToRebuild) {
             // ⭐ Verificar límite de meshes
+            //
+            // ⚠️ ESTE TOPE ES SOLO PARA EL ENCOLADO/MALLADO, ya no para la
+            // subida (que tiene el suyo, arriba). Mezclarlos era el bug: las
+            // mallas subidas gastaban el cupo de las que quedaban por encolar.
             if (meshesBuiltThisFrame >= MAX_MESHES_PER_FRAME_DYNAMIC) break;
 
             // ⭐ BUDGET DE TIEMPO: se comprueba ANTES de construir, y se aplica
@@ -36998,6 +37154,10 @@ int main() {
     std::cout << "Inicializando sistema de texturas..." << std::endl;
     g_textureManager = new TextureManager();
     g_textureManager->loadAllBlockTextures();
+    // ⭐ Y el barrido exhaustivo: sin esto, la primera vez que el mesher pide
+    // una textura no listada lo hace desde un worker y recibe 0 -- que es el
+    // parpadeo al romper un bloque. Ver precargarTodasLasCaras().
+    g_textureManager->precargarTodasLasCaras();
 
     // ⭐⭐⭐ PRECARGA DE TEXTURAS DE ITEMS
     // Registra TODOS los BlockType (no solo 1..15 como antes, que dejaba sin
@@ -37417,6 +37577,7 @@ int main() {
                 std::cerr << "⚠️ WARNING: g_textureManager es NULL! Re-inicializando..." << std::endl;
                 g_textureManager = new TextureManager();
                 g_textureManager->loadAllBlockTextures();
+                g_textureManager->precargarTodasLasCaras();
                 std::cout << "✅ TextureManager re-inicializado exitosamente" << std::endl;
             }
 
@@ -37655,6 +37816,7 @@ int main() {
                         std::cout << "⚠️ TextureManager NULL! Inicializando..." << std::endl;
                         g_textureManager = new TextureManager();
                         g_textureManager->loadAllBlockTextures();
+                        g_textureManager->precargarTodasLasCaras();
                         prewarmItemTextures();
                     }
 

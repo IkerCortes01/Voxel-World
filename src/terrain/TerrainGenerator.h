@@ -163,8 +163,32 @@ public:
     // Debajo de SOFT_CEILING (la inmensa mayoria del terreno) la funcion es
     // la identidad, por lo que no altera el relieve normal.
     static float ClampToWorldCeiling(float h) {
-        constexpr float SOFT_CEILING = 96.0f;  // donde empieza la compresion
-        constexpr float HARD_CEILING = 124.0f; // asintota (WORLD_HEIGHT - 4)
+        // ⭐ EL TECHO SUBE CON LA ALTURA DEL MUNDO (128 -> 512).
+        //
+        // ⚠️ PERO EL NIVEL DEL MAR NO SE TOCA, Y ESA ES LA DECISION CLAVE.
+        //
+        // Lo facil habria sido multiplicar todo por 4 al subir la altura. Seria
+        // un error de diseño: el mar quedaria en la cota 248 y el jugador
+        // tendria que cavar 200 bloques para llegar al agua, o volar 200 para
+        // ver el cielo. Todo el contenido --playas, cuevas, arboles, la fauna--
+        // esta calibrado alrededor de SEA_LEVEL=62, y moverlo obligaria a
+        // recalibrarlo entero sin ganar nada.
+        //
+        // Lo que se gana con la altura NO es "el mundo entero mas grande": es
+        // CABECERA. El suelo se queda donde estaba y lo que crece es lo que
+        // puede levantarse sobre el:
+        //
+        //     mar y costas      62          <- IGUAL que antes
+        //     colinas y bosque  65-90       <- IGUAL que antes
+        //     montanas          hasta 124   -> hasta 300
+        //     cielo libre       4 bloques   -> 212 bloques
+        //
+        // O sea: las cordilleras dejan de estar decapitadas contra el techo
+        // (con 124 todas las cimas acababan a la misma cota, que es lo que se
+        // veia como "montanas planas por arriba") y queda sitio de verdad para
+        // volar.
+        constexpr float SOFT_CEILING = 200.0f;  // donde empieza la compresion
+        constexpr float HARD_CEILING = 300.0f;  // asintota, MUY por debajo de 512
         constexpr float FLOOR        = 4.0f;   // sobre la bedrock
 
         // Suelo duro: la combinacion de fosas oceanicas + taludes puede

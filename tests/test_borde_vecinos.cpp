@@ -216,16 +216,39 @@ TEST_CASE("Borde: la copia de los cuatro lados cabe en el presupuesto") {
     INFO("los cuatro lados = ", total, " bytes (",
          total / 1024, " KB) por chunk en vuelo");
 
-    // Una loncha son 16 x 128 celdas, y de cada una se copian DOS cosas: el
-    // bloque (4 bytes) y su nivel de luz (1 byte). Las dos hacen falta porque
-    // el mesher tiene dos funciones que leian los vecinos.
+    // Una loncha son BORDE_LADO x BORDE_ALTO celdas, y de cada una se copian
+    // DOS cosas: el bloque (4 bytes) y su nivel de luz (1 byte). Las dos hacen
+    // falta porque el mesher tiene dos funciones que leian los vecinos.
     const size_t porCara = (size_t)BORDE_LADO * BORDE_ALTO
                          * (sizeof(BlockType) + sizeof(uint8_t));
     CHECK(total == 4u * porCara);
 
-    // Tope: 64 KB por chunk en vuelo. Con los hilos que usa el motor, el
-    // total sigue siendo memoria de sobra.
-    CHECK(total <= 64u * 1024u);
+    // ⭐ TOPE SUBIDO DE 64 KB A 192 KB AL SUBIR LA ALTURA DEL MUNDO.
+    //
+    // Este CHECK hizo su trabajo: al pasar la altura de 128 a 512 fallo
+    // solo, avisando de que el coste se habia CUADRUPLICADO (40 -> 160 KB por
+    // chunk en vuelo). Es exactamente para lo que existe.
+    //
+    // Se sube el tope en vez de rebajar la copia, y el razonamiento es este:
+    //
+    //   - Lo que importa es el total VIVO, no el de un chunk. Los chunks en
+    //     vuelo son como mucho los que quepan en la cola de mallado (16) mas
+    //     uno por worker (3): 19 x 160 KB = ~3 MB. Sobre un motor que gasta
+    //     cientos de MB en chunks, es ruido.
+    //
+    //   - La alternativa seria copiar solo la franja de alturas que el chunk
+    //     usa de verdad (la mayoria del mundo vertical es aire). Es una
+    //     optimizacion real y esta anotada, pero complica la foto del borde --
+    //     que es la pieza que hace SEGURO el mallado en hilos -- y no se toca
+    //     algo asi para ahorrar 3 MB.
+    //
+    // 192 KB deja margen para una altura de 512 sin que el tope sea decorativo:
+    // si alguien la subiera a 1024 sin pensar, este test volveria a saltar.
+    CHECK(total <= 192u * 1024u);
+
+    // Y el total vivo, que es el numero que de verdad importa.
+    const size_t chunksEnVuelo = 19;   // cola de mallado (16) + 3 workers
+    CHECK(total * chunksEnVuelo <= 4u * 1024u * 1024u);   // < 4 MB
 }
 
 TEST_CASE("Borde: copiar SOLO el borde y no el chunk entero") {

@@ -73,7 +73,17 @@ namespace Render {
 // dependa de main.cpp; los static_assert del punto de uso verifican que
 // coinciden.
 constexpr int BORDE_LADO  = 16;
-constexpr int BORDE_ALTO  = 128;
+// ⚠️ TIENE QUE COINCIDIR CON CHUNK_HEIGHT DEL MOTOR.
+//
+// Los static_assert de capturarBorde() lo verifican en tiempo de compilacion:
+// si alguien cambia una de las dos y no la otra, el build para en vez de leer
+// fuera del vector desde un hilo de trabajo.
+//
+// Subio de 128 a 512 con la altura del mundo. El coste es la foto del borde:
+// 16 x 512 celdas por lado, 4 bytes de bloque + 1 de luz = 40 KB por vecino,
+// 160 KB por chunk en vuelo. Con tres workers son ~480 KB, que sigue siendo
+// barato a cambio de que el mesher no toque punteros ajenos.
+constexpr int BORDE_ALTO  = 512;
 
 // ----------------------------------------------------------------------------
 // LA LONCHA DE UN VECINO

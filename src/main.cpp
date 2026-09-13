@@ -2955,7 +2955,12 @@ struct Frustum {
         }
     }
 
-    bool isChunkVisible(float chunkX, float chunkY, float chunkZ, float chunkSize) {
+    // `alturaMundo` es CHUNK_HEIGHT. Va por parametro y no como constante
+    // porque esta clase se define ANTES que las medidas del chunk en este
+    // archivo -- que es justo lo que llevo a escribir el numero a mano dos
+    // veces, y a que las dos se quedaran viejas.
+    bool isChunkVisible(float chunkX, float chunkY, float chunkZ, float chunkSize,
+                        float alturaMundo) {
         // AABB (Axis-Aligned Bounding Box) test
         float minX = chunkX;
         float minY = chunkY;
@@ -2965,7 +2970,19 @@ struct Frustum {
         // Estaba en 256 cuando CHUNK_HEIGHT vale 128: la caja salia del
         // doble de alta, se salia por arriba del frustum y varios chunks
         // fuera de pantalla pasaban el test y se dibujaban igual.
-        float maxY = chunkY + 128.0f;  // CHUNK_HEIGHT
+        // ⚠️ SE DERIVA DE LA ALTURA REAL, NO ES UN LITERAL.
+        //
+        // El comentario de arriba cuenta la historia: estaba en 256 cuando la
+        // altura era 128, y la caja del doble de alta dejaba pasar chunks que
+        // no se veian. Se corrigio poniendo 128... otro literal, que al subir
+        // la altura a 512 produce el fallo CONTRARIO y peor: la caja se queda
+        // CORTA, asi que un chunk cuya parte visible este por encima de 128
+        // --una montana, o cualquier cosa mirada desde el aire-- se descarta
+        // por frustum y DESAPARECE de la pantalla.
+        //
+        // `alturaMundo` es el parametro que el llamante rellena con
+        // CHUNK_HEIGHT, asi que el numero no puede volver a quedarse viejo.
+        float maxY = chunkY + alturaMundo;
         float maxZ = chunkZ + chunkSize;
 
         for (int i = 0; i < 6; i++) {
@@ -6954,9 +6971,55 @@ struct LightVoxel {
 };
 
 const int CHUNK_SIZE = 16;
-const int CHUNK_HEIGHT = 128;  // ⭐⭐⭐ REDUCIDO de 256 a 128 para OPTIMIZACIÓN EXTREMA
+// ============================================================================
+// ⭐ LA ALTURA DEL MUNDO: DE 128 A 512
+// ============================================================================
+// Cuatro veces mas alto. Lo que esto permite, que antes no cabia:
+//
+//   - MONTANAS DE VERDAD. Con 128 el techo blando estaba en 96 y el duro en
+//     124, asi que una cordillera se comprimia contra el limite y todas las
+//     cimas acababan a la misma cota.
+//   - CUEVAS PROFUNDAS. Los pisos del sistema karstico tenian ~60 bloques
+//     utiles entre la superficie y la bedrock.
+//   - CIELO PARA VOLAR. 128 se alcanzan en unos segundos en creativo.
+//
+// ----------------------------------------------------------------------------
+// POR QUE 512 Y NO 22.000
+// ----------------------------------------------------------------------------
+// Se pidieron 11.000 en cada sentido. No cabe, y no por pereza:
+//
+//   - `lightData` es un array POR CHUNK de LightVoxel (2 bytes). A 22.000 de
+//     alto son 11 MB por columna; con 81 columnas cargadas, ~900 MB SOLO de
+//     luz.
+//   - `computeSkylight` declara su mapa de costes EN LA PILA. A 22.000 serian
+//     5,6 MB por llamada: desbordamiento inmediato (el hilo tiene 1 MB).
+//   - El flood-fill empaqueta la celda en 32 bits con 7 para Y. Con 22.000
+//     harian falta 15, y hay que rehacer el empaquetado entero.
+//
+// 512 es el punto donde todo eso sigue siendo barato: lightData pasa de 64 KB
+// a 256 KB por chunk -- cuatro veces mas, pero sobre una base pequeña -- y el
+// mapa de costes de la pila se saca al heap (ver computeSkylight).
+//
+// Si algun dia hace falta mas, el camino esta abierto: lo unico que ata el
+// numero es que `lightData` sea dueño de la columna entera. Cuando eso se
+// mueva a los subchunks (que solo existen si tienen bloques), la altura deja
+// de costar memoria y puede subir tanto como se quiera.
+//
+// ----------------------------------------------------------------------------
+// ⚠️ ESTO ES FORMATO DE DISCO
+// ----------------------------------------------------------------------------
+// `BLOCKS_BYTES` se deriva de aqui, y es el tamaño del volcado que se escribe
+// en cada chunk. Un mundo guardado con 128 tiene UN CUARTO de los bytes que
+// espera la version nueva. La migracion vive en getOrCreateChunk: detecta el
+// tamaño viejo y coloca esas 128 capas en la parte BAJA del mundo nuevo,
+// dejando aire encima. Ver el comentario de ALTURA_LEGACY.
+const int CHUNK_HEIGHT = 512;
 const int SUBCHUNK_HEIGHT = 16; // ⭐ Altura de cada subchunk
-const int SUBCHUNKS_PER_CHUNK = CHUNK_HEIGHT / SUBCHUNK_HEIGHT; // 128 / 16 = 8 subchunks
+const int SUBCHUNKS_PER_CHUNK = CHUNK_HEIGHT / SUBCHUNK_HEIGHT; // 512 / 16 = 32 subchunks
+
+// La altura que tenian los mundos guardados antes de este cambio. Se conserva
+// para poder reconocer y migrar sus chunks; no se usa para nada mas.
+const int ALTURA_LEGACY = 128;
 
 // ⭐⭐⭐ INCLUIR SISTEMA DE PALETAS ⭐⭐⭐
 #include "PalettedStorage.h"
@@ -7430,13 +7493,54 @@ struct Chunk {
     // bloque, siempre con los bloques ya definitivos.
     void computeSkylight() {
         // Transparencia cacheada: el flood-fill consulta cada celda varias
-        // veces y getBlock() resuelve paleta cada vez. 32 KB en pila.
-        static_assert(CHUNK_SIZE == 16 && CHUNK_HEIGHT == 128,
-                      "computeSkylight asume el empaquetado de índices 16x128x16");
-        // Coste de paso por celda: 0 = opaco, 1 = aire/agua, 3 = hojas.
-        // Sustituye al antiguo flag binario de transparencia para que el
-        // follaje pueda ATENUAR sin bloquear del todo.
-        uint8_t cost[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE];
+        // veces y getBlock() resuelve paleta cada vez.
+        //
+        // ⚠️ EL EMPAQUETADO YA NO ES FIJO: SE DERIVA DE LAS MEDIDAS.
+        //
+        // Antes habia un static_assert exigiendo 16x128x16, y debajo un
+        // empaquetado escrito a mano --`(x << 11) | (z << 7) | y`-- que reserva
+        // 7 bits para Y, o sea un maximo de 128. Al subir la altura a 512 ese
+        // empaquetado desborda EN SILENCIO: la Y de una celda alta se mete en
+        // los bits de Z y el flood-fill ilumina la celda equivocada.
+        //
+        // Ahora los desplazamientos se calculan desde CHUNK_HEIGHT, asi que la
+        // altura puede cambiar sin tocar una linea de esta funcion. El
+        // static_assert que queda solo comprueba que todo cabe en 32 bits.
+        static_assert(CHUNK_SIZE == 16, "computeSkylight asume chunks de 16x16");
+        static_assert(CHUNK_HEIGHT <= 65536,
+                      "computeSkylight empaqueta la celda en 32 bits: "
+                      "4 (x) + 4 (z) + bits de altura");
+
+        // Bits que hace falta reservar para Y.
+        constexpr int BITS_Y = (CHUNK_HEIGHT <= 128) ? 7
+                             : (CHUNK_HEIGHT <= 256) ? 8
+                             : (CHUNK_HEIGHT <= 512) ? 9
+                             : (CHUNK_HEIGHT <= 1024) ? 10 : 16;
+        constexpr int SHIFT_Z = BITS_Y;
+        constexpr int SHIFT_X = BITS_Y + 4;
+        constexpr uint32_t MASK_Y = (1u << BITS_Y) - 1u;
+
+        // ⭐ EL MAPA DE COSTES VA AL HEAP, NO A LA PILA.
+        //
+        // Era `uint8_t cost[16][128][16]`, 32 KB de variable local. A 512 de
+        // altura serian 128 KB, y esta funcion la llaman los HILOS DE
+        // GENERACION -- cuya pila por defecto es de 1 MB en Windows. Con la
+        // recursion del generador de terreno debajo, 128 KB de golpe es jugarse
+        // un desbordamiento de pila, que no da error: corrompe memoria.
+        //
+        // `static thread_local` reserva UNA vez por hilo y la reutiliza en cada
+        // llamada, asi que no cuesta una asignacion por chunk. Y al ser por
+        // hilo, los tres workers no comparten el buffer: no hace falta ningun
+        // candado.
+        static thread_local std::vector<uint8_t> costBuf;
+        if (costBuf.size() != (size_t)CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE)
+            costBuf.assign((size_t)CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE, 0);
+
+        // Indexado [x][y][z] igual que el array de antes, para que el resto de
+        // la funcion no cambie.
+        auto COST = [&](int x, int y, int z) -> uint8_t& {
+            return costBuf[((size_t)x * CHUNK_HEIGHT + y) * CHUNK_SIZE + z];
+        };
 
         // Pasada 1: vertical, acumulando la atenuación del follaje.
         //
@@ -7450,7 +7554,7 @@ struct Chunk {
                 for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
                     const BlockType b = getBlock(x, y, z);
                     const uint8_t c = lightCost(b);
-                    cost[x][y][z] = c;
+                    COST(x, y, z) = c;
 
                     if (c == 0) {
                         // Bloque opaco: se corta la columna.
@@ -7480,8 +7584,12 @@ struct Chunk {
         // orden de proceso no afecta al resultado final.
         std::vector<uint32_t> stack;
         stack.reserve(4096);
+        // Empaquetado derivado de las medidas (ver BITS_Y arriba): x y z ocupan
+        // 4 bits cada uno y la altura los que necesite. Escrito a mano con
+        // desplazamientos fijos, subir CHUNK_HEIGHT desbordaba Y sobre Z sin
+        // avisar, y la luz acababa en la celda equivocada.
         auto pack = [](int x, int y, int z) -> uint32_t {
-            return (uint32_t)((x << 11) | (z << 7) | y);
+            return ((uint32_t)x << SHIFT_X) | ((uint32_t)z << SHIFT_Z) | (uint32_t)y;
         };
 
         // Se siembra TODA celda con luz, no solo las que están a 18: la luz
@@ -7491,13 +7599,15 @@ struct Chunk {
         for (int x = 0; x < CHUNK_SIZE; x++)
             for (int z = 0; z < CHUNK_SIZE; z++)
                 for (int y = 0; y < CHUNK_HEIGHT; y++)
-                    if (cost[x][y][z] != 0 && lightData[x][y][z].sunlight > 1)
+                    if (COST(x, y, z) != 0 && lightData[x][y][z].sunlight > 1)
                         stack.push_back(pack(x, y, z));
 
         while (!stack.empty()) {
             const uint32_t c = stack.back();
             stack.pop_back();
-            const int cx = (c >> 11) & 15, cz = (c >> 7) & 15, cy = c & 127;
+            const int cx = (int)((c >> SHIFT_X) & 15u);
+            const int cz = (int)((c >> SHIFT_Z) & 15u);
+            const int cy = (int)(c & MASK_Y);
 
             const uint8_t L = lightData[cx][cy][cz].sunlight;
             if (L <= 1) continue;
@@ -7515,7 +7625,7 @@ struct Chunk {
                 // de hojas cuesta LEAF_ATTENUATION niveles, entrar en aire
                 // cuesta 1. Así la luz se apaga rápido dentro del follaje y
                 // despacio en el aire, que es el comportamiento físico.
-                const uint8_t stepCost = cost[nx][ny][nz];
+                const uint8_t stepCost = COST(nx, ny, nz);
                 if (stepCost == 0) continue;              // opaco
                 if (L <= stepCost) continue;              // no queda luz
 
@@ -8508,6 +8618,8 @@ static std::atomic<long long> g_diagMalladoBordeRoto{0};
 static std::atomic<long long> g_diagRemalladoFollaje{0};
 // Costuras provisionales que se corrigieron solas al llegar los vecinos.
 static long long g_diagBordesSaldados = 0;
+// Chunks rescatados de un mundo guardado con la altura antigua (128).
+static long long g_migradosDeAlturaVieja = 0;
 
 // Cada hilo de mallado se queda con su hueco al arrancar. -1 = no es un worker
 // de mallado (el hilo principal cuando malla por el camino sincrono), y en ese
@@ -10214,11 +10326,30 @@ private:
 
         // La cola del flood-fill: celdas de `a` que acaban de subir de luz.
         // Se reutiliza entre llamadas para no reservar en cada costura.
-        static std::vector<uint32_t> cola;
+        //
+        // `thread_local` ademas de `static`: la costura la dispara el hilo
+        // principal al integrar un chunk, pero nada impide que en el futuro se
+        // llame desde otro sitio, y un vector estatico compartido entre hilos
+        // es corrupcion silenciosa. Cuesta un buffer por hilo, que es nada.
+        static thread_local std::vector<uint32_t> cola;
         cola.clear();
 
+        // ⭐ MISMO EMPAQUETADO DERIVADO QUE computeSkylight.
+        //
+        // Estaba escrito a mano con 7 bits para Y (`(x << 11) | (z << 7) | y`),
+        // o sea un techo de 128. Con la altura en 512 la Y desbordaba sobre los
+        // bits de Z y la costura iluminaba la columna equivocada -- un fallo
+        // que NO da error, solo luz mal puesta en las fronteras.
+        constexpr int BITS_Y = (CHUNK_HEIGHT <= 128) ? 7
+                             : (CHUNK_HEIGHT <= 256) ? 8
+                             : (CHUNK_HEIGHT <= 512) ? 9
+                             : (CHUNK_HEIGHT <= 1024) ? 10 : 16;
+        constexpr int SHIFT_Z = BITS_Y;
+        constexpr int SHIFT_X = BITS_Y + 4;
+        constexpr uint32_t MASK_Y = (1u << BITS_Y) - 1u;
+
         auto pack = [](int x, int y, int z) -> uint32_t {
-            return (uint32_t)((x << 11) | (z << 7) | y);
+            return ((uint32_t)x << SHIFT_X) | ((uint32_t)z << SHIFT_Z) | (uint32_t)y;
         };
 
         // --- SEMBRAR DESDE EL BORDE DEL VECINO ---
@@ -10306,7 +10437,9 @@ private:
         while (!cola.empty()) {
             const uint32_t c = cola.back();
             cola.pop_back();
-            const int cx = (c >> 11) & 15, cz = (c >> 7) & 15, cy = c & 127;
+            const int cx = (int)((c >> SHIFT_X) & 15u);
+            const int cz = (int)((c >> SHIFT_Z) & 15u);
+            const int cy = (int)(c & MASK_Y);
 
             const uint8_t L = a->getSunlight(cx, cy, cz);
             if (L <= 1) continue;
@@ -11153,7 +11286,46 @@ public:
             // siempre); de ahí pasa a la paleta, la única fuente de verdad.
             std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
             const double t0Disco = glfwGetTime();
-            const bool cargoDeDisco = saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata);
+            bool cargoDeDisco = saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata);
+
+            // ================================================================
+            // ⭐ MUNDOS DE 128 DE ALTO: SE SUBEN AL MUNDO DE 512
+            // ================================================================
+            // El volcado de un chunk es un array plano [x][y][z], asi que su
+            // tamaño DEPENDE de CHUNK_HEIGHT. Un mundo guardado antes de subir
+            // la altura tiene 16*128*16 entradas; el buffer de ahora espera
+            // 16*512*16, o sea CUATRO VECES MAS.
+            //
+            // Sin migracion, `loadChunk` falla por tamaño y el chunk se
+            // REGENERA: el jugador pierde todo lo que hubiera construido ahi.
+            //
+            // La conversion es directa porque el layout es [x][y][z] y solo
+            // cambia la dimension del medio: se copia cada columna vieja a la
+            // parte BAJA de la nueva y se rellena de aire el resto. El terreno
+            // queda exactamente donde estaba -- misma X, misma Y, misma Z -- y
+            // encima aparecen 384 bloques de cielo nuevo.
+            if (!cargoDeDisco && CHUNK_HEIGHT != ALTURA_LEGACY) {
+                std::vector<BlockType> viejo(CHUNK_SIZE * ALTURA_LEGACY * CHUNK_SIZE);
+                const size_t bytesViejos =
+                    sizeof(BlockType) * CHUNK_SIZE * ALTURA_LEGACY * CHUNK_SIZE;
+
+                if (saveManager->loadChunk(chunkPos.x, chunkPos.z,
+                                           viejo.data(), bytesViejos, metadata)) {
+                    std::fill(raw.begin(), raw.end(), (BlockType)BLOCK_AIR);
+                    for (int x = 0; x < CHUNK_SIZE; ++x)
+                        for (int y = 0; y < ALTURA_LEGACY; ++y)
+                            for (int z = 0; z < CHUNK_SIZE; ++z) {
+                                const size_t iViejo =
+                                    ((size_t)x * ALTURA_LEGACY + y) * CHUNK_SIZE + z;
+                                const size_t iNuevo =
+                                    ((size_t)x * CHUNK_HEIGHT + y) * CHUNK_SIZE + z;
+                                raw[iNuevo] = viejo[iViejo];
+                            }
+                    cargoDeDisco = true;
+                    g_migradosDeAlturaVieja++;
+                }
+            }
+
             g_perfCargaDisco += (glfwGetTime() - t0Disco) * 1000.0;
             if (cargoDeDisco) {
                 // ⭐ MUNDOS ANTIGUOS: los IDs de bloque se reordenaron, asi que
@@ -24195,7 +24367,8 @@ public:
                 if (dist > fogEnd) { chunksCulled++; continue; }
             }
 
-            if (frustum.isChunkVisible(chunkWorldX, 0, chunkWorldZ, CHUNK_SIZE)) {
+            if (frustum.isChunkVisible(chunkWorldX, 0, chunkWorldZ, CHUNK_SIZE,
+                                       (float)CHUNK_HEIGHT)) {
                 // Calcular distancia al jugador (squared para evitar sqrt)
                 float dx = chunkWorldX + CHUNK_SIZE/2.0f - playerPos.x;
                 float dz = chunkWorldZ + CHUNK_SIZE/2.0f - playerPos.z;
@@ -38397,8 +38570,13 @@ int main() {
                     int playerX = (int)g_gameState->player.position.x;
                     int playerZ = (int)g_gameState->player.position.z;
 
-                    // Buscar desde arriba hacia abajo
-                    for (int y = 128; y >= 10; y--) {
+                    // Buscar desde arriba hacia abajo, desde el techo REAL del
+                    // mundo. Con el literal 128 y la altura en 512, un jugador
+                    // que cayera al vacio bajo una montana alta no encontraba
+                    // su superficie (esta por encima de 128) y acababa
+                    // teletransportado a Y=100 -- posiblemente dentro de la
+                    // roca.
+                    for (int y = CHUNK_HEIGHT - 1; y >= 10; y--) {
                         BlockType current = g_gameState->world.getBlock(playerX, y, playerZ);
                         BlockType below = g_gameState->world.getBlock(playerX, y - 1, playerZ);
 
@@ -38603,7 +38781,28 @@ int main() {
         float aspect = (float)width / (float)height;
         float fov = 70.0f;
         float zNear = 0.05f;  // Muy cercano para permitir ver bloques pegados a la cámara
-        float zFar = 128.0f;  // Optimizado con niebla - chunks más allá están ocultos
+
+        // ⭐ EL PLANO LEJANO SIGUE A LA DISTANCIA DE RENDER, NO ES FIJO.
+        //
+        // Estaba clavado en 128 con el razonamiento "la niebla ya tapa lo que
+        // hay mas alla". Eso era cierto con RENDER_DISTANCE=4 (64 bloques de
+        // niebla) y un mundo de 128 de alto, pero deja de serlo en dos casos
+        // que ahora existen:
+        //
+        //   - LA BARRA DE OPCIONES llega a 28 chunks de radio = 448 bloques.
+        //     Con zFar=128 el terreno se recortaba en seco a 128, muy por
+        //     delante de donde cierra la niebla: un corte circular a media
+        //     distancia, mucho mas feo que el borde que se queria evitar.
+        //
+        //   - LA ALTURA 512. Desde una cumbre de 300 mirando hacia abajo, o
+        //     volando alto, la distancia a lo que se ve supera facilmente los
+        //     128 bloques aunque el chunk este al lado en horizontal.
+        //
+        // Se deriva del radio cargado con margen para la diagonal, y se acota
+        // por abajo para que nunca sea menor que lo que habia.
+        const float distBloques = (float)g_gameState->world.distanciaRender() * 16.0f;
+        float zFar = distBloques * 1.8f + (float)CHUNK_HEIGHT;
+        if (zFar < 256.0f) zFar = 256.0f;
         float fH = tan(fov * 3.14159f / 360.0f) * zNear;
         float fW = fH * aspect;
         glFrustum(-fW, fW, -fH, fH, zNear, zFar);

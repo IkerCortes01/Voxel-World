@@ -124,7 +124,25 @@ public:
         // que otras, evitando que todas lleguen al mismo techo.
         const float peakBoost = 0.75f + c.weirdness * 0.85f; // [0.75, 1.60]
 
-        constexpr float MAX_MOUNTAIN_HEIGHT = 58.0f;
+        // ⭐ SUBE DE 58 A 150 CON LA ALTURA DEL MUNDO.
+        //
+        // Los 58 no eran una decision estetica: eran el maximo que cabia. Con
+        // el mundo de 128 y la base continental en ~78, una cordillera de 58
+        // llegaba a 136 -- ya por encima del techo -- asi que la compresion de
+        // ClampToWorldCeiling la aplastaba contra 124. El efecto visible era
+        // que TODAS las cimas altas acababan a la misma cota, planas por
+        // arriba, porque la asintota las igualaba.
+        //
+        // Con el techo en 300 hay sitio de sobra: 78 + 150 = 228, holgado
+        // dentro de la compresion. Ahora la altura de una cordillera la decide
+        // `peakBoost` (el weirdness del clima) y no el limite del mundo, que es
+        // lo que hace que unas sean notablemente mas altas que otras.
+        //
+        // 150 y no 400: una montana tiene que poder subirse. A 150 bloques
+        // sobre el mar, escalar una cumbre es una expedicion larga pero
+        // posible; con 400 seria una pared inabarcable y el jugador solo la
+        // veria de lejos.
+        constexpr float MAX_MOUNTAIN_HEIGHT = 150.0f;
 
         float h = ridge * MAX_MOUNTAIN_HEIGHT * peakBoost;
         h *= (1.0f - valleyCarve);

@@ -9492,39 +9492,92 @@ public:
     // parpadeo mucho mas visible que el hueco que se intenta tapar.
     float radioNieblaSuavizado = -1.0f;
 
+    // ========================================================================
+    // ⚠️ ESTA FUNCION PRODUCIA EL PARPADEO AL CAMINAR
+    // ========================================================================
+    // SINTOMA: al moverse, los chunks de alrededor del jugador desaparecian y
+    // volvian a aparecer.
+    //
+    // CADENA COMPLETA: este radio alimenta `fogEnd`, y `fogEnd` decide en
+    // World::render que chunks se DESCARTAN por estar detras de la niebla. Si
+    // el radio se hunde un instante, los chunks de los anillos exteriores dejan
+    // de dibujarse de golpe; cuando se recupera, vuelven. Eso es el parpadeo.
+    //
+    // Y se hundia constantemente por dos motivos que se reforzaban:
+    //
+    //   1. COLAPSABA AL PRIMER HUECO. El bucle hace `break` en cuanto un anillo
+    //      no esta completo, asi que UN solo chunk a medio mallar en el anillo 1
+    //      devolvia radio 2 -- aunque los anillos 3, 4 y 5 estuvieran perfectos.
+    //      Caminando eso pasa CADA VEZ que se cruza una frontera de chunk, que
+    //      es justo cuando el jugador se esta moviendo.
+    //
+    //   2. BAJABA TAN DEPRISA COMO SUBIA. El suavizado usaba 0.02 en los dos
+    //      sentidos, asi que el radio perseguia cada bache.
+    //
+    // ------------------------------------------------------------------------
+    // LO QUE HACE AHORA
+    // ------------------------------------------------------------------------
+    // - TOLERA HUECOS. Un anillo cuenta como bueno si la gran mayoria de sus
+    //   chunks estan listos. Uno a medio cargar en el borde no puede tumbar la
+    //   vista entera: la niebla lo tapa de todas formas.
+    //
+    // - SOLO CUENTA LO QUE TIENE GEOMETRIA. Un chunk con batches SE VE, este en
+    //   el estado que este. Mirar solo `esDibujable(estado)` descartaba chunks
+    //   perfectamente dibujados que iban de camino a ser remallados.
+    //
+    // - ES ASIMETRICA: sube deprisa y baja MUY despacio. Abrir la niebla de mas
+    //   no cuesta nada (como mucho se dibuja terreno que iba a taparse);
+    //   cerrarla de golpe es el parpadeo. Ante la duda, abrir.
     float radioVisibleSeguro() {
         int radioCompleto = 0;
         const int maxRadio = RENDER_DISTANCE;
 
         for (int r = 1; r <= maxRadio; ++r) {
-            bool anilloCompleto = true;
-            // Solo el perimetro del anillo: los interiores ya se validaron en
-            // iteraciones anteriores.
-            for (int dx = -r; dx <= r && anilloCompleto; ++dx) {
+            int total = 0, listos = 0;
+            for (int dx = -r; dx <= r; ++dx) {
                 for (int dz = -r; dz <= r; ++dz) {
                     if (std::abs(dx) != r && std::abs(dz) != r) continue;
                     if (dx * dx + dz * dz > r * r) continue;
 
+                    ++total;
                     auto it = chunks.find(Vec3i(ctxJugador.chunkX + dx, 0,
                                                 ctxJugador.chunkZ + dz));
-                    if (it == chunks.end() || !it->second ||
-                        !Streaming::esDibujable(it->second->estado)) {
-                        anilloCompleto = false;
-                        break;
+                    // ⭐ "Se ve" = TIENE GEOMETRIA, no "esta en estado LISTO".
+                    //
+                    // Un chunk que ya tiene batches se dibuja aunque se le haya
+                    // invalidado la malla y este esperando turno para
+                    // remallarse. Exigir LISTO lo contaba como hueco y cerraba
+                    // la niebla sobre terreno que el jugador VE.
+                    if (it != chunks.end() && it->second &&
+                        (!it->second->batches.empty() ||
+                         Streaming::esDibujable(it->second->estado))) {
+                        ++listos;
                     }
                 }
             }
-            if (!anilloCompleto) break;
+
+            if (total == 0) break;
+
+            // Tolerancia: basta con el 80% del anillo. Los que falten son, por
+            // construccion, los mas lejanos y los que la niebla mas difumina.
+            if ((float)listos / (float)total < 0.80f) break;
             radioCompleto = r;
         }
 
-        // Nunca por debajo de 2 chunks: cerrar mas seria peor que el hueco
-        // (el jugador se quedaria dentro de una bola de niebla).
         if (radioCompleto < 2) radioCompleto = 2;
 
         const float objetivo = (float)radioCompleto * (float)CHUNK_SIZE;
-        if (radioNieblaSuavizado < 0.0f) radioNieblaSuavizado = objetivo;
-        else radioNieblaSuavizado += (objetivo - radioNieblaSuavizado) * 0.02f;
+        if (radioNieblaSuavizado < 0.0f) {
+            radioNieblaSuavizado = objetivo;
+        } else if (objetivo > radioNieblaSuavizado) {
+            // ABRIR: rapido. Lo peor que pasa es dibujar terreno de mas.
+            radioNieblaSuavizado += (objetivo - radioNieblaSuavizado) * 0.10f;
+        } else {
+            // CERRAR: cinco veces mas despacio. Cerrar es lo que hace
+            // desaparecer chunks, asi que solo se hace ante una caida
+            // SOSTENIDA -- no ante el bache de cruzar una frontera.
+            radioNieblaSuavizado += (objetivo - radioNieblaSuavizado) * 0.004f;
+        }
         return radioNieblaSuavizado;
     }
 
@@ -25150,9 +25203,41 @@ public:
                     // que el tiempo en cola no cuente como atasco.
                     chunk->framesConCandado = 0;
                 }
-                continue;
+
+                // ============================================================
+                // ⭐ UN CHUNK QUE SE ESTA REMALLANDO SIGUE DIBUJANDOSE
+                // ============================================================
+                // AQUI ESTABA LA CAUSA MAS DIRECTA DEL PARPADEO AL MOVERSE.
+                //
+                // Habia un `continue` seco: cualquier chunk con el candado
+                // puesto se saltaba el dibujado ENTERO. Y el candado se pone
+                // cada vez que el chunk entra en la cola de mallado, cosa que
+                // ocurre constantemente al caminar -- por el refresco del
+                // follaje, por la costura de luz, o porque acaba de llegar un
+                // vecino. O sea: el chunk bajo los pies del jugador DESAPARECIA
+                // durante todo el tiempo que tardara su remallado, y volvia al
+                // terminar. Exactamente el sintoma reportado.
+                //
+                // ⚠️ POR QUE ES SEGURO DIBUJARLO.
+                //
+                // El candado protege el SWAP de batches, no la lectura. Y el
+                // swap (ver subirMallaAGPU) construye la lista NUEVA completa
+                // antes de tocar la vieja -- es un doble buffer. Mientras el
+                // worker trabaja, `chunk->batches` sigue conteniendo la
+                // geometria anterior, intacta y con sus VBOs validos.
+                //
+                // Dibujar esa geometria vieja un par de frames mas es justo lo
+                // que se quiere: el jugador ve el chunk como estaba hasta que
+                // la version nueva esta lista, y el cambio ocurre de un frame
+                // al siguiente sin pasar por el vacio.
+                //
+                // Los que NO tienen geometria si se saltan: ahi no hay nada que
+                // dibujar y el rescate de abajo se encarga de ellos.
+                if (chunk->batches.empty()) continue;
+                // Con geometria: cae al camino normal de dibujado.
+            } else {
+                chunk->framesConCandado = 0;
             }
-            chunk->framesConCandado = 0;
 
             // ⭐ CRÍTICO: generado y sin batches = invisible. SIEMPRE se reencola.
             //
@@ -25220,7 +25305,22 @@ public:
                     : RENDER_DISTANCE * (float)CHUNK_SIZE * 0.98f;
                 const float fogEndMin = (RENDER_DISTANCE - 1) * (float)CHUNK_SIZE * 0.98f;
                 const float fogEnd = fogEndSeguro > fogEndMin ? fogEndSeguro : fogEndMin;
-                if (dist > fogEnd) { chunksCulled++; continue; }
+
+                // ⭐ SEGUNDA RED: LO CERCANO NO SE DESCARTA NUNCA.
+                //
+                // Aunque el radio de niebla se hunda por lo que sea, un chunk a
+                // menos de 3 de distancia SE VE con toda seguridad -- esta
+                // practicamente bajo los pies del jugador. Descartarlo produce
+                // el agujero mas visible posible.
+                //
+                // Esta guarda es barata y hace IMPOSIBLE la clase entera de
+                // fallo "el terreno de alrededor parpadea al moverme", sin
+                // depender de que el calculo del radio sea perfecto.
+                const float DIST_SIEMPRE_VISIBLE = 3.0f * (float)CHUNK_SIZE;
+                if (dist > fogEnd && dist > DIST_SIEMPRE_VISIBLE) {
+                    chunksCulled++;
+                    continue;
+                }
             }
 
             if (frustum.isChunkVisible(chunkWorldX, 0, chunkWorldZ, CHUNK_SIZE,

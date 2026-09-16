@@ -718,6 +718,33 @@ constexpr double HORA_DE_INICIO = 7.0;
 // Empieza de dia; al cargar una partida se sobrescribe con la hora guardada.
 double g_horaDelMundoSegundos = HORA_DE_INICIO / 24.0 * SEGUNDOS_POR_DIA;
 
+// ============================================================================
+// ⭐ EL RELOJ DE LAS ANIMACIONES, QUE SE PARA EN PAUSA
+// ============================================================================
+// Las animaciones visuales (el scroll del agua, las olas) se calculaban desde
+// `glfwGetTime()`, el reloj absoluto de la aplicacion. Eso significa que seguian
+// corriendo con el juego pausado: se abria el menu y el mar continuaba
+// desplazandose de fondo.
+//
+// Este reloj solo avanza mientras se juega. Al pausar se congela y al reanudar
+// sigue donde estaba, sin el salto que daria volver a un reloj absoluto (que
+// habria acumulado todo el tiempo de la pausa).
+//
+// No sustituye a `g_horaDelMundoSegundos`: aquel es la HORA del mundo (se
+// guarda con la partida, decide si es de dia o de noche); este es solo un
+// contador monotono para animar, y no se guarda.
+double g_relojMundo = 0.0;
+
+// ⭐ EL MODO DE JUEGO, ACCESIBLE DESDE ABAJO DEL ARCHIVO.
+//
+// `GameState::currentGameMode` es el dato bueno, pero GameState se define muy
+// abajo en este archivo y la fisica del jugador --que necesita saber si se
+// puede volar-- esta por encima. Esta copia se mantiene al dia desde el unico
+// sitio donde el modo cambia (al entrar a un mundo).
+//
+// 0 = supervivencia, 1 = creativo. Mismo criterio que currentGameMode.
+int g_modoJuegoActual = 0;
+
 // Hora del mundo en 0..24.
 inline double horaDelMundo() {
     double t = g_horaDelMundoSegundos / SEGUNDOS_POR_DIA;
@@ -25356,7 +25383,18 @@ public:
         GLuint waterTexture = g_textureManager->getWaterTexture();
         GLuint lavaTexture = g_textureManager->getTexture("Lava.gif");
         // BLOCK_ORANGE_FLOWER también usa textura de lava
-        double currentTime = glfwGetTime();
+        //
+        // ⭐ SE USA EL RELOJ DEL MUNDO, QUE SE CONGELA EN PAUSA.
+        //
+        // Estaba en `glfwGetTime()`, el reloj absoluto de la aplicacion, asi
+        // que el agua seguia corriendo con el juego pausado: se abria el menu y
+        // la superficie del mar continuaba desplazandose de fondo. "Todo en
+        // pausa" incluye esto.
+        //
+        // `g_relojMundo` solo avanza mientras se juega (ver el bucle
+        // principal), asi que la animacion se detiene y se reanuda exactamente
+        // donde estaba -- sin el salto que daria volver a un reloj absoluto.
+        const double currentTime = g_relojMundo;
         float waterOffsetU = (float)fmod(currentTime * 0.05, 1.0); // Scroll horizontal lento
         float waterOffsetV = (float)fmod(currentTime * 0.03, 1.0); // Scroll vertical más lento
 
@@ -26992,6 +27030,20 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime,
 
     // ---- MANTENER SINCRONIZADO EL MODO VUELO ----
     // La tecla V la gestiona keyCallback sobre player.isFlying.
+    //
+    // ⭐ Y EN SUPERVIVENCIA NO SE VUELA, PASE LO QUE PASE.
+    //
+    // La tecla V ya lo impide, pero eso solo cubre la via normal. El vuelo
+    // podia llegar aqui heredado de OTRO MUNDO: salir volando de un creativo,
+    // crear uno de supervivencia, y seguir volando -- que es el bug reportado.
+    //
+    // Esta guarda corre cada frame y cierra la clase entera de fallo: da igual
+    // como se colara el vuelo, en supervivencia se apaga. Es la red; el reseteo
+    // al entrar al mundo es la correccion de fondo.
+    if (g_modoJuegoActual != 1 && player.isFlying) {
+        player.isFlying = false;
+    }
+
     if (player.isFlying != g_playerController->isFlying()) {
         g_playerController->setFlying(player.isFlying);
     }
@@ -28007,7 +28059,27 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
         BlockType block = world.getBlock(x, y, z);
 
         // Detectar TODOS los bloques sólidos (como Minecraft - solo ignora aire y agua)
-        if (block != BLOCK_AIR && block != BLOCK_WATER) {
+        //
+        // ⭐ "AGUA" INCLUYE EL AGUA CON NIVEL, NO SOLO BLOCK_WATER.
+        //
+        // BUG QUE ESTO CORRIGE: el jugador podia seleccionar y ROMPER los
+        // niveles de agua -- el agua a medio llenar que deja un derrame al bajar
+        // por un escalon.
+        //
+        // La condicion comprobaba `block != BLOCK_WATER`, y eso era correcto
+        // cuando el agua era un unico ID. Pero el agua con volumen vive en el
+        // espacio de los bloques COMPUESTOS (Compuesto::Agua, familia FAM_AGUA:
+        // el nivel viaja dentro del ID), asi que `Agua::nuevo(3)` no es igual a
+        // BLOCK_WATER y pasaba el filtro como si fuera terreno solido.
+        //
+        // El resultado era que apuntando a un charco se seleccionaba el agua en
+        // vez del suelo de debajo, y al picar se "rompia" -- algo que no tiene
+        // sentido y ademas descuadra el balance del fluido, que esta construido
+        // sobre que el agua no se crea ni se destruye, solo se reparte.
+        //
+        // `esAguaCualquiera` es el predicado que el motor ya usa en el mesher y
+        // en la fisica para esto mismo: reconoce las dos formas.
+        if (block != BLOCK_AIR && !esAguaCualquiera(block)) {
             // ============================================================
             // SELECCION ADAPTADA A LA FORMA DEL BLOQUE
             // ============================================================
@@ -39201,6 +39273,9 @@ int main() {
                 // ⭐ Persistir el modo para el resto de la partida (lo consulta
                 // la tecla V para permitir o bloquear el vuelo).
                 g_gameState->currentGameMode = gameMode;
+                // Y la copia global, que es la que puede leer la fisica del
+                // jugador (definida mucho mas arriba que GameState).
+                g_modoJuegoActual = gameMode;
 
                 if (gameMode == 1) {  // 1 = Creative
                     std::cout << "🎨 Modo CREATIVO: Llenando inventario con todos los bloques..." << std::endl;
@@ -39396,6 +39471,47 @@ int main() {
                     g_gameState->inventoryOpen = false;
                 }
 
+                // ============================================================
+                // ⭐ ESTADO LIMPIO AL ENTRAR A UN MUNDO
+                // ============================================================
+                // BUG QUE ESTO CORRIGE: sales de un mundo creativo VOLANDO,
+                // creas uno nuevo en supervivencia, y el jugador sigue volando.
+                //
+                // `GameState` es un objeto de la APLICACION, no de la partida:
+                // sobrevive a salir al menu y entrar a otro mundo. Todo lo que
+                // se quede escrito ahi se hereda. Y el vuelo es el caso mas
+                // visible, pero no el unico: la velocidad, el estado de nado,
+                // la escalera o el temporizador del doble toque de W venian
+                // igual del mundo anterior.
+                //
+                // Se limpia TODO lo que es estado de partida, no de aplicacion.
+                // Lo que de verdad pertenece al mundo --posicion, inventario--
+                // ya lo carga loadWorldData; esto es lo transitorio que nadie
+                // reseteaba.
+                {
+                    Player& pj = g_gameState->player;
+
+                    // El vuelo NUNCA se hereda. Y si el mundo es de
+                    // supervivencia, ademas no puede activarse (ver la tecla V).
+                    pj.isFlying = false;
+
+                    // El movimiento arrastrado del mundo anterior producia un
+                    // "empujon" al aparecer en el nuevo.
+                    pj.velocity = Vec3(0, 0, 0);
+                    pj.isUnderwater = false;
+                    pj.isInWater = false;
+                    pj.onGround = false;
+
+                    // Y el controlador de fisica, que lleva su propia copia:
+                    // si no se sincroniza, vuelve a poner el vuelo en el
+                    // siguiente frame (ver syncControllerFromPlayer).
+                    if (g_playerController) {
+                        g_playerController->setFlying(false);
+                        g_playerController->getState().velocity =
+                            PlayerSys::MoveVec3(0, 0, 0);
+                    }
+                }
+
                 g_gameState->screenState = SCREEN_IN_GAME;
                 g_gameState->isLoading = false;
                 g_gameState->cursorLocked = true;
@@ -39404,7 +39520,15 @@ int main() {
         }
         else if (g_gameState->screenState == SCREEN_IN_GAME) {
             // ⭐⭐⭐ NUEVO: Tracking de tiempo de sesión para level.dat
-            g_gameState->currentSessionTime += deltaTime;
+            //
+            // ⚠️ NO CUENTA EN PAUSA. El tiempo de sesion es "cuanto ha jugado
+            // esta persona", y estar en el menu de pausa no es jugar. Sin esta
+            // guarda, dejar el juego pausado una noche sumaba ocho horas al
+            // contador -- y ese contador alimenta la barra de vida (un corazon
+            // por hora jugada) y la maduracion de las tunas.
+            if (!g_gameState->isPaused) {
+                g_gameState->currentSessionTime += deltaTime;
+            }
             // Asegurar que el cursor esté bloqueado cuando jugamos
             if (!g_gameState->cursorLocked && !g_gameState->isPaused && !g_gameState->inventoryOpen) {
                 g_gameState->cursorLocked = true;
@@ -39851,6 +39975,10 @@ int main() {
                 // se carga por mundo, asi que cada partida lleva su hora.
                 if (deltaTime > 0.0f && deltaTime <= 1.0f) {
                     g_horaDelMundoSegundos += (double)deltaTime;
+                    // El reloj de las animaciones va aqui mismo, dentro de la
+                    // guarda de pausa: es lo que hace que el agua se pare con
+                    // el resto del mundo.
+                    g_relojMundo += (double)deltaTime;
                 }
 
                 // El contador de tiempo JUGADO (corazones, maduracion de las

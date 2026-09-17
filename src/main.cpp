@@ -7088,8 +7088,19 @@ struct Chunk {
         // O sea: dos nombres de buffer reservados en el driver por cada batch,
         // con ~1.000 batches por frame, para no contener nada. Quitarlos elimina
         // dos glGenBuffers y dos glDeleteBuffers por batch en cada remallado.
-        GLuint vbo;
-        int vertexCount;
+        // ⭐ YA NO HAY UN BUFFER POR BATCH: HAY UNO POR CHUNK.
+        //
+        // Medido en esta maquina: el pase opaco costaba 9 µs por batch, y no
+        // eran los binds de textura (agruparlos o no solo movia 0,8 ms de
+        // 4,4). Eran las ~8 llamadas al driver que hacen glBindBuffer +
+        // glInterleavedArrays, que hay que repetir EN CADA batch porque los
+        // punteros de vertice cuelgan del buffer que este atado al llamarlos.
+        //
+        // Con toda la geometria del chunk en un solo buffer, esas 8 llamadas
+        // se pagan una vez por chunk (35 veces) en lugar de una por batch
+        // (401). El batch pasa a ser un RANGO dentro de ese buffer.
+        int primerVertice;   // primer vertice del rango, dentro del VBO del chunk
+        int vertexCount;     // cuantos vertices ocupa
         GLuint texture;
 
         // ⭐ ¿Este batch es agua/lava (se dibuja en el pase con blending)?
@@ -7118,15 +7129,29 @@ struct Chunk {
         // en todo el terreno.
         bool recortado;
 
-        TextureBatch() : vbo(0), vertexCount(0), texture(0),
+        TextureBatch() : primerVertice(0), vertexCount(0), texture(0),
                          transparente(false), recortado(false) {}
 
-        ~TextureBatch() {
-            if (vbo) glDeleteBuffers(1, &vbo);
-        }
+        // Sin destructor: un batch ya no posee ningun recurso de OpenGL. El
+        // buffer es del chunk (vboUnico) y lo libera el.
     };
 
-    std::vector<TextureBatch*> batches;  // Un batch por cada textura usada
+    std::vector<TextureBatch*> batches;  // Un rango por cada textura usada
+
+    // El buffer con TODA la geometria del chunk. 0 = todavia no hay malla.
+    // Solo lo tocan el hilo principal y solo con contexto de GL.
+    GLuint vboUnico = 0;
+
+    // Suelta la malla del chunk: los rangos y el buffer de la GPU.
+    // Tiene que llamarse desde el hilo principal (borra un buffer de GL).
+    void liberarMalla() {
+        for (auto* b : batches) delete b;
+        batches.clear();
+        if (vboUnico) {
+            glDeleteBuffers(1, &vboUnico);
+            vboUnico = 0;
+        }
+    }
 
     bool needsRebuild;
     bool isGenerated;
@@ -7252,11 +7277,8 @@ struct Chunk {
     }
 
     ~Chunk() {
-        // VBO CLEANUP: Liberar todos los batches
-        for (auto batch : batches) {
-            delete batch;
-        }
-        batches.clear();
+        // VBO CLEANUP: los rangos y el buffer del chunk
+        liberarMalla();
     }
 
     // ⭐⭐⭐ OPTIMIZADO: Usar subchunks con paletas
@@ -8877,6 +8899,17 @@ static std::atomic<long long> g_usMalladoWorker{0};
 static std::atomic<int>       g_nMalladoWorker{0};
 // Y su reparto por fase (microsegundos acumulados): pasada por celda
 // (sprites, plantas, niveles), greedy, y empaquetado + entrelazado.
+// Reparto de World::render por fases (microsegundos acumulados). Solo lo
+// escribe el hilo principal, pero se declaran aqui junto al resto.
+// Cuantas mallas se subieron a la GPU en el frame en curso. Lo usa el aviso
+// de frame lento para saber si el tiron coincide con una subida.
+static int g_subidasEsteFrame = 0;
+static size_t g_bytesSubidosEsteFrame = 0;
+
+static long long g_usRenderCull = 0, g_usRenderOrden = 0,
+                 g_usRenderPase1 = 0, g_usRenderPase2 = 0;
+static long long g_nRenderFrames = 0;
+
 static std::atomic<long long> g_usMallaCeldas{0};
 static std::atomic<long long> g_usMallaGreedy{0};
 static std::atomic<long long> g_usMallaEmpaque{0};
@@ -9989,7 +10022,7 @@ public:
         //
         // VOXELWORLD_HOJAS=0 desactiva el refresco: el follaje se queda quieto
         // y el remallado por movimiento no ocurre. Existe por el mismo motivo
-        // que VOXELWORLD_AGRUPAR en World::render -- comparar dos versiones
+        // que VOXELWORLD_COSTURA -- comparar dos versiones
         // recompilando da numeros que no se pueden comparar, porque el jugador
         // acaba en sitios distintos y la carga cambia por completo. Con el
         // interruptor, las dos rutas se miden en la MISMA sesion.
@@ -10590,7 +10623,7 @@ private:
     // remallar.
     bool coserLuzEntre(Chunk* a, Chunk* b, int dx, int dz) {
         // ⭐ Interruptor para medir el coste de la costura, por el mismo motivo
-        // que VOXELWORLD_AGRUPAR en World::render: comparar dos versiones
+        // que VOXELWORLD_HOJAS: comparar dos versiones
         // recompilando da numeros que no se pueden comparar, porque el jugador
         // acaba en sitios distintos. Con esto las dos rutas se miden en la
         // MISMA sesion y sobre la misma vista.
@@ -11097,14 +11130,11 @@ private:
             //
             // Con un solo dueño esa ventana desaparece. `delete batch` basta.
             if (chunkPool.size() < CHUNK_POOL_SIZE) {
-                for (auto batch : chunk->batches) delete batch;
-                chunk->batches.clear();
-
+                chunk->liberarMalla();
                 chunkPool.push_back(chunk);
             } else {
                 // Si el pool está lleno, eliminar el chunk
-                for (auto batch : chunk->batches) delete batch;
-                chunk->batches.clear();
+                chunk->liberarMalla();
                 delete chunk;
             }
         } catch (const std::exception& e) {
@@ -11244,10 +11274,36 @@ public:
     // su presupuesto de siempre. Es lo que evita que un cambio de distancia
     // produzca justo el tiron que se intenta evitar.
     bool ajustarDistancia(int nueva) {
+        // Clavada para medir: ni el regulador ni nadie la mueve. Se comprueba
+        // AQUI porque es el unico sitio por el que pasan tanto el que sube
+        // como el que baja (ver distanciaClavada).
+        if (distanciaClavada) return false;
         const int d = Render::acotarDistancia(nueva);
         if (d == RENDER_DISTANCE) return false;
         RENDER_DISTANCE = d;
         return true;
+    }
+
+    // ⭐ DISTANCIA CLAVADA, SOLO PARA MEDIR
+    //
+    // El regulador automatico reparte el rendimiento que sobra en ver mas
+    // lejos, y eso IMPIDE comparar dos versiones: una version mas rapida
+    // acaba dibujando mas mundo, y el frame vuelve a costar lo mismo. Medido
+    // de verdad: el mismo mundo y la misma vista daban 35 chunks y 288.000
+    // caras con una version y 59 chunks y 643.000 con la siguiente, solo
+    // porque la segunda aguantaba distancia 7 donde la primera cayo a 5.
+    //
+    // Con esto clavada, las dos versiones dibujan LO MISMO y la diferencia
+    // que salga es del codigo. No afecta al juego normal: sin la variable
+    // puesta, el regulador manda como siempre.
+    bool distanciaClavada = false;
+
+    // Clava la distancia en `d`. Se llama desde el arranque de bench con
+    // VOXELWORLD_BENCH_DISTANCIA.
+    void clavarDistancia(int d) {
+        distanciaClavada = false;          // para que ajustarDistancia deje
+        ajustarDistancia(d);
+        distanciaClavada = true;
     }
 
     // ⭐ HASTA DONDE PUEDE SUBIR EL REGULADOR AUTOMATICO.
@@ -16574,10 +16630,7 @@ public:
             }
 
             // Camino sincrono: aqui SI estamos en el hilo principal.
-            for (auto batch : chunk->batches) {
-                if (batch) delete batch;
-            }
-            chunk->batches.clear();
+            chunk->liberarMalla();
             chunk->needsRebuild = false;
             chunk->waitingForNeighbors = false;
             // El candado lo suelta el guard al salir (ver GuardMallado).
@@ -23034,6 +23087,12 @@ public:
         // nueva esta lista. Sin esto se veria parpadear.
         std::vector<Chunk::TextureBatch*> newBatches;
 
+        // Toda la geometria del chunk, concatenada, para subirla de una vez.
+        // static: el buffer se reutiliza entre chunks y deja de reservar
+        // memoria en cada malla integrada (esto es hilo principal, uno solo).
+        static std::vector<uint8_t> bytesChunk;
+        bytesChunk.clear();
+
         for (Render::BatchCPU& src : mallaCPU.batches) {
             const GLuint texture = (GLuint)src.textura;
 
@@ -23053,49 +23112,82 @@ public:
             }
             const size_t expectedVertCount = src.numVertices();
 
-            // Crear nuevo batch
+            // Crear nuevo batch: de momento solo el rango, el buffer va luego.
             Chunk::TextureBatch* batch = new Chunk::TextureBatch();
             batch->texture = texture;
             batch->vertexCount = (int)expectedVertCount;
+            batch->primerVertice = (int)(bytesChunk.size() / Render::BatchCPU::BYTES_POR_VERTICE);
             // Las marcas viajan YA resueltas dentro del batch de CPU, en vez
             // de volver a consultar los sets aqui. Asi el dato de "en que pase
             // se dibuja esto" se decide una sola vez, del lado del mallado.
             batch->transparente = src.transparente;
             batch->recortado    = src.recortado;
 
-            // Generar el VBO de este batch (uno solo: el entrelazado)
-            glGenBuffers(1, &batch->vbo);
-
-            // VALIDACIÓN CRÍTICA: Verificar que el VBO se creó exitosamente.
-            // Si es inválido (0), NO agregar este batch corrupto.
-            if (batch->vbo == 0) {
-                delete batch;   // el destructor no libera nada: vbo es 0
-                continue;
-            }
-
-            // ================================================================
-            // UN SOLO BUFFER ENTRELAZADO (UV + color + posicion por vertice)
-            // ================================================================
-            // Antes eran TRES buffers separados, y dibujar un batch costaba
-            // seis llamadas a OpenGL. Entrelazados, dibujar es UN bind + UNA
-            // llamada que coloca los tres punteros de golpe.
-            //
-            // El formato es GL_T2F_C4UB_V3F: 24 bytes por vertice. Antes era
-            // T2F_C4F_N3F_V3F, 48 bytes, de los que 12 eran una normal fija
-            // que nadie leia (no hay GL_LIGHTING) y 16 un color en floats
-            // para guardar 4 valores de 0 a 1. En una grafica integrada, que
-            // comparte el ancho de banda con la CPU, la mitad de bytes por
-            // vertice es la mitad de trafico por frame con las mismas caras.
-            //
-            // Los bytes vienen ya montados en `src.entrelazado` (ver
-            // BatchCPU::entrelazar): aqui solo se suben.
-            glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-            glBufferData(GL_ARRAY_BUFFER,
-                         (ptrdiff_t)src.entrelazado.size(),
-                         src.entrelazado.data(), GL_STATIC_DRAW);
+            bytesChunk.insert(bytesChunk.end(),
+                              src.entrelazado.begin(), src.entrelazado.end());
 
             // Agregar batch a la lista temporal (NO a chunk->batches todavía)
             newBatches.push_back(batch);
+        }
+
+        // ====================================================================
+        // UN SOLO BUFFER ENTRELAZADO PARA TODO EL CHUNK
+        // ====================================================================
+        // El formato es GL_T2F_C4UB_V3F: 24 bytes por vertice. Antes era
+        // T2F_C4F_N3F_V3F, 48 bytes, de los que 12 eran una normal fija que
+        // nadie leia (no hay GL_LIGHTING) y 16 un color en floats para
+        // guardar 4 valores de 0 a 1.
+        //
+        // Y antes habia un buffer POR BATCH. Ahora hay uno por CHUNK y cada
+        // batch es un rango dentro de el: dibujar deja de repetir
+        // glBindBuffer + glInterleavedArrays en cada batch (ver la nota de
+        // TextureBatch). Los bytes vienen ya montados desde el worker.
+        //
+        // El orden de los rangos se decide AQUI, una vez, y no en cada frame:
+        // primero los macizos y luego los recortados (asi el pase opaco
+        // enciende el test de alfa una sola vez por chunk), y dentro de cada
+        // grupo por textura, para que los binds se agrupen.
+        std::sort(newBatches.begin(), newBatches.end(),
+                  [](const Chunk::TextureBatch* a, const Chunk::TextureBatch* b) {
+                      if (a->recortado != b->recortado) return !a->recortado;
+                      return a->texture < b->texture;
+                  });
+
+        // ⭐ EL BUFFER DEL CHUNK SE REUTILIZA; NO SE CREA Y DESTRUYE.
+        //
+        // Crear uno nuevo y borrar el viejo en cada remallado costaba un
+        // PARON DE ~185 ms, medido: el driver no puede liberar un buffer que
+        // la GPU quiza siga leyendo del frame anterior, asi que se sincroniza
+        // -- y con la geometria del chunk entera en un solo buffer de ~800 KB
+        // el paron se nota mucho mas que cuando eran once de 70 KB.
+        //
+        // Llamar a glBufferData sobre el MISMO nombre es la receta clasica
+        // ("orphaning"): el driver aparta el contenido viejo, lo recicla
+        // cuando la GPU termine con el, y entrega sitio nuevo al momento. Sin
+        // esperas y sin crear ni destruir nombres.
+        //
+        // Ojo: esto pisa el contenido que los rangos VIEJOS estaban usando.
+        // Es seguro porque el cambio de rangos ocurre unas lineas mas abajo,
+        // en esta misma funcion y en el mismo hilo, antes de que se dibuje
+        // nada: nadie llega a ver el buffer nuevo con los rangos viejos.
+        GLuint nuevoVbo = chunk->vboUnico;
+        if (!bytesChunk.empty()) {
+            if (nuevoVbo == 0) {
+                glGenBuffers(1, &nuevoVbo);
+                if (nuevoVbo == 0) {
+                    // Sin buffer no hay nada que dibujar: se descarta la malla
+                    // nueva y el chunk conserva la que tenia.
+                    for (auto* b : newBatches) delete b;
+                    guardCandado.entregar();
+                    return;
+                }
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, nuevoVbo);
+            glBufferData(GL_ARRAY_BUFFER,
+                         (ptrdiff_t)bytesChunk.size(),
+                         bytesChunk.data(), GL_STATIC_DRAW);
+            ++g_subidasEsteFrame;
+            g_bytesSubidosEsteFrame += bytesChunk.size();
         }
 
         // Desbindear
@@ -23106,9 +23198,14 @@ public:
         // SOLUCIÓN: Mantener isUpdatingMesh = true hasta DESPUÉS del swap completo
         chunk->isUpdatingMesh.store(true, std::memory_order_release);
 
-        // Hacer swap de batches (PROTEGIDO por isUpdatingMesh)
+        // Hacer swap de batches Y del buffer (PROTEGIDO por isUpdatingMesh).
+        // Los dos cambian juntos: un rango solo significa algo dentro de su
+        // propio buffer, asi que dejarlos desparejados aunque sea un instante
+        // dibujaria geometria de otra malla.
         auto oldBatches = chunk->batches;
+        const GLuint oldVbo = chunk->vboUnico;
         chunk->batches = newBatches;
+        chunk->vboUnico = nuevoVbo;
 
         // ⭐ CRÍTICO: Usar memory fence para garantizar que el swap es visible
         std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -23125,11 +23222,15 @@ public:
         // sabria cual manda. Con esto hay uno solo en cada tramo.
         guardCandado.entregar();
 
-        // ⭐⭐⭐ Limpiar batches viejos DESPUÉS del swap (ya no se están usando)
-        // El destructor de TextureBatch libera el VBO; no se toca aqui para no
-        // borrar dos veces el mismo nombre (ver la nota de deallocateChunk).
+        // ⭐⭐⭐ Limpiar la malla vieja DESPUÉS del swap (ya no se usa).
+        // Un batch ya no posee nada de OpenGL: el buffer era uno solo, el del
+        // chunk, y se borra aqui una vez.
         try {
             for (auto batch : oldBatches) delete batch;
+            // El buffer solo se borra si de verdad se cambio por otro. En el
+            // caso normal se reutiliza el mismo nombre (ver el orphaning de
+            // arriba) y borrarlo aqui destruiria la malla recien subida.
+            if (oldVbo && oldVbo != chunk->vboUnico) glDeleteBuffers(1, &oldVbo);
         } catch (...) {
             std::cerr << "⚠️ Error al limpiar batches viejos" << std::endl;
         }
@@ -24488,6 +24589,10 @@ public:
 
     void render(const Vec3& playerPos = Vec3(0, 0, 0)) {
         PROFILE_SCOPE("World::render");
+        // ⭐ Reparto de `render` por fases, para no optimizar a ciegas.
+        // Se acumula en microsegundos y sale en el log [GPU].
+        const auto tRenderIni = std::chrono::steady_clock::now();
+        auto tCull = tRenderIni, tOrden = tRenderIni, tPase1 = tRenderIni;
         // ⭐ Invalidar el caché de bind al empezar el frame.
         //
         // El caché es una optimización válida DENTRO de un pase de render,
@@ -24758,6 +24863,8 @@ public:
             }
         }
 
+        tCull = std::chrono::steady_clock::now();
+
         // ⭐ OPTIMIZACIÓN: Ordenar chunks por distancia (más cercanos primero)
         // Esto mejora la coherencia de caché y el early Z-testing
         std::sort(visibleChunks.begin(), visibleChunks.end(),
@@ -24778,6 +24885,8 @@ public:
         double currentTime = glfwGetTime();
         float waterOffsetU = (float)fmod(currentTime * 0.05, 1.0); // Scroll horizontal lento
         float waterOffsetV = (float)fmod(currentTime * 0.03, 1.0); // Scroll vertical más lento
+
+        tOrden = std::chrono::steady_clock::now();
 
         // ⭐⭐⭐ PASE 1: RENDERIZAR BLOQUES OPACOS (sin blending) ⭐⭐⭐
         glDisable(GL_BLEND);
@@ -24838,111 +24947,84 @@ public:
         //
         // El vector es static para no reservar memoria en cada frame; se vacia
         // con clear(), que conserva la capacidad ya reservada.
+        // ====================================================================
+        // ⭐ SE RECORRE POR CHUNK, NO POR TEXTURA
+        // ====================================================================
+        // Antes se juntaban todos los batches opacos de todos los chunks y se
+        // ordenaban por textura, para que el bind de textura cambiara ~20
+        // veces en vez de 400. Medido en esta maquina, eso valia 0,8 ms de
+        // los 4,4 que costaba el pase.
+        //
+        // Pero los otros 3,6 ms eran las ~8 llamadas al driver de
+        // glBindBuffer + glInterleavedArrays que HABIA QUE REPETIR EN CADA
+        // BATCH, porque cada uno tenia su propio buffer y los punteros de
+        // vertice cuelgan del buffer atado al llamarlos.
+        //
+        // Ahora la geometria de un chunk vive en un solo buffer, asi que esas
+        // llamadas se pagan una vez por chunk. El precio es volver a cambiar
+        // de textura mas a menudo (cada chunk recorre las suyas), y sale muy
+        // a cuenta: un bind de textura cuesta ~2 µs y el par
+        // bind+punteros ~7 µs.
+        //
+        // El orden dentro del chunk (macizos antes que recortados, y por
+        // textura) ya viene dado desde subirMallaAGPU, hecho una sola vez al
+        // integrar la malla en vez de en cada frame.
+        //
+        // El early-Z sale mejor parado que antes: los chunks ya vienen
+        // ordenados de cerca a lejos y ahora ese orden se respeta entero, en
+        // vez de perderse al reagrupar por textura.
         {
-            // ⭐ Interruptor para comparar A/B sin recompilar.
-            //
-            // VOXELWORLD_AGRUPAR=0 vuelve al recorrido por chunk. Existe
-            // porque medir "antes y despues" recompilando da numeros que no
-            // se pueden comparar: el jugador acaba en sitios distintos y la
-            // carga cambia (se han visto de 250k a 460k caras entre dos
-            // arranques). Con el interruptor, las dos rutas se miden en la
-            // MISMA sesion y sobre la misma vista.
-            static const bool agrupar = []{
-                const char* v = getenv("VOXELWORLD_AGRUPAR");
-                return !(v && v[0] == '0');
-            }();
-
-            // Chunk::TextureBatch, cualificado: el tipo esta anidado en Chunk
-            // y aqui estamos en World, asi que sin el prefijo no se resuelve.
-            //
-            // ⭐ SE GUARDA LA DISTANCIA JUNTO AL BATCH.
-            //
-            // Hace falta para el desempate de abajo, y no se puede recuperar
-            // despues: un TextureBatch no sabe de que chunk salio.
-            struct OpacoOrdenable {
-                Chunk::TextureBatch* batch;
-                float distSq;
-            };
-            static std::vector<OpacoOrdenable> opacosPorTextura;
-            opacosPorTextura.clear();
-
+            const bool hayVBO = (glBindBuffer != nullptr);
             for (const auto& info : visibleChunks) {
-                for (auto* batch : info.chunk->batches) {
+                Chunk* c = info.chunk;
+                if (!hayVBO || c->vboUnico == 0 || c->batches.empty()) continue;
+
+                bool bufferAtado = false;
+                for (auto* batch : c->batches) {
                     if (!batch) continue;
                     if (batch->transparente) { batchesVacios++; continue; }
-                    opacosPorTextura.push_back({ batch, info.distanceSquared });
+
+                    // ⭐ VALIDACION EXHAUSTIVA: Detectar batches corruptos
+                    if (batch->vertexCount == 0 ||
+                        batch->vertexCount > 1000000) continue;
+                    if (batch->vertexCount % 4 != 0) {
+                        std::cerr << "⚠️ BATCH CORRUPTO: vertexCount no es múltiplo de 4: "
+                                  << batch->vertexCount << std::endl;
+                        continue;
+                    }
+                    if (batch->texture == 0) {
+                        std::cerr << "⚠️ BATCH CORRUPTO: textura nula" << std::endl;
+                        continue;
+                    }
+
+                    // El buffer y los punteros, UNA vez por chunk, y solo si
+                    // de verdad hay algo opaco que dibujar.
+                    if (!bufferAtado) {
+                        glBindBuffer(GL_ARRAY_BUFFER, c->vboUnico);
+                        glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
+                        bufferAtado = true;
+                    }
+
+                    // El recorte por alfa, solo donde hace falta (ver la nota
+                    // de mas arriba). Con el orden de los rangos, esto cambia
+                    // como mucho una vez por chunk.
+                    if (batch->recortado != alphaTestActivo) {
+                        if (batch->recortado) glEnable(GL_ALPHA_TEST);
+                        else                  glDisable(GL_ALPHA_TEST);
+                        alphaTestActivo = batch->recortado;
+                    }
+
+                    g_textureManager->bindOptimized(batch->texture);
+
+                    glDrawArrays(GL_QUADS, batch->primerVertice, batch->vertexCount);
+
+                    facesRendered += batch->vertexCount / 4;
+                    batchesRendered++;
                 }
-            }
-
-            // Ordenar por (recortado, textura, DISTANCIA): agrupa los dos
-            // cambios de estado que cuestan, y dentro de cada grupo dibuja de
-            // cerca a lejos.
-            //
-            // ⭐ EL TERCER CRITERIO ES NUEVO, Y RECUPERA EL EARLY-Z.
-            //
-            // `visibleChunks` se ordena front-to-back unas lineas mas arriba
-            // ("mejora la coherencia de cache y el early Z-testing"), pero esa
-            // ordenacion se PERDIA aqui: al reagrupar por textura, los batches
-            // de una misma textura quedaban en orden arbitrario de distancia.
-            //
-            // Eso importa porque el early-Z de la GPU descarta un fragmento
-            // antes de texturizarlo solo si el z-buffer YA tiene algo delante.
-            // Dibujando de lejos a cerca, cada pared pintada se sobrescribe
-            // luego por la que tiene delante: se paga el sombreado de pixeles
-            // que acaban tapados. Con 358.000 caras a la vista y el frame
-            // dominado por `swap` (la GPU terminando de dibujar), es justo el
-            // trabajo que sobra.
-            //
-            // Se desempata DENTRO del grupo de textura, asi que no cuesta ni un
-            // bind extra: el numero de cambios de estado es exactamente el
-            // mismo que antes. Es ordenacion gratis.
-            if (agrupar) {
-                std::sort(opacosPorTextura.begin(), opacosPorTextura.end(),
-                    [](const OpacoOrdenable& a, const OpacoOrdenable& b) {
-                        if (a.batch->recortado != b.batch->recortado)
-                            return !a.batch->recortado;   // primero los macizos
-                        if (a.batch->texture != b.batch->texture)
-                            return a.batch->texture < b.batch->texture;
-                        return a.distSq < b.distSq;       // cerca -> lejos
-                    });
-            }
-
-            for (const auto& op : opacosPorTextura) {
-                Chunk::TextureBatch* batch = op.batch;
-                // ⭐ VALIDACION EXHAUSTIVA: Detectar batches corruptos
-                if (batch->vbo == 0) continue;
-                if (batch->vertexCount == 0 ||
-                    batch->vertexCount > 1000000) continue;
-                if (batch->vertexCount % 4 != 0) {
-                    std::cerr << "⚠️ BATCH CORRUPTO: vertexCount no es múltiplo de 4: "
-                              << batch->vertexCount << std::endl;
-                    continue;
-                }
-                if (batch->texture == 0) {
-                    std::cerr << "⚠️ BATCH CORRUPTO: textura nula" << std::endl;
-                    continue;
-                }
-
-                // El recorte por alfa, solo donde hace falta (ver la nota de
-                // mas arriba). Con el orden nuevo esto cambia UNA vez.
-                if (batch->recortado != alphaTestActivo) {
-                    if (batch->recortado) glEnable(GL_ALPHA_TEST);
-                    else                  glDisable(GL_ALPHA_TEST);
-                    alphaTestActivo = batch->recortado;
-                }
-
-                g_textureManager->bindOptimized(batch->texture);
-
-                if (!glBindBuffer) continue;
-
-                glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
-                glDrawArrays(GL_QUADS, 0, batch->vertexCount);
-
-                facesRendered += batch->vertexCount / 4;
-                batchesRendered++;
             }
         }
+
+        tPase1 = std::chrono::steady_clock::now();
 
         // ⭐⭐⭐ PASE 2: RENDERIZAR BLOQUES TRANSPARENTES (agua con blending) ⭐⭐⭐
         glEnable(GL_BLEND);
@@ -24993,7 +25075,11 @@ public:
             glMatrixMode(GL_MODELVIEW);
 
             for (auto it = visibleChunks.rbegin(); hayVBO && it != visibleChunks.rend(); ++it) {
-                for (auto* batch : it->chunk->batches) {
+                Chunk* c = it->chunk;
+                if (c->vboUnico == 0) continue;
+
+                bool bufferAtado = false;
+                for (auto* batch : c->batches) {
                     if (!batch) continue;
 
                     // ⭐ PASE 2: solo el agua/lava (marca del mesh, no comparar
@@ -25001,16 +25087,20 @@ public:
                     if (!batch->transparente) continue;
 
                     // ⭐⭐⭐ VALIDACIÓN EXHAUSTIVA: Detectar batches corruptos
-                    if (batch->vbo == 0) continue;
                     if (batch->vertexCount == 0 || batch->vertexCount > 1000000) continue;
                     if (batch->vertexCount % 4 != 0) continue;
                     if (batch->texture == 0) continue;
 
+                    // El buffer del chunk, una vez y solo si hay agua.
+                    if (!bufferAtado) {
+                        glBindBuffer(GL_ARRAY_BUFFER, c->vboUnico);
+                        glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
+                        bufferAtado = true;
+                    }
+
                     g_textureManager->bindOptimized(batch->texture);
 
-                    glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                    glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
-                    glDrawArrays(GL_QUADS, 0, batch->vertexCount);
+                    glDrawArrays(GL_QUADS, batch->primerVertice, batch->vertexCount);
 
                     facesRendered += batch->vertexCount / 4;
                     batchesRendered++;
@@ -25022,6 +25112,17 @@ public:
             glMatrixMode(GL_MODELVIEW);
         }
 
+        // Reparto de esta llamada a render(), en microsegundos.
+        {
+            using us = std::chrono::microseconds;
+            const auto fin = std::chrono::steady_clock::now();
+            g_usRenderCull  += std::chrono::duration_cast<us>(tCull  - tRenderIni).count();
+            g_usRenderOrden += std::chrono::duration_cast<us>(tOrden - tCull).count();
+            g_usRenderPase1 += std::chrono::duration_cast<us>(tPase1 - tOrden).count();
+            g_usRenderPase2 += std::chrono::duration_cast<us>(fin    - tPase1).count();
+            g_nRenderFrames++;
+        }
+
         // Restaurar depth write
         glDepthMask(GL_TRUE);
 
@@ -25029,10 +25130,10 @@ public:
         glDisableClientState(GL_VERTEX_ARRAY);
         glDisableClientState(GL_COLOR_ARRAY);
         glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-        // ⭐ glInterleavedArrays enciende TAMBIEN el array de normales (el
-        // formato lo incluye) y nadie mas lo apaga. Si se queda encendido, todo
-        // lo que se dibuje despues -- el HUD, la mano, los menus -- arrastraria
-        // un puntero de normales que ya no apunta a nada valido.
+        // ⭐ El formato de ahora (T2F_C4UB_V3F) ya no lleva normales, pero se
+        // apaga igual: el formato anterior SI las encendia, y una partida que
+        // venga de ese camino dejaria el puntero puesto apuntando a nada. Es
+        // una llamada por frame y cierra la puerta del todo.
         glDisableClientState(GL_NORMAL_ARRAY);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glDisable(GL_TEXTURE_2D);
@@ -25054,7 +25155,18 @@ public:
                           << " culled=" << chunksCulled
                           << " batches=" << batchesRendered
                           << " vacios=" << batchesVacios
-                          << " caras=" << facesRendered << std::endl;
+                          << " caras=" << facesRendered;
+                if (g_nRenderFrames > 0) {
+                    const double n = (double)g_nRenderFrames;
+                    std::cout << " | render(ms): cull=" << (g_usRenderCull / 1000.0 / n)
+                              << " orden=" << (g_usRenderOrden / 1000.0 / n)
+                              << " opaco=" << (g_usRenderPase1 / 1000.0 / n)
+                              << " agua=" << (g_usRenderPase2 / 1000.0 / n);
+                    g_usRenderCull = g_usRenderOrden = 0;
+                    g_usRenderPase1 = g_usRenderPase2 = 0;
+                    g_nRenderFrames = 0;
+                }
+                std::cout << std::endl;
 
                 // ============================================================
                 // ⭐ CENSO DE ESTADOS Y FRAME PACING (§61, §62)
@@ -37702,6 +37814,17 @@ int main() {
     {
         const char* glRenderer = (const char*)glGetString(GL_RENDERER);
         const char* glVendor   = (const char*)glGetString(GL_VENDOR);
+        // La version real que entrega el driver (se pide 2.1, pero en
+        // compatibilidad suele darse la mas alta que soporta). Decide si hay
+        // sitio para shaders y texturas en array.
+        {
+            const char* v = (const char*)glGetString(GL_VERSION);
+            // 0x8B8C = GL_SHADING_LANGUAGE_VERSION. El gl.h de Windows se
+            // quedo en OpenGL 1.1 y no declara la constante.
+            const char* s = (const char*)glGetString(0x8B8C);
+            std::cout << "[GL] version=" << (v ? v : "?")
+                      << " glsl=" << (s ? s : "?") << std::endl;
+        }
 
         // RAM del sistema, en MB. Si la consulta falla se pasa 0 y el
         // clasificador lo trata como "no se sabe" (o sea, prudente).
@@ -38091,6 +38214,24 @@ int main() {
                 //
                 // Con posicion fija, dos ejecuciones miden la MISMA vista y
                 // la diferencia que salga es del codigo, no del azar.
+                // ⭐ DISTANCIA DE RENDER CLAVADA.
+                //
+                // Sin esto no se pueden comparar dos versiones: el regulador
+                // reparte el rendimiento sobrante en ver mas lejos, asi que
+                // la version mas rapida acaba dibujando MAS mundo y el frame
+                // vuelve a costar igual. Medido: 35 chunks y 288.000 caras
+                // frente a 59 y 643.000, en la misma vista, solo porque una
+                // version aguantaba distancia 7 donde la otra cayo a 5.
+                const char* distStr = getenv("VOXELWORLD_BENCH_DISTANCIA");
+                if (distStr && *distStr) {
+                    const int d = atoi(distStr);
+                    if (d > 0) {
+                        g_gameState->world.clavarDistancia(d);
+                        std::cout << "[BENCH] Distancia de render clavada en "
+                                  << d << std::endl;
+                    }
+                }
+
                 const char* posStr = getenv("VOXELWORLD_BENCH_POS");
                 if (posStr && *posStr) {
                     float bx = 0, by = 0, bz = 0, byaw = 0, bpitch = 0;
@@ -38286,6 +38427,25 @@ int main() {
                 static double peorFis = 0.0, peorChunks = 0.0,
                               peorRender = 0.0, peorSwap = 0.0;
                 const double dt = (double)frameDuration / 1000.0;
+
+                // ⭐ AVISO DE FRAME LENTO, CON LO QUE PASO EN EL.
+                //
+                // "peorFrame=185ms" no dice de que fue. Esto imprime el
+                // reparto del frame culpable y si coincidio con subir mallas
+                // a la GPU, que es la sospecha habitual.
+                if (dt > 0.1) {
+                    std::cout << "[LENTO] " << (int)(dt * 1000.0) << "ms"
+                              << " fis=" << physics_ms
+                              << " chunks=" << chunks_ms
+                              << " render=" << render_ms
+                              << " swap=" << swap_ms
+                              << " | subidas=" << g_subidasEsteFrame
+                              << " KB=" << (g_bytesSubidosEsteFrame / 1024)
+                              << std::endl;
+                }
+                g_subidasEsteFrame = 0;
+                g_bytesSubidosEsteFrame = 0;
+
                 if (dt > 0.0) {
                     ++fpsFrames;
                     fpsAcum += dt;

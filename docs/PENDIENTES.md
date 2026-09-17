@@ -271,22 +271,66 @@ a **19-25 ms**, repartido así: celdas 8,0 → 5,6-7,9 · greedy 19,9 →
 - **`capturarBorde` también se corta en el techo** de cada vecino: de 65.000
   lecturas por chunk encolado a unas 13.000, y en el hilo principal.
 
+#### Tercera vuelta: un VBO por chunk (mismo día)
+
+`[GPU]` desglosa ahora `render` en `cull`, `orden`, `opaco` y `agua`, y con
+eso se vio que el pase opaco era el 95 % del coste: **9 µs por batch**.
+
+La sospecha era que fueran los binds de textura, pero el interruptor
+`VOXELWORLD_AGRUPAR` lo desmintió: agrupar por textura o no solo movía 0,8
+de 4,4 ms. Los otros 3,6 eran las ~8 llamadas al driver de `glBindBuffer` +
+`glInterleavedArrays`, que **había que repetir en cada batch** porque cada
+uno tenía su propio buffer y los punteros de vértice cuelgan del buffer
+atado al llamarlos.
+
+Ahora la geometría de un chunk vive en **un solo buffer** y cada batch es un
+rango dentro de él (`primerVertice`), así que esas llamadas se pagan una vez
+por chunk y no una por batch. El pase opaco recorre por chunk en vez de por
+textura; se cambia de textura más a menudo (~2 µs) a cambio de quitar el par
+bind+punteros (~7 µs). El orden de los rangos —macizos antes que recortados,
+y por textura— se decide **una vez al integrar la malla**, no en cada frame.
+El buffer se **reutiliza** en cada remallado (`glBufferData` sobre el mismo
+nombre, *orphaning*) en vez de crearlo y destruirlo.
+
+Con la vista clavada a distancia 5 (411 batches, 302.000 caras), frente a
+402 batches y 288.000 caras de antes:
+
+| | antes | ahora |
+|---|---|---|
+| pase opaco | 3,62-3,70 ms | **1,74-1,91 ms** |
+| `render` total | 4,4-4,8 ms | **2,4-2,9 ms** |
+| µs por batch | 9,0 | **4,5** |
+| FPS | 129-135 | **150-200** |
+
+**Nuevo en el arnés de medida:** `VOXELWORLD_BENCH_DISTANCIA=N` clava la
+distancia de render. Sin ella no se pueden comparar dos versiones: el
+regulador reparte el rendimiento sobrante en ver más lejos, así que la
+versión más rápida dibuja **más mundo** y el frame vuelve a costar igual —
+medido, 35 chunks y 288.000 caras frente a 59 y 643.000 en la misma vista.
+Y `[LENTO]` imprime el reparto de cualquier frame de más de 100 ms, con las
+subidas a GPU que hubo: es lo que demostró que los picos de ~185 ms son del
+menú y la carga inicial, no del régimen estable (peor frame 8-15 ms).
+
 ### Estado y lo que queda
 
-En estado estacionario (408 batches, 295.000 caras): `fis` 0,12 ms ·
-`chunks` 0,45 ms · **`render` 4,0-4,5 ms** · `swap` 1,4-2,0 ms.
+En estado estacionario (411 batches, 302.000 caras, distancia 5): `fis`
+0,11 ms · `chunks` 0,28 ms · **`render` 3,0-3,8 ms** · `swap` 2,2-2,7 ms.
 
-O sea: ahora el cuello es la **CPU del driver en `render`**, ~10 µs por
-batch en el driver de Intel (en la máquina anterior eran 3,3). Quedan picos
-aislados de ~190 ms en `swap` al entrar al mundo (primer uso de texturas y
-VBOs en el driver) y alguno de ~70 ms en `render` durante la sesión; ya no
-son sistemáticos. Las vías que quedan, por orden de rendimiento esperado:
+Las vías que quedan, por orden de rendimiento esperado:
 
-1. **Atlas de texturas.** Un bloque de pasto usa 3 texturas (arriba, lados,
-   abajo) = 3 batches. Con 58 texturas de bloque, fusionarlas en un atlas
-   dejaría un chunk en 1-2 draw calls en vez de ~11 (408 batches / 36
-   chunks). Es la mejora grande que queda, y es un proyecto en sí mismo:
-   toca las UV de todo el mesher, la animación del agua y los GIF.
+1. **Array de texturas (`GL_TEXTURE_2D_ARRAY`) + shader.** Ojo: el **atlas
+   clásico no sirve aquí**. El greedy meshing emite UV de 0 a 7 y confía en
+   `GL_REPEAT` para teselar la textura por el quad fusionado; con un
+   sub-rectángulo de atlas esas UV barrerían el atlas entero. Pero **las 73
+   texturas de bloque son 16×16** (solo el sprite del horno es 64×16), así
+   que caben en un array de 73 capas, donde `GL_REPEAT` funciona *dentro de
+   cada capa* y el greedy se conserva intacto. Un chunk pasaría a 3 draw
+   calls (macizo, recortado, agua). El driver de esta máquina entrega
+   **OpenGL 4.6 en compatibilidad** aunque el código pida 2.1 (ver la línea
+   `[GL]` del log), así que los shaders se pueden añadir solo para el
+   terreno sin tocar el HUD ni los menús. Coste: toca el mesher entero
+   (todo se indexa por handle de textura) y hay que replicar niebla y test
+   de alfa en el shader.
 2. **El mesher sigue en 19-25 ms por chunk**, y el greedy es la mitad. Lo
    que queda dentro, por orden: la máscara se recorre entera para las seis
    direcciones aunque la capa esté vacía (un mapa de altura por columna

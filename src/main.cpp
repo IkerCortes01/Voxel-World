@@ -47,6 +47,7 @@ PFNGLBUFFERDATAPROC glBufferData = NULL;
 #include <unordered_map>
 #include <thread>
 #include <mutex>
+#include <shared_mutex>
 #include <atomic>
 #include <vector>
 #include <iostream>
@@ -4590,6 +4591,32 @@ constexpr float TUNA_HORAS_MADURAR = 3.0f;
 class TextureManager {
 private:
     std::map<std::string, GLuint> textures;
+
+    // ========================================================================
+    // ⭐ EL CANDADO DEL MAPA DE TEXTURAS
+    // ========================================================================
+    // `textures` lo LEEN los tres workers de mallado (por getTexture, al que
+    // llega el mesher a traves de texSegura) y lo ESCRIBE el hilo principal
+    // al cargar una textura nueva. Un std::map reequilibra su arbol al
+    // insertar: recorrerlo a la vez es comportamiento indefinido, y el
+    // sintoma seria un cuelgue o una textura basura, no un error claro.
+    //
+    // No era teorico. Los items NO se precargan (ver la nota de
+    // precargarTodasLasCaras), asi que la primera vez que el jugador saca un
+    // item nuevo, loadTextureFromPath inserta en el mapa MIENTRAS los workers
+    // lo estan leyendo. La cache negativa (guardar un 0 cuando el PNG no
+    // existe) inserta tambien.
+    //
+    // El propio codigo ya lo tenia anotado: "ese mapa lo lee y muta el hilo
+    // principal sin ningun mutex". Se habia cerrado la puerta de OpenGL
+    // (puedeCargar) pero no la del mapa, que es la que rompe.
+    //
+    // Es un shared_mutex porque el reparto real es de muchas lecturas y muy
+    // pocas escrituras: los tres workers leen sin estorbarse y solo se
+    // exclusivizan durante la insercion, que ocurre un puñado de veces por
+    // partida.
+    mutable std::shared_mutex texturasMutex;
+
     std::string resourcePath;
 
     // ========================================================================
@@ -4752,6 +4779,10 @@ public:
     }
 
     ~TextureManager() {
+        // Exclusivo aunque en teoria aqui ya no queda nadie leyendo: destruir
+        // el gestor mientras un worker sigue vivo seria un fallo aparte, y
+        // este candado al menos no lo empeora en silencio.
+        std::unique_lock<std::shared_mutex> lock(texturasMutex);
         // Liberar todas las texturas de OpenGL
         for (auto& pair : textures) {
             glDeleteTextures(1, &pair.second);
@@ -4761,9 +4792,11 @@ public:
 
     // Cargar textura desde archivo PNG
     GLuint loadTexture(const std::string& filename) {
-        // Si ya está cargada, retornarla
-        if (textures.find(filename) != textures.end()) {
-            return textures[filename];
+        // Si ya está cargada, retornarla (lectura compartida: ver texturasMutex)
+        {
+            std::shared_lock<std::shared_mutex> lock(texturasMutex);
+            auto it = textures.find(filename);
+            if (it != textures.end()) return it->second;
         }
 
         // ⭐ SEGUNDA PUERTA, POR SI ALGUIEN NO PASA POR getTexture().
@@ -4806,7 +4839,10 @@ public:
                       << (falta ? " [archivo ausente: no se reintentará]"
                                 : " [fallo transitorio: se reintentará]") << std::endl;
 
-            if (falta) textures[filename] = 0;   // permanente -> cachear
+            if (falta) {                          // permanente -> cachear
+                std::unique_lock<std::shared_mutex> lock(texturasMutex);
+                textures[filename] = 0;
+            }
             return 0;                            // transitorio -> NO cachear
         }
 
@@ -4875,15 +4911,19 @@ public:
         // textura. Se sincroniza el cache con la realidad de GL.
         lastBoundTexture = textureID;
 
-        textures[filename] = textureID;
+        {
+            std::unique_lock<std::shared_mutex> lock(texturasMutex);
+            textures[filename] = textureID;
+        }
         return textureID;
     }
 
     // Obtener textura ya cargada
     GLuint getTexture(const std::string& filename) {
-        auto it = textures.find(filename);
-        if (it != textures.end()) {
-            return it->second;
+        {
+            std::shared_lock<std::shared_mutex> lock(texturasMutex);
+            auto it = textures.find(filename);
+            if (it != textures.end()) return it->second;
         }
 
         // ⭐ FUERA DEL HILO PRINCIPAL NO SE CARGA NADA (ver `puedeCargar`).
@@ -5708,8 +5748,11 @@ public:
     GLuint cargarTunaSinHuecos(const char* clave, const std::string& ruta) {
         char id[256];
         snprintf(id, sizeof(id), "%s#macizo", clave);
-        auto it = textures.find(id);
-        if (it != textures.end()) return it->second;
+        {
+            std::shared_lock<std::shared_mutex> lock(texturasMutex);
+            auto it = textures.find(id);
+            if (it != textures.end()) return it->second;
+        }
 
         // ⭐ TERCERA PUERTA. ESTA FALTABA, Y COLGABA EL JUEGO.
         //
@@ -5804,7 +5847,10 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
         lastBoundTexture = tex;
-        textures[id] = tex;
+        {
+            std::unique_lock<std::shared_mutex> lock(texturasMutex);
+            textures[id] = tex;
+        }
         return tex;
     }
 
@@ -6793,9 +6839,11 @@ public:
 private:
     // Helper: Cargar textura desde path absoluto
     GLuint loadTextureFromPath(const std::string& fullPath) {
-        // Si ya está cargada, retornarla
-        if (textures.find(fullPath) != textures.end()) {
-            return textures[fullPath];
+        // Si ya está cargada, retornarla (lectura compartida: ver texturasMutex)
+        {
+            std::shared_lock<std::shared_mutex> lock(texturasMutex);
+            auto it = textures.find(fullPath);
+            if (it != textures.end()) return it->second;
         }
 
         // ⭐ CUARTA PUERTA, POR EL MISMO MOTIVO QUE LAS OTRAS TRES.
@@ -6823,7 +6871,10 @@ private:
             std::cerr << "  Motivo: " << stbi_failure_reason() << std::endl;
             // ⭐ CACHÉ NEGATIVA (ver loadTexture): sin esto, un item cuyo PNG
             // falte provoca I/O de disco en CADA frame desde la hotbar.
-            textures[fullPath] = 0;
+            {
+                std::unique_lock<std::shared_mutex> lock(texturasMutex);
+                textures[fullPath] = 0;
+            }
             return 0;
         }
 
@@ -6847,7 +6898,10 @@ private:
         // activa en GL y el cache debe reflejarlo.
         lastBoundTexture = textureID;
 
-        textures[fullPath] = textureID;
+        {
+            std::unique_lock<std::shared_mutex> lock(texturasMutex);
+            textures[fullPath] = textureID;
+        }
         return textureID;
     }
 
@@ -6906,8 +6960,11 @@ public:
 
         char clave[256];
         snprintf(clave, sizeof(clave), "%s#hoja%d", base, k);
-        auto it = textures.find(clave);
-        if (it != textures.end()) return it->second;
+        {
+            std::shared_lock<std::shared_mutex> lock(texturasMutex);
+            auto it = textures.find(clave);
+            if (it != textures.end()) return it->second;
+        }
 
         // --- Cargar los pixeles de la textura base ---
         const std::string ruta = gamePath("resourcepacks/Textures/Blocks/") + base;
@@ -6973,7 +7030,10 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
         lastBoundTexture = id;
-        textures[clave] = id;
+        {
+            std::unique_lock<std::shared_mutex> lock(texturasMutex);
+            textures[clave] = id;
+        }
         return id;
     }
 
@@ -9872,6 +9932,29 @@ public:
         for (auto& par : chunks) {
             Chunk* c = par.second;
             if (!c || !c->isGenerated) continue;
+
+            // ⚠️ UN CHUNK CON TRABAJO EN VUELO NO SE TOCA.
+            //
+            // El candado (`isUpdatingMesh`) es lo UNICO que impide que la
+            // descarga por distancia se lleve un chunk que un worker esta
+            // mallando: updateChunks salta los que lo tienen puesto. Soltarlo
+            // aqui a ciegas abria este camino, con la tecla R como disparador:
+            //
+            //   1. un worker esta dentro de buildChunkMesh leyendo subchunks
+            //   2. se pulsa R y el candado se suelta
+            //   3. updateChunks ya no lo ve protegido -> chunks.erase +
+            //      deallocateChunk -> el chunk vuelve al pool
+            //   4. allocateChunk lo recicla y REASIGNA sus subchunks, con lo
+            //      que el worker sigue leyendo memoria ya liberada
+            //
+            // Las otras dos rutas que sueltan candados -- el vigilante y el
+            // rescate de los 60 frames -- ya hacian esta misma comprobacion;
+            // esta se habia quedado sin ella.
+            //
+            // No se pierde nada saltandolos: el trabajo en vuelo termina solo
+            // y deja el chunk mallado, que es justo lo que R pedia.
+            if (mallaInFlight.count(par.first) || genInFlight.count(par.first))
+                continue;
 
             c->waitingForNeighbors = false;
             c->buildRetries = 0;
@@ -37744,10 +37827,27 @@ void setupSignalHandlers() {
             std::cerr << "--- diagnostico del crash ---\n" << detalle
                       << "-----------------------------" << std::endl;
 
+        // ⚠️ AQUI SE PROMETIAN COPIAS DE SEGURIDAD QUE NO EXISTEN.
+        //
+        // El texto decia "Hay copias de seguridad en saves\<mundo>\backups\".
+        // BackupManager::createBackup esta implementado (SaveSystem.cpp:720)
+        // pero NO SE LLAMA DESDE NINGUN SITIO, asi que esa carpeta no se crea
+        // nunca: se mandaba al jugador que acababa de perder progreso a un
+        // sitio vacio. Mentir sobre los datos de alguien es peor que no decir
+        // nada.
+        //
+        // Lo que SI es cierto y sirve: el mundo en si esta protegido (journal
+        // + CRC32 por chunk + escritura que no pisa datos buenos), asi que lo
+        // guardado no se corrompe; lo unico que se pierde es lo hecho desde el
+        // ultimo autoguardado. Y el log tiene el diagnostico.
+        //
+        // Si algun dia se activan las copias de verdad (una llamada a
+        // createBackup al abrir el mundo), este texto vuelve a tener sitio.
         std::string msg =
             "Voxel World se cerro inesperadamente la ultima vez.\n\n"
-            "El progreso desde el ultimo autoguardado podria haberse perdido.\n"
-            "Hay copias de seguridad en saves\\<mundo>\\backups\\.\n";
+            "El mundo guardado esta intacto: lo unico que puede haberse\n"
+            "perdido es lo hecho desde el ultimo autoguardado.\n\n"
+            "Detalles en:\n" + g_logFilePath + "\n";
         if (!detalle.empty())
             msg += "\nDetalle tecnico:\n" + detalle;
 

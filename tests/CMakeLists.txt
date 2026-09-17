@@ -63,6 +63,24 @@ add_executable(voxel_tests
     test_dormir.cpp
     test_luz_costura.cpp
     test_rio_cueva.cpp
+
+    # ⚠️ ESTOS SIETE LLEVABAN TIEMPO FUERA DEL BUILD SIN QUE NADIE LO SUPIERA.
+    #
+    # Estaban escritos, versionados y en esta misma carpeta, pero nadie los
+    # habia anadido a esta lista: 1.380 lineas y 71 casos que PARECIAN
+    # cobertura y no ejecutaban nada. Se detecto comparando los TEST_CASE del
+    # disco (949) con los que reportaba ctest (878).
+    #
+    # La lista es explicita a proposito (un file(GLOB) no reacciona a los
+    # ficheros nuevos sin volver a configurar), asi que la regla es: el
+    # fichero de test se anade AQUI en el mismo commit que se crea.
+    test_aguamiel.cpp
+    test_maguey_bugs.cpp
+    test_maguey_ciclo.cpp
+    test_maguey_escala.cpp
+    test_maguey_hitbox.cpp
+    test_maguey_modelo.cpp
+    test_maguey_punta.cpp
 )
 
 target_include_directories(voxel_tests PRIVATE

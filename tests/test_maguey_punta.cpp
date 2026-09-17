@@ -168,7 +168,19 @@ TEST_CASE("Tazones de aguamiel: son items, no bloques del terreno") {
     CHECK((int)BLOCK_TAZON_ENCINO_AGUAMIEL > BLOCK_LAST_PLACEABLE);
     CHECK((int)BLOCK_TAZON_OYAMEL_AGUAMIEL > BLOCK_LAST_PLACEABLE);
 
-    // Y el ultimo del enum es el que dice BLOCK_TYPE_MAX: si alguien añade
-    // otro detras sin actualizarlo, el deserializador lo rechazaria al cargar.
-    CHECK(BLOCK_TYPE_MAX == (int)BLOCK_TAZON_OYAMEL_AGUAMIEL);
+    // ⚠️ AQUI HABIA UNA COMPROBACION QUE SE PUDRIO POR NO EJECUTARSE.
+    //
+    // Decia `BLOCK_TYPE_MAX == BLOCK_TAZON_OYAMEL_AGUAMIEL`, y era cierta el
+    // dia que se escribio: el tazon ERA el ultimo del enum. Despues se
+    // añadieron la tierra mojada, el agave azul y el huevo de pecari detras,
+    // y BLOCK_TYPE_MAX paso a apuntar al nuevo final -- correctamente.
+    //
+    // La comprobacion se quedo clavada en el valor viejo (266 frente a 286) y
+    // nadie se entero porque este fichero llevaba tiempo sin estar en
+    // tests/CMakeLists.txt. Es justo el precio de un test huerfano: no avisa
+    // de nada y encima envejece mal.
+    //
+    // El invariante SIGUE vigilado, y en su sitio: test_agave_azul.cpp lo ata
+    // al ultimo del enum sin nombrar un bloque concreto, que es la forma de
+    // que no vuelva a caducar. Aqui no se duplica.
 }

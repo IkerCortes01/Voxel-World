@@ -19,6 +19,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # autocontenida.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# ============================================================================
+# DETECTOR DE CORRUPCION DE MEMORIA, SOLO EN DEBUG
+# ============================================================================
+# El motor es C++ con punteros crudos: los chunks viven en un pool que los
+# recicla, las mallas se pasan entre hilos, y varias estructuras se indexan a
+# mano. Un uso tras liberar o un desbordamiento de un byte no da un error
+# claro, da un cuelgue raro media hora despues -- o peor, no da nada hasta que
+# le pasa a un jugador.
+#
+# /fsanitize=address instrumenta cada acceso y avisa EN EL SITIO, con pila.
+# Va solo en Debug: en Release el coste (2-3x mas lento) no tiene sentido.
+#
+# Ojo: ASAN de MSVC no se lleva con el runtime enlazado estaticamente en
+# algunas versiones. Si Debug deja de enlazar, quitar esta linea es
+# inofensivo -- Release no la usa.
+if (MSVC)
+    add_compile_options($<$<CONFIG:Debug>:/fsanitize=address>)
+endif()
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)

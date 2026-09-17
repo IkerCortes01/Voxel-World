@@ -238,10 +238,15 @@ struct MallaChunk {
     // Se pasa por parametro y no se toca el mesher por dentro: el objetivo es
     // que la separacion de hilos NO obligue a reescribir las 5.600 lineas de
     // geometria, que es donde estarian los bugs.
+    //
+    // ⭐ Los tres mapas se toman POR VALOR y se vacian: el mesher los pasa
+    // con std::move y la geometria (varios MB por chunk) cambia de dueño sin
+    // copiarse. Medido, la copia era la mitad de la fase de empaquetado.
+    // Quien pase lvalues (los tests) paga una copia, que ahi no importa.
     static MallaChunk desdeMapas(
-            const std::map<TexID, std::vector<float>>& vertices,
-            const std::map<TexID, std::vector<float>>& colores,
-            const std::map<TexID, std::vector<float>>& uvs,
+            std::map<TexID, std::vector<float>> vertices,
+            std::map<TexID, std::vector<float>> colores,
+            std::map<TexID, std::vector<float>> uvs,
             const std::set<TexID>& transparentes,
             const std::set<TexID>& recortadas,
             bool faltanTexturas,
@@ -258,7 +263,7 @@ struct MallaChunk {
         m.bordeProvisional   = bordeIncompleto;
         m.batches.reserve(vertices.size());
 
-        for (const auto& par : vertices) {
+        for (auto& par : vertices) {
             const TexID tex = par.first;
             if (par.second.empty()) continue;
 
@@ -268,9 +273,9 @@ struct MallaChunk {
 
             BatchCPU b;
             b.textura      = tex;
-            b.vertices     = par.second;
-            b.colores      = itC->second;
-            b.uvs          = itU->second;
+            b.vertices     = std::move(par.second);
+            b.colores      = std::move(itC->second);
+            b.uvs          = std::move(itU->second);
             b.transparente = (transparentes.count(tex) != 0);
             b.recortado    = (recortadas.count(tex) != 0);
 

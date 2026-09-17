@@ -5985,6 +5985,37 @@ public:
         return 0;
     }
 
+    // ⭐ LA MISMA RESPUESTA, SIN PASAR POR EL std::string
+    //
+    // getBlockTexture termina llamando a getTexture con el nombre del PNG:
+    // construir el string y buscarlo en un std::map<std::string, GLuint>
+    // comparando cadenas. El mesher lo pedia UNA VEZ POR CARA VISIBLE,
+    // decenas de miles de veces por chunk, para obtener siempre el mismo
+    // handle.
+    //
+    // Aqui se recuerda por (tipo, cara). Solo hay dos texturas que cambian
+    // con el tiempo --el agua y el fuego del horno, que devuelven el cuadro
+    // de animacion que toca-- y esas se piden siempre en directo. Un 0 (la
+    // textura aun no esta cargada) tampoco se recuerda: el mesher lo usa
+    // para reintentar mas tarde.
+    //
+    // Cache por hilo: el mesher corre en tres workers a la vez y un mapa
+    // compartido necesitaria mutex. Los handles no cambian nunca (el mapa de
+    // texturas solo crece), asi que no hay nada que invalidar.
+    GLuint getBlockTextureCache(BlockType type, int face) {
+        if (type == BLOCK_WATER || Compuesto::Agua::esAgua(type) ||
+            type == BLOCK_HORNO_ENCENDIDO) {
+            return getBlockTexture(type, face);
+        }
+        static thread_local std::unordered_map<uint64_t, GLuint> cache;
+        const uint64_t clave = ((uint64_t)type << 3) | (uint64_t)(face & 7);
+        auto it = cache.find(clave);
+        if (it != cache.end()) return it->second;
+        const GLuint t = getBlockTexture(type, face);
+        if (t != 0) cache.emplace(clave, t);
+        return t;
+    }
+
     GLuint getBlockTexture(BlockType type, int face) {
         // face: 0=top, 1=bottom, 2=north, 3=south, 4=east, 5=west
 
@@ -8844,6 +8875,11 @@ static std::atomic<long long> g_migradosDeAlturaVieja{0};
 // operacion mas cara del streaming no se veia en ningun sitio.
 static std::atomic<long long> g_usMalladoWorker{0};
 static std::atomic<int>       g_nMalladoWorker{0};
+// Y su reparto por fase (microsegundos acumulados): pasada por celda
+// (sprites, plantas, niveles), greedy, y empaquetado + entrelazado.
+static std::atomic<long long> g_usMallaCeldas{0};
+static std::atomic<long long> g_usMallaGreedy{0};
+static std::atomic<long long> g_usMallaEmpaque{0};
 
 // Cada hilo de mallado se queda con su hueco al arrancar. -1 = no es un worker
 // de mallado (el hilo principal cuando malla por el camino sincrono), y en ese
@@ -10270,10 +10306,14 @@ public:
         // Cada celda copia DOS cosas: el bloque y su nivel de luz. Las dos
         // hacen falta porque el mesher tenia dos funciones leyendo los vecinos
         // (getNeighborBlockCached y faceLightLevel).
+        // ⭐ Solo hasta el techo del terreno de cada vecino: por encima,
+        // reservar() ya deja aire a plena luz, que es exactamente lo que hay.
+        // A 512 de alto eran 65.000 lecturas por chunk encolado, en el hilo
+        // principal; con el techo quedan en una quinta parte.
         if (northChunk && northChunk->isGenerated) {
             borde.norte.reservar();
             for (int i = 0; i < CHUNK_SIZE; ++i)
-                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                for (int y = 0, top = northChunk->techoTerreno(); y < top; ++y) {
                     borde.norte.poner(i, y, northChunk->getBlock(i, y, 0));
                     borde.norte.ponerLuz(i, y, northChunk->getLightLevel(i, y, 0));
                 }
@@ -10281,7 +10321,7 @@ public:
         if (southChunk && southChunk->isGenerated) {
             borde.sur.reservar();
             for (int i = 0; i < CHUNK_SIZE; ++i)
-                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                for (int y = 0, top = southChunk->techoTerreno(); y < top; ++y) {
                     borde.sur.poner(i, y, southChunk->getBlock(i, y, CHUNK_SIZE - 1));
                     borde.sur.ponerLuz(i, y, southChunk->getLightLevel(i, y, CHUNK_SIZE - 1));
                 }
@@ -10289,7 +10329,7 @@ public:
         if (eastChunk && eastChunk->isGenerated) {
             borde.este.reservar();
             for (int i = 0; i < CHUNK_SIZE; ++i)
-                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                for (int y = 0, top = eastChunk->techoTerreno(); y < top; ++y) {
                     borde.este.poner(i, y, eastChunk->getBlock(0, y, i));
                     borde.este.ponerLuz(i, y, eastChunk->getLightLevel(0, y, i));
                 }
@@ -10297,7 +10337,7 @@ public:
         if (westChunk && westChunk->isGenerated) {
             borde.oeste.reservar();
             for (int i = 0; i < CHUNK_SIZE; ++i)
-                for (int y = 0; y < CHUNK_HEIGHT; ++y) {
+                for (int y = 0, top = westChunk->techoTerreno(); y < top; ++y) {
                     borde.oeste.poner(i, y, westChunk->getBlock(CHUNK_SIZE - 1, y, i));
                     borde.oeste.ponerLuz(i, y, westChunk->getLightLevel(CHUNK_SIZE - 1, y, i));
                 }
@@ -16468,8 +16508,11 @@ public:
         // distincion, apagarlo dejaria la hierba con un cuadro negro alrededor.
         std::set<GLuint> texturasRecortadas;
 
+        // Ultima textura marcada como recortada: las caras vecinas casi
+        // siempre repiten textura, y asi el std::set solo se toca al cambiar.
+        GLuint ultimaRecortada = 0;
         auto texSegura = [&](BlockType b, int cara) -> GLuint {
-            const GLuint t = g_textureManager->getBlockTexture(b, cara);
+            const GLuint t = g_textureManager->getBlockTextureCache(b, cara);
             if (t == 0) texturasFaltantes = true;
 
             // ⭐ El marcado va AQUI, y no en cada rama del mesher, porque este
@@ -16482,8 +16525,10 @@ public:
             // imagen la comparte un bloque macizo, el batch conserva el
             // recorte: como mucho ese batch renuncia al early-Z, que es el
             // lado seguro del error.
-            if (t != 0 && !esBloqueMacizoOpaco(b))
+            if (t != 0 && t != ultimaRecortada && !esBloqueMacizoOpaco(b)) {
                 texturasRecortadas.insert(t);
+                ultimaRecortada = t;
+            }
 
             return t;
         };
@@ -16756,6 +16801,49 @@ public:
         // (ver push_back más abajo - el map crea el vector automáticamente)
 
         // Lambda para obtener bloques vecinos de forma optimizada usando cache
+        // ====================================================================
+        // ⭐ FOTO PLANA DE LOS BLOQUES DEL CHUNK, HASTA EL TECHO DEL TERRENO
+        // ====================================================================
+        // Medido por fases: el greedy se llevaba 19-20 ms de los ~30 del
+        // mallado, y la pasada por celda otros 7-8. Casi todo era
+        // chunk->getBlock(): comprobacion de limites, division y modulo para
+        // dar con el subchunk, y desempaquetado de bits de la paleta -- y el
+        // greedy lo pide unas doce veces por celda (seis direcciones, cada
+        // una con su vecino).
+        //
+        // Aqui se decodifica cada celda UNA vez en un array plano y las dos
+        // pasadas leen de el. Los subchunks uniformes (aire, piedra maciza)
+        // se rellenan de golpe sin tocar la paleta. Por encima del techo no
+        // hay bloques, asi que la foto acaba ahi (ver techoTerreno).
+        //
+        // thread_local: el mesher corre en tres workers, cada uno con la suya.
+        const int yTecho = chunk->techoTerreno();
+        static thread_local std::vector<BlockType> fotoBloques;
+        fotoBloques.resize((size_t)CHUNK_SIZE * yTecho * CHUNK_SIZE);
+        for (int sy = 0; sy * SUBCHUNK_HEIGHT < yTecho; ++sy) {
+            const PalettedSubChunk& sc = chunk->subchunks[sy];
+            const int y0 = sy * SUBCHUNK_HEIGHT;
+            if (sc.isUniform()) {
+                const BlockType u = sc.getUniformBlock();
+                for (int x = 0; x < CHUNK_SIZE; ++x) {
+                    BlockType* fila = &fotoBloques[((size_t)x * yTecho + y0) * CHUNK_SIZE];
+                    std::fill(fila, fila + SUBCHUNK_HEIGHT * CHUNK_SIZE, u);
+                }
+                continue;
+            }
+            for (int x = 0; x < CHUNK_SIZE; ++x)
+                for (int ly = 0; ly < SUBCHUNK_HEIGHT; ++ly) {
+                    BlockType* fila = &fotoBloques[((size_t)x * yTecho + y0 + ly) * CHUNK_SIZE];
+                    for (int z = 0; z < CHUNK_SIZE; ++z) fila[z] = sc.getBlock(x, ly, z);
+                }
+        }
+        // Lectura local: x y z ya estan dentro del chunk; y puede pasarse
+        // del techo (entonces es aire) pero no ser negativa.
+        auto bloqueLocal = [&](int x, int y, int z) -> BlockType {
+            if (y >= yTecho) return BLOCK_AIR;
+            return fotoBloques[((size_t)x * yTecho + y) * CHUNK_SIZE + z];
+        };
+
         auto getNeighborBlockCached = [&](int x, int y, int z, int dx, int dy, int dz) -> BlockType {
             int nx = x + dx;
             int ny = y + dy;
@@ -16764,9 +16852,9 @@ public:
             // Bounds checking vertical
             if (ny < 0 || ny >= CHUNK_HEIGHT) return BLOCK_AIR;
 
-            // Dentro del mismo chunk (caso más común)
+            // Dentro del mismo chunk (caso más común): se lee la foto plana.
             if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
-                return chunk->getBlock(nx, ny, nz);
+                return bloqueLocal(nx, ny, nz);
             }
 
             // ⭐ FUERA DEL CHUNK: SE LEE LA FOTO, NO EL VECINO.
@@ -16882,6 +16970,9 @@ public:
             bal->fase.store(1);
             bal->ultimoLatido.store(glfwGetTime());
         }
+        // Marcas de tiempo por fase (ver g_usMallaCeldas y compañía).
+        const auto tFase1 = std::chrono::steady_clock::now();
+        auto tFase2 = tFase1;
 
         // ⭐ LAS DOS PASADAS SE QUEDAN BAJO EL TECHO DEL TERRENO.
         //
@@ -16890,7 +16981,7 @@ public:
         // greedy de abajo las recorrian celda a celda para no emitir nada.
         // Por encima del techo no hay bloque alguno, asi que no hay cara,
         // sprite ni nivel que dibujar: acotar ahi no cambia la malla.
-        const int yTecho = chunk->techoTerreno();
+        // (yTecho se calculo arriba, al tomar la foto plana de bloques.)
 
         for (int x = 0; x < CHUNK_SIZE; x++) {
             g_diagBalizaTicks.fetch_add(1);
@@ -16904,7 +16995,7 @@ public:
             }
             for (int z = 0; z < CHUNK_SIZE; z++) {
                 for (int y = 0; y < yTecho; y++) {
-                    BlockType block = chunk->getBlock(x, y, z);
+                    BlockType block = bloqueLocal(x, y, z);
                     if (block == BLOCK_AIR) continue;
                     // Baliza fina: que celda y que bloque se esta procesando.
                     g_diagBalizaCelda.store((x << 20) | (y << 8) | z);
@@ -22175,6 +22266,8 @@ public:
         {
             g_diagBalizaFase.store(2);   // baliza: dentro del greedy
             if (bal) { bal->fase.store(2); bal->ultimoLatido.store(glfwGetTime()); }
+            tFase2 = std::chrono::steady_clock::now();
+            g_usMallaCeldas.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(tFase2 - tFase1).count());
             struct FaceCell {
                 GLuint tex = 0;
                 uint8_t light = 0;
@@ -22316,13 +22409,34 @@ public:
             // y la gemela solo desde dentro. Es lo que permite asomarse por el
             // hueco de una cara oculta y ver el interior del bloque en vez del
             // vacio. Ver carasOcultas() en BlockType.h.
+            // ⭐ CACHE DE UNA ENTRADA PARA LOS DESTINOS DEL QUAD.
+            //
+            // Cada quad hacia tres busquedas en std::map por textura mas una
+            // en el set de giro. El greedy emite las caras agrupadas por
+            // textura, asi que la inmensa mayoria de quads seguidos van al
+            // mismo sitio: se recuerda el ultimo y solo se busca al cambiar.
+            // Los punteros a valores de std::map son estables aunque el mapa
+            // crezca, por eso se pueden guardar.
+            GLuint             quadTexAnt   = 0;
+            std::vector<float>* quadVerts   = nullptr;
+            std::vector<float>* quadCols    = nullptr;
+            std::vector<float>* quadUvs     = nullptr;
+            bool               quadGirable  = false;
+
             auto emitQuad = [&](int dir, GLuint tex, uint8_t light,
                                 int layer, int u0, int v0, int w, int h,
                                 bool interior = false) {
                 const float f = lightToFactor(light) * DIR_BRIGHT[dir];
-                auto& verts = verticesByTexture[tex];
-                auto& cols  = colorsByTexture[tex];
-                auto& uvs   = uvsByTexture[tex];
+                if (tex != quadTexAnt || !quadVerts) {
+                    quadTexAnt  = tex;
+                    quadVerts   = &verticesByTexture[tex];
+                    quadCols    = &colorsByTexture[tex];
+                    quadUvs     = &uvsByTexture[tex];
+                    quadGirable = (g_texturasGirables.count(tex) != 0);
+                }
+                auto& verts = *quadVerts;
+                auto& cols  = *quadCols;
+                auto& uvs   = *quadUvs;
 
                 // Marca donde empieza esta cara: al terminar de escribirla se
                 // releen sus cuatro vertices para copiarlos al reves.
@@ -22358,7 +22472,7 @@ public:
                 // Se decide por TEXTURA, que es lo que hay a mano en este
                 // punto del mesher. Se prepara una vez por chunk: comparar
                 // handles es solo un puñado de enteros.
-                const bool puedeGirar = (g_texturasGirables.count(tex) != 0);
+                const bool puedeGirar = quadGirable;
 
                 // El giro sale de la POSICION del quad, asi que es estable:
                 // el mismo trozo de suelo se ve igual siempre que se recarga
@@ -22520,7 +22634,7 @@ public:
                             FaceCell& cell = mask[u][v];
                             cell.visible = false;
 
-                            const BlockType b = chunk->getBlock(bx, by, bz);
+                            const BlockType b = bloqueLocal(bx, by, bz);
                             if (!esGreedyBlock(b)) continue;
                             const BlockType nb = getNeighborBlockCached(bx, by, bz, dx, dy, dz);
                             if (!shouldRenderFace(b, nb)) continue;
@@ -22820,10 +22934,13 @@ public:
         // De paso, la VALIDACION (tamaños coherentes, quads completos) vive
         // ahora dentro de MallaChunk y esta cubierta por tests que corren sin
         // arrancar OpenGL (ver tests/test_malla_chunk.cpp).
+        const auto tFase3 = std::chrono::steady_clock::now();
+        g_usMallaGreedy.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(tFase3 - tFase2).count());
         g_diagBalizaFase.store(3);   // baliza: greedy terminado, empaquetando
         if (bal) { bal->fase.store(3); bal->ultimoLatido.store(glfwGetTime()); }
         Render::MallaChunk mallaCPU = Render::MallaChunk::desdeMapas(
-            verticesByTexture, colorsByTexture, uvsByTexture,
+            std::move(verticesByTexture), std::move(colorsByTexture),
+            std::move(uvsByTexture),
             texturasTransparentes, texturasRecortadas, texturasFaltantes,
             bordeIncompleto);
 
@@ -22832,6 +22949,8 @@ public:
         // la malla, mas un escaneo de NaN), que era trabajo de CPU pura
         // colado en el unico hilo que no puede permitirselo.
         mallaCPU.entrelazarTodo();
+        g_usMallaEmpaque.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - tFase3).count());
 
         // ====================================================================
         // ⭐ FIN DEL CAMINO PARA UN HILO DE TRABAJO
@@ -24038,7 +24157,9 @@ public:
                 // los cuatro vecinos, y las dos cosas solo son seguras en este
                 // hilo. Ver capturarBorde() y buildChunkMesh().
                 //
-                // Cuesta 32 KB y ~4.000 lecturas por chunk encolado. Se paga en
+                // Cuesta ~160 KB y unas 13.000 lecturas por chunk encolado
+                // (la foto se corta en el techo del terreno de cada vecino;
+                // sin ese corte, a 512 de alto, eran 65.000). Se paga en
                 // el hilo principal, que es precisamente lo que se intentaba
                 // descargar — pero es copiar memoria, no construir geometria:
                 // frente a las ~330.000 iteraciones de celda que se lleva el
@@ -25056,7 +25177,11 @@ public:
                     const int n = g_nMalladoWorker.load();
                     if (n > 0)
                         std::cout << " mallaMed="
-                                  << (g_usMalladoWorker.load() / 1000.0 / n) << "ms";
+                                  << (g_usMalladoWorker.load() / 1000.0 / n) << "ms"
+                                  << " (celdas=" << (g_usMallaCeldas.load() / 1000.0 / n)
+                                  << " greedy=" << (g_usMallaGreedy.load() / 1000.0 / n)
+                                  << " empaque=" << (g_usMallaEmpaque.load() / 1000.0 / n)
+                                  << ")";
                 }
                 std::cout << std::endl;
             }

@@ -244,6 +244,33 @@ antes → después:
 Régimen estable en la misma vista: 109-128 FPS → **127-141**, mínimo 10-71
 → **71-100**, peor frame 14-98 ms → **10-14 ms**, 1 % low 100 → 40 ms.
 
+#### Segunda vuelta, sobre el mesher (mismo día)
+
+`mallaMed` desglosa ahora las tres fases en el log `[STREAM]`: `celdas`
+(sprites, plantas, niveles), `greedy` y `empaque`. De **29,5 ms** por chunk
+a **19-25 ms**, repartido así: celdas 8,0 → 5,6-7,9 · greedy 19,9 →
+10,1-13,3 · empaque 6,0 → 3,3-4,1.
+
+- **Foto plana de los bloques del chunk** al entrar al mesher, hasta el
+  techo del terreno. Era el cambio grande: `chunk->getBlock()` hace
+  comprobación de límites, división, módulo y desempaquetado de bits de la
+  paleta, y el greedy lo pedía ~12 veces por celda (seis direcciones, cada
+  una con su vecino). Ahora cada celda se decodifica **una** vez; los
+  subchunks uniformes se rellenan de golpe sin tocar la paleta.
+- **Caché de textura por (tipo, cara)** en `getBlockTextureCache`, por hilo.
+  Antes cada cara visible construía un `std::string` y lo buscaba en un
+  `std::map<std::string, GLuint>` comparando cadenas. El agua y el horno
+  encendido siguen preguntando en directo: su textura es el cuadro de
+  animación que toca.
+- **`emitQuad` recuerda el último destino**: el greedy emite las caras
+  agrupadas por textura, así que tres búsquedas en `std::map` más una en el
+  set de giro por quad pasan a una sola al cambiar de textura.
+- **`desdeMapas` recibe los mapas por valor y los vacía** (`std::move`): la
+  geometría —varios MB por chunk— cambia de dueño en vez de copiarse. Era
+  la mitad de la fase de empaquetado.
+- **`capturarBorde` también se corta en el techo** de cada vecino: de 65.000
+  lecturas por chunk encolado a unas 13.000, y en el hilo principal.
+
 ### Estado y lo que queda
 
 En estado estacionario (408 batches, 295.000 caras): `fis` 0,12 ms ·
@@ -260,12 +287,14 @@ son sistemáticos. Las vías que quedan, por orden de rendimiento esperado:
    dejaría un chunk en 1-2 draw calls en vez de ~11 (408 batches / 36
    chunks). Es la mejora grande que queda, y es un proyecto en sí mismo:
    toca las UV de todo el mesher, la animación del agua y los GIF.
-2. **El mesher sigue en 30 ms por chunk.** Lo que queda dentro: una
-   `std::string` + búsqueda en `std::map<std::string, GLuint>` por cara
-   (`getBlockTexture` → `getTexture("nombre.png")`, 107 sitios), tres
-   búsquedas en `std::map<GLuint, vector>` por quad en `emitQuad`, y
-   `capturarBorde` en el hilo principal (65.000 lecturas por chunk
-   encolado; su comentario aún dice "~4.000", de cuando la altura era 128).
+2. **El mesher sigue en 19-25 ms por chunk**, y el greedy es la mitad. Lo
+   que queda dentro, por orden: la máscara se recorre entera para las seis
+   direcciones aunque la capa esté vacía (un mapa de altura por columna
+   permitiría saltarse las capas sin caras); la pasada por celda visita
+   todas las celdas no-aire aunque estén enterradas; y los seis contadores
+   atómicos globales de diagnóstico por celda no-aire
+   (`g_diagBalizaCelda` y compañía) comparten línea de caché entre los tres
+   workers — *false sharing* de libro, y son solo instrumentación.
 3. **Bajar `RENDER_DISTANCE`** da FPS ya mismo a cambio de ver menos lejos.
    Es una decisión de diseño, no técnica, y por eso se deja sin tocar.
 

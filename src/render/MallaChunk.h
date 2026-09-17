@@ -78,16 +78,40 @@ struct BatchCPU {
     bool transparente = false;
     bool recortado    = false;
 
+    // ⭐ LA CAPA DE ESTE BATCH EN EL ARRAY DE TEXTURAS
+    //
+    // -1 = esta textura no tiene capa (o la maquina no soporta el array). El
+    // motor se queda entonces en el camino de siempre, una llamada de dibujo
+    // por textura. La rellena el mesher justo antes de entrelazar.
+    int capa = -1;
+
     // ⭐ LOS BYTES TAL CUAL LOS QUIERE LA GPU
     //
-    // Formato GL_T2F_C4UB_V3F, 24 bytes por vertice:
-    //     u,v (2 floats) | r,g,b,a (4 bytes) | x,y,z (3 floats)
+    // 24 bytes por vertice:
+    //      0  x,y,z    3 floats
+    //     12  u,v      2 floats   (pasan de 1: el greedy tesela)
+    //     20  r,g,b    3 bytes
+    //     23  capa     1 byte
+    //
+    // El ultimo byte era el ALFA del color y valia siempre 1 -- el mesher
+    // nunca escribio otra cosa y la transparencia sale de la textura. Al
+    // reaprovecharlo como numero de capa, el array de texturas sale gratis:
+    // ni un byte mas de trafico de vertices, que en una grafica integrada es
+    // justo lo que manda.
+    //
+    // Este mismo reparto sirve a los dos caminos de dibujo: el moderno lee
+    // los cuatro atributos, y el de siempre coloca punteros a posicion, UV y
+    // color de 3 componentes, ignorando el byte de la capa.
     //
     // Lo llena entrelazar(). Hasta entonces la geometria vive en los tres
     // vectores de floats de arriba; despues vive SOLO aqui (los vectores se
     // liberan). Se hace en el worker para que el hilo principal no tenga que
     // copiar ni validar nada: coge estos bytes y los sube.
     static constexpr size_t BYTES_POR_VERTICE = 24;
+    static constexpr size_t OFF_POS   = 0;
+    static constexpr size_t OFF_UV    = 12;
+    static constexpr size_t OFF_COLOR = 20;
+    static constexpr size_t OFF_CAPA  = 23;
     std::vector<uint8_t> entrelazado;
 
     // Cuantos vertices hay. Se deriva, no se guarda por duplicado.
@@ -138,16 +162,22 @@ struct BatchCPU {
 
         const size_t n = numVertices();
         entrelazado.resize(n * BYTES_POR_VERTICE);
+        // Sin capa (o sin array de texturas) se escribe 0: ese byte no se lee
+        // en el camino de siempre, asi que da igual lo que lleve.
+        const uint8_t byteCapa = (capa >= 0 && capa < 256) ? (uint8_t)capa : 0;
         uint8_t* d = entrelazado.data();
         for (size_t i = 0; i < n; ++i, d += BYTES_POR_VERTICE) {
-            std::memcpy(d, &uvs[i * 2], 2 * sizeof(float));
-            for (int c = 0; c < 4; ++c) {
+            std::memcpy(d + OFF_POS, &vertices[i * 3], 3 * sizeof(float));
+            std::memcpy(d + OFF_UV,  &uvs[i * 2],      2 * sizeof(float));
+            // El alfa del color se descarta: valia siempre 1 y su byte es
+            // ahora la capa.
+            for (int c = 0; c < 3; ++c) {
                 float v = colores[i * 4 + c];
                 if (v < 0.0f) v = 0.0f;
                 if (v > 1.0f) v = 1.0f;
-                d[8 + c] = (uint8_t)(v * 255.0f + 0.5f);
+                d[OFF_COLOR + c] = (uint8_t)(v * 255.0f + 0.5f);
             }
-            std::memcpy(d + 12, &vertices[i * 3], 3 * sizeof(float));
+            d[OFF_CAPA] = byteCapa;
         }
         // Los floats ya no hacen falta: se libera su memoria de verdad
         // (clear() sola conservaria la capacidad).

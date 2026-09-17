@@ -308,6 +308,7 @@ struct Vec3i {
 #include "render/PrioridadChunk.h"     // que chunk va primero: anillos + prediccion
 #include "render/VigilanteChunk.h"     // ningun chunk se queda atascado + presupuesto
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
+#include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "BloqueCompuesto.h" // bloques con estado y varias partes en un voxel
 #include "WorldName.h"
@@ -4649,9 +4650,106 @@ private:
     // El fuego va más vivo que el agua: 8 cuadros por segundo.
     const double HORNO_ANIM_SPEED = 0.125;
 
+    // ========================================================================
+    // ⭐ EL ARRAY DE TEXTURAS: TODAS LAS DE BLOQUE EN UN SOLO OBJETO
+    // ========================================================================
+    // Cada textura de 16x16 ocupa una CAPA. Con todas en el mismo sitio, un
+    // chunk entero se dibuja con tres llamadas (macizo, recortado, agua) en
+    // vez de una por textura. El porque de un array y no de un atlas esta
+    // explicado en render/TerrenoGL.h: el greedy meshing tesela con
+    // GL_REPEAT y un atlas se lo cargaria.
+    //
+    // `capaPorHandle` traduce el handle de textura de siempre a su capa. Es
+    // un array plano y de tamaño fijo, no un mapa, POR LOS HILOS: los workers
+    // de mallado lo leen mientras el hilo principal puede estar cargando una
+    // textura nueva, y un std::map rehashado a media lectura seria un
+    // desastre. Aqui el peor caso es leer un -1 que ya iba a ser -1: la
+    // textura se registra ANTES de que su handle pueda llegar a un worker.
+    static constexpr int MAX_CAPAS  = 256;   // el byte de la capa da para esto
+    static constexpr int MAX_HANDLE = 4096;
+    GLuint arrayTex = 0;
+    int capasUsadas = 0;
+    int capaPorHandle[MAX_HANDLE];
+    bool arrayListo = false;
+
 public:
+    // Reserva el array. Se llama una vez, con el contexto de GL ya creado y
+    // las funciones de TerrenoGL cargadas. Si falla, `arrayListo` se queda en
+    // false y el motor dibuja como siempre.
+    bool crearArrayTexturas() {
+        if (arrayListo) return true;
+        if (!Render::pglTexImage3D || !Render::pglTexSubImage3D) return false;
+
+        while (glGetError() != GL_NO_ERROR) { /* descartar errores ajenos */ }
+        glGenTextures(1, &arrayTex);
+        if (arrayTex == 0) return false;
+
+        glBindTexture(GL_TEXTURE_2D_ARRAY, arrayTex);
+        Render::pglTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA,
+                              16, 16, MAX_CAPAS, 0,
+                              GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        if (glGetError() != GL_NO_ERROR) {
+            glDeleteTextures(1, &arrayTex);
+            arrayTex = 0;
+            return false;
+        }
+        // Mismos filtros que el resto del motor: pixel art nitido y repetido,
+        // que es lo que el greedy necesita para teselar.
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+        arrayListo = true;
+        return true;
+    }
+
+    // Copia una textura recien creada a su capa. Solo entran las de 16x16:
+    // las demas (UI, iconos grandes) no las dibuja nunca el mesher.
+    void registrarCapa(GLuint handle, int w, int h, int channels,
+                       const unsigned char* data) {
+        if (!arrayListo || !data) return;
+        if (w != 16 || h != 16) return;
+        if (handle == 0 || handle >= MAX_HANDLE) return;
+        if (capaPorHandle[handle] >= 0) return;         // ya tiene
+        if (capasUsadas >= MAX_CAPAS) return;           // array lleno
+
+        // El array es RGBA; una textura sin alfa se completa con opaco.
+        const unsigned char* rgba = data;
+        std::vector<unsigned char> conversion;
+        if (channels != 4) {
+            conversion.resize(16 * 16 * 4, 255);
+            for (int i = 0; i < 16 * 16; ++i)
+                for (int c = 0; c < 3; ++c)
+                    conversion[i * 4 + c] =
+                        (channels >= 3) ? data[i * channels + c] : data[i * channels];
+            rgba = conversion.data();
+        }
+
+        glBindTexture(GL_TEXTURE_2D_ARRAY, arrayTex);
+        Render::pglTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                                 0, 0, capasUsadas, 16, 16, 1,
+                                 GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+        capaPorHandle[handle] = capasUsadas++;
+    }
+
+    // La capa de una textura, o -1 si no tiene. La leen los workers.
+    int capaDe(GLuint handle) const {
+        if (!arrayListo || handle == 0 || handle >= MAX_HANDLE) return -1;
+        return capaPorHandle[handle];
+    }
+
+    GLuint getArrayTex() const { return arrayTex; }
+    bool arrayDisponible() const { return arrayListo && capasUsadas > 0; }
+
     TextureManager(const std::string& resPath = "")
-        : resourcePath(resPath.empty() ? gamePath("resourcepacks/Textures/Blocks/") : resPath), lastBoundTexture(0), currentWaterFrame(0), waterAnimTimer(0.0) {}
+        : resourcePath(resPath.empty() ? gamePath("resourcepacks/Textures/Blocks/") : resPath), lastBoundTexture(0), currentWaterFrame(0), waterAnimTimer(0.0) {
+        // -1 = esta textura no tiene capa en el array (ver capaPorHandle).
+        for (int i = 0; i < MAX_HANDLE; ++i) capaPorHandle[i] = -1;
+    }
 
     ~TextureManager() {
         // Liberar todas las texturas de OpenGL
@@ -4738,6 +4836,11 @@ public:
         // Cargar imagen a OpenGL (optimizado - usar RGB en lugar de RGBA cuando sea posible)
         GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+
+        // Y una copia a la capa que le toque del array de texturas (ver
+        // registrarCapa): es lo que permite dibujar un chunk entero de una
+        // vez en vez de una llamada por textura.
+        registrarCapa(textureID, width, height, channels, data);
 
         // ⭐ PROTECCIÓN: Verificar errores de OpenGL
         GLenum error = glGetError();
@@ -4951,6 +5054,10 @@ public:
             glBindTexture(GL_TEXTURE_2D, tex);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frameW, height, 0,
                          GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
+
+            // Su capa en el array: el agua y el horno se mallan como
+            // cualquier bloque y tienen que poder dibujarse con el resto.
+            registrarCapa(tex, frameW, height, 4, buffer.data());
 
             // Igual que el resto de bloques: pixel art nítido, sin difuminar.
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -6891,6 +6998,10 @@ public:
 // Instancia global del TextureManager
 TextureManager* g_textureManager = nullptr;
 
+// El programa de terreno (array de texturas + shader). Invalido = el motor
+// dibuja por el camino de siempre. Ver render/TerrenoGL.h.
+Render::ProgramaTerreno g_progTerreno;
+
 // ============================================================================
 // SISTEMA DE TEXTURAS DE ITEMS (UI)
 // ============================================================================
@@ -7103,6 +7214,14 @@ struct Chunk {
         int vertexCount;     // cuantos vertices ocupa
         GLuint texture;
 
+        // ⭐ ¿Este rango se dibuja con el array de texturas?
+        //
+        // Si es true, junta varias texturas y cada vertice lleva la suya en
+        // su byte de capa: se dibuja con el shader y sin tocar el bind de
+        // textura. Si es false, es un rango de UNA textura y se dibuja por el
+        // camino de siempre. Ver render/TerrenoGL.h.
+        bool porCapa = false;
+
         // ⭐ ¿Este batch es agua/lava (se dibuja en el pase con blending)?
         //
         // Antes el render lo deducia comparando el ID de textura del batch
@@ -7130,7 +7249,7 @@ struct Chunk {
         bool recortado;
 
         TextureBatch() : primerVertice(0), vertexCount(0), texture(0),
-                         transparente(false), recortado(false) {}
+                         porCapa(false), transparente(false), recortado(false) {}
 
         // Sin destructor: un batch ya no posee ningun recurso de OpenGL. El
         // buffer es del chunk (vboUnico) y lo libera el.
@@ -22997,6 +23116,14 @@ public:
             texturasTransparentes, texturasRecortadas, texturasFaltantes,
             bordeIncompleto);
 
+        // ⭐ La capa de cada batch en el array de texturas, antes de
+        // entrelazar: entrelazar() la escribe en cada vertice. Es una lectura
+        // de un array plano, segura desde un worker (ver capaPorHandle).
+        for (Render::BatchCPU& b : mallaCPU.batches) {
+            b.capa = g_textureManager ? g_textureManager->capaDe((GLuint)b.textura)
+                                      : -1;
+        }
+
         // ⭐ El entrelazado para la GPU se hace AQUI, en el worker. Antes lo
         // hacia el hilo principal al subir cada batch (una copia entera de
         // la malla, mas un escaneo de NaN), que era trabajo de CPU pura
@@ -23093,6 +23220,40 @@ public:
         static std::vector<uint8_t> bytesChunk;
         bytesChunk.clear();
 
+        // ====================================================================
+        // ⭐ CON ARRAY DE TEXTURAS, LOS RANGOS SE FUNDEN
+        // ====================================================================
+        // Si todos los batches de este chunk tienen capa, el shader puede
+        // dibujarlos JUNTOS: la textura deja de ser un cambio de estado, es
+        // un numero mas en cada vertice. Entonces no hacen falta once rangos
+        // por chunk, sino tres -- macizo, recortado y agua --, que es de
+        // donde sale la mejora grande.
+        //
+        // Basta con que UNO no tenga capa (textura rara, array lleno) para
+        // volver al reparto por textura: mezclarlos daria el dibujo mal.
+        const bool fundir = g_progTerreno.valido() &&
+                            g_textureManager &&
+                            g_textureManager->arrayDisponible() &&
+                            !mallaCPU.batches.empty() &&
+                            std::all_of(mallaCPU.batches.begin(),
+                                        mallaCPU.batches.end(),
+                                        [](const Render::BatchCPU& b) {
+                                            return b.capa >= 0;
+                                        });
+
+        // Al fundir se ordena por grupo para que cada rango salga contiguo.
+        if (fundir) {
+            std::sort(mallaCPU.batches.begin(), mallaCPU.batches.end(),
+                      [](const Render::BatchCPU& a, const Render::BatchCPU& b) {
+                          if (a.transparente != b.transparente)
+                              return !a.transparente;   // opacos primero
+                          return !a.recortado && b.recortado;  // macizos antes
+                      });
+        }
+
+        // Grupo del batch anterior, para saber cuando abrir un rango nuevo.
+        Chunk::TextureBatch* rangoAbierto = nullptr;
+
         for (Render::BatchCPU& src : mallaCPU.batches) {
             const GLuint texture = (GLuint)src.textura;
 
@@ -23112,22 +23273,37 @@ public:
             }
             const size_t expectedVertCount = src.numVertices();
 
-            // Crear nuevo batch: de momento solo el rango, el buffer va luego.
-            Chunk::TextureBatch* batch = new Chunk::TextureBatch();
-            batch->texture = texture;
-            batch->vertexCount = (int)expectedVertCount;
-            batch->primerVertice = (int)(bytesChunk.size() / Render::BatchCPU::BYTES_POR_VERTICE);
-            // Las marcas viajan YA resueltas dentro del batch de CPU, en vez
-            // de volver a consultar los sets aqui. Asi el dato de "en que pase
-            // se dibuja esto" se decide una sola vez, del lado del mallado.
-            batch->transparente = src.transparente;
-            batch->recortado    = src.recortado;
+            // ¿Cabe en el rango que ya esta abierto? Solo al fundir, y solo
+            // si pertenece al mismo grupo (mismo pase y mismo recorte).
+            const bool mismoGrupo = fundir && rangoAbierto &&
+                                    rangoAbierto->transparente == src.transparente &&
+                                    rangoAbierto->recortado    == src.recortado;
+
+            if (mismoGrupo) {
+                rangoAbierto->vertexCount += (int)expectedVertCount;
+            } else {
+                // Crear nuevo batch: de momento solo el rango, el buffer va luego.
+                Chunk::TextureBatch* batch = new Chunk::TextureBatch();
+                // Al fundir, la textura ya no manda nada (la elige cada
+                // vertice con su capa); se guarda la primera solo para que las
+                // comprobaciones de "batch corrupto" sigan teniendo sentido.
+                batch->texture = texture;
+                batch->vertexCount = (int)expectedVertCount;
+                batch->primerVertice = (int)(bytesChunk.size() / Render::BatchCPU::BYTES_POR_VERTICE);
+                // Las marcas viajan YA resueltas dentro del batch de CPU, en vez
+                // de volver a consultar los sets aqui. Asi el dato de "en que pase
+                // se dibuja esto" se decide una sola vez, del lado del mallado.
+                batch->transparente = src.transparente;
+                batch->recortado    = src.recortado;
+                batch->porCapa      = fundir;
+
+                // Agregar batch a la lista temporal (NO a chunk->batches todavía)
+                newBatches.push_back(batch);
+                rangoAbierto = batch;
+            }
 
             bytesChunk.insert(bytesChunk.end(),
                               src.entrelazado.begin(), src.entrelazado.end());
-
-            // Agregar batch a la lista temporal (NO a chunk->batches todavía)
-            newBatches.push_back(batch);
         }
 
         // ====================================================================
@@ -24587,6 +24763,121 @@ public:
         return stats;
     }
 
+    // ========================================================================
+    // ⭐ LOS PUNTEROS DE VERTICE, EN LOS DOS CAMINOS
+    // ========================================================================
+    // El reparto de bytes es el MISMO para los dos (ver MallaChunk.h):
+    //     0 pos (3 floats) | 12 uv (2 floats) | 20 color (3 bytes) | 23 capa
+    //
+    // Con shader se colocan los cuatro atributos. Sin el, se colocan los tres
+    // punteros de la tuberia fija y el byte de la capa simplemente no se lee
+    // (por eso el color se pide de 3 componentes y no de 4).
+    //
+    // Antes esto era un glInterleavedArrays(GL_T2F_C4UB_V3F), que ya no vale
+    // porque ese formato exige el orden uv-color-posicion y ahora la posicion
+    // va primera. Se colocan a mano, que ademas es una llamada menos.
+    void atarPunteros(bool porCapa) {
+        const GLsizei paso = (GLsizei)Render::BatchCPU::BYTES_POR_VERTICE;
+        if (porCapa) {
+            Render::pglVertexAttribPointer(Render::ATRIB_POS, 3, GL_FLOAT, GL_FALSE,
+                                           paso, (const void*)Render::BatchCPU::OFF_POS);
+            Render::pglVertexAttribPointer(Render::ATRIB_UV, 2, GL_FLOAT, GL_FALSE,
+                                           paso, (const void*)Render::BatchCPU::OFF_UV);
+            Render::pglVertexAttribPointer(Render::ATRIB_COLOR, 3, GL_UNSIGNED_BYTE, GL_TRUE,
+                                           paso, (const void*)Render::BatchCPU::OFF_COLOR);
+            // Sin normalizar: es un indice de capa, no un color.
+            Render::pglVertexAttribPointer(Render::ATRIB_CAPA, 1, GL_UNSIGNED_BYTE, GL_FALSE,
+                                           paso, (const void*)Render::BatchCPU::OFF_CAPA);
+        } else {
+            glVertexPointer(3, GL_FLOAT, paso, (const void*)Render::BatchCPU::OFF_POS);
+            glTexCoordPointer(2, GL_FLOAT, paso, (const void*)Render::BatchCPU::OFF_UV);
+            glColorPointer(3, GL_UNSIGNED_BYTE, paso, (const void*)Render::BatchCPU::OFF_COLOR);
+        }
+    }
+
+    // Enciende el programa de terreno y le pasa lo que no cambia por chunk:
+    // el array de texturas, la niebla y el desplazamiento del agua.
+    //
+    // La niebla se LEE DEL ESTADO DE OPENGL en vez de recibirse por parametro.
+    // Asi el shader pinta exactamente la misma niebla que el resto del motor
+    // (cielo, agua, mano) sin que haya dos sitios donde ajustarla: el sistema
+    // de niebla sigue llamando a glFog* como siempre y esto lo copia.
+    void prepararShaderTerreno(bool agua, float scrollU = 0.0f, float scrollV = 0.0f) {
+        Render::pglUseProgram(g_progTerreno.id);
+
+        Render::pglActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, g_textureManager->getArrayTex());
+        Render::pglUniform1i(g_progTerreno.uTexturas, 0);
+
+        GLfloat colorNiebla[4] = {0.5f, 0.7f, 1.0f, 1.0f};
+        GLfloat ini = 0.0f, fin = 1.0f, densidad = 0.0f;
+        GLint modoGL = GL_LINEAR;
+        glGetFloatv(GL_FOG_COLOR, colorNiebla);
+        glGetFloatv(GL_FOG_START, &ini);
+        glGetFloatv(GL_FOG_END, &fin);
+        glGetFloatv(GL_FOG_DENSITY, &densidad);
+        glGetIntegerv(GL_FOG_MODE, &modoGL);
+
+        // ⚠️ EL MODO HAY QUE MIRARLO, NO DARLO POR LINEAL.
+        //
+        // Aqui habia una formula lineal fija, y el terreno entero salia del
+        // color del cielo: con niebla EXPonencial, GL_FOG_START y GL_FOG_END
+        // se quedan en sus valores por defecto (0 y 1), asi que "distancia
+        // entre inicio y fin" daba 1 -- niebla al maximo -- para todo lo que
+        // estuviera a mas de un metro.
+        int modo = 3;                                   // 3 = sin niebla
+        if (glIsEnabled(GL_FOG)) {
+            if      (modoGL == GL_LINEAR) modo = 0;
+            else if (modoGL == GL_EXP)    modo = 1;
+            else if (modoGL == GL_EXP2)   modo = 2;
+        }
+
+        Render::pglUniform3f(g_progTerreno.uNieblaColor,
+                             colorNiebla[0], colorNiebla[1], colorNiebla[2]);
+        Render::pglUniform1f(g_progTerreno.uNieblaIni, ini);
+        Render::pglUniform1f(g_progTerreno.uNieblaFin, fin);
+        Render::pglUniform1i(g_progTerreno.uNieblaModo, modo);
+        Render::pglUniform1f(g_progTerreno.uNieblaDensidad, densidad);
+
+        // El agua se desplaza; el terreno no. Antes esto era una matriz de
+        // textura empujada con glPushMatrix, que el shader no mira.
+        Render::pglUniform2f(g_progTerreno.uScroll,
+                             agua ? scrollU : 0.0f, agua ? scrollV : 0.0f);
+        Render::pglUniform1f(g_progTerreno.uRecorte, 0.0f);
+
+        // Los atributos que va a leer el shader. Y se apagan los arrays de la
+        // tuberia fija: si se quedan encendidos, el driver sigue leyendo
+        // punteros viejos que ya no apuntan a nada util.
+        glDisableClientState(GL_VERTEX_ARRAY);
+        glDisableClientState(GL_COLOR_ARRAY);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        Render::pglEnableVertexAttribArray(Render::ATRIB_POS);
+        Render::pglEnableVertexAttribArray(Render::ATRIB_UV);
+        Render::pglEnableVertexAttribArray(Render::ATRIB_COLOR);
+        Render::pglEnableVertexAttribArray(Render::ATRIB_CAPA);
+
+        // El recorte lo hace el shader con discard. Dejar encendido ademas el
+        // test de alfa de la tuberia fija solo quitaria early-Z.
+        glDisable(GL_ALPHA_TEST);
+    }
+
+    // Devuelve el estado a como lo espera todo lo demas (HUD, mano, menus),
+    // que sigue dibujandose con la tuberia fija.
+    void terminarShaderTerreno() {
+        Render::pglDisableVertexAttribArray(Render::ATRIB_POS);
+        Render::pglDisableVertexAttribArray(Render::ATRIB_UV);
+        Render::pglDisableVertexAttribArray(Render::ATRIB_COLOR);
+        Render::pglDisableVertexAttribArray(Render::ATRIB_CAPA);
+        Render::pglUseProgram(0);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glEnableClientState(GL_COLOR_ARRAY);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        // El bind de textura 2D cacheado ya no vale: el shader ha estado
+        // usando otra unidad y otro destino.
+        g_textureManager->invalidateBindCache();
+    }
+
     void render(const Vec3& playerPos = Vec3(0, 0, 0)) {
         PROFILE_SCOPE("World::render");
         // ⭐ Reparto de `render` por fases, para no optimizar a ciegas.
@@ -24975,6 +25266,15 @@ public:
         // vez de perderse al reagrupar por textura.
         {
             const bool hayVBO = (glBindBuffer != nullptr);
+
+            // ⭐ ¿Se puede dibujar con el array de texturas y el shader?
+            // Solo si el programa enlazo y hay capas cargadas. Si no, todo lo
+            // de abajo cae solo al camino de siempre.
+            const bool conShader = g_progTerreno.valido() && g_textureManager &&
+                                   g_textureManager->arrayDisponible();
+            bool shaderEncendido = false;
+            if (conShader) { prepararShaderTerreno(false); shaderEncendido = true; }
+
             for (const auto& info : visibleChunks) {
                 Chunk* c = info.chunk;
                 if (!hayVBO || c->vboUnico == 0 || c->batches.empty()) continue;
@@ -24997,24 +25297,44 @@ public:
                         continue;
                     }
 
+                    const bool porCapa = conShader && batch->porCapa;
+
+                    // ⚠️ Si este rango NO va por capa pero el shader esta
+                    // encendido, hay que apagarlo antes de dibujarlo: con el
+                    // programa activo y los arrays de la tuberia fija
+                    // apagados, un rango de los de siempre no dibuja NADA.
+                    // Pasa cuando una textura se quedo sin capa y el chunk no
+                    // pudo fundir sus rangos.
+                    if (conShader && !porCapa && shaderEncendido) {
+                        terminarShaderTerreno();
+                        shaderEncendido = false;
+                        bufferAtado = false;
+                    }
+
                     // El buffer y los punteros, UNA vez por chunk, y solo si
                     // de verdad hay algo opaco que dibujar.
                     if (!bufferAtado) {
                         glBindBuffer(GL_ARRAY_BUFFER, c->vboUnico);
-                        glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
+                        atarPunteros(porCapa);
                         bufferAtado = true;
                     }
 
-                    // El recorte por alfa, solo donde hace falta (ver la nota
-                    // de mas arriba). Con el orden de los rangos, esto cambia
-                    // como mucho una vez por chunk.
-                    if (batch->recortado != alphaTestActivo) {
-                        if (batch->recortado) glEnable(GL_ALPHA_TEST);
-                        else                  glDisable(GL_ALPHA_TEST);
-                        alphaTestActivo = batch->recortado;
+                    if (porCapa) {
+                        // El recorte lo hace el shader con `discard`: el test
+                        // de alfa de la tuberia fija no pinta nada aqui.
+                        Render::pglUniform1f(g_progTerreno.uRecorte,
+                                             batch->recortado ? 1.0f : 0.0f);
+                    } else {
+                        // El recorte por alfa, solo donde hace falta (ver la
+                        // nota de mas arriba). Con el orden de los rangos,
+                        // esto cambia como mucho una vez por chunk.
+                        if (batch->recortado != alphaTestActivo) {
+                            if (batch->recortado) glEnable(GL_ALPHA_TEST);
+                            else                  glDisable(GL_ALPHA_TEST);
+                            alphaTestActivo = batch->recortado;
+                        }
+                        g_textureManager->bindOptimized(batch->texture);
                     }
-
-                    g_textureManager->bindOptimized(batch->texture);
 
                     glDrawArrays(GL_QUADS, batch->primerVertice, batch->vertexCount);
 
@@ -25022,6 +25342,8 @@ public:
                     batchesRendered++;
                 }
             }
+
+            if (shaderEncendido) terminarShaderTerreno();
         }
 
         tPase1 = std::chrono::steady_clock::now();
@@ -25068,6 +25390,16 @@ public:
         //      batches son opacos.
         {
             const bool hayVBO = (glBindBuffer != nullptr);
+            const bool conShader = g_progTerreno.valido() && g_textureManager &&
+                                   g_textureManager->arrayDisponible();
+
+            bool shaderEncendido = false;
+            if (conShader) {
+                // El desplazamiento del agua viaja como uniform. La matriz de
+                // textura de abajo es para el camino de siempre.
+                prepararShaderTerreno(true, waterOffsetU, waterOffsetV);
+                shaderEncendido = true;
+            }
 
             glMatrixMode(GL_TEXTURE);
             glPushMatrix();
@@ -25091,14 +25423,16 @@ public:
                     if (batch->vertexCount % 4 != 0) continue;
                     if (batch->texture == 0) continue;
 
+                    const bool porCapa = conShader && batch->porCapa;
+
                     // El buffer del chunk, una vez y solo si hay agua.
                     if (!bufferAtado) {
                         glBindBuffer(GL_ARRAY_BUFFER, c->vboUnico);
-                        glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
+                        atarPunteros(porCapa);
                         bufferAtado = true;
                     }
 
-                    g_textureManager->bindOptimized(batch->texture);
+                    if (!porCapa) g_textureManager->bindOptimized(batch->texture);
 
                     glDrawArrays(GL_QUADS, batch->primerVertice, batch->vertexCount);
 
@@ -25106,6 +25440,8 @@ public:
                     batchesRendered++;
                 }
             }
+
+            if (shaderEncendido) terminarShaderTerreno();
 
             glMatrixMode(GL_TEXTURE);
             glPopMatrix();
@@ -37798,6 +38134,27 @@ int main() {
     loadVBOFunctions();
 
     // ========================================================================
+    // ⭐ EL CAMINO MODERNO DEL TERRENO: ARRAY DE TEXTURAS + SHADER
+    // ========================================================================
+    // Es opcional a proposito. Si esta maquina no lo soporta -- o si el
+    // jugador pone VOXELWORLD_ARRAY=0 para comparar -- el motor dibuja por el
+    // camino de siempre, una llamada por textura y por chunk. Ver
+    // render/TerrenoGL.h para el porque de un array y no de un atlas.
+    {
+        const char* apagar = getenv("VOXELWORLD_ARRAY");
+        const bool quiere = !(apagar && apagar[0] == '0');
+        if (quiere && Render::cargarFunciones()) {
+            g_progTerreno = Render::crearPrograma();
+        }
+        if (g_progTerreno.valido()) {
+            std::cout << "[TERRENO] Shader de terreno listo." << std::endl;
+        } else {
+            std::cout << "[TERRENO] Sin shader: se dibuja por el camino de "
+                         "siempre (una llamada por textura)." << std::endl;
+        }
+    }
+
+    // ========================================================================
     // ⭐ QUE MAQUINA ES ESTA
     // ========================================================================
     // Va AQUI y no antes porque glGetString necesita un contexto de OpenGL ya
@@ -37858,6 +38215,9 @@ int main() {
     // Inicializar TextureManager (debe hacerse DESPUÉS de crear contexto OpenGL)
     std::cout << "Inicializando sistema de texturas..." << std::endl;
     g_textureManager = new TextureManager();
+    // El array de texturas ANTES de cargar nada: asi cada textura que se
+    // cargue se copia a su capa sobre la marcha (ver registrarCapa).
+    g_textureManager->crearArrayTexturas();
     g_textureManager->loadAllBlockTextures();
     // ⭐ Y el barrido exhaustivo: sin esto, la primera vez que el mesher pide
     // una textura no listada lo hace desde un worker y recibe 0 -- que es el
@@ -38375,6 +38735,9 @@ int main() {
             if (g_textureManager == nullptr) {
                 std::cerr << "⚠️ WARNING: g_textureManager es NULL! Re-inicializando..." << std::endl;
                 g_textureManager = new TextureManager();
+    // El array de texturas ANTES de cargar nada: asi cada textura que se
+    // cargue se copia a su capa sobre la marcha (ver registrarCapa).
+    g_textureManager->crearArrayTexturas();
                 g_textureManager->loadAllBlockTextures();
                 g_textureManager->precargarTodasLasCaras();
                 std::cout << "✅ TextureManager re-inicializado exitosamente" << std::endl;
@@ -38646,6 +39009,9 @@ int main() {
                     if (g_textureManager == nullptr) {
                         std::cout << "⚠️ TextureManager NULL! Inicializando..." << std::endl;
                         g_textureManager = new TextureManager();
+    // El array de texturas ANTES de cargar nada: asi cada textura que se
+    // cargue se copia a su capa sobre la marcha (ver registrarCapa).
+    g_textureManager->crearArrayTexturas();
                         g_textureManager->loadAllBlockTextures();
                         g_textureManager->precargarTodasLasCaras();
                         prewarmItemTextures();

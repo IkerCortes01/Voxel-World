@@ -311,26 +311,72 @@ Y `[LENTO]` imprime el reparto de cualquier frame de más de 100 ms, con las
 subidas a GPU que hubo: es lo que demostró que los picos de ~185 ms son del
 menú y la carga inicial, no del régimen estable (peor frame 8-15 ms).
 
+#### Cuarta vuelta: array de texturas + shader (mismo día)
+
+**El atlas clásico no sirve en este motor, y conviene que quede escrito para
+que nadie lo intente otra vez:** el greedy meshing emite UV de 0 a 7 y confía
+en `GL_REPEAT` para *teselar* la textura a lo largo del quad fusionado; con
+un sub-rectángulo de atlas esas UV se salen de su casilla y barren el atlas
+entero.
+
+Lo que sí vale es un **`GL_TEXTURE_2D_ARRAY`**: N capas de 16×16, una por
+textura. El repetido actúa sobre s y t *dentro* de cada capa, así que el
+greedy se conserva intacto. Encaja porque **todo lo que el mesher puede pedir
+es 16×16**: los bloques, las cinco texturas de objetos que usan algunos
+bloques, y los cuadros de animación del agua y del horno (las tiras de 64×16
+ya se cortan en trozos de 16×16 al cargarlas).
+
+Con todas las texturas en el mismo objeto, la textura deja de ser un cambio
+de estado y pasa a ser **un número en cada vértice**, así que los rangos de
+un chunk se funden en tres: macizo, recortado y agua.
+
+- **El byte de la capa sale gratis.** El vértice ya gastaba un byte en el
+  alfa del color, que valía siempre 1 y nunca se leyó (la transparencia sale
+  de la textura). Ahora es el número de capa: el array no cuesta ni un byte
+  más de tráfico de vértices, que en una gráfica integrada es lo que manda.
+- **Un solo reparto de bytes para los dos caminos** (`pos | uv | rgb |
+  capa`): el moderno lee cuatro atributos, el de siempre coloca los tres
+  punteros de la tubería fija e ignora el byte de la capa.
+- **Shader solo para el terreno.** El HUD, los menús y la mano siguen en
+  fixed-function: el driver entrega un contexto **4.6 en compatibilidad**
+  aunque el juego pida 2.1 (línea `[GL]` del log), así que conviven.
+- **Con respaldo automático.** Si faltan las extensiones, el shader no
+  compila o una textura se queda sin capa, se dibuja por el camino de
+  siempre. `VOXELWORLD_ARRAY=0` lo fuerza, y es como se midió el A/B.
+
+Medido en la misma sesión y la misma vista (distancia 5, ~302.000 caras):
+
+| | sin array | con array |
+|---|---|---|
+| batches | 411 | **78** |
+| pase opaco | 1,75-1,98 ms | **0,47-0,49 ms** |
+| `render` total | 2,68-2,91 ms | **1,34-1,52 ms** |
+| FPS | 156-161 | **195-200** |
+
+**La trampa que costó una vuelta:** la primera versión dibujaba el terreno
+entero del color del cielo. El shader replicaba la niebla con una fórmula
+lineal fija, pero el motor usa también niebla exponencial, y en ese modo
+`GL_FOG_START`/`GL_FOG_END` se quedan en sus valores por defecto (0 y 1): la
+cuenta daba "niebla al máximo" para todo lo que estuviera a más de un metro.
+Ahora el shader lee `GL_FOG_MODE` y la densidad del estado de OpenGL y
+reproduce los tres modos, así que el terreno se difumina exactamente igual
+que el resto del motor y no hay dos sitios donde ajustar la niebla.
+
 ### Estado y lo que queda
 
-En estado estacionario (411 batches, 302.000 caras, distancia 5): `fis`
-0,11 ms · `chunks` 0,28 ms · **`render` 3,0-3,8 ms** · `swap` 2,2-2,7 ms.
+En estado estacionario (78 batches, 302.000 caras, distancia 5): `fis`
+0,11 ms · `chunks` 0,15 ms · `render` **1,34-1,52 ms** · `swap` 3,0-3,2 ms.
+
+El cuello vuelve a estar en la **GPU** (`swap`), que es donde debe estar: la
+CPU ya no es el límite. De aquí en adelante, lo que queda es reducir trabajo
+de píxel (menos sobredibujo) o de geometría, no llamadas al driver.
 
 Las vías que quedan, por orden de rendimiento esperado:
 
-1. **Array de texturas (`GL_TEXTURE_2D_ARRAY`) + shader.** Ojo: el **atlas
-   clásico no sirve aquí**. El greedy meshing emite UV de 0 a 7 y confía en
-   `GL_REPEAT` para teselar la textura por el quad fusionado; con un
-   sub-rectángulo de atlas esas UV barrerían el atlas entero. Pero **las 73
-   texturas de bloque son 16×16** (solo el sprite del horno es 64×16), así
-   que caben en un array de 73 capas, donde `GL_REPEAT` funciona *dentro de
-   cada capa* y el greedy se conserva intacto. Un chunk pasaría a 3 draw
-   calls (macizo, recortado, agua). El driver de esta máquina entrega
-   **OpenGL 4.6 en compatibilidad** aunque el código pida 2.1 (ver la línea
-   `[GL]` del log), así que los shaders se pueden añadir solo para el
-   terreno sin tocar el HUD ni los menús. Coste: toca el mesher entero
-   (todo se indexa por handle de textura) y hay que replicar niebla y test
-   de alfa en el shader.
+1. **Sobredibujo.** Con el frame dominado por `swap` y ~300.000 caras a la
+   vista, lo que sobra es sombrear píxeles que acaban tapados. El orden de
+   cerca a lejos y el early-Z ya están; lo siguiente serían consultas de
+   oclusión o un recorte por altura del terreno.
 2. **El mesher sigue en 19-25 ms por chunk**, y el greedy es la mitad. Lo
    que queda dentro, por orden: la máscara se recorre entera para las seis
    direcciones aunque la capa esté vacía (un mapa de altura por columna

@@ -217,23 +217,57 @@ han medido de 110.000 a 625.000 caras según dónde quedara el jugador.
 - Corregido el comentario de `shouldRenderFace`, que decía que se dibujaban
   todas las caras cuando el face culling lleva tiempo activo.
 
+### Hecho (2026-09-16, medido en Intel UHD 620 / i7-8665U, mundo de 512)
+
+Misma vista fija (`VOXELWORLD_BENCH_POS=-10,65,-96,0,0` en `Mundo 1`),
+antes → después:
+
+- **Los chunks grabados en disco se cargan en los workers de generación**
+  (`cargarChunkDeDisco`). Antes iban por el hilo principal a ~47 ms cada uno
+  (3,5 de disco, 33 de `computeSkylight`), y al entrar a un mundo explorado
+  se cargaban 131 seguidos: 13-20 FPS durante diez segundos. Ahora 64-75
+  FPS mientras carga y ningún `[CARGA-LENTA]`.
+- **`computeSkylight` acotado al techo del terreno y sembrado solo desde
+  celdas frontera.** Recorría y sembraba las ~400 capas de cielo de cada
+  chunk de 512. El resultado es idéntico; el coste, una fracción.
+- **El mesher también se para en el techo** (`Chunk::techoTerreno`, las dos
+  pasadas): mallar un chunk pasa de **83 ms a 30 ms** en el worker
+  (`mallaMed` en el log `[STREAM]`, medidor nuevo).
+- **Vértice de 48 → 24 bytes** (`GL_T2F_C4UB_V3F`: se quita la normal que
+  nadie leía y el color pasa a 4 bytes). El entrelazado y la comprobación de
+  NaN se hacen en el worker (`BatchCPU::entrelazar`), no al subir. Con las
+  mismas 295.000 caras, `swap` baja de 2,5-4,4 ms a 1,4-2,0 ms.
+- **El encargo de malla se mueve, no se copia,** al salir de la cola (160 KB
+  de borde con el mutex cogido).
+- El log `[FPS]` desglosa también el **peor frame** del intervalo.
+
+Régimen estable en la misma vista: 109-128 FPS → **127-141**, mínimo 10-71
+→ **71-100**, peor frame 14-98 ms → **10-14 ms**, 1 % low 100 → 40 ms.
+
 ### Estado y lo que queda
 
-En estado estacionario el frame se reparte así (vista de ~1.000 batches):
-`fis` 0,06 ms · `chunks` 0,05 ms · `render` 4,2 ms · **`swap` 3,3-5,4 ms**.
+En estado estacionario (408 batches, 295.000 caras): `fis` 0,12 ms ·
+`chunks` 0,45 ms · **`render` 4,0-4,5 ms** · `swap` 1,4-2,0 ms.
 
-O sea: **el cuello ya no es la CPU, es la GPU**. Con ~440.000 caras a la
-vista, `swap` es la tarjeta terminando de dibujar. Las dos vías que quedan,
-por orden de rendimiento esperado:
+O sea: ahora el cuello es la **CPU del driver en `render`**, ~10 µs por
+batch en el driver de Intel (en la máquina anterior eran 3,3). Quedan picos
+aislados de ~190 ms en `swap` al entrar al mundo (primer uso de texturas y
+VBOs en el driver) y alguno de ~70 ms en `render` durante la sesión; ya no
+son sistemáticos. Las vías que quedan, por orden de rendimiento esperado:
 
 1. **Atlas de texturas.** Un bloque de pasto usa 3 texturas (arriba, lados,
    abajo) = 3 batches. Con 58 texturas de bloque, fusionarlas en un atlas
-   dejaría un chunk en 1-2 draw calls en vez de ~19. Es la mejora grande que
-   queda, y es un proyecto en sí mismo: toca las UV de todo el mesher, la
-   animación del agua y los GIF.
-2. **Bajar `RENDER_DISTANCE` de 5 a 4** da 118 FPS estables ya mismo
-   (medido), a cambio de ver menos lejos. Es una decisión de diseño, no
-   técnica, y por eso se deja sin tocar.
+   dejaría un chunk en 1-2 draw calls en vez de ~11 (408 batches / 36
+   chunks). Es la mejora grande que queda, y es un proyecto en sí mismo:
+   toca las UV de todo el mesher, la animación del agua y los GIF.
+2. **El mesher sigue en 30 ms por chunk.** Lo que queda dentro: una
+   `std::string` + búsqueda en `std::map<std::string, GLuint>` por cara
+   (`getBlockTexture` → `getTexture("nombre.png")`, 107 sitios), tres
+   búsquedas en `std::map<GLuint, vector>` por quad en `emitQuad`, y
+   `capturarBorde` en el hilo principal (65.000 lecturas por chunk
+   encolado; su comentario aún dice "~4.000", de cuando la altura era 128).
+3. **Bajar `RENDER_DISTANCE`** da FPS ya mismo a cambio de ver menos lejos.
+   Es una decisión de diseño, no técnica, y por eso se deja sin tocar.
 
 ## 4. Calidad de build y proceso
 

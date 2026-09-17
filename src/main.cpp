@@ -7648,6 +7648,20 @@ struct Chunk {
     // del pool traiga en lightData da igual. Se llama al final de la
     // generación (en el worker), tras cargar de disco y al modificar un
     // bloque, siempre con los bloques ya definitivos.
+    // ⭐ EL TECHO DEL TERRENO: la primera Y por encima de la cual el chunk es
+    // puro aire. Sale de la paleta en 32 comparaciones (un subchunk uniforme
+    // de aire no tiene nada dentro), y ahorra recorrer las ~400 capas de
+    // cielo de un chunk de 512 tanto a la luz como al mesher.
+    int techoTerreno() const {
+        int yTop = CHUNK_HEIGHT;
+        while (yTop > 0) {
+            const PalettedSubChunk& sc = subchunks[(yTop - 1) / SUBCHUNK_HEIGHT];
+            if (!(sc.isUniform() && sc.getUniformBlock() == BLOCK_AIR)) break;
+            yTop -= SUBCHUNK_HEIGHT;
+        }
+        return yTop;
+    }
+
     void computeSkylight() {
         // Transparencia cacheada: el flood-fill consulta cada celda varias
         // veces y getBlock() resuelve paleta cada vez.
@@ -7705,10 +7719,28 @@ struct Chunk {
         // cada bloque de aire y LEAF_ATTENUATION por cada capa de hojas.
         // Así una copa de 3 capas deja pasar luz, pero mucho más tenue que
         // una de 1 capa, que es justo el efecto buscado.
+        // ⭐ EL TECHO DEL TERRENO: LO QUE HAY POR ENCIMA NO SE RECORRE.
+        //
+        // Con 512 de alto, un chunk normal tiene terreno hasta y~100 y
+        // encima 400 capas de puro aire. Recorrerlas celda a celda (con
+        // resolucion de paleta en cada una) y sembrarlas todas en el
+        // flood-fill era lo que ponia esta funcion en 33 ms: el 80% del
+        // trabajo era comprobar que el cielo sigue siendo cielo.
+        //
+        // Por encima del techo (ver techoTerreno) todo es aire a plena luz y
+        // se escribe directamente sin mirar los bloques. La luz ahi es 18
+        // exacta (no hay nada que la corte), asi que el resultado es identico
+        // al de recorrerlo.
+        const int yTop = techoTerreno();
+        for (int x = 0; x < CHUNK_SIZE; x++)
+            for (int z = 0; z < CHUNK_SIZE; z++)
+                for (int y = yTop; y < CHUNK_HEIGHT; y++)
+                    lightData[x][y][z].sunlight = 18;
+
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int z = 0; z < CHUNK_SIZE; z++) {
                 int currentLight = 18;
-                for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
+                for (int y = yTop - 1; y >= 0; y--) {
                     const BlockType b = getBlock(x, y, z);
                     const uint8_t c = lightCost(b);
                     COST(x, y, z) = c;
@@ -7749,15 +7781,46 @@ struct Chunk {
             return ((uint32_t)x << SHIFT_X) | ((uint32_t)z << SHIFT_Z) | (uint32_t)y;
         };
 
-        // Se siembra TODA celda con luz, no solo las que están a 18: la luz
-        // que ya atravesó una copa (por ejemplo 15) también debe derramarse
+        static const int D[6][3] = {
+            {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+        };
+
+        // Se siembra cualquier nivel de luz, no solo el 18: la luz que ya
+        // atravesó una copa (por ejemplo 15) también debe derramarse
         // lateralmente, o el interior del árbol quedaría a oscuras salvo
         // justo bajo los huecos.
+        //
+        // ⭐ PERO SOLO LAS CELDAS QUE TIENEN ALGO QUE DAR. Sembrar toda celda
+        // con luz metia ~100.000 entradas en la pila para que casi todas
+        // sacaran sus seis vecinos y no cambiaran nada (el aire de al lado
+        // ya esta a 18). Una celda solo hace falta en la pila si algun
+        // vecino transparente esta mas oscuro de lo que ella le daria; el
+        // resto lo alcanza el propio flood-fill al derramarse. El resultado
+        // es el mismo, con una pila de cientos en vez de cien mil.
+        //
+        // El flood-fill se queda bajo el techo: encima todo es 18 y ni recibe
+        // ni aporta, asi que ni se lee.
         for (int x = 0; x < CHUNK_SIZE; x++)
             for (int z = 0; z < CHUNK_SIZE; z++)
-                for (int y = 0; y < CHUNK_HEIGHT; y++)
-                    if (COST(x, y, z) != 0 && lightData[x][y][z].sunlight > 1)
-                        stack.push_back(pack(x, y, z));
+                for (int y = 0; y < yTop; y++) {
+                    if (COST(x, y, z) == 0) continue;
+                    const uint8_t L = lightData[x][y][z].sunlight;
+                    if (L <= 1) continue;
+                    bool aporta = false;
+                    for (const auto& d : D) {
+                        const int nx = x + d[0], ny = y + d[1], nz = z + d[2];
+                        if (nx < 0 || nx >= CHUNK_SIZE) continue;
+                        if (ny < 0 || ny >= yTop) continue;
+                        if (nz < 0 || nz >= CHUNK_SIZE) continue;
+                        const uint8_t stepCost = COST(nx, ny, nz);
+                        if (stepCost == 0 || L <= stepCost) continue;
+                        if (lightData[nx][ny][nz].sunlight < (uint8_t)(L - stepCost)) {
+                            aporta = true;
+                            break;
+                        }
+                    }
+                    if (aporta) stack.push_back(pack(x, y, z));
+                }
 
         while (!stack.empty()) {
             const uint32_t c = stack.back();
@@ -7769,13 +7832,10 @@ struct Chunk {
             const uint8_t L = lightData[cx][cy][cz].sunlight;
             if (L <= 1) continue;
 
-            static const int D[6][3] = {
-                {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
-            };
             for (const auto& d : D) {
                 const int nx = cx + d[0], ny = cy + d[1], nz = cz + d[2];
                 if (nx < 0 || nx >= CHUNK_SIZE) continue;
-                if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
+                if (ny < 0 || ny >= yTop) continue;
                 if (nz < 0 || nz >= CHUNK_SIZE) continue;
 
                 // ⭐ El coste depende del bloque DESTINO: entrar en una celda
@@ -8776,7 +8836,14 @@ static std::atomic<long long> g_diagRemalladoFollaje{0};
 // Costuras provisionales que se corrigieron solas al llegar los vecinos.
 static long long g_diagBordesSaldados = 0;
 // Chunks rescatados de un mundo guardado con la altura antigua (128).
-static long long g_migradosDeAlturaVieja = 0;
+// Atomico: la carga de disco corre tambien en los workers de generacion.
+static std::atomic<long long> g_migradosDeAlturaVieja{0};
+
+// Coste del mallado medido DENTRO del worker, en microsegundos. Antes
+// `metricas.msMallado` existia pero nadie lo escribia: el coste de la
+// operacion mas cara del streaming no se veia en ningun sitio.
+static std::atomic<long long> g_usMalladoWorker{0};
+static std::atomic<int>       g_nMalladoWorker{0};
 
 // Cada hilo de mallado se queda con su hueco al arrancar. -1 = no es un worker
 // de mallado (el hilo principal cuando malla por el camino sincrono), y en ese
@@ -9463,7 +9530,13 @@ private:   // se restaura la visibilidad que habia antes del bloque de streaming
             try {
                 chunk = allocateChunk(pos);   // usa poolMutex, no toca OpenGL
                 inWorkerThread = true;
-                generateChunk(chunk);
+                // ⭐ Primero el disco, y solo si no esta grabado se genera.
+                // Cargar cuesta ~47 ms por chunk (casi todo la luz), y hacerlo
+                // aqui en vez de en el hilo principal es lo que quita el tiron
+                // al entrar en un mundo ya explorado. Ver cargarChunkDeDisco.
+                if (!cargarChunkDeDisco(pos, chunk)) {
+                    generateChunk(chunk);
+                }
                 inWorkerThread = false;
                 generado = true;
             } catch (const std::exception& e) {
@@ -10248,7 +10321,10 @@ public:
                     [this] { return !mallaQueue.empty() || !mallaRunning.load(); });
                 if (!mallaRunning.load()) return;
                 if (mallaQueue.empty()) continue;
-                enc = mallaQueue.front();
+                // Se MUEVE, no se copia: el encargo lleva la foto del borde
+                // (~160 KB en vectores a 512 de alto) y copiarla aqui, con el
+                // mutex de la cola cogido, ponia en fila a los tres workers.
+                enc = std::move(mallaQueue.front());
                 mallaQueue.pop_front();
             }
 
@@ -10310,7 +10386,12 @@ public:
                         }
                     } guardBaliza(enc.pos);
 
+                    const auto t0 = std::chrono::steady_clock::now();
                     buildChunkMesh(enc.chunk, &res.malla, &enc.borde, enc.vecinosCompletos);
+                    g_usMalladoWorker.fetch_add(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - t0).count());
+                    g_nMalladoWorker.fetch_add(1);
                     res.ok = true;
                 }
             } catch (...) {
@@ -11415,6 +11496,120 @@ public:
         return troncos > 3000 || troncosBajoTierra > 1500;
     }
 
+    // ========================================================================
+    // ⭐ CARGAR UN CHUNK DESDE EL DISCO -- VALE DESDE UN WORKER
+    // ========================================================================
+    // Llena `chunk` con los bloques grabados en `chunkPos` y calcula su luz.
+    // Devuelve false si el chunk no existe en disco o su terreno esta
+    // corrupto; en ese caso `chunk` queda sin tocar y hay que generarlo.
+    //
+    // POR QUE ESTA SEPARADO DE getOrCreateChunk: medido en un mundo
+    // guardado, cada chunk cargado costaba ~47 ms EN EL HILO PRINCIPAL (3,5
+    // de disco y 33 de computeSkylight), y durante los primeros diez
+    // segundos de partida se cargan mas de cien. Eso era el "13-20 FPS al
+    // entrar": el pipeline de workers solo servia para los chunks NUEVOS, y
+    // en un mundo ya explorado casi ninguno lo es.
+    //
+    // Todo lo que hace esta funcion puede correr fuera del hilo principal:
+    // el saveManager lleva sus propios mutex (ya lo usan los hilos de
+    // guardado), la migracion y la traduccion de IDs son puras, y la luz
+    // solo toca el propio chunk. Lo que NO hace, a proposito, es tocar
+    // `chunks`, el cache ni los vecinos: eso lo hace integrateGeneratedChunks
+    // en el hilo principal, igual que con un chunk recien generado.
+    //
+    // `msDisco` y `msLuz` son opcionales: el camino sincrono los usa para el
+    // aviso [CARGA-LENTA]; el worker no los necesita.
+    bool cargarChunkDeDisco(const Vec3i& chunkPos, Chunk* chunk,
+                            double* msDisco = nullptr, double* msLuz = nullptr) {
+        if (!useAAASystem || !saveManager || !chunk) return false;
+
+        ChunkMetadata metadata;
+
+        // Buffer temporal para el volcado crudo del save (mismo layout de
+        // siempre); de ahí pasa a la paleta, la única fuente de verdad.
+        std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+        const double t0Disco = glfwGetTime();
+        bool cargoDeDisco = saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata);
+
+        // ================================================================
+        // ⭐ MUNDOS DE 128 DE ALTO: SE SUBEN AL MUNDO DE 512
+        // ================================================================
+        // El volcado de un chunk es un array plano [x][y][z], asi que su
+        // tamaño DEPENDE de CHUNK_HEIGHT. Un mundo guardado antes de subir
+        // la altura tiene 16*128*16 entradas; el buffer de ahora espera
+        // 16*512*16, o sea CUATRO VECES MAS.
+        //
+        // Sin migracion, `loadChunk` falla por tamaño y el chunk se
+        // REGENERA: el jugador pierde todo lo que hubiera construido ahi.
+        //
+        // La conversion es directa porque el layout es [x][y][z] y solo
+        // cambia la dimension del medio: se copia cada columna vieja a la
+        // parte BAJA de la nueva y se rellena de aire el resto. El terreno
+        // queda exactamente donde estaba -- misma X, misma Y, misma Z -- y
+        // encima aparecen 384 bloques de cielo nuevo.
+        if (!cargoDeDisco && CHUNK_HEIGHT != ALTURA_LEGACY) {
+            std::vector<BlockType> viejo(CHUNK_SIZE * ALTURA_LEGACY * CHUNK_SIZE);
+            const size_t bytesViejos =
+                sizeof(BlockType) * CHUNK_SIZE * ALTURA_LEGACY * CHUNK_SIZE;
+
+            if (saveManager->loadChunk(chunkPos.x, chunkPos.z,
+                                       viejo.data(), bytesViejos, metadata)) {
+                std::fill(raw.begin(), raw.end(), (BlockType)BLOCK_AIR);
+                for (int x = 0; x < CHUNK_SIZE; ++x)
+                    for (int y = 0; y < ALTURA_LEGACY; ++y)
+                        for (int z = 0; z < CHUNK_SIZE; ++z) {
+                            const size_t iViejo =
+                                ((size_t)x * ALTURA_LEGACY + y) * CHUNK_SIZE + z;
+                            const size_t iNuevo =
+                                ((size_t)x * CHUNK_HEIGHT + y) * CHUNK_SIZE + z;
+                            raw[iNuevo] = viejo[iViejo];
+                        }
+                cargoDeDisco = true;
+                g_migradosDeAlturaVieja++;
+            }
+        }
+        if (msDisco) *msDisco += (glfwGetTime() - t0Disco) * 1000.0;
+        if (!cargoDeDisco) return false;
+
+        // ⭐ MUNDOS ANTIGUOS: los IDs de bloque se reordenaron, asi que
+        // un chunk guardado con el formato viejo trae numeros que hoy
+        // significan otra cosa (el 11 era "tablones" y ahora es
+        // "grava"). Se traducen antes de tocar la paleta.
+        if (saveManager->getSaveVersion() <= SAVE_VERSION_LEGACY_IDS) {
+            for (auto& b : raw) {
+                b = BlockCompat::fromLegacy((uint16_t)b);
+            }
+        }
+
+        // ⭐ CHUNK CON TERRENO CORRUPTO
+        // Hubo una version en la que el generador escribia bloques
+        // equivocados (pedia "arena" y salia un TRONCO DE OYAMEL,
+        // pedia "piedra labrada" y salia arena) porque tenia los IDs
+        // copiados a mano y se quedaron obsoletos al reordenarlos.
+        // Los chunks generados en ese rato quedaron MAL GRABADOS en
+        // disco: la migracion no los arregla, porque no son "mundos
+        // viejos" sino datos escritos incorrectamente.
+        //
+        // Se detectan por un patron imposible en terreno sano
+        // (macizos de tronco/hojas como suelo) y se REGENERAN.
+        if (chunkTerrenoCorrupto(raw)) {
+            std::cout << "Chunk (" << chunkPos.x << "," << chunkPos.z
+                      << ") con terreno corrupto: regenerando."
+                      << std::endl;
+            return false;
+        }
+
+        chunk->importBlocks(raw.data());
+        chunk->isGenerated = true;
+        chunk->isModified = false;
+
+        // El save no guarda la luz: recalcularla al cargar.
+        const double t0Luz = glfwGetTime();
+        chunk->computeSkylight();
+        if (msLuz) *msLuz += (glfwGetTime() - t0Luz) * 1000.0;
+        return true;
+    }
+
     Chunk* getOrCreateChunk(const Vec3i& chunkPos) {
         // ⭐⭐⭐ PASO 1: Verificar si ya está cargado
         Chunk* chunk = getChunk(chunkPos);
@@ -11437,94 +11632,10 @@ public:
         if (useAAASystem && saveManager) {
             // Usar pool para allocar
             chunk = allocateChunk(chunkPos);
-            ChunkMetadata metadata;
-
-            // Buffer temporal para el volcado crudo del save (mismo layout de
-            // siempre); de ahí pasa a la paleta, la única fuente de verdad.
-            std::vector<BlockType> raw(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
-            const double t0Disco = glfwGetTime();
-            bool cargoDeDisco = saveManager->loadChunk(chunkPos.x, chunkPos.z, raw.data(), Chunk::BLOCKS_BYTES, metadata);
-
-            // ================================================================
-            // ⭐ MUNDOS DE 128 DE ALTO: SE SUBEN AL MUNDO DE 512
-            // ================================================================
-            // El volcado de un chunk es un array plano [x][y][z], asi que su
-            // tamaño DEPENDE de CHUNK_HEIGHT. Un mundo guardado antes de subir
-            // la altura tiene 16*128*16 entradas; el buffer de ahora espera
-            // 16*512*16, o sea CUATRO VECES MAS.
-            //
-            // Sin migracion, `loadChunk` falla por tamaño y el chunk se
-            // REGENERA: el jugador pierde todo lo que hubiera construido ahi.
-            //
-            // La conversion es directa porque el layout es [x][y][z] y solo
-            // cambia la dimension del medio: se copia cada columna vieja a la
-            // parte BAJA de la nueva y se rellena de aire el resto. El terreno
-            // queda exactamente donde estaba -- misma X, misma Y, misma Z -- y
-            // encima aparecen 384 bloques de cielo nuevo.
-            if (!cargoDeDisco && CHUNK_HEIGHT != ALTURA_LEGACY) {
-                std::vector<BlockType> viejo(CHUNK_SIZE * ALTURA_LEGACY * CHUNK_SIZE);
-                const size_t bytesViejos =
-                    sizeof(BlockType) * CHUNK_SIZE * ALTURA_LEGACY * CHUNK_SIZE;
-
-                if (saveManager->loadChunk(chunkPos.x, chunkPos.z,
-                                           viejo.data(), bytesViejos, metadata)) {
-                    std::fill(raw.begin(), raw.end(), (BlockType)BLOCK_AIR);
-                    for (int x = 0; x < CHUNK_SIZE; ++x)
-                        for (int y = 0; y < ALTURA_LEGACY; ++y)
-                            for (int z = 0; z < CHUNK_SIZE; ++z) {
-                                const size_t iViejo =
-                                    ((size_t)x * ALTURA_LEGACY + y) * CHUNK_SIZE + z;
-                                const size_t iNuevo =
-                                    ((size_t)x * CHUNK_HEIGHT + y) * CHUNK_SIZE + z;
-                                raw[iNuevo] = viejo[iViejo];
-                            }
-                    cargoDeDisco = true;
-                    g_migradosDeAlturaVieja++;
-                }
-            }
-
-            g_perfCargaDisco += (glfwGetTime() - t0Disco) * 1000.0;
-            if (cargoDeDisco) {
-                // ⭐ MUNDOS ANTIGUOS: los IDs de bloque se reordenaron, asi que
-                // un chunk guardado con el formato viejo trae numeros que hoy
-                // significan otra cosa (el 11 era "tablones" y ahora es
-                // "grava"). Se traducen antes de tocar la paleta.
-                if (saveManager->getSaveVersion() <= SAVE_VERSION_LEGACY_IDS) {
-                    for (auto& b : raw) {
-                        b = BlockCompat::fromLegacy((uint16_t)b);
-                    }
-                }
-
-                // ⭐ CHUNK CON TERRENO CORRUPTO
-                // Hubo una version en la que el generador escribia bloques
-                // equivocados (pedia "arena" y salia un TRONCO DE OYAMEL,
-                // pedia "piedra labrada" y salia arena) porque tenia los IDs
-                // copiados a mano y se quedaron obsoletos al reordenarlos.
-                // Los chunks generados en ese rato quedaron MAL GRABADOS en
-                // disco: la migracion no los arregla, porque no son "mundos
-                // viejos" sino datos escritos incorrectamente.
-                //
-                // Se detectan por un patron imposible en terreno sano
-                // (macizos de tronco/hojas como suelo) y se REGENERAN.
-                if (chunkTerrenoCorrupto(raw)) {
-                    std::cout << "Chunk (" << chunkPos.x << "," << chunkPos.z
-                              << ") con terreno corrupto: regenerando."
-                              << std::endl;
-                    deallocateChunk(chunk);
-                    chunk = nullptr;
-                    loaded = false;
-                } else {
-
-                chunk->importBlocks(raw.data());
-
-                chunk->isGenerated = true;
-                chunk->isModified = false;
-                // El save no guarda la luz: recalcularla al cargar.
-                {
-                    const double t0Luz = glfwGetTime();
-                    chunk->computeSkylight();
-                    g_perfCargaLuz += (glfwGetTime() - t0Luz) * 1000.0;
-                }
+            double msDisco = 0.0, msLuz = 0.0;
+            if (cargarChunkDeDisco(chunkPos, chunk, &msDisco, &msLuz)) {
+                g_perfCargaDisco += msDisco;
+                g_perfCargaLuz   += msLuz;
                 chunks[chunkPos] = chunk;
                 loaded = true;
                 totalChunksLoaded++;
@@ -11533,9 +11644,8 @@ public:
                 auto loadEnd = std::chrono::high_resolution_clock::now();
                 float loadTimeMs = std::chrono::duration<float, std::milli>(loadEnd - loadStart).count();
                 perfMetrics.avgLoadTimeMs = (perfMetrics.avgLoadTimeMs * 0.95f) + (loadTimeMs * 0.05f);
-                }   // fin del else de chunkTerrenoCorrupto
             } else {
-                // No se pudo cargar, devolver al pool
+                // No existe en disco (o esta corrupto): se regenera abajo.
                 deallocateChunk(chunk);
                 chunk = nullptr;
             }
@@ -16772,6 +16882,16 @@ public:
             bal->fase.store(1);
             bal->ultimoLatido.store(glfwGetTime());
         }
+
+        // ⭐ LAS DOS PASADAS SE QUEDAN BAJO EL TECHO DEL TERRENO.
+        //
+        // Medido: mallar un chunk costaba 83 ms en el worker. Con 512 de
+        // alto, ~400 de esas capas son cielo, y tanto este bucle como el
+        // greedy de abajo las recorrian celda a celda para no emitir nada.
+        // Por encima del techo no hay bloque alguno, asi que no hay cara,
+        // sprite ni nivel que dibujar: acotar ahi no cambia la malla.
+        const int yTecho = chunk->techoTerreno();
+
         for (int x = 0; x < CHUNK_SIZE; x++) {
             g_diagBalizaTicks.fetch_add(1);
             // El latido se refresca UNA VEZ POR COLUMNA, no por celda: son 16
@@ -16783,7 +16903,7 @@ public:
                 bal->ultimoLatido.store(glfwGetTime());
             }
             for (int z = 0; z < CHUNK_SIZE; z++) {
-                for (int y = 0; y < CHUNK_HEIGHT; y++) {
+                for (int y = 0; y < yTecho; y++) {
                     BlockType block = chunk->getBlock(x, y, z);
                     if (block == BLOCK_AIR) continue;
                     // Baliza fina: que celda y que bloque se esta procesando.
@@ -22383,9 +22503,10 @@ public:
                 const bool vertical = (dir < 2);
 
                 // Capas perpendiculares a la normal; ejes (u,v) en el plano.
-                const int layerCount = vertical ? CHUNK_HEIGHT : CHUNK_SIZE;
+                // En Y se para en el techo del terreno (ver yTecho arriba).
+                const int layerCount = vertical ? yTecho : CHUNK_SIZE;
                 const int maxU = CHUNK_SIZE;                       // x (o z en E/W)
-                const int maxV = vertical ? CHUNK_SIZE : CHUNK_HEIGHT;
+                const int maxV = vertical ? CHUNK_SIZE : yTecho;
 
                 for (int layer = 0; layer < layerCount; layer++) {
                     // 1) Construir la máscara de caras visibles de esta capa
@@ -22701,10 +22822,16 @@ public:
         // arrancar OpenGL (ver tests/test_malla_chunk.cpp).
         g_diagBalizaFase.store(3);   // baliza: greedy terminado, empaquetando
         if (bal) { bal->fase.store(3); bal->ultimoLatido.store(glfwGetTime()); }
-        const Render::MallaChunk mallaCPU = Render::MallaChunk::desdeMapas(
+        Render::MallaChunk mallaCPU = Render::MallaChunk::desdeMapas(
             verticesByTexture, colorsByTexture, uvsByTexture,
             texturasTransparentes, texturasRecortadas, texturasFaltantes,
             bordeIncompleto);
+
+        // ⭐ El entrelazado para la GPU se hace AQUI, en el worker. Antes lo
+        // hacia el hilo principal al subir cada batch (una copia entera de
+        // la malla, mas un escaneo de NaN), que era trabajo de CPU pura
+        // colado en el unico hilo que no puede permitirselo.
+        mallaCPU.entrelazarTodo();
 
         // ====================================================================
         // ⭐ FIN DEL CAMINO PARA UN HILO DE TRABAJO
@@ -22720,7 +22847,7 @@ public:
         // principal suba sus VBOs. Si se limpiara aqui, un chunk mallado por
         // un worker se daria por terminado y no se dibujaria nunca.
         if (salidaCPU) {
-            *salidaCPU = mallaCPU;
+            *salidaCPU = std::move(mallaCPU);
 
             // ⭐ EL CANDADO NO SE SUELTA AQUI: SE ENTREGA.
             //
@@ -22777,8 +22904,10 @@ public:
     // Se llama desde dos sitios:
     //   - el final de buildChunkMesh, cuando malla el propio hilo principal
     //   - integrarMallasDeWorkers, cuando la malla la trajo un worker
+    // `mallaCPU` no es const: si llega sin entrelazar (camino sincrono) se
+    // entrelaza aqui, y los bytes se suben directamente desde ella.
     void subirMallaAGPU(Chunk* chunk,
-                        const Render::MallaChunk& mallaCPU,
+                        Render::MallaChunk& mallaCPU,
                         bool texturasFaltantes,
                         GuardMallado& guardCandado) {
         // DOBLE BUFFER: se construyen los batches nuevos sin tocar los viejos,
@@ -22786,49 +22915,24 @@ public:
         // nueva esta lista. Sin esto se veria parpadear.
         std::vector<Chunk::TextureBatch*> newBatches;
 
-        for (const Render::BatchCPU& src : mallaCPU.batches) {
+        for (Render::BatchCPU& src : mallaCPU.batches) {
             const GLuint texture = (GLuint)src.textura;
-            const std::vector<float>& verts    = src.vertices;
-            const std::vector<float>& cols     = src.colores;
-            const std::vector<float>& uvCoords = src.uvs;
 
-            // ⚠️ LAS VALIDACIONES DE TAMAÑO YA NO ESTAN AQUI.
+            // ⚠️ AQUI YA NO SE VALIDA NI SE COPIA NADA.
             //
-            // Comprobar que los tres vectores cuadran y que los quads estan
-            // completos es ahora trabajo de `BatchCPU::coherente()`, y
-            // `MallaChunk::desdeMapas` descarta lo que no pasa. O sea que
-            // cualquier batch que llegue a este bucle YA es coherente.
+            // Que los tres vectores cuadren y los quads esten completos lo
+            // comprueba `BatchCPU::coherente()` en `desdeMapas`; que no haya
+            // NaN/Inf y el entrelazado al formato de la GPU lo hace
+            // `BatchCPU::entrelazar()` -- en el worker, no aqui. Un batch que
+            // llega a este bucle es coherente y ya trae sus bytes listos.
             //
-            // No es solo mover codigo: esa validacion vive ahora en un header
-            // sin OpenGL, asi que se puede probar sin arrancar el juego --
-            // cosa que aqui era imposible. Ver tests/test_malla_chunk.cpp.
-            const size_t expectedVertCount = src.numVertices();
-
-            // ⭐⭐⭐ VALIDACIÓN: Detectar NaN/Inf en vértices
-            bool hasInvalidData = false;
-            for (size_t i = 0; i < verts.size() && !hasInvalidData; i++) {
-                if (std::isnan(verts[i]) || std::isinf(verts[i])) {
-                    std::cerr << "❌ VÉRTICE CORRUPTO: NaN/Inf detectado en verts[" << i << "] = " << verts[i] << std::endl;
-                    hasInvalidData = true;
-                }
-            }
-            for (size_t i = 0; i < cols.size() && !hasInvalidData; i++) {
-                if (std::isnan(cols[i]) || std::isinf(cols[i])) {
-                    std::cerr << "❌ COLOR CORRUPTO: NaN/Inf detectado en cols[" << i << "] = " << cols[i] << std::endl;
-                    hasInvalidData = true;
-                }
-            }
-            for (size_t i = 0; i < uvCoords.size() && !hasInvalidData; i++) {
-                if (std::isnan(uvCoords[i]) || std::isinf(uvCoords[i])) {
-                    std::cerr << "❌ UV CORRUPTA: NaN/Inf detectado en uvCoords[" << i << "] = " << uvCoords[i] << std::endl;
-                    hasInvalidData = true;
-                }
-            }
-
-            if (hasInvalidData) {
+            // El camino sincrono (sin workers) llega con los vectores de
+            // floats sin entrelazar: se hace ahora. Es el unico caso.
+            if (src.entrelazado.empty() && !src.entrelazar()) {
                 std::cerr << "❌ BATCH DESCARTADO: Datos corruptos (NaN/Inf)" << std::endl;
                 continue;
             }
+            const size_t expectedVertCount = src.numVertices();
 
             // Crear nuevo batch
             Chunk::TextureBatch* batch = new Chunk::TextureBatch();
@@ -22850,57 +22954,26 @@ public:
                 continue;
             }
 
-            // ⭐ OPTIMIZACIÓN: Siempre usar GL_STATIC_DRAW (más rápido para este caso de uso)
-            // Los chunks raramente se modifican, y cuando lo hacen, rebuild completo es OK
-
             // ================================================================
-            // UN SOLO BUFFER ENTRELAZADO (posicion + color + UV por vertice)
+            // UN SOLO BUFFER ENTRELAZADO (UV + color + posicion por vertice)
             // ================================================================
             // Antes eran TRES buffers separados, y dibujar un batch costaba
-            // seis llamadas a OpenGL: bind+puntero para posiciones, otro par
-            // para colores y otro para UVs.
+            // seis llamadas a OpenGL. Entrelazados, dibujar es UN bind + UNA
+            // llamada que coloca los tres punteros de golpe.
             //
-            // Con ~81 chunks y varias texturas cada uno salen cientos de
-            // batches por frame, o sea MILES de llamadas al driver. En un
-            // driver viejo (el de esta maquina es de 2015) cada llamada cuesta
-            // lo suyo, y ese coste es de CPU: se paga aunque la GPU este
-            // ociosa.
+            // El formato es GL_T2F_C4UB_V3F: 24 bytes por vertice. Antes era
+            // T2F_C4F_N3F_V3F, 48 bytes, de los que 12 eran una normal fija
+            // que nadie leia (no hay GL_LIGHTING) y 16 un color en floats
+            // para guardar 4 valores de 0 a 1. En una grafica integrada, que
+            // comparte el ancho de banda con la CPU, la mitad de bytes por
+            // vertice es la mitad de trafico por frame con las mismas caras.
             //
-            // Entrelazando los tres atributos en un buffer, dibujar pasa a ser
-            // UN bind + UNA llamada que coloca los tres punteros de golpe:
-            // de seis llamadas por batch a dos.
-            //
-            // El formato T2F_C4F_N3F_V3F es el unico de glInterleavedArrays que
-            // lleva UV + color de 4 componentes + posicion. Incluye normal, que
-            // el motor no usa (no hay iluminacion de OpenGL), asi que se
-            // rellena con un valor fijo: cuesta 3 floats por vertice y ahorra
-            // las llamadas, que es el cambio que importa.
-            {
-                const size_t nVerts = verts.size() / 3;
-                std::vector<float> entre;
-                entre.resize(nVerts * 12);   // 2 UV + 4 color + 3 normal + 3 pos
-
-                for (size_t i = 0; i < nVerts; ++i) {
-                    float* d = &entre[i * 12];
-                    d[0] = uvCoords[i * 2 + 0];
-                    d[1] = uvCoords[i * 2 + 1];
-                    d[2] = cols[i * 4 + 0];
-                    d[3] = cols[i * 4 + 1];
-                    d[4] = cols[i * 4 + 2];
-                    d[5] = cols[i * 4 + 3];
-                    d[6] = 0.0f;             // normal: sin uso, GL_LIGHTING off
-                    d[7] = 1.0f;
-                    d[8] = 0.0f;
-                    d[9]  = verts[i * 3 + 0];
-                    d[10] = verts[i * 3 + 1];
-                    d[11] = verts[i * 3 + 2];
-                }
-
-                glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                glBufferData(GL_ARRAY_BUFFER,
-                             entre.size() * sizeof(float),
-                             entre.data(), GL_STATIC_DRAW);
-            }
+            // Los bytes vienen ya montados en `src.entrelazado` (ver
+            // BatchCPU::entrelazar): aqui solo se suben.
+            glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
+            glBufferData(GL_ARRAY_BUFFER,
+                         (ptrdiff_t)src.entrelazado.size(),
+                         src.entrelazado.data(), GL_STATIC_DRAW);
 
             // Agregar batch a la lista temporal (NO a chunk->batches todavía)
             newBatches.push_back(batch);
@@ -23498,14 +23571,25 @@ public:
         // escaneo entero mientras el jugador no cambie de chunk.
         if (escanear) faltabanChunks = !chunksToGenerate.empty();
 
-        // ⭐⭐⭐ GENERACIÓN: los chunks que ya existen en disco se cargan aquí
-        // (es rápido: descomprimir unas decenas de KB); los que hay que
-        // generar de cero (lo caro) se encolan para los hilos de trabajo.
+        // ⭐⭐⭐ GENERACIÓN: todo lo que no esta en memoria va a los hilos de
+        // trabajo, este grabado en disco o haya que generarlo de cero.
+        //
+        // Antes solo iban los de generar, con la idea de que cargar de disco
+        // "es rapido: descomprimir unas decenas de KB". Descomprimir lo es;
+        // lo que no lo es es calcular la luz del chunk cargado (~33 ms de los
+        // ~47 que cuesta cada uno), y en un mundo ya explorado son cientos.
+        // Con el save legado (sin saveManager) se mantiene el camino sincrono
+        // de abajo: cargarChunkDeDisco no sabe leerlo y regenerar un chunk
+        // grabado perderia lo construido.
+        const bool discoEnWorker = useAAASystem && saveManager;
         for (const auto& cp : chunksToGenerate) {
             if (chunks.find(cp.pos) != chunks.end()) continue;
             if (genInFlight.count(cp.pos)) continue;
 
-            if (genRunning.load() && !chunkExistsOnDisk(cp.pos)) {
+            // Lo que sigue en el cache de RAM lo recupera getOrCreateChunk
+            // sin tocar disco ni luz: no merece un viaje por el worker.
+            if (genRunning.load() && !getFromCache(cp.pos) &&
+                (discoEnWorker || !chunkExistsOnDisk(cp.pos))) {
                 {
                     std::lock_guard<std::mutex> lock(genQueueMutex);
                     if (genQueue.size() >= MAX_GEN_QUEUE) break;
@@ -24731,7 +24815,7 @@ public:
                 if (!glBindBuffer) continue;
 
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                glInterleavedArrays(GL_T2F_C4F_N3F_V3F, 0, 0);
+                glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
                 glDrawArrays(GL_QUADS, 0, batch->vertexCount);
 
                 facesRendered += batch->vertexCount / 4;
@@ -24804,7 +24888,7 @@ public:
                     g_textureManager->bindOptimized(batch->texture);
 
                     glBindBuffer(GL_ARRAY_BUFFER, batch->vbo);
-                    glInterleavedArrays(GL_T2F_C4F_N3F_V3F, 0, 0);
+                    glInterleavedArrays(GL_T2F_C4UB_V3F, 0, 0);
                     glDrawArrays(GL_QUADS, 0, batch->vertexCount);
 
                     facesRendered += batch->vertexCount / 4;
@@ -24967,6 +25051,13 @@ public:
                 // Coste medio por fase, para saber DONDE se va el tiempo.
                 if (metricas.nGeneracion > 0)
                     std::cout << " | genMed=" << (metricas.msGeneracion / metricas.nGeneracion) << "ms";
+                // Coste medio de mallar un chunk, medido dentro del worker.
+                {
+                    const int n = g_nMalladoWorker.load();
+                    if (n > 0)
+                        std::cout << " mallaMed="
+                                  << (g_usMalladoWorker.load() / 1000.0 / n) << "ms";
+                }
                 std::cout << std::endl;
             }
         }
@@ -38064,11 +38155,20 @@ int main() {
                 // -- y las demas se dejan en paz.
                 static double acPhys = 0.0, acChunks = 0.0,
                               acRender = 0.0, acSwap = 0.0;
+                // Reparto del PEOR frame del intervalo. La media dice donde
+                // se va el tiempo en general; esto dice donde se fue en el
+                // tiron, que suele ser otro sitio.
+                static double peorFis = 0.0, peorChunks = 0.0,
+                              peorRender = 0.0, peorSwap = 0.0;
                 const double dt = (double)frameDuration / 1000.0;
                 if (dt > 0.0) {
                     ++fpsFrames;
                     fpsAcum += dt;
-                    if (dt > fpsPeor) fpsPeor = dt;
+                    if (dt > fpsPeor) {
+                        fpsPeor = dt;
+                        peorFis = physics_ms; peorChunks = chunks_ms;
+                        peorRender = render_ms; peorSwap = swap_ms;
+                    }
                     acPhys += physics_ms; acChunks += chunks_ms;
                     acRender += render_ms; acSwap += swap_ms;
                     if (fpsAcum >= 2.0) {
@@ -38084,7 +38184,11 @@ int main() {
                                   << " chunks=" << (acChunks / n)
                                   << " render=" << (acRender / n)
                                   << " swap=" << (acSwap / n)
-                                  << " (ms/frame)" << std::endl;
+                                  << " (ms/frame)"
+                                  << " | peor: fis=" << peorFis
+                                  << " chunks=" << peorChunks
+                                  << " render=" << peorRender
+                                  << " swap=" << peorSwap << std::endl;
                         fpsFrames = 0; fpsAcum = 0.0; fpsPeor = 0.0;
                         acPhys = acChunks = acRender = acSwap = 0.0;
                     }

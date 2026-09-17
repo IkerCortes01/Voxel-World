@@ -4,6 +4,9 @@
 #include <map>
 #include <set>
 #include <cstdint>
+#include <cstring>
+#include <cmath>
+#include <algorithm>
 
 // ============================================================================
 // LA GEOMETRIA DE UN CHUNK, SIN OPENGL
@@ -75,10 +78,25 @@ struct BatchCPU {
     bool transparente = false;
     bool recortado    = false;
 
-    // Cuantos vertices hay. Se deriva, no se guarda por duplicado.
-    size_t numVertices() const { return vertices.size() / 3; }
+    // ⭐ LOS BYTES TAL CUAL LOS QUIERE LA GPU
+    //
+    // Formato GL_T2F_C4UB_V3F, 24 bytes por vertice:
+    //     u,v (2 floats) | r,g,b,a (4 bytes) | x,y,z (3 floats)
+    //
+    // Lo llena entrelazar(). Hasta entonces la geometria vive en los tres
+    // vectores de floats de arriba; despues vive SOLO aqui (los vectores se
+    // liberan). Se hace en el worker para que el hilo principal no tenga que
+    // copiar ni validar nada: coge estos bytes y los sube.
+    static constexpr size_t BYTES_POR_VERTICE = 24;
+    std::vector<uint8_t> entrelazado;
 
-    bool vacio() const { return vertices.empty(); }
+    // Cuantos vertices hay. Se deriva, no se guarda por duplicado.
+    size_t numVertices() const {
+        return vertices.empty() ? entrelazado.size() / BYTES_POR_VERTICE
+                                : vertices.size() / 3;
+    }
+
+    bool vacio() const { return vertices.empty() && entrelazado.empty(); }
 
     // ⭐ VALIDACION QUE ANTES ESTABA SUELTA EN EL MESHER
     //
@@ -87,13 +105,55 @@ struct BatchCPU {
     // asi el hilo principal puede rechazar un batch corrupto sin tener que
     // repetir la logica, y un test puede verificarla sin arrancar OpenGL.
     bool coherente() const {
-        if (vertices.empty()) return false;
+        if (vertices.empty()) {
+            // Ya entrelazado: solo queda comprobar la forma.
+            if (entrelazado.empty()) return false;
+            if (entrelazado.size() % BYTES_POR_VERTICE != 0) return false;
+            return numVertices() % 4 == 0;
+        }
         const size_t n = numVertices();
         if (vertices.size() % 3 != 0) return false;
         if (colores.size() != n * 4)  return false;
         if (uvs.size()     != n * 2)  return false;
         // GL_QUADS: los vertices van de cuatro en cuatro.
         if (n % 4 != 0) return false;
+        return true;
+    }
+
+    // ⭐ DE TRES VECTORES DE FLOATS A LOS BYTES DE LA GPU
+    //
+    // Devuelve false, y deja el batch como estaba, si no es coherente o si
+    // algun valor es NaN/Inf: esa era la validacion que el hilo principal
+    // hacia por su cuenta al subir, y aqui viaja con los datos.
+    //
+    // El color pasa de 4 floats a 4 bytes. El mesher produce factores de luz
+    // en [0,1], asi que no se pierde nada que la GPU fuera a distinguir: el
+    // framebuffer tampoco tiene mas de 8 bits por canal.
+    bool entrelazar() {
+        if (!entrelazado.empty()) return true;
+        if (!coherente()) return false;
+        for (float f : vertices) if (!std::isfinite(f)) return false;
+        for (float f : colores)  if (!std::isfinite(f)) return false;
+        for (float f : uvs)      if (!std::isfinite(f)) return false;
+
+        const size_t n = numVertices();
+        entrelazado.resize(n * BYTES_POR_VERTICE);
+        uint8_t* d = entrelazado.data();
+        for (size_t i = 0; i < n; ++i, d += BYTES_POR_VERTICE) {
+            std::memcpy(d, &uvs[i * 2], 2 * sizeof(float));
+            for (int c = 0; c < 4; ++c) {
+                float v = colores[i * 4 + c];
+                if (v < 0.0f) v = 0.0f;
+                if (v > 1.0f) v = 1.0f;
+                d[8 + c] = (uint8_t)(v * 255.0f + 0.5f);
+            }
+            std::memcpy(d + 12, &vertices[i * 3], 3 * sizeof(float));
+        }
+        // Los floats ya no hacen falta: se libera su memoria de verdad
+        // (clear() sola conservaria la capacidad).
+        std::vector<float>().swap(vertices);
+        std::vector<float>().swap(colores);
+        std::vector<float>().swap(uvs);
         return true;
     }
 };
@@ -159,6 +219,15 @@ struct MallaChunk {
         texturasFaltantes = false;
         valida = true;
         bordeProvisional = false;
+    }
+
+    // Entrelaza todos los batches para la GPU. El que no pase (NaN/Inf) se
+    // descarta aqui, en el worker, en vez de llegar al hilo principal.
+    void entrelazarTodo() {
+        batches.erase(
+            std::remove_if(batches.begin(), batches.end(),
+                           [](BatchCPU& b) { return !b.entrelazar(); }),
+            batches.end());
     }
 
     // ⭐ CONSTRUIR DESDE EL LAYOUT QUE YA USA EL MESHER

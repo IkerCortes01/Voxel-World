@@ -289,3 +289,112 @@ TEST_CASE("Cosecha del maguey: la penca se apila en el inventario") {
     // que la penca no sea un caso especial que no apile.
     CHECK(MAX_STACK_SIZE > 4);
 }
+
+// ============================================================================
+// EL PEDAZO DE PIEDRA CORTA EL MAGUEY
+// ============================================================================
+// EL CALLEJON SIN SALIDA QUE ESTO ABRE:
+//
+// De adulto en adelante, el maguey exigia un HACHA. Pero un hacha se ata con
+// ixtle, y el ixtle sale del maguey. O sea: para hacer el hacha necesitabas
+// fibra, y para la fibra necesitabas el hacha. El jugador que empezaba una
+// partida no tenia forma de entrar en esa cadena.
+//
+// LA SALIDA: una lasca de piedra. Es la herramienta de antes de la
+// herramienta, y es historicamente lo correcto -- el agave se ha jimado con
+// piedra desde mucho antes de que existiera el metal.
+//
+// LO QUE NO ES: un atajo que haga inutil el hacha. Cuesta el CUADRUPLE que el
+// hacha de pedernal, asi que se puede, pero se nota que es el camino lento.
+
+// Replica de la regla de getBlockBreakTimeForMode para el maguey compuesto.
+// Se replica en vez de incluir main.cpp (que arrastraria OpenGL entero); si
+// alguien cambia una y no la otra, los CHECK de relacion de abajo lo cazan.
+namespace {
+constexpr float HACHA_ORG = 0.6f;
+constexpr float MAL_USADA = 780.0f;   // el "no se puede" del motor
+
+bool esLasca(BlockType h) {
+    return h == BLOCK_PEDAZO_PIEDRA ||
+           h == BLOCK_PEDAZO_PEDERNAL ||
+           h == BLOCK_PEDAZO_CALIZA;
+}
+
+float tiempoMaguey(uint16_t etapa, BlockType herramienta) {
+    if (etapa <= Compuesto::Maguey::JOVEN) return 0.6f;
+    if (herramienta == BLOCK_HACHA_PEDERNAL) return HACHA_ORG;
+    if (herramienta == BLOCK_HACHA_PIEDRA)   return HACHA_ORG * 2.0f;
+    if (esLasca(herramienta))                return HACHA_ORG * 4.0f;
+    return MAL_USADA;
+}
+} // namespace
+
+TEST_CASE("Lasca: un maguey adulto SE PUEDE cortar con un pedazo de piedra") {
+    // Lo que se pidio. Antes devolvia el tiempo de "herramienta mal usada",
+    // que en la practica significa que no se puede.
+    namespace M = Compuesto::Maguey;
+    for (uint16_t etapa : { (uint16_t)M::ADULTO, (uint16_t)M::MADURO,
+                            (uint16_t)M::PRODUCTOR }) {
+        const float t = tiempoMaguey(etapa, BLOCK_PEDAZO_PIEDRA);
+        CHECK(t < MAL_USADA);
+        CHECK(t > 0.0f);
+    }
+}
+
+TEST_CASE("Lasca: cuesta mas que el hacha, asi que el hacha sigue mereciendo la pena") {
+    // Es la linea entre "abrir un camino" y "hacer inutil la herramienta".
+    namespace M = Compuesto::Maguey;
+    const float pedernal = tiempoMaguey(M::MADURO, BLOCK_HACHA_PEDERNAL);
+    const float piedra   = tiempoMaguey(M::MADURO, BLOCK_HACHA_PIEDRA);
+    const float lasca    = tiempoMaguey(M::MADURO, BLOCK_PEDAZO_PIEDRA);
+
+    CHECK(lasca > piedra);
+    CHECK(piedra > pedernal);
+    // El cuadruple que el hacha buena: se nota, pero no desespera.
+    CHECK(lasca == doctest::Approx(pedernal * 4.0f));
+}
+
+TEST_CASE("Lasca: a mano sigue sin poderse") {
+    // La regla no se relaja para todo: lo que no tiene filo no corta fibra.
+    namespace M = Compuesto::Maguey;
+    CHECK(tiempoMaguey(M::MADURO, BLOCK_AIR) == MAL_USADA);
+    CHECK(tiempoMaguey(M::PRODUCTOR, BLOCK_DIRT) == MAL_USADA);
+    // Y un pico tampoco: es para roca.
+    CHECK(tiempoMaguey(M::MADURO, BLOCK_PICO_PIEDRA) == MAL_USADA);
+}
+
+TEST_CASE("Lasca: el brote se sigue arrancando con la mano") {
+    // No cambia: los tiernos nunca necesitaron filo.
+    namespace M = Compuesto::Maguey;
+    CHECK(tiempoMaguey(M::BROTE, BLOCK_AIR) == doctest::Approx(0.6f));
+    CHECK(tiempoMaguey(M::JOVEN, BLOCK_AIR) == doctest::Approx(0.6f));
+}
+
+TEST_CASE("Lasca: las tres piedras con filo valen, no solo una") {
+    // Pedernal y caliza se astillan con filo igual que la piedra comun. Dejar
+    // fuera dos de las tres seria arbitrario para el jugador, que las ve como
+    // el mismo tipo de cosa.
+    namespace M = Compuesto::Maguey;
+    CHECK(tiempoMaguey(M::MADURO, BLOCK_PEDAZO_PIEDRA)   < MAL_USADA);
+    CHECK(tiempoMaguey(M::MADURO, BLOCK_PEDAZO_PEDERNAL) < MAL_USADA);
+    CHECK(tiempoMaguey(M::MADURO, BLOCK_PEDAZO_CALIZA)   < MAL_USADA);
+
+    // La grava NO: es suelta y redondeada, no tiene filo.
+    CHECK(esLasca(BLOCK_PEDAZO_GRAVA) == false);
+    CHECK(tiempoMaguey(M::MADURO, BLOCK_PEDAZO_GRAVA) == MAL_USADA);
+}
+
+TEST_CASE("Lasca: cortar sin cosechar seria peor que no cortar") {
+    // ⭐ LA MITAD QUE SE HABRIA OLVIDADO.
+    //
+    // Permitir que la lasca ROMPA el maguey no sirve de nada si la planta no
+    // suelta pencas: el jugador la tumba y se queda igual de bloqueado, solo
+    // que ademas ha perdido la planta.
+    //
+    // El motor decide la cosecha con `tieneFilo`, que tiene que incluir las
+    // mismas tres piedras que el tiempo de rotura. Este test fija esa
+    // coherencia: si alguien cambia una lista y no la otra, salta.
+    CHECK(esLasca(BLOCK_PEDAZO_PIEDRA));
+    CHECK(esLasca(BLOCK_PEDAZO_PEDERNAL));
+    CHECK(esLasca(BLOCK_PEDAZO_CALIZA));
+}

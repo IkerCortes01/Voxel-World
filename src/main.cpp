@@ -2809,9 +2809,19 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
     // mal usada: no es irrompible, es inviable, y el jugador entiende solo
     // que necesita el hacha buena.
     if (isSurvival && type == BLOCK_MAGUEY_PUNTA) {
-        return (herramienta == BLOCK_HACHA_PEDERNAL)
-                   ? HACHA_ORGANICO_BREAK_TIME
-                   : HERRAMIENTA_MAL_USADA_BREAK_TIME;
+        if (herramienta == BLOCK_HACHA_PEDERNAL) return HACHA_ORGANICO_BREAK_TIME;
+
+        // La lasca de piedra tambien la corta. Es la punta mas dura de la
+        // planta, asi que cuesta mas que la hoja -- pero sigue siendo posible
+        // sin herramienta montada, por el mismo motivo que el maguey entero:
+        // lo primero que se corta en el juego no puede exigir un hacha que
+        // todavia no se puede fabricar.
+        if (herramienta == BLOCK_PEDAZO_PIEDRA ||
+            herramienta == BLOCK_PEDAZO_PEDERNAL ||
+            herramienta == BLOCK_PEDAZO_CALIZA)
+            return HACHA_ORGANICO_BREAK_TIME * 6.0f;
+
+        return HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
 
     // ⭐ EL MAGUEY COMPUESTO CUESTA SEGUN LO GRANDE QUE SEA
@@ -2830,10 +2840,30 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
         // Brote y joven: tiernos, se arrancan con la mano.
         if (e <= Compuesto::Maguey::JOVEN) return 0.6f;
 
-        // De adulto en adelante la fibra ya es dura: hace falta un hacha.
+        // De adulto en adelante la fibra ya es dura: hace falta un filo.
         // La de pedernal va fina; la de piedra tambien sirve, pero cuesta.
         if (herramienta == BLOCK_HACHA_PEDERNAL) return HACHA_ORGANICO_BREAK_TIME;
         if (esHacha(herramienta))                return HACHA_ORGANICO_BREAK_TIME * 2.0f;
+
+        // ⭐ UN PEDAZO DE PIEDRA TAMBIEN CORTA, AUNQUE CUESTE.
+        //
+        // Es la herramienta de antes de la herramienta: una lasca con filo. El
+        // agave se ha jimado con piedra desde mucho antes de que existiera el
+        // metal, asi que exigir un hacha montada para tocar un maguey dejaba al
+        // jugador sin la via mas basica -- y bloqueaba el arranque, porque el
+        // ixtle del maguey es justo lo que hace falta para atar un hacha.
+        //
+        // Era un callejon sin salida: para hacer el hacha necesitas fibra, y
+        // para la fibra necesitabas el hacha.
+        //
+        // Cuesta el CUADRUPLE que el hacha de pedernal (el doble que la de
+        // piedra): con una lasca suelta en la mano se puede, pero se nota que
+        // es el camino lento. La herramienta sigue mereciendo la pena.
+        if (herramienta == BLOCK_PEDAZO_PIEDRA ||
+            herramienta == BLOCK_PEDAZO_PEDERNAL ||
+            herramienta == BLOCK_PEDAZO_CALIZA)
+            return HACHA_ORGANICO_BREAK_TIME * 4.0f;
+
         return HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
 
@@ -28976,7 +29006,22 @@ void updateMining(GameState* state, float deltaTime) {
             // del mismo ancho, pero daba el numero equivocado.
             //
             // Ahora se pregunta por la familia, que es el dato real.
-            if (esHacha(herramienta)) {
+            // ⭐ UNA LASCA DE PIEDRA TAMBIEN COSECHA.
+            //
+            // Sin esto, permitir que el pedazo de piedra CORTE el maguey (ver
+            // getBlockBreakTimeForMode) no habria servido de nada: la planta
+            // caia y no soltaba una sola penca, que es justo lo que se va a
+            // buscar. Cortar sin cosechar es peor que no poder cortar.
+            //
+            // Es el mismo criterio que el tiempo de rotura: lo que tiene filo
+            // sirve, la mano no. Un agave se ha jimado con lasca desde mucho
+            // antes de que existiera el metal.
+            const bool tieneFilo = esHacha(herramienta) ||
+                                   herramienta == BLOCK_PEDAZO_PIEDRA ||
+                                   herramienta == BLOCK_PEDAZO_PEDERNAL ||
+                                   herramienta == BLOCK_PEDAZO_CALIZA;
+
+            if (tieneFilo) {
                 const Compuesto::Familia fam = Compuesto::familiaDe(blockType);
 
                 if (fam == Compuesto::FAM_MAGUEY) {

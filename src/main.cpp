@@ -4756,6 +4756,23 @@ public:
         glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
         arrayListo = true;
+
+        // ⭐ CUANTAS CAPAS ADMITE ESTA GPU DE VERDAD.
+        //
+        // Se pedian 256 sin preguntar. El estandar garantiza al menos 256 desde
+        // GL 3.0, asi que en teoria sobra -- pero "en teoria" no vale en una
+        // integrada con driver de 2015, que es justo donde estas rutas fallan.
+        // Queda en el log para que un fallo futuro sea diagnosticable en vez de
+        // un cuelgue mudo.
+        // El gl.h que trae Windows es de OpenGL 1.1: no conoce esta constante
+        // (ni GL_TEXTURE_2D_ARRAY, que TerrenoGL.h define por lo mismo).
+        #ifndef GL_MAX_ARRAY_TEXTURE_LAYERS
+        #define GL_MAX_ARRAY_TEXTURE_LAYERS 0x88FF
+        #endif
+        GLint maxCapas = 0;
+        glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxCapas);
+        std::cout << "[ARRAY] Listo: " << MAX_CAPAS << " capas de 16x16"
+                  << " (la GPU admite " << maxCapas << ")" << std::endl;
         return true;
     }
 
@@ -24966,6 +24983,19 @@ public:
     // (cielo, agua, mano) sin que haya dos sitios donde ajustarla: el sistema
     // de niebla sigue llamando a glFog* como siempre y esto lo copia.
     void prepararShaderTerreno(bool agua, float scrollU = 0.0f, float scrollV = 0.0f) {
+        // ⚠️ SIN ARRAY DE TEXTURAS NO SE ENCIENDE EL SHADER.
+        //
+        // El shader lee `sampler2DArray`. Si el array no llego a crearse
+        // --porque la GPU no lo soporta, porque glTexImage3D fallo, o porque se
+        // apago con VOXELWORLD_ARRAY=0-- el sampler queda sin enlazar y la
+        // llamada de dibujo entra en territorio indefinido: en esta maquina
+        // (HD 4000, driver de 2015) cuelga o aborta el proceso.
+        //
+        // Se comprueba aqui y no solo al arrancar porque son dos cosas
+        // independientes: el PROGRAMA puede compilar (el log decia "Shader de
+        // terreno listo") y aun asi no haber array al que apuntar.
+        if (g_textureManager->getArrayTex() == 0) return;
+
         Render::pglUseProgram(g_progTerreno.id);
 
         Render::pglActiveTexture(GL_TEXTURE0);
@@ -25532,6 +25562,35 @@ public:
                         bufferAtado = false;
                     }
 
+                    // ⭐ Y AL REVES: SI TOCA CAPA Y EL SHADER ESTA APAGADO,
+                    // HAY QUE VOLVER A ENCENDERLO.
+                    //
+                    // BUG QUE ESTO CORRIGE: el juego abortaba o se colgaba al
+                    // entrar al mundo (4 de 4 intentos; con VOXELWORLD_ARRAY=0
+                    // arrancaba siempre, lo que senalo al camino del shader).
+                    //
+                    // La rama de arriba apaga el shader cuando aparece un batch
+                    // sin capa, pero no habia ninguna que lo volviera a
+                    // encender. Asi que en cuanto UN batch se quedaba sin capa
+                    // --una textura que no entro en el array, que es normal--
+                    // todos los batches posteriores del frame, incluidos los
+                    // que SI van por capa, se dibujaban con el programa apagado
+                    // y los atributos genericos todavia habilitados.
+                    //
+                    // Eso es estado mixto: la tuberia fija leyendo punteros que
+                    // no estan puestos y atributos genericos apuntando a un
+                    // programa que ya no esta activo. El comportamiento es
+                    // indefinido, y en esta GPU (HD 4000, driver de 2015) se
+                    // manifiesta como un cuelgue dentro del driver.
+                    //
+                    // `bufferAtado = false` fuerza a recolocar los punteros con
+                    // el modo correcto, que es lo que hace el cambio seguro.
+                    if (conShader && porCapa && !shaderEncendido) {
+                        prepararShaderTerreno(false);
+                        shaderEncendido = true;
+                        bufferAtado = false;
+                    }
+
                     // El buffer y los punteros, UNA vez por chunk, y solo si
                     // de verdad hay algo opaco que dibujar.
                     if (!bufferAtado) {
@@ -25645,6 +25704,23 @@ public:
                     if (batch->texture == 0) continue;
 
                     const bool porCapa = conShader && batch->porCapa;
+
+                    // ⭐ EL SHADER SE ENCIENDE Y SE APAGA SEGUN EL BATCH.
+                    //
+                    // Mismo fallo que tenia el pase opaco, y aqui era peor: no
+                    // habia NINGUNA rama que apagara el shader. Un batch de agua
+                    // sin capa se dibujaba con el programa activo y los arrays
+                    // de la tuberia fija deshabilitados -- o sea, leyendo
+                    // punteros que nadie habia colocado.
+                    //
+                    // Estado mixto entre tuberia fija y programable: el
+                    // resultado es indefinido y en esta GPU cuelga el driver.
+                    if (porCapa != shaderEncendido) {
+                        if (porCapa) prepararShaderTerreno(true, waterOffsetU, waterOffsetV);
+                        else         terminarShaderTerreno();
+                        shaderEncendido = porCapa;
+                        bufferAtado = false;   // los punteros cambian de modo
+                    }
 
                     // El buffer del chunk, una vez y solo si hay agua.
                     if (!bufferAtado) {

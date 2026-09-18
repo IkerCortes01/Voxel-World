@@ -174,6 +174,79 @@ inline bool simplificarVegetacion(int barra, float distanciaChunks) {
     return distanciaChunks > (float)distanciaSimplificado(barra);
 }
 
+// ============================================================================
+// ⭐ DIFUMINADO DE RENDERIZADO POR DISTANCIA
+// ============================================================================
+// Cuanto se difumina un chunk segun lo lejos que este, de 0 (nitido) a 1
+// (totalmente fundido con la niebla).
+//
+// ----------------------------------------------------------------------------
+// QUE PROBLEMA RESUELVE
+// ----------------------------------------------------------------------------
+// La niebla de OpenGL ya difumina por pixel, pero es una cortina uniforme: no
+// sabe nada de chunks. Eso deja dos cosas sin resolver:
+//
+//   1. EL BORDE DEL MUNDO CARGADO. El ultimo anillo aparece de golpe cuando
+//      termina de mallarse. Con la niebla sola, aparece "dentro" de ella -- se
+//      ve el cambio igual, solo que atenuado.
+//
+//   2. EL COSTE. Un chunk que la niebla va a cubrir al 90% se dibuja entero:
+//      toda su geometria, todos sus pixeles, para acabar del color del cielo.
+//
+// Este sistema da un numero POR CHUNK que sirve para las dos cosas: fundirlo
+// progresivamente segun entra, y decidir cuanto detalle merece.
+//
+// ----------------------------------------------------------------------------
+// COMO SE COMPORTA
+// ----------------------------------------------------------------------------
+// Sigue la curva de la niebla (nieblaInicioFraccion), asi que los dos sistemas
+// no pueden separarse: donde la niebla empieza a cerrar, el difuminado empieza
+// a subir. Es lo que hace que la transicion se vea como UNA sola cosa.
+//
+// La curva es suave (smoothstep) y no lineal: el ojo detecta los cambios de
+// pendiente, y una rampa recta produce una "banda" visible justo donde
+// arranca.
+
+// Interpolacion suave de Hermite: 0 en el borde inferior, 1 en el superior, y
+// con derivada nula en los dos -- por eso no se ve donde empieza.
+inline float suavizar(float borde0, float borde1, float x) {
+    if (borde1 <= borde0) return 0.0f;
+    float t = (x - borde0) / (borde1 - borde0);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Difuminado de un chunk que esta a `distanciaChunks` del jugador.
+//
+// `radioReal` es lo que de verdad se carga (radioCargado), no lo que dice la
+// barra: difuminar contra el numero nominal dejaria el ultimo anillo nitido y
+// cortado en seco, que es justo lo que se quiere evitar.
+inline float difuminadoDeChunk(int barra, float distanciaChunks, int radioReal) {
+    if (radioReal <= 0) return 0.0f;
+
+    // Donde empieza a notarse, en chunks. Es la misma fraccion que usa la
+    // niebla, asi que los dos sistemas van acompasados por construccion.
+    const float inicio = (float)radioReal * nieblaInicioFraccion(barra);
+
+    // Y donde esta ya completamente fundido: el borde de lo cargado.
+    const float fin = (float)radioReal;
+
+    return suavizar(inicio, fin, distanciaChunks);
+}
+
+// ¿Merece la pena dibujar este chunk?
+//
+// Por encima de este difuminado, lo que se dibuja es indistinguible del color
+// de la niebla: son pixeles que cuestan y no se ven. 0.97 y no 1.0 porque el
+// ultimo 3% ya no aporta nada perceptible y en cambio es donde mas chunks hay
+// (el area crece con el cuadrado del radio).
+constexpr float DIFUMINADO_INVISIBLE = 0.97f;
+
+inline bool chunkInvisiblePorNiebla(float difuminado) {
+    return difuminado >= DIFUMINADO_INVISIBLE;
+}
+
 // ----------------------------------------------------------------------------
 // UNA ETIQUETA PARA LA UI
 // ----------------------------------------------------------------------------

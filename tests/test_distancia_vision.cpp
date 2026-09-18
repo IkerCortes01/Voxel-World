@@ -142,3 +142,107 @@ TEST_CASE("Etiqueta: cada tramo tiene nombre") {
     CHECK(std::string(nombreCalidad(60))  == "Muy lejos");
     CHECK(std::string(nombreCalidad(100)) == "Extremo");
 }
+
+// ============================================================================
+// DIFUMINADO DE RENDERIZADO POR DISTANCIA
+// ============================================================================
+// Da, por chunk, cuanto lo va a tapar la niebla: 0 nitido, 1 fundido del todo.
+// Sirve para dos cosas a la vez -- que el terreno lejano entre desvaneciendose
+// en vez de aparecer de golpe, y descartar lo que ya es indistinguible del
+// color del cielo (pixeles que cuestan y no se ven).
+
+TEST_CASE("Difuminado: lo cercano esta nitido") {
+    // Lo que el jugador tiene delante no se toca nunca, sea cual sea la barra.
+    for (int barra : { 2, 8, 16, 40, 70, 100 }) {
+        const int r = radioCargado(barra);
+        CHECK(difuminadoDeChunk(barra, 0.0f, r) == doctest::Approx(0.0f));
+        CHECK(difuminadoDeChunk(barra, 1.0f, r) < 0.2f);
+    }
+}
+
+TEST_CASE("Difuminado: crece con la distancia, nunca al reves") {
+    // Un chunk mas lejos NUNCA puede verse mas nitido que uno mas cerca.
+    const int barra = 40;
+    const int r = radioCargado(barra);
+    float anterior = -1.0f;
+    for (float d = 0.0f; d <= (float)r; d += 0.25f) {
+        const float dif = difuminadoDeChunk(barra, d, r);
+        CHECK(dif >= anterior - 0.0001f);
+        CHECK(dif >= 0.0f);
+        CHECK(dif <= 1.0f);
+        anterior = dif;
+    }
+}
+
+TEST_CASE("Difuminado: en el borde de lo cargado esta fundido del todo") {
+    // ⭐ ES LO QUE EVITA EL BORDE RECTO DE TERRENO.
+    //
+    // Si el ultimo anillo llegara nitido, se veria el corte de lo cargado --
+    // justo lo que la niebla existe para tapar. Al llegar a 1 en el borde, el
+    // chunk se ha fundido antes de acabarse el mundo.
+    for (int barra : { 8, 40, 100 }) {
+        const int r = radioCargado(barra);
+        CHECK(difuminadoDeChunk(barra, (float)r, r) == doctest::Approx(1.0f));
+    }
+}
+
+TEST_CASE("Difuminado: va acompasado con la niebla") {
+    // Los dos salen de nieblaInicioFraccion, asi que no pueden separarse: donde
+    // la niebla empieza a cerrar, el difuminado empieza a subir. Si se
+    // calcularan aparte, habria un tramo con niebla y sin difuminado (o al
+    // reves) y se veria como un escalon.
+    const int barra = 70;
+    const int r = radioCargado(barra);
+    const float inicio = (float)r * nieblaInicioFraccion(barra);
+
+    // Justo antes de que empiece la niebla: nitido.
+    CHECK(difuminadoDeChunk(barra, inicio - 0.5f, r) == doctest::Approx(0.0f));
+    // Justo despues: ya ha empezado.
+    CHECK(difuminadoDeChunk(barra, inicio + 0.5f, r) > 0.0f);
+}
+
+TEST_CASE("Difuminado: con la barra alta tapa antes que con la baja") {
+    // Es lo que permite pedir mucha distancia sin pagarla entera: cuanto mas
+    // lejos quiere ver el jugador, antes empieza la bruma -- igual que la
+    // perspectiva aerea real.
+    //
+    // Se compara a la MISMA fraccion del radio de cada uno, que es la
+    // comparacion justa (los radios son distintos).
+    const int rBaja = radioCargado(8);
+    const int rAlta = radioCargado(100);
+    const float difBaja = difuminadoDeChunk(8,   (float)rBaja * 0.6f, rBaja);
+    const float difAlta = difuminadoDeChunk(100, (float)rAlta * 0.6f, rAlta);
+    CHECK(difAlta > difBaja);
+}
+
+TEST_CASE("Difuminado: lo invisible se descarta, lo demas no") {
+    // El umbral esta en 0.97 y no en 1.0 porque el ultimo 3% ya no aporta nada
+    // perceptible, y es donde MAS chunks hay (el area crece con el cuadrado).
+    CHECK(chunkInvisiblePorNiebla(1.0f)  == true);
+    CHECK(chunkInvisiblePorNiebla(0.99f) == true);
+    CHECK(chunkInvisiblePorNiebla(0.90f) == false);
+    CHECK(chunkInvisiblePorNiebla(0.5f)  == false);
+    CHECK(chunkInvisiblePorNiebla(0.0f)  == false);
+}
+
+TEST_CASE("Difuminado: la curva es suave, sin bandas visibles") {
+    // Una rampa lineal produce una "banda" donde arranca, porque el ojo detecta
+    // los cambios de PENDIENTE, no solo de valor. Con smoothstep la derivada es
+    // nula en los dos extremos.
+    //
+    // Se comprueba que no hay ningun salto brusco entre pasos contiguos.
+    const int barra = 40;
+    const int r = radioCargado(barra);
+    float anterior = difuminadoDeChunk(barra, 0.0f, r);
+    for (float d = 0.1f; d <= (float)r; d += 0.1f) {
+        const float dif = difuminadoDeChunk(barra, d, r);
+        CHECK(dif - anterior < 0.08f);   // sin escalones
+        anterior = dif;
+    }
+}
+
+TEST_CASE("Difuminado: radio invalido no rompe nada") {
+    // Defensa: durante una carga el radio puede ser 0 un instante.
+    CHECK(difuminadoDeChunk(8, 5.0f, 0) == doctest::Approx(0.0f));
+    CHECK(difuminadoDeChunk(8, 5.0f, -3) == doctest::Approx(0.0f));
+}

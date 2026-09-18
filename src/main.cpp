@@ -745,6 +745,16 @@ double g_relojMundo = 0.0;
 // 0 = supervivencia, 1 = creativo. Mismo criterio que currentGameMode.
 int g_modoJuegoActual = 0;
 
+// ⭐ LO QUE MARCA LA BARRA DE DISTANCIA, ACCESIBLE DESDE EL RENDER.
+//
+// Mismo motivo que g_modoJuegoActual: `GameState::renderDistance` es el dato
+// bueno, pero GameState se define mucho mas abajo que World::render, que es
+// quien necesita saber la barra para calcular el difuminado por distancia.
+//
+// Se mantiene al dia desde los tres sitios donde la barra cambia (arrastre,
+// clic y carga de world.cfg).
+int g_barraDistancia = 8;
+
 // Hora del mundo en 0..24.
 inline double horaDelMundo() {
     double t = g_horaDelMundoSegundos / SEGUNDOS_POR_DIA;
@@ -9273,7 +9283,18 @@ private:
 
     // Cuántos chunks puede haber encolados a la vez: más allá de esto solo se
     // acumula latencia, y al alejarse el jugador el trabajo ya no sirve.
-    static const size_t MAX_GEN_QUEUE = 24;
+    // ⭐ SUBE DE 24 A 64 AL PASAR A 4 HILOS DE MALLADO.
+    //
+    // 24 era el tope cuando la cola llena significaba "caer al camino sincrono"
+    // -- o sea, cuanto mas corta, menos trabajo se colaba al hilo principal.
+    // Ahora la cola llena hace ESPERAR (ver el encolado en updateChunks), asi
+    // que una cola mas larga ya no tiene ese coste: solo da mas margen a los
+    // workers para no quedarse sin trabajo entre frames.
+    //
+    // 64 son ~2,7 chunks por hilo con 4 hilos generando y mallando. Mas alla de
+    // eso solo se acumula latencia: al moverse el jugador, el trabajo encolado
+    // hace rato deja de servir.
+    static const size_t MAX_GEN_QUEUE = 64;
 
     // ========================================================================
     // ⭐ EL MALLADO EN HILOS DE TRABAJO
@@ -10815,12 +10836,27 @@ public:
         if (mallaRunning.load()) return;
 
         // Los hilos salen del perfil de la maquina, que ya reserva uno para el
-        // hilo principal (que dibuja) y otro para el sistema. Se limita a 3
-        // porque a partir de ahi el cuello deja de ser construir la geometria
-        // y pasa a ser subirla a la GPU, que es de un solo hilo por definicion.
+        // hilo principal (que dibuja) y otro para el sistema.
+        //
+        // ⭐ EL TOPE SUBE DE 3 A 4.
+        //
+        // El razonamiento viejo decia "a partir de 3 el cuello deja de ser
+        // construir la geometria y pasa a ser subirla a la GPU". Es cierto como
+        // limite teorico, pero el numero estaba puesto a ojo -- y en esta
+        // maquina (i7 de 4 nucleos, 8 hilos) deja la mitad de la CPU parada.
+        //
+        // Con 4 hilos de mallado mas 2 de generacion mas el principal son 7 de
+        // 8 logicos: uno libre para el sistema, que es justo lo que hace falta.
+        // El reparto sigue saliendo del perfil, asi que una maquina de 4 hilos
+        // logicos seguira usando 2 y no se ahoga.
+        //
+        // ⚠️ Esto NO arregla por si solo la cola de salida (se midieron 437
+        // mallas terminadas esperando con los 3 workers ociosos): eso es el
+        // ritmo de subida a GPU, que se trata aparte. Mas hilos ayudan cuando
+        // el cuello es construir; cuando es integrar, hay que integrar mas.
         int count = g_perfil.hilosTrabajo - 2;
         if (count < 1) count = 1;
-        if (count > 3) count = 3;
+        if (count > 4) count = 4;
         // Nunca mas hilos que huecos de baliza: el indice se usa para indexar
         // g_baliza sin comprobar nada mas alla de esto.
         if (count > MAX_WORKERS_MALLA) count = MAX_WORKERS_MALLA;
@@ -24261,11 +24297,39 @@ public:
             // sin tocar disco ni luz: no merece un viaje por el worker.
             if (genRunning.load() && !getFromCache(cp.pos) &&
                 (discoEnWorker || !chunkExistsOnDisk(cp.pos))) {
+                bool encolado = false;
                 {
                     std::lock_guard<std::mutex> lock(genQueueMutex);
-                    if (genQueue.size() >= MAX_GEN_QUEUE) break;
-                    genQueue.push_back(cp.pos);
+                    if (genQueue.size() < MAX_GEN_QUEUE) {
+                        genQueue.push_back(cp.pos);
+                        encolado = true;
+                    }
                 }
+
+                // ⭐ COLA LLENA: SE ESPERA, NO SE CAE AL CAMINO SINCRONO.
+                //
+                // Aqui habia un `break` dentro del lock, y ese `break` salia
+                // del bucle -- correcto -- pero solo DESPUES de que los chunks
+                // anteriores hubieran caido al camino de abajo. Y ese camino
+                // cuesta ~50 ms MEDIDOS (genMed=50,9): lectura, generacion
+                // completa, computeSkylight y costura, todo en el hilo
+                // principal.
+                //
+                // Medido con 4 hilos: frames de 101-117 ms con `chunks=91-101
+                // ms` y `subidas=0`. O sea que el pico NO era subir mallas: era
+                // generar terreno en el hilo de render porque la cola de los
+                // workers estaba llena.
+                //
+                // Que la cola se llene es NORMAL y es buena señal -- significa
+                // que los workers tienen trabajo. Lo correcto entonces es
+                // esperar al siguiente frame, no hacerlo aqui: el chunk sigue
+                // en la lista de candidatos y se encolara en cuanto haya hueco.
+                //
+                // `break` y no `continue`: la lista esta ordenada por
+                // prioridad, asi que si el mas urgente no cabe, los demas
+                // tampoco merecen intentarlo este frame.
+                if (!encolado) break;
+
                 genInFlight.insert(cp.pos);
                 genQueueCV.notify_one();
                 // El chunk aun no existe como objeto, asi que su estado vive
@@ -24624,6 +24688,41 @@ public:
             constexpr int MAX_SUBIDAS_POR_FRAME = 64;
             int subidas = 0;
 
+            // ================================================================
+            // ⭐ EL PRESUPUESTO DE SUBIDA CRECE CON LA COLA
+            // ================================================================
+            // MEDIDO explorando: 437 mallas TERMINADAS esperando a subir,
+            // con los tres workers marcados `libre`. O sea: la geometria estaba
+            // hecha, en memoria, y el jugador no la veia -- porque subirla iba
+            // a un ritmo fijo que no dependia de cuanta hubiera pendiente.
+            //
+            // Con un presupuesto plano, una cola de 400 tarda lo mismo en
+            // drenarse que una de 4: el mundo aparece con segundos de retraso
+            // justo cuando mas chunks nuevos hay, que es al moverse.
+            //
+            // Aqui el presupuesto se multiplica segun lo atascada que este la
+            // cola. No es "subir siempre mas" -- eso robaria frame a la GPU sin
+            // motivo cuando no hay atasco -- sino reaccionar al atasco REAL:
+            //
+            //     cola <  16   ->  x1     (ritmo normal, no hay prisa)
+            //     cola <  64   ->  x2
+            //     cola < 192   ->  x4
+            //     cola >= 192  ->  x6     (avalancha: al moverse deprisa)
+            //
+            // Subir una malla cuesta ~0,1 ms (glBufferData), asi que x6 sobre
+            // un presupuesto de 4 ms son ~240 mallas por frame de techo: mas
+            // que suficiente para vaciar cualquier acumulacion en un par de
+            // frames sin que el frame se note.
+            size_t pendientes = 0;
+            { std::lock_guard<std::mutex> l(mallaDoneMutex); pendientes = mallaDone.size(); }
+
+            float factorPrisa = 1.0f;
+            if      (pendientes >= 192) factorPrisa = 6.0f;
+            else if (pendientes >=  64) factorPrisa = 4.0f;
+            else if (pendientes >=  16) factorPrisa = 2.0f;
+
+            const float presupuestoSubida = presupuesto.subidaMs * factorPrisa;
+
             while (subidas < MAX_SUBIDAS_POR_FRAME) {
                 // De una en una, comprobando el reloj entre medias: asi el
                 // desbordamiento maximo es el coste de UNA subida, no el de
@@ -24642,7 +24741,7 @@ public:
                 // separados porque hacen cosas distintas.
 
                 const double msGastados = (glfwGetTime() - t0Subida) * 1000.0;
-                if (msGastados > presupuesto.subidaMs) break;
+                if (msGastados > presupuestoSubida) break;
             }
 
             metricas.msSubida += (glfwGetTime() - t0Subida) * 1000.0;
@@ -25468,6 +25567,33 @@ public:
                 // Esta guarda es barata y hace IMPOSIBLE la clase entera de
                 // fallo "el terreno de alrededor parpadea al moverme", sin
                 // depender de que el calculo del radio sea perfecto.
+                // ⭐ DIFUMINADO DE RENDERIZADO POR DISTANCIA.
+                //
+                // El descarte de abajo es binario: o se dibuja o no. Esto lo
+                // complementa con una medida CONTINUA de cuanto va a tapar la
+                // niebla a este chunk, y descarta ademas los que ya son
+                // indistinguibles del color del cielo -- pixeles que cuestan y
+                // no se ven.
+                //
+                // Va acompasado con la niebla por construccion (los dos salen
+                // de nieblaInicioFraccion), asi que el chunk se funde y
+                // desaparece en el mismo punto: no hay un "pop" donde uno acaba
+                // y el otro empieza.
+                //
+                // Con la barra baja no descarta practicamente nada (la niebla
+                // apenas cierra); con la barra alta es lo que permite pedir
+                // mucha distancia sin pagarla entera, que es justo para lo que
+                // se diseño la barra 2-100.
+                {
+                    const float distChunks = dist / (float)CHUNK_SIZE;
+                    const float dif = Render::difuminadoDeChunk(
+                        g_barraDistancia, distChunks, RENDER_DISTANCE);
+                    if (Render::chunkInvisiblePorNiebla(dif)) {
+                        chunksCulled++;
+                        continue;
+                    }
+                }
+
                 const float DIST_SIEMPRE_VISIBLE = 3.0f * (float)CHUNK_SIZE;
                 if (dist > fogEnd && dist > DIST_SIEMPRE_VISIBLE) {
                     chunksCulled++;
@@ -34264,6 +34390,7 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
             if (nuevo != g_gameState->renderDistance) {
                 g_gameState->renderDistance = nuevo;
                 const int radio = Render::radioCargado(nuevo);
+                g_barraDistancia = nuevo;   // el render lo lee para el difuminado
                 g_gameState->world.techoDistanciaUsuario = radio;
                 if (g_gameState->world.ajustarDistancia(radio)) {
                     // ⭐ El radio cambio de verdad: a por los chunks nuevos sin
@@ -34708,6 +34835,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
                 // automatico volveria a bajar la distancia al valor del perfil
                 // en la siguiente revision y la barra pareceria no hacer nada.
                 const int radio = Render::radioCargado(g_gameState->renderDistance);
+                g_barraDistancia = g_gameState->renderDistance;
                 g_gameState->world.techoDistanciaUsuario = radio;
                 if (g_gameState->world.ajustarDistancia(radio)) {
                     g_gameState->world.pedirRecargaUrgente();
@@ -37842,6 +37970,7 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
                     // Y se fija el techo, para que el regulador automatico no
                     // deshaga la preferencia guardada en la primera revision.
                     const int radio = Render::radioCargado(state->renderDistance);
+                    g_barraDistancia = state->renderDistance;
                     state->world.techoDistanciaUsuario = radio;
                     state->world.ajustarDistancia(radio);
                 }

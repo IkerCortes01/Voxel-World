@@ -17703,19 +17703,50 @@ public:
                                    b != BLOCK_LAVA && !isCrossSprite(b);
                         };
 
-                        // ⭐ YA NO SE DESCARTAN LOS BLOQUES RODEADOS
+                        // ⭐ UN BLOQUE CON SUS SEIS VECINOS OPACOS NO SE VE.
                         //
-                        // Aqui se saltaba todo bloque con sus seis vecinos
-                        // opacos, porque no se le ve ninguna cara. Ahora que
-                        // se dibujan TODAS las caras, ese atajo dejaria el
-                        // cambio a medias: los bloques enterrados seguirian
-                        // sin emitir nada.
+                        // Este atajo estaba DESACTIVADO con este razonamiento:
+                        // "ahora se dibujan TODAS las caras, asi que saltarse
+                        // los bloques rodeados dejaria el cambio a medias".
                         //
-                        // Se conserva el calculo de los vecinos porque lo usa
-                        // el resto del bucle.
-                        (void)top; (void)bottom; (void)north;
-                        (void)south; (void)east; (void)west;
-                        (void)occludes;
+                        // Ese razonamiento ya no vale: `shouldRenderFace` SI
+                        // hace face culling -- sus cuatro reglas terminan en
+                        // "si mi vecino es opaco, me tapa: fuera". El
+                        // comentario describia un estado del motor que dejo de
+                        // existir hace tiempo, y nadie volvio a mirar el atajo.
+                        //
+                        // Con el desactivado, cada bloque enterrado paga el
+                        // cuerpo entero del bucle -- calcular su posicion, sus
+                        // seis niveles de luz, sus texturas, probar las seis
+                        // caras -- para que shouldRenderFace las descarte todas
+                        // una por una. Y bajo tierra la inmensa mayoria de los
+                        // bloques son eso.
+                        //
+                        // Con la altura en 512 el desperdicio se cuadruplico:
+                        // hay cuatro veces mas roca maciza por columna.
+                        //
+                        // Es EXACTAMENTE equivalente: si los seis vecinos
+                        // ocluyen, las seis llamadas a shouldRenderFace habrian
+                        // devuelto false. Se comprueba antes y se ahorra todo.
+                        //
+                        // ⚠️ SOLO SI EL PROPIO BLOQUE ES OPACO.
+                        //
+                        // `shouldRenderFace` tiene una regla ANTES de mirar al
+                        // vecino: "si YO no soy opaco, mi cara se ve". Unas
+                        // hojas o un cristal enterrados en piedra SI emiten sus
+                        // caras -- se ven desde dentro, y ademas el greedy las
+                        // trata aparte.
+                        //
+                        // Sin esta condicion el atajo las descartaria y
+                        // desapareceria la vegetacion que quedara rodeada, que
+                        // es exactamente la clase de bug que ya produjo una vez
+                        // la hierba (ver el comentario de `occludes`).
+                        if (isBlockOpaque(block) &&
+                            occludes(top) && occludes(bottom) &&
+                            occludes(north) && occludes(south) &&
+                            occludes(east) && occludes(west)) {
+                            continue;
+                        }
                     }
 
                     int worldX = chunk->position.x * CHUNK_SIZE + x;

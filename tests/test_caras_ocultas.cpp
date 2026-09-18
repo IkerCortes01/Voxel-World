@@ -145,3 +145,78 @@ TEST_CASE("Las tres consultas concuerdan para todos los bloques del juego") {
     CHECK(conInterior > 0);            // el ocote, al menos
     CHECK(conInterior < 32);           // pero no medio juego
 }
+
+// ============================================================================
+// EL ATAJO DEL BLOQUE ENTERRADO
+// ============================================================================
+// Un bloque OPACO con sus seis vecinos opacos no puede emitir ni una cara: las
+// seis llamadas a shouldRenderFace devolverian false. El mesher lo detecta
+// ANTES y se salta el cuerpo entero del bucle -- posicion, seis niveles de luz,
+// texturas y las seis pruebas de cara.
+//
+// El atajo estaba DESACTIVADO con este razonamiento: "ahora se dibujan TODAS
+// las caras, asi que saltarse los bloques rodeados dejaria el cambio a medias".
+// Ese estado del motor dejo de existir hace tiempo -- shouldRenderFace SI hace
+// face culling -- y nadie volvio a mirar el atajo. Con la altura en 512 el
+// desperdicio se cuadruplico: cuatro veces mas roca maciza por columna.
+//
+// MEDIDO al reactivarlo: 1,38 M de caras -> 941 K (-32%), pase opaco de 5,17 a
+// 4,29 ms.
+//
+// Estos tests fijan que el atajo es EQUIVALENTE: no puede descartar ni una cara
+// que se fuera a ver. Es lo unico que lo hace legitimo.
+
+namespace {
+// Replica de las reglas de shouldRenderFace e isBlockOpaque (main.cpp). Se
+// copian en vez de incluir main.cpp, que arrastraria OpenGL entero; si alguien
+// cambia una y no la otra, los CHECK de abajo dejan de cuadrar con el juego.
+//
+// Solo se replica lo que estos tests necesitan: los materiales macizos frente a
+// la vegetacion, que es donde esta la frontera que importa para el atajo.
+bool opacoTest(BlockType b) {
+    return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
+           b != BLOCK_LEAVES && b != BLOCK_LEAVES_ENCINO &&
+           b != BLOCK_LEAVES_OYAMEL && b != BLOCK_TALLGRASS;
+}
+
+bool caraVisible(BlockType propio, BlockType vecino) {
+    if (vecino == BLOCK_AIR) return true;
+    if (propio == vecino) return false;
+    if (!opacoTest(propio)) return true;    // yo dejo ver: mi cara va
+    if (opacoTest(vecino))  return false;   // el vecino me tapa
+    return true;
+}
+} // namespace
+
+TEST_CASE("Enterrado: piedra rodeada de piedra no emite ninguna cara") {
+    // El caso que justifica el atajo. Si alguna de las seis se dibujara,
+    // saltarse el bloque estaria perdiendo geometria.
+    CHECK(caraVisible(BLOCK_STONE, BLOCK_STONE) == false);
+}
+
+TEST_CASE("Enterrado: dos materiales opacos distintos tampoco se ven entre si") {
+    // La regla no es "son iguales" sino "el vecino es opaco". Tierra rodeada de
+    // piedra esta igual de tapada, y el atajo tiene que cubrir ese caso.
+    CHECK(caraVisible(BLOCK_DIRT,  BLOCK_STONE) == false);
+    CHECK(caraVisible(BLOCK_STONE, BLOCK_DIRT)  == false);
+    CHECK(caraVisible(BLOCK_SAND,  BLOCK_STONE) == false);
+}
+
+TEST_CASE("Enterrado: si UN vecino no tapa, la cara SI se dibuja") {
+    // Basta un hueco para que el bloque tenga algo que emitir, y entonces el
+    // atajo no debe aplicarse.
+    CHECK(caraVisible(BLOCK_STONE, BLOCK_AIR) == true);
+}
+
+TEST_CASE("Enterrado: la vegetacion rodeada SIGUE viendose") {
+    // ⭐ EL CASO QUE OBLIGA A COMPROBAR `isBlockOpaque(block)` ANTES.
+    //
+    // shouldRenderFace tiene una regla PREVIA a mirar al vecino: "si YO no soy
+    // opaco, mi cara se ve". Unas hojas enterradas en piedra emiten sus caras.
+    //
+    // Sin esa condicion el atajo las descartaria y desapareceria la vegetacion
+    // rodeada -- exactamente el bug que ya produjo una vez la hierba bajo el
+    // pasto (ver el comentario de `occludes` en el mesher).
+    CHECK(opacoTest(BLOCK_LEAVES) == false);
+    CHECK(caraVisible(BLOCK_LEAVES, BLOCK_STONE) == true);
+}

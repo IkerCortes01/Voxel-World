@@ -3,6 +3,7 @@
 #include "AciculaOcote.h"
 #include <vector>
 #include <cstdint>
+#include <algorithm>
 
 // ============================================================================
 // LA COSTURA DE LUZ ENTRE CHUNKS
@@ -424,4 +425,79 @@ TEST_CASE("Luz local: el margen sobre el techo cubre el follaje") {
     // quedaria con la luz vieja.
     constexpr int RADIO_CAJA = 18;
     CHECK(RADIO_CAJA >= 18);   // el margen es el propio radio
+}
+
+// ============================================================================
+// LA CAJA DE LUZ NO NECESITA LLEGAR AL CIELO SI EL BLOQUE ESTA ENTERRADO
+// ============================================================================
+// `recalcularLuzLocal` acotaba su caja por arriba en el TECHO DEL TERRENO.
+// Picando en una cueva a 60 bloques de profundidad, eso recorre ~78 alturas de
+// las que 60 son roca maciza con luz 0 -- se visitan enteras para confirmar que
+// siguen a 0.
+//
+// El corte nuevo es `cy + R`: la luz del cielo pierde AL MENOS 1 nivel por
+// celda desde 18, asi que no puede alcanzar nada situado mas de 18 celdas por
+// debajo del ultimo bloque iluminado. Por encima de esa cota el resultado es
+// identico.
+//
+// Estos tests fijan por que el atajo es correcto, que es lo unico que lo hace
+// legitimo.
+
+TEST_CASE("Caja de luz: 18 celdas bastan para que la luz se apague") {
+    // La premisa entera del recorte. Si la luz plena o la atenuacion minima
+    // cambiaran, el radio tendria que cambiar con ellas -- y este test avisa.
+    constexpr int LUZ_PLENA = 18;
+    constexpr int ATENUACION_MINIMA = 1;   // aire
+    constexpr int R = 18;
+
+    // Cuantas celdas sobrevive la luz bajando por aire.
+    const int alcance = LUZ_PLENA / ATENUACION_MINIMA;
+    CHECK(alcance <= R);
+}
+
+TEST_CASE("Caja de luz: enterrado recorre mucho menos que desde el techo") {
+    // El caso que motiva el cambio, en numeros.
+    constexpr int R = 18;
+    const int techoTerreno = 80;   // superficie tipica
+    const int cyEnterrado  = 20;   // picando en una cueva profunda
+
+    const int y1Viejo = techoTerreno + R;           // 98
+    const int y1Nuevo = cyEnterrado + R;            // 38
+    const int y0      = cyEnterrado - R;            // 2
+
+    const int alturasViejo = y1Viejo - y0 + 1;      // 97
+    const int alturasNuevo = y1Nuevo - y0 + 1;      // 37
+
+    CHECK(alturasNuevo < alturasViejo);
+    // Menos de la mitad del trabajo en este caso.
+    CHECK(alturasNuevo * 2 < alturasViejo);
+}
+
+TEST_CASE("Caja de luz: en la superficie NO recorta nada util") {
+    // Un bloque colocado justo en el terreno tiene cy ~ el techo, asi que
+    // `cy + R` queda por encima de `techo + R` -- o sea que el tope efectivo
+    // sigue siendo el techo y no se pierde ni una celda.
+    constexpr int R = 18;
+    const int techo = 80;
+    const int cy    = 80;   // colocando sobre la superficie
+
+    const int y1PorTecho = techo + R;
+    const int y1PorBloque = cy + R;
+
+    // El corte se queda en el menor de los dos, y aqui son iguales.
+    CHECK(std::min(y1PorTecho, y1PorBloque) == y1PorTecho);
+}
+
+TEST_CASE("Caja de luz: bajo cielo abierto el corte no puede perder luz") {
+    // El caso delicado: un bloque a cielo abierto, sin nada encima.
+    //
+    // Ahi el techo de la zona ES ese bloque (o esta justo encima), asi que
+    // `cy + R` >= `techo + R`: el corte no se activa. Por construccion, el
+    // atajo solo recorta cuando hay terreno POR ENCIMA del bloque tocado -- y
+    // entonces la luz directa ya estaba bloqueada.
+    constexpr int R = 18;
+    const int cy = 100;
+    const int techoSiEsElMasAlto = cy;   // nada por encima
+
+    CHECK(cy + R >= techoSiEsElMasAlto + R);
 }

@@ -7935,6 +7935,26 @@ struct Chunk {
         // Y por debajo del bloque tocado: mas abajo de R celdas la luz que
         // llegaba ya era 0 y sigue siendo 0.
         const int y0 = (cy - R < 0) ? 0 : cy - R;
+
+        // ⭐ UN BLOQUE ENTERRADO NO NECESITA LLEGAR HASTA EL CIELO.
+        //
+        // La caja iba SIEMPRE desde el techo del terreno. Picando en una cueva
+        // a 60 bloques bajo la superficie, eso son ~78 alturas x 256 columnas
+        // de las que 60 son roca maciza con luz 0 -- se recorren enteras para
+        // confirmar que siguen a 0.
+        //
+        // La luz del cielo no puede bajar mas de R celdas por debajo del ultimo
+        // bloque que la recibe (pierde al menos 1 por celda desde 18). Asi que
+        // por encima de `cy + R` el resultado no cambia: lo que hubiera ahi ya
+        // estaba bien calculado y sigue estandolo.
+        //
+        // Se conserva el techo como tope: un bloque colocado EN la superficie
+        // sigue recorriendo lo que necesita, que es poco porque ahi cy ya esta
+        // cerca del techo.
+        const int y1Util = cy + R;
+        if (y1 > y1Util) y1 = y1Util;
+        if (y1 > CHUNK_HEIGHT - 1) y1 = CHUNK_HEIGHT - 1;
+
         if (y1 < y0) y1 = y0;
 
         static thread_local std::vector<uint8_t> costBuf;

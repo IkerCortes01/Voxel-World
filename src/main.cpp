@@ -755,6 +755,30 @@ int g_modoJuegoActual = 0;
 // clic y carga de world.cfg).
 int g_barraDistancia = 8;
 
+// ============================================================================
+// ⭐ ESTA ESCRITURA LA HA HECHO EL JUGADOR
+// ============================================================================
+// Por `World::setBlock` pasa TODO lo que modifica el mundo: el jugador
+// colocando y rompiendo, pero tambien el agua fluyendo, las plantas creciendo,
+// los bloques que caen y la generacion de terreno en los workers.
+//
+// Solo lo del jugador merece adelantar en la cola de mallado. El resto son
+// decenas de escrituras por segundo: marcarlas todas como urgentes vaciaria el
+// significado de la marca -- si todo es urgente, nada lo es.
+//
+// `thread_local` porque la generacion llama a setBlock desde los hilos de
+// trabajo, y alli tiene que valer false siempre.
+thread_local bool t_accionDelJugador = false;
+
+// Guard RAII: enciende la bandera mientras dura el ambito y la apaga al salir,
+// tambien si hay un `return` a mitad o salta una excepcion. Se anida sin
+// problema (guarda y restaura el valor anterior).
+struct AccionDelJugador {
+    bool previo;
+    AccionDelJugador() : previo(t_accionDelJugador) { t_accionDelJugador = true; }
+    ~AccionDelJugador() { t_accionDelJugador = previo; }
+};
+
 // Hora del mundo en 0..24.
 inline double horaDelMundo() {
     double t = g_horaDelMundoSegundos / SEGUNDOS_POR_DIA;
@@ -7451,6 +7475,21 @@ struct Chunk {
     // la costura se corrige sola en vez de quedarse.
     bool bordeProvisional = false;
 
+    // ⭐ EL JUGADOR ACABA DE TOCAR ESTE CHUNK.
+    //
+    // Lo pone `invalidarMalla(c, renuevaEsperas=true)`, que es la ruta por la
+    // que pasan romper y colocar bloques. Sirve para UNA cosa: que el remallado
+    // de lo que el jugador toca adelante a todo el terreno nuevo que haya en
+    // cola.
+    //
+    // Se limpia en cuanto ese remallado entra (subirMallaAGPU), asi que la
+    // marca dura lo que dura la urgencia -- no se queda pegada al chunk.
+    //
+    // ⚠️ NO es lo mismo que `isModified`. Aquel dice "hay que guardarlo en
+    // disco" y se mantiene hasta que se guarda; este dice "el jugador esta
+    // mirando este cambio AHORA" y se apaga al primer mallado.
+    bool urgentePorJugador = false;
+
     // ========================================================================
     // ⭐ EL ESTADO EXPLICITO DEL CHUNK (Streaming::Estado)
     // ========================================================================
@@ -10014,12 +10053,58 @@ public:
         if (!c || !c->isGenerated) return;
         c->needsRebuild = true;
 
-        if (renuevaEsperas) c->esperasVecinos = 0;
+        if (renuevaEsperas) {
+            c->esperasVecinos = 0;
+            // `renuevaEsperas` solo lo pone la ruta del jugador (romper y
+            // colocar), asi que es exactamente la señal que hace falta: este
+            // chunk adelanta a todo el terreno nuevo en la cola de mallado.
+            c->urgentePorJugador = true;
+        }
 
         if (c->estado == Streaming::Estado::LISTO ||
             c->estado == Streaming::Estado::ESPERA_VECINO) {
             c->cambiarEstado(Streaming::Estado::GENERADO, glfwGetTime());
         }
+    }
+
+    // ⭐ EL JUGADOR ACABA DE TOCAR ESTE PUNTO: SU CHUNK ADELANTA EN LA COLA.
+    //
+    // Se llama desde placeBlock y breakBlock, que son las DOS unicas rutas por
+    // las que el jugador modifica el mundo directamente.
+    //
+    // ⚠️ POR QUE NO SE HACE DENTRO DE setBlock, QUE SERIA LO OBVIO.
+    //
+    // Por setBlock no pasa solo el jugador: el agua fluyendo, las plantas
+    // creciendo y los bloques que caen hacen decenas de escrituras por segundo.
+    // Marcarlas todas como urgentes vaciaria el significado de la marca -- si
+    // todo es urgente, nada lo es -- y ademas ya se midio el efecto de tratar
+    // esas rutas como si fueran del jugador: multiplico por 4,5 el trabajo
+    // tirado del mesher (ver la nota de invalidarMalla).
+    //
+    // Tambien marca a los vecinos si el bloque toca una frontera: su cara hacia
+    // este chunk cambia, y verla actualizarse un segundo despues que el resto
+    // es exactamente el tipo de retraso que se quiere quitar.
+    void marcarUrgentePorJugador(int wx, int wy, int wz) {
+        (void)wy;
+        const int cx = (wx >= 0) ? (wx / CHUNK_SIZE)
+                                 : ((wx - CHUNK_SIZE + 1) / CHUNK_SIZE);
+        const int cz = (wz >= 0) ? (wz / CHUNK_SIZE)
+                                 : ((wz - CHUNK_SIZE + 1) / CHUNK_SIZE);
+
+        auto marcar = [&](int dx, int dz) {
+            auto it = chunks.find(Vec3i(cx + dx, 0, cz + dz));
+            if (it != chunks.end() && it->second && it->second->isGenerated)
+                it->second->urgentePorJugador = true;
+        };
+
+        marcar(0, 0);
+
+        const int lx = wx - cx * CHUNK_SIZE;
+        const int lz = wz - cz * CHUNK_SIZE;
+        if (lx == 0)              marcar(-1, 0);
+        if (lx == CHUNK_SIZE - 1) marcar(+1, 0);
+        if (lz == 0)              marcar(0, -1);
+        if (lz == CHUNK_SIZE - 1) marcar(0, +1);
     }
 
     void marcarChunkDe(int wx, int wy, int wz) {
@@ -15860,13 +15945,29 @@ public:
         // 1.115 mallados con la foto incompleta en 40 s. La renovacion tiene
         // que quedarse en la ruta del jugador (ver placeBlock/breakBlock), que
         // es la unica de verdad esporadica.
+        // ⭐ SI ESTA ESCRITURA VIENE DEL JUGADOR, SU CHUNK ADELANTA EN LA COLA.
+        //
+        // `t_accionDelJugador` lo enciende un guard en las rutas de romper y
+        // colocar (ver AccionDelJugador). Por setBlock pasan ademas el agua
+        // fluyendo, las plantas creciendo y los bloques que caen -- decenas de
+        // escrituras por segundo -- y esas NO deben marcarse: si todo es
+        // urgente, nada lo es.
+        //
+        // Es `thread_local` porque la generacion de terreno tambien llama a
+        // setBlock desde los workers, y ahi la bandera tiene que valer false.
+        const bool urgente = t_accionDelJugador;
+
         invalidarMalla(chunk);
+        if (urgente) chunk->urgentePorJugador = true;
 
         // Los cuatro vecinos, solo si el bloque toca su frontera: su cara hacia
         // este chunk cambia de estar contra terreno a estar contra aire.
         auto invalidarVecino = [&](int dx, int dz) {
             Chunk* nc = getChunk(Vec3i(chunkPos.x + dx, 0, chunkPos.z + dz));
-            if (nc && nc->isGenerated) invalidarMalla(nc);
+            if (nc && nc->isGenerated) {
+                invalidarMalla(nc);
+                if (urgente) nc->urgentePorJugador = true;
+            }
         };
 
         if (localX == 0)              invalidarVecino(-1, 0);
@@ -23853,6 +23954,12 @@ public:
         // Se limpian los contadores de rescate: el chunk completo el camino,
         // asi que el historial de tropiezos deja de ser relevante.
         chunk->rescatesVigilante = 0;
+
+        // ⭐ La urgencia se consume al entrar la malla. Si no se limpiara, el
+        // chunk adelantaria en la cola para siempre -- y con unos cuantos asi,
+        // la prioridad dejaria de significar nada.
+        chunk->urgentePorJugador = false;
+
         chunk->cambiarEstado(Streaming::Estado::LISTO, glfwGetTime());
     }
 
@@ -24586,8 +24693,31 @@ public:
         // orden (es monotona creciente) y costaba dos sqrtf por comparacion,
         // o sea O(n log n) raices por frame para obtener exactamente la misma
         // ordenacion. El umbral de "cerca" se compara tambien al cuadrado.
+        //
+        // ⚠️ EL TITULO DE ARRIBA MENTIA: NO HABIA TAL PRIORIDAD.
+        //
+        // Decia "con prioridad para chunks modificados" y el comparador solo
+        // miraba la DISTANCIA. Un bloque recien colocado por el jugador competia
+        // en igualdad de condiciones con los cientos de chunks de terreno nuevo
+        // que entran al explorar -- y como el presupuesto de mallado deja pasar
+        // unos pocos por frame, el bloque podia tardar SEGUNDOS en verse.
+        //
+        // Lo que el jugador acaba de tocar tiene que ir ANTES que cualquier
+        // terreno nuevo, siempre. No es una cuestion de rendimiento sino de
+        // respuesta: el mundo que aparece solo puede tardar, pero un bloque que
+        // pones tiene que salir YA o el juego se siente roto.
         std::sort(chunksToRebuild.begin(), chunksToRebuild.end(),
             [&playerChunk](Chunk* a, Chunk* b) {
+                // ⭐ BARRERA DURA: lo tocado por el jugador gana a todo.
+                //
+                // Es una barrera y no un peso, por la misma razon que los
+                // anillos de PrioridadChunk: con un peso continuo siempre
+                // existe una distancia que lo compensa, y entonces un chunk
+                // lejano recien cargado podria adelantar al bloque que el
+                // jugador tiene delante.
+                if (a->urgentePorJugador != b->urgentePorJugador)
+                    return a->urgentePorJugador;
+
                 const int dxA = a->position.x - playerChunk.x;
                 const int dzA = a->position.z - playerChunk.z;
                 const int dxB = b->position.x - playerChunk.x;
@@ -24755,7 +24885,33 @@ public:
             // ⚠️ ESTE TOPE ES SOLO PARA EL ENCOLADO/MALLADO, ya no para la
             // subida (que tiene el suyo, arriba). Mezclarlos era el bug: las
             // mallas subidas gastaban el cupo de las que quedaban por encolar.
-            if (meshesBuiltThisFrame >= MAX_MESHES_PER_FRAME_DYNAMIC) break;
+            // ⭐ LO QUE EL JUGADOR ACABA DE TOCAR NO ESPERA AL PRESUPUESTO.
+            //
+            // Los dos frenos de abajo existen para que cargar terreno nuevo no
+            // rompa el frame, y estan bien: el mundo que aparece solo puede
+            // tardar unas decimas sin que nadie lo note.
+            //
+            // Pero un bloque que el jugador acaba de colocar es otra cosa. Si
+            // se queda esperando detras de trescientos chunks de terreno, se ve
+            // aparecer con retraso -- y eso no se percibe como "el mundo carga
+            // despacio" sino como "el juego no responde".
+            //
+            // Son POCOS por definicion: los que el jugador toca en un frame,
+            // casi siempre uno y sus vecinos de frontera. Dejarlos pasar no
+            // desborda nada, y la marca se consume al entrar su malla.
+            //
+            // La lista viene ordenada con los urgentes delante (ver el
+            // comparador de chunksToRebuild), asi que en cuanto aparece el
+            // primero no urgente, los frenos vuelven a aplicarse con
+            // normalidad.
+            const bool urgente = chunk->urgentePorJugador;
+
+            // ⭐ Verificar límite de meshes
+            //
+            // ⚠️ ESTE TOPE ES SOLO PARA EL ENCOLADO/MALLADO, ya no para la
+            // subida (que tiene el suyo, arriba). Mezclarlos era el bug: las
+            // mallas subidas gastaban el cupo de las que quedaban por encolar.
+            if (!urgente && meshesBuiltThisFrame >= MAX_MESHES_PER_FRAME_DYNAMIC) break;
 
             // ⭐ BUDGET DE TIEMPO: se comprueba ANTES de construir, y se aplica
             // tambien al primero.
@@ -24772,7 +24928,7 @@ public:
             // hay un pico garantizado por frame.
             auto now = std::chrono::high_resolution_clock::now();
             float elapsedMs = std::chrono::duration<float, std::milli>(now - meshBuildStart).count();
-            if (elapsedMs > MAX_MESH_BUILD_TIME_MS) {
+            if (!urgente && elapsedMs > MAX_MESH_BUILD_TIME_MS) {
                 break;
             }
 
@@ -24854,7 +25010,22 @@ public:
                 bool encolado = false;
                 {
                     std::lock_guard<std::mutex> lock(mallaQueueMutex);
-                    if (mallaQueue.size() < MAX_MALLA_QUEUE) {
+                    if (urgente) {
+                        // ⭐ AL FRENTE, Y SIN MIRAR EL TOPE.
+                        //
+                        // Un chunk que el jugador acaba de tocar tiene que
+                        // salir YA. Si entrara por el final esperaria a que se
+                        // vaciaran los hasta 16 que haya delante -- varios
+                        // frames -- y si la cola esta llena no entraria
+                        // siquiera, quedando para el frame siguiente.
+                        //
+                        // Saltarse el tope es seguro porque estos son POCOS por
+                        // definicion: los que el jugador toca en un frame, casi
+                        // siempre uno y sus vecinos de frontera. No es una via
+                        // por la que pueda colarse la carga de terreno.
+                        mallaQueue.push_front(std::move(encargo));
+                        encolado = true;
+                    } else if (mallaQueue.size() < MAX_MALLA_QUEUE) {
                         mallaQueue.push_back(std::move(encargo));
                         encolado = true;
                     }
@@ -28839,6 +29010,10 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
 
 // Sistema de minado progresivo (como Minecraft)
 void updateMining(GameState* state, float deltaTime) {
+    // ⭐ Romper un bloque es accion del jugador: su chunk adelanta a todo el
+    // terreno nuevo que haya en cola de mallado. Ver AccionDelJugador.
+    AccionDelJugador marcaUrgencia;
+
     Vec3 origin = state->player.getEyePosition();
     Vec3 direction = state->player.getForward();
 
@@ -32309,6 +32484,11 @@ bool isPlaceableItem(BlockType type) {
 void placeBlock(GameState* state) {
     if (state->placeCooldown > 0) return;
     if (!state->inventory.hasSelectedBlock()) return;
+
+    // ⭐ Todo lo que esta funcion escriba cuenta como accion del jugador, asi
+    // que su chunk adelanta a cualquier terreno nuevo en la cola de mallado.
+    // Ver AccionDelJugador y el comparador de chunksToRebuild.
+    AccionDelJugador marcaUrgencia;
 
     BlockType selectedBlock = state->inventory.getSelectedBlock();
 

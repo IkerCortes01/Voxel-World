@@ -770,6 +770,11 @@ int g_barraDistancia = 8;
 // trabajo, y alli tiene que valer false siempre.
 thread_local bool t_accionDelJugador = false;
 
+// Coste medio de recalcular la luz al modificar un bloque. Sale en [STREAM] y
+// es la telemetria que delato los dos cuellos de esta ruta: la costura (4,2 ms,
+// ahora aplazada) y la busqueda del techo de zona (que ahora usa la paleta).
+static long long g_usLuzLocal = 0, g_nLuzLocal = 0;
+
 // Guard RAII: enciende la bandera mientras dura el ambito y la apaga al salir,
 // tambien si hay un `return` a mitad o salta una excepcion. Se anida sin
 // problema (guarda y restaura el valor anterior).
@@ -7882,11 +7887,45 @@ struct Chunk {
         // Se busca ese techo UNA vez sobre las columnas de la caja. Cuesta un
         // barrido de arriba abajo que se corta en cuanto encuentra algo, y
         // ahorra recorrer cientos de celdas de aire por columna.
+        // ⭐ EL TECHO SALE DE LA PALETA, NO DE RECORRER CELDAS.
+        //
+        // Este barrido costaba lo suyo: hasta 256 columnas x 512 alturas con
+        // `getBlock`, que resuelve division, modulo e indireccion de paleta en
+        // cada celda. Era la mayor parte de los 2,8 ms que cuesta recalcular la
+        // luz al colocar un bloque.
+        //
+        // Pero los subchunks YA saben si estan vacios: uno uniforme de aire no
+        // puede contener el techo, y eso se pregunta con `isUniform()` --
+        // mirando una paleta de un elemento, no 4.096 celdas.
+        //
+        // Se busca el subchunk no vacio mas alto y solo dentro de EL se afina
+        // celda a celda. En un mundo normal eso descarta 25 de los 32
+        // subchunks de la columna sin tocar un solo bloque.
         int techoZona = 0;
-        for (int x = x0; x <= x1; ++x)
-            for (int z = z0; z <= z1; ++z)
-                for (int y = CHUNK_HEIGHT - 1; y > techoZona; --y)
-                    if (getBlock(x, y, z) != BLOCK_AIR) { techoZona = y; break; }
+        {
+            int subMasAlto = -1;
+            for (int s = SUBCHUNKS_PER_CHUNK - 1; s >= 0; --s) {
+                const auto& sub = subchunks[s];
+                if (sub.isUniform() && sub.getUniformBlock() == BLOCK_AIR) continue;
+                subMasAlto = s;
+                break;
+            }
+
+            if (subMasAlto >= 0) {
+                const int yTope = (subMasAlto + 1) * SUBCHUNK_HEIGHT - 1;
+                const int yBase = subMasAlto * SUBCHUNK_HEIGHT;
+                for (int x = x0; x <= x1; ++x)
+                    for (int z = z0; z <= z1; ++z)
+                        for (int y = yTope; y > techoZona && y >= yBase; --y)
+                            if (getBlock(x, y, z) != BLOCK_AIR) { techoZona = y; break; }
+
+                // Si el subchunk mas alto no tiene nada en ESTAS columnas, el
+                // techo de la zona esta mas abajo. Se toma su base como cota
+                // segura: por encima es aire en esta franja, y el margen de R
+                // que se suma despues cubre el resto.
+                if (techoZona == 0) techoZona = yBase;
+            }
+        }
 
         // Margen por encima: el derrame lateral puede venir de un poco mas
         // arriba a traves de follaje, que deja pasar luz atenuada.
@@ -11291,13 +11330,27 @@ private:
     // luz de un vecino ya iluminado como DARSELA (si el nuevo es un claro y el
     // viejo estaba a oscuras contra el vacio). Coser en un solo sentido dejaria
     // la mitad de los bordes mal.
-    void coserLuzConVecinos(const Vec3i& pos) {
+    // `soloLado` acota la costura a las fronteras que de verdad pueden haber
+    // cambiado. -1 = las cuatro (lo que hace falta al integrar un chunk nuevo).
+    //
+    // ⭐ POR QUE IMPORTA, MEDIDO: coser los cuatro lados cuesta 4,2 ms -- mas
+    // que recalcular la luz entera del bloque (2,6 ms). Son ocho pasadas (cuatro
+    // vecinos, en los dos sentidos) y cada una recorre una pared de 16x512.
+    //
+    // Pero al colocar o romper UN bloque, solo puede cambiar la luz de la
+    // frontera que ese bloque toca -- y solo si esta pegado a ella. Un bloque en
+    // el centro del chunk no afecta a ninguna: son 4,2 ms de trabajo cuyo
+    // resultado es siempre "no ha cambiado nada".
+    void coserLuzConVecinos(const Vec3i& pos, int soloLado = -1) {
         Chunk* c = getChunk(pos);
         if (!c || !c->isGenerated) return;
 
         static const int DIRS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
 
-        for (const auto& d : DIRS) {
+        for (int i = 0; i < 4; ++i) {
+            if (soloLado >= 0 && i != soloLado) continue;
+            const auto& d = DIRS[i];
+
             Chunk* v = getChunk(Vec3i(pos.x + d[0], 0, pos.z + d[1]));
             if (!v || !v->isGenerated) continue;
 
@@ -11793,6 +11846,17 @@ public:
     // cuesta ~9 ms MEDIDOS (2,4 de celdas + 5,1 de greedy + 1,5 de empaque) y
     // eso no lo cambia ningun presupuesto: lo unico que se hace es dejar de
     // frenar el pipeline mientras dura la avalancha.
+    // ⭐ COSTURAS DE LUZ APLAZADAS AL SIGUIENTE FRAME.
+    //
+    // Coser la luz con los vecinos cuesta 4,2 ms MEDIDOS, y hacerlo dentro de
+    // `setBlock` significa pagarlo en el frame en que el jugador coloca el
+    // bloque -- justo cuando mas importa la respuesta.
+    //
+    // Es un `set`, asi que construir veinte bloques seguidos en el mismo chunk
+    // produce UNA costura, no veinte. Eso solo ya es la mayor parte del ahorro
+    // cuando el jugador esta construyendo de verdad.
+    std::set<Vec3i> costurasPendientes;
+
     bool   recargaUrgente     = false;
     double urgenciaHasta      = 0.0;
     static constexpr double SEGUNDOS_URGENCIA = 12.0;
@@ -15883,7 +15947,11 @@ public:
             // bloque pudo afectar: su columna y 18 celdas alrededor, que es
             // hasta donde llega el derrame lateral antes de apagarse. El
             // resultado es IDENTICO -- no es una aproximacion.
+            const double t0Luz = glfwGetTime();
             chunk->recalcularLuzLocal(localX, y, localZ);
+            g_usLuzLocal += (long long)((glfwGetTime() - t0Luz) * 1e6);
+            ++g_nLuzLocal;
+            const double t0Cos = glfwGetTime();
             // ⭐ Y volver a coser con los vecinos.
             //
             // computeSkylight recalcula el chunk ENTERO desde cero y solo mira
@@ -15891,7 +15959,25 @@ public:
             // metido desde fuera. Sin esta linea, romper un bloque junto a una
             // frontera apagaria toda la franja del borde -- que es el mismo
             // bug de la luz cortada, pero disparado al jugar.
-            coserLuzConVecinos(chunkPos);
+            // ⭐ LA COSTURA SE APLAZA AL SIGUIENTE FRAME.
+            //
+            // MEDIDO: coser con los vecinos costaba 4,2 ms por bloque -- mas que
+            // recalcular la luz entera del chunk modificado (2,6 ms). Con el
+            // jugador construyendo seguido, esos 4,2 ms se pagan en CADA
+            // colocacion, dentro del frame.
+            //
+            // Y no hace falta que sea inmediato. La costura solo afecta a la
+            // franja del BORDE entre dos chunks: un bloque colocado en el
+            // interior no la cambia, y aunque la cambie, un frame de diferencia
+            // en el gradiente del borde es invisible -- mucho menos visible que
+            // el tiron de 4 ms que produce hacerlo ya.
+            //
+            // Se apunta y `updateChunks` la resuelve al principio del siguiente
+            // frame, fuera del camino critico de colocar el bloque. Lo que el
+            // jugador nota -- que el bloque aparezca -- no depende de esto: lo
+            // hace el remallado, que sigue siendo urgente.
+            costurasPendientes.insert(chunkPos);
+            (void)t0Cos;
         }
 
         // ⭐ Marcar chunk como modificado (para guardarlo después)
@@ -24036,6 +24122,26 @@ public:
         // Incorporar lo que los hilos de trabajo hayan terminado
         integrateGeneratedChunks();
 
+        // ⭐ LAS COSTURAS DE LUZ QUE DEJO PENDIENTES EL JUGADOR.
+        //
+        // Se hacen AQUI y no dentro de setBlock porque cuestan 4,2 ms cada una
+        // y ahi se pagarian en el frame de la colocacion. Aqui salen del camino
+        // critico: el bloque ya se vio.
+        //
+        // Se limitan por frame como todo lo demas -- un jugador construyendo
+        // deprisa puede dejar varias -- y el `set` ya ha fusionado las repetidas
+        // del mismo chunk.
+        if (!costurasPendientes.empty()) {
+            constexpr int MAX_COSTURAS_POR_FRAME = 2;
+            int hechas = 0;
+            while (hechas < MAX_COSTURAS_POR_FRAME && !costurasPendientes.empty()) {
+                const Vec3i p = *costurasPendientes.begin();
+                costurasPendientes.erase(costurasPendientes.begin());
+                coserLuzConVecinos(p);
+                ++hechas;
+            }
+        }
+
         // ⭐ Y saldar las costuras que quedaron a deber.
         //
         // Va DESPUES de integrar a proposito: los chunks que acaban de entrar
@@ -24644,6 +24750,11 @@ public:
             // que están cerca del jugador, así que evictLRUChunk las saltaba
             // siempre. Se acumulaban durante toda la partida.
             chunkCache.erase(pos);
+
+            // Y la costura que tuviera pendiente: el chunk se va, asi que
+            // coserlo despues seria trabajar sobre un objeto reciclado. Es la
+            // misma regla que ya obliga a `chunkCache.erase` aqui.
+            costurasPendientes.erase(pos);
 
             // ⭐ PASO 4: DEVOLVER AL POOL O ELIMINAR
             deallocateChunk(chunk);
@@ -26235,6 +26346,8 @@ public:
                     std::cout << " | costuras: sinVecinos=" << g_diagMalladoSinVecinos.load()
                               << " provisionales=" << g_diagMalladoBordeRoto.load()
                               << " saldadas=" << g_diagBordesSaldados
+                              << " | setBlock: n=" << g_nLuzLocal
+                              << " luz=" << (g_nLuzLocal ? g_usLuzLocal / g_nLuzLocal : 0) << "us"
                               << " pendientes=" << deuda
                               << " follaje=" << g_diagRemalladoFollaje.load();
                 }

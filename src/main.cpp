@@ -11651,6 +11651,43 @@ public:
                                            : g_perfil.distanciaRender;
     }
 
+    // ========================================================================
+    // ⭐ RECARGA URGENTE: EL JUGADOR ACABA DE MOVER LA BARRA
+    // ========================================================================
+    // Cambiar la distancia de render no es como caminar. Al caminar entran
+    // unos pocos chunks por segundo y el streaming va sobrado; al subir la
+    // barra de 4 a 12 entran de golpe CIENTOS, y el jugador esta mirando el
+    // menu esperando ver el resultado.
+    //
+    // El regulador adaptativo hace justo lo contrario de lo que hace falta
+    // ahi: ve que el frame se carga, recorta el presupuesto a su suelo
+    // (`presup gen=0.5`) y la recarga se arrastra durante medio minuto.
+    //
+    // Mientras esta marca esta puesta, el presupuesto se fija al MAXIMO y el
+    // regulador no lo toca. Es una ventana corta y acotada: se apaga sola en
+    // cuanto no queda nada que cargar, o a los SEGUNDOS_URGENCIA como tope
+    // duro por si algo se atasca.
+    //
+    // ⚠️ NO se toca el numero de hilos ni el coste de un chunk. Mallar uno
+    // cuesta ~9 ms MEDIDOS (2,4 de celdas + 5,1 de greedy + 1,5 de empaque) y
+    // eso no lo cambia ningun presupuesto: lo unico que se hace es dejar de
+    // frenar el pipeline mientras dura la avalancha.
+    bool   recargaUrgente     = false;
+    double urgenciaHasta      = 0.0;
+    static constexpr double SEGUNDOS_URGENCIA = 12.0;
+
+    void pedirRecargaUrgente() {
+        recargaUrgente = true;
+        urgenciaHasta  = glfwGetTime() + SEGUNDOS_URGENCIA;
+
+        // El presupuesto salta al maximo AHORA, sin esperar a la siguiente
+        // revision del regulador (que llega cada 12 frames).
+        presupuesto.generacionMs = 4.0f;
+        presupuesto.malladoMs    = 5.0f;
+        presupuesto.subidaMs     = 4.0f;
+        presupuesto.descargaMs   = 2.0f;
+    }
+
     int getSeed() const { return seed; }
 
     // ⭐ Acceso al generador para sistemas que necesitan CONSULTAR el terreno
@@ -23823,8 +23860,28 @@ public:
         // que el regulador recortara el streaming hasta el suelo y lo dejara
         // ahi para siempre -- con la CPU ociosa. Ese era el motivo de que el
         // mundo cargara a empujones al moverse.
-        presupuesto = Streaming::ajustarPresupuesto(presupuesto,
-                                                    msCpuSuavizado, msObjetivo);
+        // ⭐ DURANTE UNA RECARGA URGENTE EL REGULADOR NO TOCA NADA.
+        //
+        // Al mover la barra de distancia entran cientos de chunks de golpe. El
+        // regulador ve el frame cargado y recorta el presupuesto a su suelo,
+        // que es exactamente lo contrario de lo que hace falta: la recarga se
+        // arrastra durante medio minuto mientras el jugador espera.
+        //
+        // La ventana se cierra sola en cuanto no queda trabajo, o al vencer su
+        // tope de tiempo. Ver pedirRecargaUrgente().
+        if (recargaUrgente) {
+            const bool quedaTrabajo = !genInFlight.empty() ||
+                                      !mallaInFlight.empty();
+            if (!quedaTrabajo || inicioStreaming > urgenciaHasta) {
+                recargaUrgente = false;
+                std::cout << "[STREAM] Recarga urgente terminada." << std::endl;
+            }
+        }
+
+        if (!recargaUrgente) {
+            presupuesto = Streaming::ajustarPresupuesto(presupuesto,
+                                                        msCpuSuavizado, msObjetivo);
+        }
 
         // 3. Desatascar lo que lleve demasiado tiempo parado.
         //
@@ -24110,7 +24167,15 @@ public:
                                 !genInFlight.empty() ||
                                 algunoSinMesh;
 
-        const bool escanear = cambioDeChunk || hayTrabajo;
+        // ⭐ Y SE ESCANEA SIEMPRE DURANTE UNA RECARGA URGENTE.
+        //
+        // Sin esto, mover la barra ESTANDO QUIETO no pedia nada: el escaneo
+        // solo se dispara al cambiar de chunk o cuando ya queda trabajo
+        // pendiente, y al subir la distancia no se cumple ninguna de las dos
+        // -- los chunks nuevos todavia no existen, asi que no hay "trabajo" que
+        // detectar. El jugador subia la barra en el menu de pausa y el mundo no
+        // reaccionaba hasta que echaba a andar.
+        const bool escanear = cambioDeChunk || hayTrabajo || recargaUrgente;
         if (cambioDeChunk) ultimoChunkJugador = playerChunk;
 
         // ====================================================================
@@ -34200,7 +34265,12 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
                 g_gameState->renderDistance = nuevo;
                 const int radio = Render::radioCargado(nuevo);
                 g_gameState->world.techoDistanciaUsuario = radio;
-                g_gameState->world.ajustarDistancia(radio);
+                if (g_gameState->world.ajustarDistancia(radio)) {
+                    // ⭐ El radio cambio de verdad: a por los chunks nuevos sin
+                    // esperar a que el regulador lo permita. Ver
+                    // pedirRecargaUrgente().
+                    g_gameState->world.pedirRecargaUrgente();
+                }
             }
             return;
         }
@@ -34639,7 +34709,9 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
                 // en la siguiente revision y la barra pareceria no hacer nada.
                 const int radio = Render::radioCargado(g_gameState->renderDistance);
                 g_gameState->world.techoDistanciaUsuario = radio;
-                g_gameState->world.ajustarDistancia(radio);
+                if (g_gameState->world.ajustarDistancia(radio)) {
+                    g_gameState->world.pedirRecargaUrgente();
+                }
                 g_gameState->arrastrandoBarraRender = true;
                 return;
             }
@@ -39752,6 +39824,32 @@ int main() {
                         g_gameState->showSavingIndicator = false;
                     }
                 }
+            }
+
+            // ================================================================
+            // ⭐ EL STREAMING SIGUE EN PAUSA SI HAY UNA RECARGA URGENTE
+            // ================================================================
+            // La barra de distancia se mueve DESDE EL MENU DE PAUSA, y en pausa
+            // no corre `updateChunks` -- esa es toda la simulacion del mundo, y
+            // detenerla es correcto.
+            //
+            // Pero entonces subir la barra no hacia nada visible hasta cerrar
+            // el menu: el jugador movia el tirador, veia el mismo mundo de
+            // siempre, y la carga empezaba al volver al juego. El ajuste
+            // parecia roto.
+            //
+            // Aqui se hace la UNICA excepcion: mientras dura la ventana de
+            // recarga urgente (unos segundos tras mover la barra), el streaming
+            // sigue trabajando aunque el juego este pausado. No se simula nada
+            // mas -- ni agua, ni fauna, ni el reloj -- solo se cargan y mallan
+            // los chunks que el jugador acaba de pedir.
+            //
+            // Asi el mundo se abre DETRAS del menu y, al cerrar, ya esta.
+            if (g_gameState->isPaused && !g_gameState->isSaving &&
+                g_gameState->world.recargaUrgente) {
+                g_gameState->world.updateChunks(g_gameState->player.position,
+                                                g_gameState->player.position,
+                                                deltaTime);
             }
 
             // Solo actualizar físicas si no está pausado y no está guardando

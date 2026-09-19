@@ -28976,6 +28976,13 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 }
             }
 
+            // La cara de la CAJA REAL por la que entro el rayo, si el bloque
+            // tiene una caja propia mas pequena que su voxel. Ver la nota larga
+            // donde se calcula: es lo que arregla que un nivel parcial apuntado
+            // por su tapa colocara el bloque al lado.
+            Vec3i normalCajaReal(0, 0, 0);
+            bool  tieneNormalCaja = false;
+
             float bx0, by0, bz0, bx1, by1, bz1;
             if (nopalHitboxCon(block,
                     [&](int dx, int dy, int dz) {
@@ -29042,6 +29049,14 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 const float B0[3] = { bx0, by0, bz0 };
                 const float B1[3] = { bx1, by1, bz1 };
 
+                // ⭐ QUE CARA DE LA CAJA ATRAVESO EL RAYO.
+                //
+                // El eje cuyo `t1` fue el ULTIMO en elevar tEnt es, por
+                // definicion del slab method, la cara por la que el rayo entro
+                // de verdad en la caja. -1 = el origen ya estaba dentro.
+                int ejeEntrada = -1;
+                bool entroPorMin = false;   // ¿por la cara baja del eje?
+
                 for (int e = 0; e < 3 && atraviesa; ++e) {
                     if (fabsf(D[e]) < 1e-6f) {
                         // Rayo paralelo a este eje: debe estar dentro.
@@ -29049,8 +29064,12 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                     } else {
                         float t1 = (B0[e] - O[e]) / D[e];
                         float t2 = (B1[e] - O[e]) / D[e];
-                        if (t1 > t2) { const float tmp = t1; t1 = t2; t2 = tmp; }
-                        if (t1 > tEnt) tEnt = t1;
+                        bool porMin = true;
+                        if (t1 > t2) {
+                            const float tmp = t1; t1 = t2; t2 = tmp;
+                            porMin = false;   // se cruzo la cara alta primero
+                        }
+                        if (t1 > tEnt) { tEnt = t1; ejeEntrada = e; entroPorMin = porMin; }
                         if (t2 < tSal) tSal = t2;
                         if (tEnt > tSal) atraviesa = false;
                     }
@@ -29058,6 +29077,47 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
 
                 // No toca la penca: seguir buscando detras.
                 if (!atraviesa) continue;
+
+                // ============================================================
+                // ⭐ LA NORMAL SALE DE LA CAJA REAL, NO DEL VOXEL
+                // ============================================================
+                // BUG QUE ESTO CORRIGE: apuntando a la cara de ARRIBA de un
+                // nivel parcial desde 2-4 bloques de distancia, el bloque nuevo
+                // se colocaba AL LADO en vez de encima.
+                //
+                // La normal se calculaba abajo como `prevBlock - pos`: por que
+                // cara del VOXEL entro el rayo. Para un cubo entero eso es
+                // correcto, porque la caja ocupa el voxel completo.
+                //
+                // Pero un nivel de 3 px mide 3/16 de su voxel. Mirandolo desde
+                // lejos y algo elevado, el rayo entra al voxel por un LATERAL
+                // -- varios pixeles por encima de la capa -- y solo despues
+                // baja hasta tocar su cara superior. La normal salia horizontal
+                // y `placeBlock` la interpretaba como "me apuntan de lado":
+                // placePos acababa en previousPos, el voxel contiguo.
+                //
+                // Cuanto mas lejos y mas rasante el angulo, mas ocurre -- de ahi
+                // que el fallo aparezca a 2-4 bloques y no pegado al bloque.
+                //
+                // Ahora la normal sale de la cara de la CAJA que el rayo
+                // atraveso de verdad, que es lo que el jugador esta viendo.
+                // ⚠️ SE GUARDA, NO SE DEVUELVE AQUI.
+                //
+                // Mas abajo hay una regla que puede cambiar la seleccion
+                // entera: "gana el de encima si es mas pequeno" (los guijarros
+                // sobre una capa de tierra). Retornar aqui se la saltaria y
+                // volveria a costar dos clics coger lo pequeno.
+                //
+                // La normal corregida se aplica al final, solo si esa regla no
+                // se ha llevado la seleccion a otro bloque.
+                if (ejeEntrada >= 0) {
+                    const int signo = entroPorMin ? -1 : +1;
+                    normalCajaReal = Vec3i(
+                        ejeEntrada == 0 ? signo : 0,
+                        ejeEntrada == 1 ? signo : 0,
+                        ejeEntrada == 2 ? signo : 0);
+                    tieneNormalCaja = true;
+                }
             }
 
             // ⭐ GANA EL DE ENCIMA SI ES MAS PEQUENO
@@ -29126,8 +29186,40 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
 
             result.hit = true;
             result.blockPos = Vec3i(x, y, z);
-            result.previousPos = prevBlock;
-            result.normal = Vec3i(prevBlock.x - x, prevBlock.y - y, prevBlock.z - z);
+
+            // ⭐ LA CARA DE LA CAJA REAL MANDA, PERO SOLO DONDE HACE FALTA.
+            //
+            // Para un cubo entero la caja llena el voxel y las dos normales
+            // coinciden, asi que corregir no aporta nada. Para un NIVEL PARCIAL
+            // no: el rayo entra al voxel por un lateral -- varios pixeles por
+            // encima de la capa -- y solo despues baja a tocar su tapa. La
+            // normal del voxel decia "de lado" cuando el jugador esta viendo la
+            // cara de arriba, y el bloque nuevo acababa en el voxel contiguo.
+            //
+            // ⚠️ SE ACOTA A LOS NIVELES PARCIALES A PROPOSITO.
+            //
+            // La primera version corregia SIEMPRE que el bloque tuviera caja
+            // propia (pencas, tunas, ramas, magueyes...). Medido: los FPS
+            // cayeron de 106-124 a 18-33. Cambiar `previousPos` en bloques cuya
+            // normal ya era correcta desviaba la colocacion a celdas
+            // equivocadas, y cada intento fallido genera invalidaciones y
+            // remallados que no llevan a ninguna parte.
+            //
+            // El bug reportado es especificamente de los niveles, que es donde
+            // la caja es mucho mas baja que el voxel. Ahi se corrige; en el
+            // resto se conserva el comportamiento que ya funcionaba.
+            const bool corregirNormal = tieneNormalCaja && esNivelParcial(block);
+
+            if (corregirNormal) {
+                result.normal = normalCajaReal;
+                result.previousPos = Vec3i(x + normalCajaReal.x,
+                                           y + normalCajaReal.y,
+                                           z + normalCajaReal.z);
+            } else {
+                result.previousPos = prevBlock;
+                result.normal = Vec3i(prevBlock.x - x, prevBlock.y - y,
+                                      prevBlock.z - z);
+            }
             result.distance = t;
             return result;
         }

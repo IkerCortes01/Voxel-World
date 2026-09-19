@@ -244,3 +244,126 @@ TEST_CASE("Caida: arboles vecinos caen hacia lados distintos") {
     // bosque peinado de antes.
     CHECK(iguales < total / 4);
 }
+
+// ============================================================================
+// LA NORMAL DEL RAYCAST EN UN NIVEL PARCIAL
+// ============================================================================
+// BUG: apuntando a la cara de ARRIBA de un nivel desde 2-4 bloques, el bloque
+// nuevo se colocaba AL LADO en vez de encima.
+//
+// La normal se calculaba como `prevBlock - pos`: por que cara del VOXEL entro
+// el rayo. Para un cubo entero es correcto -- la caja ocupa el voxel completo.
+// Para un nivel de 3 px (3/16 del voxel) NO: mirandolo desde lejos y algo
+// elevado, el rayo entra al voxel por un LATERAL, varios pixeles por encima de
+// la capa, y solo despues baja hasta tocar su tapa.
+//
+// La normal salia horizontal, placeBlock lo leia como "me apuntan de lado", y
+// placePos acababa en el voxel contiguo.
+//
+// Estos tests fijan la GEOMETRIA del caso, que es lo que hace que el arreglo
+// sea correcto y no un parche.
+
+namespace {
+// El slab method tal y como quedo en raycastBlock: devuelve el eje por el que
+// el rayo entro de verdad en la caja, y si fue por su cara baja.
+struct Entrada { bool toca; int eje; bool porMin; };
+
+Entrada entrarEnCaja(const float O[3], const float D[3],
+                     const float B0[3], const float B1[3]) {
+    float tEnt = 0.0f, tSal = 1e9f;
+    int eje = -1; bool porMin = false; bool ok = true;
+
+    for (int e = 0; e < 3 && ok; ++e) {
+        if (std::fabs(D[e]) < 1e-6f) {
+            if (O[e] < B0[e] || O[e] > B1[e]) ok = false;
+        } else {
+            float t1 = (B0[e] - O[e]) / D[e];
+            float t2 = (B1[e] - O[e]) / D[e];
+            bool pm = true;
+            if (t1 > t2) { const float tp = t1; t1 = t2; t2 = tp; pm = false; }
+            if (t1 > tEnt) { tEnt = t1; eje = e; porMin = pm; }
+            if (t2 < tSal) tSal = t2;
+            if (tEnt > tSal) ok = false;
+        }
+    }
+    return { ok, eje, porMin };
+}
+} // namespace
+
+TEST_CASE("Raycast: mirando la tapa de un nivel desde lejos, la normal es ARRIBA") {
+    // ⭐ EL CASO REPORTADO, en numeros.
+    //
+    // Nivel 1 (3 px = 0.1875) en el voxel (0,0,0). El jugador esta 3 bloques
+    // al este y a la altura de los ojos (1,6), mirando hacia abajo a la capa.
+    const float B0[3] = { 0.0f, 0.0f,    0.0f };
+    const float B1[3] = { 1.0f, 0.1875f, 1.0f };
+
+    const float O[3] = { 3.5f, 1.6f, 0.5f };
+    // Direccion hacia el centro de la tapa.
+    float D[3] = { 0.5f - 3.5f, 0.09f - 1.6f, 0.0f };
+    const float len = std::sqrt(D[0]*D[0] + D[1]*D[1] + D[2]*D[2]);
+    D[0] /= len; D[1] /= len; D[2] /= len;
+
+    const Entrada e = entrarEnCaja(O, D, B0, B1);
+    REQUIRE(e.toca);
+
+    // Entra por el eje Y, por su cara ALTA -> normal (0,+1,0).
+    CHECK(e.eje == 1);
+    CHECK(e.porMin == false);
+}
+
+TEST_CASE("Raycast: la normal del VOXEL habria dicho 'de lado'") {
+    // Por que el calculo viejo fallaba: el rayo cruza la frontera del voxel
+    // (x=1) a una altura MUY por encima de la capa, asi que el DDA marca el
+    // voxel de al lado como `prevBlock` y la normal sale horizontal.
+    const float O[3] = { 3.5f, 1.6f, 0.5f };
+    float D[3] = { 0.5f - 3.5f, 0.09f - 1.6f, 0.0f };
+    const float len = std::sqrt(D[0]*D[0] + D[1]*D[1] + D[2]*D[2]);
+    D[0] /= len; D[1] /= len; D[2] /= len;
+
+    // Altura del rayo justo al cruzar x = 1.0 (el borde del voxel).
+    const float tBorde = (1.0f - O[0]) / D[0];
+    const float yEnBorde = O[1] + D[1] * tBorde;
+
+    // Muy por encima de la capa de 0.1875: el rayo entra al voxel por el
+    // lateral, no por la tapa. De ahi la normal horizontal.
+    CHECK(yEnBorde > 0.1875f);
+}
+
+TEST_CASE("Raycast: un cubo entero no cambia de comportamiento") {
+    // La correccion no debe alterar el caso normal: para una caja que llena el
+    // voxel, la cara de la caja y la del voxel son la MISMA.
+    //
+    // Se apunta al CENTRO de la cara lateral (y = 0.5), no por encima del
+    // cubo: mirando a un punto mas alto que 1.0 el rayo entraria por la tapa
+    // -- que tambien seria correcto, pero no es el caso que interesa fijar
+    // aqui.
+    const float B0[3] = { 0.0f, 0.0f, 0.0f };
+    const float B1[3] = { 1.0f, 1.0f, 1.0f };
+
+    const float O[3] = { 3.5f, 1.6f, 0.5f };
+    float D[3] = { 0.5f - 3.5f, 0.5f - 1.6f, 0.0f };
+    const float len = std::sqrt(D[0]*D[0] + D[1]*D[1] + D[2]*D[2]);
+    D[0] /= len; D[1] /= len; D[2] /= len;
+
+    const Entrada e = entrarEnCaja(O, D, B0, B1);
+    REQUIRE(e.toca);
+    // Mirando de lado a un cubo entero: entra por X, cara alta -> (+1,0,0).
+    CHECK(e.eje == 0);
+    CHECK(e.porMin == false);
+}
+
+TEST_CASE("Raycast: apuntando de lado a un nivel, sigue siendo de lado") {
+    // El arreglo no debe convertir TODO en "por arriba": mirando la capa a su
+    // misma altura, la cara correcta es la lateral.
+    const float B0[3] = { 0.0f, 0.0f,    0.0f };
+    const float B1[3] = { 1.0f, 0.1875f, 1.0f };
+
+    const float O[3] = { 3.5f, 0.09f, 0.5f };   // a la altura de la capa
+    float D[3] = { -1.0f, 0.0f, 0.0f };
+
+    const Entrada e = entrarEnCaja(O, D, B0, B1);
+    REQUIRE(e.toca);
+    CHECK(e.eje == 0);          // eje X
+    CHECK(e.porMin == false);   // cara alta de X -> normal (+1,0,0)
+}

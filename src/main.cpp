@@ -775,6 +775,18 @@ thread_local bool t_accionDelJugador = false;
 // ahora aplazada) y la busqueda del techo de zona (que ahora usa la paleta).
 static long long g_usLuzLocal = 0, g_nLuzLocal = 0;
 
+// ⭐ CUANTO TARDA EN VERSE LO QUE EL JUGADOR ROMPE O COLOCA.
+//
+// Telemetria permanente: es la medida directa del sintoma "rompo un bloque y
+// tarda en aparecer". Sale en [STREAM] y fue lo que delato el bug de los
+// descartes (el 61% de estas mallas se tiraba y habia que rehacerla).
+//
+// `descUrg` es el contador que importa vigilar: si vuelve a subir, el ciclo de
+// descarte ha vuelto.
+static double    g_msEsperaJugador = 0.0, g_msPeorEsperaJugador = 0.0;
+static long long g_nEsperaJugador  = 0, g_nEsperaPorTextura = 0;
+static long long g_nDescarteUrgente = 0;
+
 // Guard RAII: enciende la bandera mientras dura el ambito y la apaga al salir,
 // tambien si hay un `return` a mitad o salta una excepcion. Se anida sin
 // problema (guarda y restaura el valor anterior).
@@ -7495,6 +7507,10 @@ struct Chunk {
     // mirando este cambio AHORA" y se apaga al primer mallado.
     bool urgentePorJugador = false;
 
+    // TEMPORAL (medicion): cuando se invalido por accion del jugador, para
+    // medir cuanto tarda su malla en entrar.
+    double tInvalidado = 0.0;
+
     // ========================================================================
     // ⭐ EL ESTADO EXPLICITO DEL CHUNK (Streaming::Estado)
     // ========================================================================
@@ -10114,6 +10130,7 @@ public:
 
         if (renuevaEsperas) {
             c->esperasVecinos = 0;
+            if (c->tInvalidado == 0.0) c->tInvalidado = glfwGetTime();
             // `renuevaEsperas` solo lo pone la ruta del jugador (romper y
             // colocar), asi que es exactamente la señal que hace falta: este
             // chunk adelanta a todo el terreno nuevo en la cola de mallado.
@@ -10647,7 +10664,51 @@ public:
             // Se coge un LOTE ACOTADO, no todo lo que haya. Subir VBOs cuesta,
             // y vaciar la lista entera en un frame produciria justo el tiron
             // que se intenta evitar -- solo que en otro sitio.
-            const int n = (int)mallaDone.size() < tope ? (int)mallaDone.size() : tope;
+            // ⭐ LAS MALLAS DEL JUGADOR SE COGEN PRIMERO.
+            //
+            // BUG QUE ESTO CORRIGE: al romper un bloque, su chunk tardaba hasta
+            // 2,2 SEGUNDOS en volver a verse (medido: peor=2199 ms, media
+            // inicial 613 ms) -- primero invisible, luego aparecia.
+            //
+            // El chunk urgente ya entraba el primero a la cola de ENTRADA
+            // (push_front) y se mallaba enseguida. Pero esta lista -- la de
+            // SALIDA, las mallas ya construidas esperando subir a la GPU -- se
+            // vaciaba en estricto orden de llegada, y se midio con 73 mallas
+            // dentro. Da igual lo rapido que se construya la malla del jugador
+            // si luego espera detras de setenta.
+            //
+            // Se ordena de forma ESTABLE poniendo delante las de chunks
+            // marcados como urgentes. Estable para no alterar el orden relativo
+            // del resto, que llega ya priorizado por distancia.
+            //
+            // Cuesta una pasada sobre una lista de decenas de elementos, una
+            // vez por frame. Nada comparado con los 2 segundos que ahorra.
+            std::stable_sort(mallaDone.begin(), mallaDone.end(),
+                [](const MallaPendiente& a, const MallaPendiente& b) {
+                    const bool ua = a.chunk && a.chunk->urgentePorJugador;
+                    const bool ub = b.chunk && b.chunk->urgentePorJugador;
+                    return ua && !ub;
+                });
+
+            // ⭐ Y LAS URGENTES NO CUENTAN CONTRA EL TOPE.
+            //
+            // El tope existe para que subir VBOs no rompa el frame, y con la
+            // carga alta el regulador lo baja hasta 1. Si la malla del jugador
+            // tuviera que competir por ese unico hueco, seguiria esperando
+            // varios frames aunque vaya la primera de la lista.
+            //
+            // Son POCAS por definicion -- las que el jugador toca, casi siempre
+            // una y sus vecinos de frontera -- asi que ampliar el lote por
+            // ellas no desborda nada.
+            int urgentesDelante = 0;
+            for (const MallaPendiente& m : mallaDone) {
+                if (!m.chunk || !m.chunk->urgentePorJugador) break;
+                ++urgentesDelante;
+            }
+
+            const int topeEfectivo = tope > urgentesDelante ? tope : urgentesDelante;
+            const int n = (int)mallaDone.size() < topeEfectivo
+                        ? (int)mallaDone.size() : topeEfectivo;
             lote.reserve(n);
             for (int i = 0; i < n; ++i) {
                 lote.push_back(std::move(mallaDone[i]));
@@ -10688,6 +10749,9 @@ public:
             // hay que integrar (para que borre lo que hubiera antes).
             if (!r.ok || !r.malla.valida) {
                 ++g_diagDescartadasNoOk;
+                // TEMPORAL: ¿se descarta la malla de algo que el jugador acaba
+                // de tocar? Eso seria el retraso que se esta buscando.
+                if (c->tInvalidado > 0.0) ++g_nDescarteUrgente;
                 // El worker no pudo: se suelta el candado.
                 c->isUpdatingMesh.store(false, std::memory_order_release);
 
@@ -16064,7 +16128,10 @@ public:
         const bool urgente = t_accionDelJugador;
 
         invalidarMalla(chunk);
-        if (urgente) chunk->urgentePorJugador = true;
+        if (urgente) {
+            chunk->urgentePorJugador = true;
+            if (chunk->tInvalidado == 0.0) chunk->tInvalidado = glfwGetTime();
+        }
 
         // Los cuatro vecinos, solo si el bloque toca su frontera: su cara hacia
         // este chunk cambia de estar contra terreno a estar contra aire.
@@ -17058,8 +17125,33 @@ public:
         // Se alcanza de verdad: entre que el chunk se encola y el worker lo
         // coge, otro encargo del mismo chunk puede haberse integrado y dejado
         // needsRebuild en false.
-        if (!chunk->needsRebuild && !chunk->waitingForNeighbors) {
-            if (salidaCPU) salidaCPU->valida = false;
+        // ⚠️ EN UN WORKER NO SE MIRA `needsRebuild`. SE MALLA Y YA.
+        //
+        // BUG QUE ESTO CORRIGE: al romper o colocar un bloque, el cambio tardaba
+        // SEGUNDOS en verse y el chunk se quedaba invisible entre medias.
+        //
+        // MEDIDO: el 61% de las mallas de chunks que el jugador acababa de tocar
+        // se DESCARTABAN (descUrg=160 de n=263) y habia que rehacerlas enteras.
+        //
+        // La causa la anticipaba el comentario de abajo, que describia el caso
+        // como excepcional cuando en realidad es LO NORMAL al construir:
+        // `setBlock` invalida el chunk Y sus vecinos de frontera, asi que un
+        // mismo chunk entra varias veces en la cola. Cuando un worker coge el
+        // segundo encargo, el primero ya se integro y dejo `needsRebuild` en
+        // false -- entonces el mesher sale por aqui, marca la malla invalida, y
+        // el hilo principal la tira y vuelve a encolar. Un ciclo completo
+        // perdido por cada golpe.
+        //
+        // La bandera es del HILO PRINCIPAL: dice "este chunk esta pendiente de
+        // mallar", no "este encargo sigue siendo valido". Un worker que ya tiene
+        // el encargo en la mano y el candado puesto debe construir la geometria
+        // -- sera la del estado ACTUAL del chunk, que es justo lo que se quiere.
+        // Mallar de mas cuesta un turno de worker; descartar cuesta el turno
+        // igual, mas otro ciclo entero, mas el retraso que ve el jugador.
+        //
+        // El camino sincrono (salidaCPU == nullptr) SI la respeta: ahi no hay
+        // encargo previo y la bandera es la unica señal de que hay trabajo.
+        if (!salidaCPU && !chunk->needsRebuild && !chunk->waitingForNeighbors) {
             return;
         }
         if (!chunk->isGenerated) {
@@ -24037,15 +24129,44 @@ public:
                 // Mucho mejor eso --que apenas se nota-- que un chunk que se
                 // apaga y se enciende. El reintento se conserva, asi que en
                 // cuanto la textura este el chunk se rehace y queda perfecto.
+                // Medicion: esta salida tambien cuenta como "ya se ve".
+                if (chunk->tInvalidado > 0.0) {
+                    const double ms = (glfwGetTime() - chunk->tInvalidado) * 1000.0;
+                    g_msEsperaJugador += ms;
+                    ++g_nEsperaJugador;
+                    if (ms > g_msPeorEsperaJugador) g_msPeorEsperaJugador = ms;
+                    chunk->tInvalidado = 0.0;
+                    ++g_nEsperaPorTextura;
+                }
                 chunk->cambiarEstado(Streaming::Estado::LISTO, glfwGetTime());
                 return;
             }
 
+            // ⭐ LA PALETA YA SABE SI EL CHUNK TIENE ALGO.
+            //
+            // BUG QUE ESTO CORRIGE: al romper o colocar un bloque, su chunk
+            // tardaba segundos en volver a verse -- primero invisible, luego
+            // aparecia.
+            //
+            // Aqui habia un triple bucle sobre 16 x 512 x 16 = 131.072 celdas,
+            // con `getBlock` en cada una (division, modulo e indireccion de
+            // paleta). Y se ejecuta en el HILO PRINCIPAL, en CADA subida de
+            // malla, solo para responder "¿este chunk tiene algun bloque?".
+            //
+            // Con la altura en 128 eran 32.768 celdas y pasaba desapercibido.
+            // Al subirla a 512 se cuadruplico y se convirtio en el retraso que
+            // el jugador ve al picar.
+            //
+            // Los subchunks con paleta responden lo mismo mirando UNA entrada:
+            // un subchunk uniforme de aire esta vacio por definicion, y basta
+            // que uno solo no lo este para que el chunk tenga bloques. Son 32
+            // comprobaciones en vez de 131.072, y el resultado es identico.
             bool hasSolidBlocks = false;
-            for (int x = 0; x < CHUNK_SIZE && !hasSolidBlocks; ++x)
-                for (int z = 0; z < CHUNK_SIZE && !hasSolidBlocks; ++z)
-                    for (int y = 0; y < CHUNK_HEIGHT && !hasSolidBlocks; ++y)
-                        if (chunk->getBlock(x, y, z) != BLOCK_AIR) hasSolidBlocks = true;
+            for (int s = 0; s < SUBCHUNKS_PER_CHUNK && !hasSolidBlocks; ++s) {
+                const auto& sub = chunk->subchunks[s];
+                if (!sub.isUniform() || sub.getUniformBlock() != BLOCK_AIR)
+                    hasSolidBlocks = true;
+            }
 
             if (hasSolidBlocks && chunk->batches.empty()) {
                 // Contador para no reintentar indefinidamente si el chunk
@@ -24096,6 +24217,15 @@ public:
         // chunk adelantaria en la cola para siempre -- y con unos cuantos asi,
         // la prioridad dejaria de significar nada.
         chunk->urgentePorJugador = false;
+
+        // TEMPORAL (medicion): cuanto tardo la malla del jugador en entrar.
+        if (chunk->tInvalidado > 0.0) {
+            const double ms = (glfwGetTime() - chunk->tInvalidado) * 1000.0;
+            g_msEsperaJugador += ms;
+            ++g_nEsperaJugador;
+            if (ms > g_msPeorEsperaJugador) g_msPeorEsperaJugador = ms;
+            chunk->tInvalidado = 0.0;
+        }
 
         chunk->cambiarEstado(Streaming::Estado::LISTO, glfwGetTime());
     }
@@ -26399,6 +26529,9 @@ public:
                               << " saldadas=" << g_diagBordesSaldados
                               << " | setBlock: n=" << g_nLuzLocal
                               << " luz=" << (g_nLuzLocal ? g_usLuzLocal / g_nLuzLocal : 0) << "us"
+                              << " | espera: n=" << g_nEsperaJugador
+                              << " media=" << (g_nEsperaJugador ? g_msEsperaJugador / g_nEsperaJugador : 0.0) << "ms"
+                              << " peor=" << g_msPeorEsperaJugador << "ms porTex=" << g_nEsperaPorTextura << " descUrg=" << g_nDescarteUrgente
                               << " pendientes=" << deuda
                               << " follaje=" << g_diagRemalladoFollaje.load();
                 }
@@ -39608,6 +39741,18 @@ int main() {
                     const int by = (int)g_gameState->player.position.y;
                     const int bz = (int)g_gameState->player.position.z;
                     static bool poner = true;
+                    // ⚠️ CON LA MARCA DEL JUGADOR PUESTA.
+                    //
+                    // Sin esto el banco llamaba a setBlock "a pelo", sin pasar
+                    // por el guard que usan placeBlock y updateMining. El
+                    // resultado es que medía un camino que el jugador real
+                    // nunca recorre: sin urgencia, sin prioridad en la cola y
+                    // sin la telemetria de cuanto tarda en verse.
+                    //
+                    // Es el mismo error que ya tuvo este banco con
+                    // keys[GLFW_KEY_W]: simular la accion por un atajo interno
+                    // en vez de por la ruta de verdad.
+                    AccionDelJugador marcaBench;
                     g_gameState->world.setBlock(bx, by, bz,
                         poner ? BLOCK_STONE : BLOCK_AIR);
                     poner = !poner;

@@ -160,7 +160,10 @@ TEST_CASE("Crin: va PEGADA al lomo, no flotando encima") {
     int medidos = 0;
 
     for (const VerticeAnimal& c : m.vertices) {
-        if (c.zona != ZonaCuerpo::LOMO) continue;
+        // La crin tiene ZONA PROPIA desde que se le dio color blanco grisaceo.
+        // Antes se marcaba como LOMO y habia que distinguirla del lomo por su
+        // estrechez; ahora se selecciona directamente, que es mas robusto.
+        if (c.zona != ZonaCuerpo::CRIN) continue;
         // La crin es lo estrecho cerca del plano central.
         if (std::fabs(c.pos.x) > p.anchoCollar * 0.20f) continue;
         // Solo sobre el TRONCO: por delante la crin sigue al cuello, que tiene
@@ -203,7 +206,7 @@ TEST_CASE("Crin: sigue la CURVA del lomo, no es una linea recta") {
 
     float minY = 1e9f, maxY = -1e9f;
     for (const VerticeAnimal& v : m.vertices) {
-        if (v.zona != ZonaCuerpo::LOMO) continue;
+        if (v.zona != ZonaCuerpo::CRIN) continue;   // zona propia de la crin
         if (std::fabs(v.pos.x) > p.anchoCollar * 0.20f) continue;
         if (v.pos.y < minY) minY = v.pos.y;
         if (v.pos.y > maxY) maxY = v.pos.y;
@@ -403,4 +406,248 @@ TEST_CASE("Memoria: los LOD lejanos son MUCHO mas baratos") {
     INFO("LOD0 = ", cerca.vertices.size(), " vertices;  LOD3 = ",
          lejos.vertices.size());
     CHECK(lejos.vertices.size() * 2 < cerca.vertices.size());
+}
+
+// ============================================================================
+// 5. PELAJE NEGRO Y CRESTA BLANCA
+// ============================================================================
+// Lo que se pidio: pelo ligero NEGRO por TODO el cuerpo, y la cresta de la
+// espalda en BLANCO GRISACEO.
+//
+// Los dos rasgos tiran en direcciones opuestas -- uno oscurece el animal
+// entero, el otro exige que una parte siga siendo clara -- asi que es
+// exactamente el caso donde un cambio descuidado deshace el otro. De ahi que
+// cada uno tenga su test.
+
+namespace {
+// Luminancia percibida. Se usa para hablar de "claro" y "oscuro" sin depender
+// de un canal concreto.
+float luma(const VerticeAnimal& v) {
+    return v.r * 0.30f + v.g * 0.59f + v.b * 0.11f;
+}
+} // namespace
+
+TEST_CASE("Pelaje: el cuerpo es NEGRO, no gris pardo") {
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    // Se mide el pelaje del cuerpo: se dejan fuera los rasgos claros que
+    // existen a proposito (collar y crin) y lo que no es pelo.
+    double suma = 0.0; int n = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona == ZonaCuerpo::COLLAR || v.zona == ZonaCuerpo::CRIN ||
+            v.zona == ZonaCuerpo::OJO    || v.zona == ZonaCuerpo::PEZUNA) continue;
+        if (v.pelo < 0.25f) continue;          // piel desnuda, no pelaje
+        suma += luma(v); ++n;
+    }
+    REQUIRE(n > 0);
+
+    const float media = (float)(suma / n);
+    INFO("luminancia media del pelaje = ", media);
+
+    // Negro de verdad. El valor anterior rondaba 0.26 (gris pardo).
+    CHECK(media < 0.16f);
+    // Pero NO negro absoluto: un cuerpo a cero se lee como un agujero sin
+    // volumen, y el jaspeado aguti dejaria de verse.
+    CHECK(media > 0.02f);
+}
+
+TEST_CASE("Pelaje: la CRESTA dorsal es clara sobre el cuerpo negro") {
+    // ⭐ EL TEST DEL RASGO PEDIDO.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    double sCrin = 0.0; int nCrin = 0;
+    double sLomo = 0.0; int nLomo = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona == ZonaCuerpo::CRIN) { sCrin += luma(v); ++nCrin; }
+        else if (v.zona == ZonaCuerpo::LOMO) { sLomo += luma(v); ++nLomo; }
+    }
+    REQUIRE(nCrin > 0);
+    REQUIRE(nLomo > 0);
+
+    const float crin = (float)(sCrin / nCrin);
+    const float lomo = (float)(sLomo / nLomo);
+    INFO("crin = ", crin, "   lomo = ", lomo);
+
+    // Blanco grisaceo: claro de verdad...
+    CHECK(crin > 0.60f);
+    // ...pero NO blanco puro. Es pelo gris, no papel.
+    CHECK(crin < 0.92f);
+
+    // Y el contraste con el lomo es lo que hace que la cresta SE VEA. Sin
+    // esto, erizarse no comunicaria nada.
+    CHECK(crin > lomo * 3.0f);
+}
+
+TEST_CASE("Pelaje: la raya dorsal sigue siendo mas oscura que el flanco") {
+    // MEDIDO: "con una raya dorsal oscura". Al aclarar la crin es facil
+    // aclarar de paso el lomo, y eso SI contradiria el dato.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    double sLomo = 0.0; int nLomo = 0;
+    double sVientre = 0.0; int nVientre = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona == ZonaCuerpo::LOMO)         { sLomo += luma(v); ++nLomo; }
+        else if (v.zona == ZonaCuerpo::VIENTRE) { sVientre += luma(v); ++nVientre; }
+    }
+    REQUIRE(nLomo > 0);
+    REQUIRE(nVientre > 0);
+
+    // El dorso oscuro y el vientre claro: la estructura se conserva aunque
+    // todo el conjunto haya bajado de tono.
+    CHECK((sLomo / nLomo) < (sVientre / nVientre));
+}
+
+TEST_CASE("Pelaje: el COLLAR diagnostico sobrevive al oscurecimiento") {
+    // Es el rasgo que da NOMBRE a la especie. Un pecari de collar sin collar
+    // visible es un error de identificacion, no un detalle.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    float maxLuma = 0.0f;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona == ZonaCuerpo::CRIN) continue;   // el otro rasgo claro
+        const float l = luma(v);
+        if (l > maxLuma) maxLuma = l;
+    }
+    INFO("vertice mas claro fuera de la crin = ", maxLuma);
+    CHECK(maxLuma > 0.45f);      // el collar sigue destacando
+}
+
+TEST_CASE("Pelaje: el collar llega a su color pleno pese al muestreo") {
+    // EL FALLO CONCRETO que obligo a cambiar la mascara del collar.
+    //
+    // El centro de la banda cae ENTRE dos anillos de la malla: medido, el
+    // vertice mas cercano queda a 0.0174 m de un collar de 0.042 m de ancho.
+    // Con la curva k*k eso daba mezcla 0.34 -- el collar nunca alcanzaba su
+    // color y, sobre el cuerpo negro, se quedaba a medio tono.
+    //
+    // Este test no mira la formula: mira el RESULTADO. Alguna parte del collar
+    // tiene que acercarse de verdad al color declarado.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    const float objetivo = p.colorCollar[0] * 0.30f + p.colorCollar[1] * 0.59f
+                         + p.colorCollar[2] * 0.11f;
+
+    float maxLuma = 0.0f;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona == ZonaCuerpo::CRIN) continue;
+        const float l = luma(v);
+        if (l > maxLuma) maxLuma = l;
+    }
+    INFO("collar medido = ", maxLuma, "   declarado = ", objetivo);
+    CHECK(maxLuma > objetivo * 0.85f);
+}
+
+TEST_CASE("Pelaje: el jaspeado AGUTI no se pierde en el negro") {
+    // ⭐ EL FALLO QUE HAY QUE EVITAR AL OSCURECER.
+    //
+    // El aguti es aditivo y simetrico. Sobre un tono base muy bajo, la mitad
+    // NEGATIVA se recorta contra 0 y desaparece: el animal queda plano justo
+    // en las zonas mas oscuras -- lo contrario de parecer peludo.
+    //
+    // colorear() lo corrige sesgando la mezcla hacia la luz cuanto mas oscuro
+    // es el tono. Aqui se comprueba que ese sesgo funciona.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    float minL = 1e9f, maxL = -1e9f;
+    int aCero = 0, n = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::TORSO) continue;
+        const float l = luma(v);
+        if (l < minL) minL = l;
+        if (l > maxL) maxL = l;
+        if (v.r <= 0.0f && v.g <= 0.0f && v.b <= 0.0f) ++aCero;
+        ++n;
+    }
+    REQUIRE(n > 0);
+    INFO("torso: min = ", minL, "  max = ", maxL, "  a cero = ", aCero);
+
+    // Sigue habiendo variacion visible de vertice a vertice.
+    CHECK(maxL - minL > 0.03f);
+    // Y NINGUN vertice se ha recortado a negro absoluto.
+    CHECK(aCero == 0);
+}
+
+TEST_CASE("Pelaje: el pelo tiene DIRECCION, no es ruido suelto") {
+    // direccionPelo() existia con su campo de flujo por zona... y no la
+    // llamaba nadie salvo los tests. La perturbacion era ruido isotropo, que
+    // da una superficie abollada en vez de pelaje peinado.
+    //
+    // Si el sesgo direccional se aplica, las normales de una zona con flujo
+    // marcado dejan de estar repartidas al azar y se inclinan en promedio
+    // hacia ese flujo.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    // En las patas el pelo baja casi vertical: es la zona con el flujo mas
+    // inequivoco, asi que es donde el efecto se mide mejor.
+    double sumaY = 0.0; int n = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::PATA) continue;
+        if (v.pelo < 0.25f) continue;
+        sumaY += v.normal.y; ++n;
+    }
+    REQUIRE(n > 0);
+
+    const float mediaY = (float)(sumaY / n);
+    INFO("inclinacion media de la normal en las patas = ", mediaY);
+
+    // Con ruido puro esta media rondaria 0 (las patas son tubos: las normales
+    // apuntan a los lados y se cancelan). Con el sesgo del pelo hacia abajo,
+    // se vuelve netamente negativa.
+    CHECK(mediaY < -0.02f);
+}
+
+TEST_CASE("Pelaje: la crin NO desaparece a media distancia") {
+    // Con la cresta en claro sobre un cuerpo negro, la crin pasa a ser
+    // SILUETA: lo primero que se distingue del animal de lejos. Apagarla en
+    // LOD 1 la hacia aparecer de golpe al acercarse, que es popping en el
+    // rasgo mas visible del modelo.
+    for (int lod = 0; lod <= 1; ++lod) {
+        MallaAnimal m;
+        ParametrosPecari p = Especies::pecariDeCollar();
+        ConstructorPecari::generar(m, p, lod);
+
+        int nCrin = 0;
+        for (const VerticeAnimal& v : m.vertices)
+            if (v.zona == ZonaCuerpo::CRIN) ++nCrin;
+
+        INFO("LOD ", lod, " tiene ", nCrin, " vertices de crin");
+        CHECK(nCrin > 0);
+    }
+}
+
+TEST_CASE("Pelaje: el ojo sigue siendo lo mas oscuro de la cara") {
+    // Al bajar todo el cuerpo a negro, el ojo puede dejar de contrastar y el
+    // animal pierde la mirada. El parametro se reajusto; esto lo fija.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    float maxOjo = -1e9f, minCara = 1e9f;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona == ZonaCuerpo::OJO) {
+            const float l = luma(v);
+            if (l > maxOjo) maxOjo = l;
+        } else if (v.zona == ZonaCuerpo::CABEZA) {
+            const float l = luma(v);
+            if (l < minCara) minCara = l;
+        }
+    }
+    REQUIRE(maxOjo > -1e8f);
+    REQUIRE(minCara < 1e8f);
+    INFO("ojo mas claro = ", maxOjo, "   cara mas oscura = ", minCara);
+    CHECK(maxOjo < minCara);
 }

@@ -154,13 +154,43 @@ struct ParametrosPecari {
     // MEDIDO (cualitativo): "negro y gris jaspeado, mas claro en los hombros,
     // con una raya dorsal oscura". Pelo AGUTI: bandas alternas en cada pelo,
     // por eso se ve jaspeado y no liso.
-    float colorBase[3]    = { 0.285f, 0.258f, 0.232f };
-    float colorLomo[3]    = { 0.170f, 0.156f, 0.145f };   // raya dorsal oscura
-    float colorVientre[3] = { 0.355f, 0.325f, 0.292f };   // mas claro
+    // ⭐ PELO NEGRO EN TODO EL CUERPO.
+    //
+    // Se pidio pelo negro cubriendo el animal entero, y NO contradice el dato:
+    // 13_PECARI_ANATOMIA describe las cerdas como "de tonos grisaceos, NEGROS o
+    // castanos" (MEDIDO cualitativo), y la variacion individual de tono la
+    // recoge explicitamente como normal dentro de la especie. El negro es uno
+    // de los tres tonos publicados, no una invencion.
+    //
+    // Lo que NO se toca, porque si es diagnostico:
+    //   - el COLLAR claro sigue igual: da nombre a la especie
+    //   - el LOMO sigue siendo mas oscuro que el flanco (raya dorsal MEDIDA)
+    //   - el VIENTRE sigue siendo mas claro que el dorso
+    //
+    // O sea: baja el tono general, se conserva la ESTRUCTURA de claros y
+    // oscuros. Un animal de un solo negro plano se leeria como una silueta
+    // recortada, no como un cuerpo con volumen.
+    float colorBase[3]    = { 0.088f, 0.082f, 0.078f };
+    float colorLomo[3]    = { 0.048f, 0.045f, 0.044f };   // raya dorsal oscura
+    float colorVientre[3] = { 0.135f, 0.126f, 0.118f };   // mas claro
+
+    // --- LA CRESTA DORSAL: BLANCO GRISACEO ---
+    //
+    // Va en su propia zona (ZonaCuerpo::CRIN) para poder ser clara SIN
+    // blanquear la raya dorsal oscura sobre la que se levanta.
+    //
+    // Y tiene sentido funcional: la crin es SENALIZACION, no abrigo -- se eriza
+    // al alarmarse para que el animal parezca mayor. Una cresta clara sobre un
+    // cuerpo negro es la senal mas legible posible, y a contraluz recorta la
+    // silueta. Con la crin del mismo color que el lomo, el gesto se perdia.
+    //
+    // confianza: ESTIMADO (el tono exacto). La existencia de la cresta erectil
+    // y su funcion de senalizacion son MEDIDO.
+    float colorCrin[3]    = { 0.775f, 0.768f, 0.742f };
     float colorCollar[3]  = { 0.730f, 0.690f, 0.590f };
-    float colorPata[3]    = { 0.195f, 0.178f, 0.162f };
-    float colorHocico[3]  = { 0.150f, 0.132f, 0.125f };
-    float colorPezuna[3]  = { 0.105f, 0.098f, 0.092f };
+    float colorPata[3]    = { 0.058f, 0.054f, 0.051f };
+    float colorHocico[3]  = { 0.072f, 0.064f, 0.062f };   // piel, no pelo
+    float colorPezuna[3]  = { 0.042f, 0.040f, 0.038f };   // queratina
 
     // El ojo: casi negro, y MAS OSCURO que cualquier otra parte. Es lo que le
     // da mirada al animal -- sin contraste contra la cara, no se ve.
@@ -169,13 +199,23 @@ struct ParametrosPecari {
     // noche: esta especie NO tiene tapetum lucidum (MEDIDO), a diferencia de
     // los felinos con los que comparte habitat. Darle brillo seria el error
     // tipico al representar fauna.
-    float colorOjo[3]     = { 0.035f, 0.032f, 0.038f };
+    // AJUSTADO AL OSCURECER EL CUERPO: el comentario de arriba exige que el ojo
+    // sea MAS OSCURO QUE CUALQUIER OTRA PARTE, y con el pelaje ya en negro el
+    // valor anterior (0.035) habia dejado de cumplirlo frente a la pezuna. Un
+    // ojo que no contrasta con la cara desaparece y el animal pierde la mirada.
+    // Hay un test que lo comprueba.
+    float colorOjo[3]     = { 0.016f, 0.015f, 0.019f };
 
     // --- PELAJE ---
     // Cerdas largas, gruesas y rigidas: casi puas flexibles.
     float largoCerda      = 0.050f;   // ESTIMADO
     float densidadPelo    = 1.0f;     // multiplicador global
-    float variacionColor  = 0.16f;    // cuanto jaspea el aguti
+
+    // Sube de 0.16 a 0.21: sobre un pelaje negro hace falta mas recorrido de
+    // jaspeado para que el aguti se lea. Con el sesgo hacia la luz de colorear()
+    // esto se traduce en punteado de puntas claras, que es lo que da la textura
+    // de pelo sin anadir un solo triangulo.
+    float variacionColor  = 0.21f;    // cuanto jaspea el aguti
 
     // --- VARIACION INDIVIDUAL ---
     uint32_t semilla = 1u;
@@ -208,7 +248,13 @@ namespace Especies {
         // Sin collar: tiene una mancha blanca en el LABIO, de ahi el nombre.
         p.colorCollar[0] = 0.82f; p.colorCollar[1] = 0.80f; p.colorCollar[2] = 0.74f;
         p.anchoCollar = 0.010f;     // casi inexistente en el hombro
-        p.colorBase[0] = 0.205f; p.colorBase[1] = 0.190f; p.colorBase[2] = 0.178f;
+        // Se reajusta al oscurecer el pelaje del de collar: este valor era
+        // 0.205, MAS CLARO que el nuevo colorBase del de collar (0.088). Como
+        // existe precisamente para que las dos especies no se confundan, tiene
+        // que seguir siendo relativamente mas claro, no absolutamente.
+        p.colorBase[0] = 0.128f; p.colorBase[1] = 0.119f; p.colorBase[2] = 0.112f;
+        // Tampoco tiene la crin clara del de collar: su rasgo es el labio.
+        p.colorCrin[0] = 0.180f; p.colorCrin[1] = 0.172f; p.colorCrin[2] = 0.166f;
         return p;
     }
 
@@ -298,9 +344,19 @@ struct ConfigLOD {
 inline ConfigLOD configDeLOD(int lod) {
     switch (lod) {
         case 0:  // CERCA: anatomia completa
-            return { 14, 11, 8, 5, true,  true,  true,  true,  true,  true,  0.18f };
+            return { 14, 11, 8, 5, true,  true,  true,  true,  true,  true,  0.30f };
         case 1:  // MEDIA
-            return { 10,  8, 6, 4, true,  true,  false, false, true,  true,  0.12f };
+            // LA CRIN PASA A ESTAR ACTIVA AQUI (antes false).
+            //
+            // Con la cresta en blanco grisaceo sobre un cuerpo negro deja de
+            // ser un detalle fino y pasa a ser SILUETA: es lo primero que se
+            // distingue del animal a media distancia. Apagarla en LOD 1 la
+            // hacia aparecer de golpe al acercarse -- popping en el rasgo mas
+            // visible del modelo.
+            //
+            // Cuesta 4 lados x seccionesCuerpo vertices, que es barato: la
+            // crin es un tubo de 4 caras, no una malla densa.
+            return { 10,  8, 6, 4, true,  true,  false, true,  true,  true,  0.22f };
         case 2:  // LEJOS: silueta simplificada
             return {  7,  6, 5, 3, true,  false, false, false, false, false, 0.0f  };
         default: // LOD3, MUY LEJOS: minimo viable
@@ -1114,13 +1170,15 @@ private:
             const float yLomo = alturaLomoEn(s.z);
             s.centroY = yLomo;
 
-            s.zonaLomo = s.zonaFlanco = s.zonaVientre = ZonaCuerpo::LOMO;
+            s.zonaLomo = s.zonaFlanco = s.zonaVientre = ZonaCuerpo::CRIN;
             secs.push_back(s);
         }
 
         const size_t base = malla.vertices.size();
         GeneradorMalla::coserTubo(malla, secs, 4, p.semilla, true, true);
-        GeneradorMalla::marcarZona(malla, base, ZonaCuerpo::LOMO, 1.0f);
+        // Zona propia: es lo que le permite ser blanco grisaceo sin arrastrar
+        // consigo la raya dorsal oscura. Antes iba marcada como LOMO.
+        GeneradorMalla::marcarZona(malla, base, ZonaCuerpo::CRIN, 1.0f);
     }
 
     // ------------------------------------------------------------------------
@@ -1142,6 +1200,7 @@ private:
             switch (v.zona) {
                 case ZonaCuerpo::LOMO:
                 case ZonaCuerpo::GRUPA:   c = p.colorLomo;    break;
+                case ZonaCuerpo::CRIN:    c = p.colorCrin;    break;
                 case ZonaCuerpo::VIENTRE: c = p.colorVientre; break;
                 case ZonaCuerpo::PATA:    c = p.colorPata;    break;
                 case ZonaCuerpo::PEZUNA:  c = p.colorPezuna;  break;
@@ -1183,14 +1242,54 @@ private:
             // queratina, no llevan pelo que pueda ser claro. Sin esta
             // exclusion, un pecari con el collar a la altura de la cara
             // acabaria con los ojos pintados de crema.
+            //
+            // La CRIN tambien queda fuera: ya tiene su propio tono claro, y
+            // mezclarle encima el crema del collar le quitaria el gris que la
+            // distingue de la banda del hombro. Son dos rasgos claros
+            // distintos y deben leerse como tales.
             if (v.zona != ZonaCuerpo::PATA && v.zona != ZonaCuerpo::PEZUNA &&
-                v.zona != ZonaCuerpo::OJO) {
+                v.zona != ZonaCuerpo::OJO  && v.zona != ZonaCuerpo::CRIN) {
                 const float d = std::fabs(v.pos.z - zCollar);
                 if (d < p.anchoCollar) {
                     // Transicion suave en los bordes: un collar con corte duro
                     // se veria pintado.
+                    //
+                    // EL TOPE SUBE DE 0.90 A 1.0 AL OSCURECER EL PELAJE.
+                    //
+                    // Con el cuerpo en gris pardo (0.285) quedarse en 0.90
+                    // apenas se notaba: el 10% de color de fondo que se colaba
+                    // era casi del mismo tono. Con el cuerpo en negro (0.088)
+                    // ese mismo 10% arrastra el collar hacia abajo y lo apaga
+                    // -- medido: de 0.69 a 0.37 de luminancia, o sea la mitad.
+                    //
+                    // El collar es DIAGNOSTICO: da nombre a la especie y es lo
+                    // que la distingue de un jabali a simple vista. No puede
+                    // depender de lo oscuro que sea el resto del animal.
+                    //
+                    // El degradado de los bordes lo sigue dando k*k, asi que no
+                    // reaparece el corte duro: solo el CENTRO de la banda llega
+                    // a su color pleno, que es como se ve en el animal real.
+                    //
+                    // Y k*k NO BASTA, por una razon de muestreo: el centro de
+                    // la banda cae ENTRE dos anillos de la malla. Medido, el
+                    // vertice mas cercano queda a 0.0174 m de un collar de
+                    // 0.042 m de ancho, o sea k=0.59 y k*k=0.34: ningun
+                    // vertice llegaba nunca al color pleno del collar.
+                    //
+                    // Con el cuerpo gris eso pasaba desapercibido. Con el
+                    // cuerpo negro el collar se quedaba a medio camino y
+                    // perdia la mitad de su luminancia.
+                    //
+                    // Se sustituye por una MESETA con bordes suaves: dentro
+                    // del tercio central la mezcla es plena, y solo se degrada
+                    // en los dos tercios exteriores. Asi el collar tiene su
+                    // color de verdad sin depender de que un vertice caiga
+                    // justo en el centro, y los bordes siguen fundiendo.
                     const float k = 1.0f - (d / p.anchoCollar);
-                    const float mezcla = k * k * 0.90f;
+                    const float meseta = (k - 0.35f) / 0.30f;   // 0 en k=0.35, 1 en k=0.65
+                    const float mezcla = (meseta <= 0.0f) ? (k * k)
+                                       : (meseta >= 1.0f) ? 1.0f
+                                       : (k * k) * (1.0f - meseta) + 1.0f * meseta;
                     r = r * (1.0f - mezcla) + p.colorCollar[0] * mezcla;
                     g = g * (1.0f - mezcla) + p.colorCollar[1] * mezcla;
                     b = b * (1.0f - mezcla) + p.colorCollar[2] * mezcla;
@@ -1202,7 +1301,30 @@ private:
             // grandes y otra rapida que da el grano del pelo.
             const float n1 = GeneradorMalla::ruido(p.semilla, (int)i, 0) - 0.5f;
             const float n2 = GeneradorMalla::ruido(p.semilla + 991, (int)i / 3, 1) - 0.5f;
-            const float jasp = (n1 * 0.65f + n2 * 0.35f) * p.variacionColor * v.pelo;
+            float jasp = (n1 * 0.65f + n2 * 0.35f) * p.variacionColor * v.pelo;
+
+            // ⭐ EL JASPEADO SE SESGA HACIA LA LUZ EN LO OSCURO.
+            //
+            // El aguti es ADITIVO y simetrico: +-0.08 alrededor del tono base.
+            // Con el pelaje ya en negro (lomo a 0.048) la mitad negativa se
+            // recorta contra 0 y desaparece -- el animal perderia justo en las
+            // zonas mas oscuras el jaspeado que lo hace parecer pelo, y saldria
+            // una silueta plana. Es el efecto contrario al que se busca.
+            //
+            // Se corrige inclinando la mezcla hacia arriba cuanto mas oscuro es
+            // el tono base. En lo claro (collar, crin) no cambia nada: ahi hay
+            // recorrido de sobra en las dos direcciones.
+            //
+            // Es lo mismo que hace un pelaje negro real bajo el sol: no se ve
+            // "mas negro" en las sombras del pelo, se ven los BRILLOS de las
+            // puntas. El contraste del negro va hacia la luz, no hacia el vacio.
+            const float luma = r * 0.30f + g * 0.59f + b * 0.11f;
+            if (luma < 0.30f) {
+                // 0 en luma=0.30 (sin sesgo) -> 1 en luma=0 (todo hacia arriba)
+                const float oscuridad = 1.0f - (luma / 0.30f);
+                if (jasp < 0.0f) jasp *= (1.0f - oscuridad * 0.80f);
+                else             jasp *= (1.0f + oscuridad * 0.90f);
+            }
 
             r += jasp; g += jasp; b += jasp;
 

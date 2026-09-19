@@ -115,6 +115,16 @@ enum class ZonaCuerpo : uint8_t {
     PEZUNA,        // queratina: sin pelo, brillo distinto
     COLA,
     GRUPA,         // donde va la glandula dorsal
+    // ⭐ LA CRIN NECESITA SU PROPIA ZONA, POR LA MISMA RAZON QUE EL OJO.
+    //
+    // Antes la cresta erectil se marcaba como LOMO, asi que heredaba el color
+    // de la raya dorsal y era INDISTINGUIBLE del lomo sobre el que se levanta.
+    // Se erizaba y no se veia erizar: el gesto de alarma no comunicaba nada.
+    //
+    // Separarla permite darle su propio color sin tocar el lomo. Pintar LOMO
+    // de claro habria blanqueado TODA la linea dorsal, que es justo el rasgo
+    // oscuro que la literatura describe.
+    CRIN,
     // ⭐ EL OJO NECESITA SU PROPIA ZONA.
     //
     // Antes los ojos se marcaban como CABEZA, con un comentario que prometia
@@ -416,9 +426,36 @@ public:
             const float n3 = ruido(semilla + 31, (int)i, 2) - 0.5f;
 
             const float k = intensidad * v.pelo;
-            v.normal = V3(v.normal.x + n1 * k,
-                          v.normal.y + n2 * k,
-                          v.normal.z + n3 * k).normalizado();
+
+            // --- PARTE 1: ruido isotropo ---
+            // El grano suelto del pelaje. Es lo unico que habia antes.
+            V3 n(v.normal.x + n1 * k,
+                 v.normal.y + n2 * k,
+                 v.normal.z + n3 * k);
+
+            // --- PARTE 2: SESGO EN LA DIRECCION DEL PELO ---
+            //
+            // ⭐ ESTO ES LO QUE HACE QUE SE LEA COMO PELO Y NO COMO BULTOS.
+            //
+            // direccionPelo() existia desde el principio, con su campo de flujo
+            // por zona bien razonado... y NO LA LLAMABA NADIE salvo los tests.
+            // La perturbacion era ruido puro en las tres componentes, o sea
+            // irregularidad SIN DIRECCION: eso da una superficie abollada, que
+            // es exactamente lo que parece un animal de plastico mal moldeado.
+            //
+            // El pelo real tiene direccion: nace inclinado y todos los pelos de
+            // una zona apuntan al mismo sitio. Al inclinar las normales HACIA
+            // ESE FLUJO, el sombreado Gouraud produce bandas suaves a lo largo
+            // del cuerpo -- el brillo corre en la direccion del pelo, que es
+            // como se lee el pelaje a simple vista.
+            //
+            // El sesgo se modula por el ruido para que no salga un peinado
+            // perfecto: pelo ordenado, pero no clonado.
+            const V3 dir = direccionPelo(v.normal, v.zona);
+            const float sesgo = k * 1.15f * (0.55f + 0.45f * (n1 + 0.5f));
+            n += dir * sesgo;
+
+            v.normal = n.normalizado();
         }
     }
 
@@ -452,6 +489,12 @@ public:
             case ZonaCuerpo::GRUPA:
                 // En el lomo, la crin se levanta.
                 flujo = V3(0.0f, 0.5f, -0.85f);
+                break;
+            case ZonaCuerpo::CRIN:
+                // La cresta erectil apunta CASI RECTA HACIA ARRIBA: es pelo
+                // levantado, no pelo peinado sobre la piel. Es lo que hace que
+                // se lea como una cresta y no como un lomo mas peludo.
+                flujo = V3(0.0f, 1.0f, -0.20f);
                 break;
             case ZonaCuerpo::OREJA:
                 flujo = V3(0.0f, 0.3f, -0.9f);

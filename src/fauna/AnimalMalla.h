@@ -132,6 +132,13 @@ enum class ZonaCuerpo : uint8_t {
     // tomaban el color de la cara y quedaban invisibles. Un animal sin ojos
     // se lee como un muñeco.
     OJO,
+    // ⭐ LA PUPILA, SEPARADA DEL GLOBO.
+    //
+    // Un ojo de un solo color es una canica: lo que hace que una mirada se lea
+    // como mirada es el CONTRASTE entre el iris y la pupila, y que la pupila
+    // tenga forma. En los ungulados presa es HORIZONTAL, no redonda -- va con
+    // la franja visual horizontal MEDIDA en la retina de esta especie.
+    PUPILA,
     _COUNT
 };
 
@@ -559,6 +566,70 @@ public:
         for (size_t i = desde; i < malla.vertices.size(); ++i) {
             malla.vertices[i].zona = zona;
             malla.vertices[i].pelo = pelo;
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // RELIEVE DE SUPERFICIE: QUE LA PIEL NO SEA UN GLOBO
+    // ------------------------------------------------------------------------
+    // EL PROBLEMA: la piel se veia LISA Y ESTIRADA, como plastico inflado. La
+    // causa es que la malla era una superficie de revolucion PERFECTA -- cada
+    // anillo es una elipse matematica exacta, asi que no hay ni una
+    // irregularidad en todo el cuerpo.
+    //
+    // perturbarPorPelaje ya inclinaba las NORMALES, pero eso solo cambia el
+    // sombreado: la SILUETA seguia siendo una elipse impecable. Y la silueta es
+    // justo lo que delata a un modelo liso cuando se recorta contra el cielo.
+    //
+    // Aqui se desplazan los VERTICES a lo largo de su normal, con ruido de dos
+    // frecuencias. Es displacement de verdad, no un truco de sombreado:
+    //
+    //   - FRECUENCIA BAJA: ondulaciones anchas. Son el volumen que hay debajo
+    //     -- la costilla, el musculo del muslo, la paletilla. Es lo que hace
+    //     que el cuerpo se lea como carne sobre hueso y no como un tubo.
+    //
+    //   - FRECUENCIA ALTA: grano fino. Es el pelaje visto de cerca, las cerdas
+    //     apelmazadas en mechones.
+    //
+    // POR QUE SE ESCALA CON EL RADIO LOCAL. El desplazamiento es proporcional
+    // al tamano de la pieza, no absoluto: 5 mm de relieve en el torso pasan
+    // desapercibidos, pero en una oreja de 6 cm la deformarian. Se aproxima el
+    // radio local por la distancia del vertice al eje del animal.
+    //
+    // Se hace UNA VEZ al generar la malla. Coste en runtime: cero.
+    static void relieveDeSuperficie(MallaAnimal& malla, size_t desde,
+                                    uint32_t semilla, float intensidad) {
+        if (intensidad <= 0.0f) return;
+
+        for (size_t i = desde; i < malla.vertices.size(); ++i) {
+            VerticeAnimal& v = malla.vertices[i];
+
+            // El ojo, la pezuna y el disco del hocico NO se deforman: son
+            // superficies duras o humedas, lisas por naturaleza. Arrugar un
+            // globo ocular lo estropearia.
+            if (v.zona == ZonaCuerpo::OJO || v.zona == ZonaCuerpo::PEZUNA ||
+                v.zona == ZonaCuerpo::PUPILA)
+                continue;
+
+            // Dos octavas. Los divisores de indice dan la "frecuencia": al
+            // agrupar indices vecinos, el ruido cambia mas despacio.
+            const float lento  = ruido(semilla + 401, (int)i / 7, 3) - 0.5f;
+            const float rapido = ruido(semilla + 733, (int)i,     4) - 0.5f;
+
+            // El musculo pesa mas que el grano: es lo que da volumen.
+            float d = lento * 0.68f + rapido * 0.32f;
+
+            // La piel desnuda (hocico) es mucho mas lisa que el pelaje.
+            const float porPelo = 0.35f + 0.65f * v.pelo;
+
+            // Radio local aproximado: distancia al eje longitudinal (el eje Z
+            // del animal). Sirve para que el relieve escale con la pieza.
+            const float rLocal = std::sqrt(v.pos.x * v.pos.x +
+                                           v.pos.y * v.pos.y * 0.25f);
+            const float amplitud = intensidad * porPelo *
+                                   (0.004f + rLocal * 0.055f);
+
+            v.pos += v.normal * (d * amplitud);
         }
     }
 

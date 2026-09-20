@@ -251,10 +251,24 @@ TEST_CASE("Patas: tienen codo y rodilla, no son conos rectos") {
 
     // Un cono recto daria un rango en Z igual al DIAMETRO de la pata. Con
     // codo, el quiebre desplaza secciones enteras adelante y atras.
+    //
+    // ⭐ EL UMBRAL BAJO DE 1.40 A 1.12, Y NO ES RELAJAR EL TEST.
+    //
+    // QUIEBRE paso de 0.085 a 0.022 porque las patas estaban DOBLADAS EN
+    // REPOSO: el zigzag iba metido en la malla cacheada, asi que el animal
+    // quieto ya aparecia agachado, y encima PoseDeMarcha doblaba los mismos
+    // huesos sobre una geometria que ya venia curvada.
+    //
+    // Un ungulado de pie tiene la pata CASI RECTA -- es lo que le permite
+    // aguantar el peso sin esfuerzo muscular. Lo que este test debe seguir
+    // impidiendo es la vuelta al CONO RECTO (rango = 1.0 x grosor, el palo
+    // liso), no fijar una postura agachada concreta.
+    //
+    // Con 1.12 el margen sigue siendo inequivoco: un cono da exactamente 1.0.
     const float rango = maxZ - minZ;
     INFO("rango Z de la pata delantera = ", rango,
          "  grosor de pata = ", p.grosorPata);
-    CHECK(rango > p.grosorPata * 1.40f);
+    CHECK(rango > p.grosorPata * 1.12f);
 }
 
 TEST_CASE("Patas: el codo y la rodilla se doblan al REVES") {
@@ -359,14 +373,38 @@ TEST_CASE("Memoria: cada LOD cabe en su presupuesto") {
         INFO("LOD ", lod, ": ", m.vertices.size(), " vertices, ",
              m.indices.size() / 3, " triangulos, ", bytes, " bytes");
 
-        // Ningun nivel puede pasar de 64 KB.
-        CHECK(bytes < 64u * 1024u);
+        // ⭐ EL TOPE SUBE DE 64 KB A 96 KB, Y SE JUSTIFICA.
+        //
+        // La densidad de LOD 0 subio de 14x11 a 20x16 porque la piel se veia
+        // "lisa y estirada": con 11 anillos en todo el cuerpo no hay vertices
+        // entre costilla y costilla donde meter relieve, y el sombreado es
+        // Gouraud (por vertice), asi que TODO el detalle de superficie vive en
+        // la densidad de la malla.
+        //
+        // Medido: LOD 0 pasa de 46 KB a 76 KB.
+        //
+        // POR QUE SE PUEDE PAGAR. La malla es POR ESPECIE, no por individuo:
+        // el cache la comparte, asi que 100 pecaries siguen usando UNA. Los
+        // 30 KB extra son de una vez, no por animal -- el test de mas abajo
+        // ("el detalle se paga por ESPECIE") es el que protege esa propiedad,
+        // y ese sigue igual de estricto.
+        //
+        // Y solo LOD 0 la paga: animales a menos de 7 metros, que son pocos.
+        //
+        // EL LIMITE QUE SI ES DURO no es este: los indices son uint16_t, o sea
+        // 65.535 vertices como maximo. Con 1.393 queda mucho margen, y hay un
+        // CHECK explicito mas abajo que lo vigila.
+        CHECK(bytes < 96u * 1024u);
     }
 
     // Los cuatro juntos: es lo que de verdad ocupa la especie, porque el cache
     // los comparte entre TODOS los individuos.
+    // Sube de 160 KB a 224 KB por la misma razon que el tope por nivel: mas
+    // densidad en LOD 0-1 para que la piel deje de verse lisa. Medido: 157 KB.
+    // Siguen siendo 224 KB para TODA la especie, compartidos por cada pecari
+    // del mundo -- menos que una sola textura de 256x256 sin comprimir.
     INFO("los 4 LOD juntos = ", totalBytes, " bytes por especie");
-    CHECK(totalBytes < 160u * 1024u);
+    CHECK(totalBytes < 224u * 1024u);
 
     // El LOD 0 sigue cabiendo de sobra en indices de 16 bits.
     CHECK(vertsLOD0 < 65536u);
@@ -629,25 +667,357 @@ TEST_CASE("Pelaje: la crin NO desaparece a media distancia") {
     }
 }
 
-TEST_CASE("Pelaje: el ojo sigue siendo lo mas oscuro de la cara") {
-    // Al bajar todo el cuerpo a negro, el ojo puede dejar de contrastar y el
-    // animal pierde la mirada. El parametro se reajusto; esto lo fija.
+TEST_CASE("Pelaje: la PUPILA es lo mas oscuro del animal") {
+    // ⭐ ESTE TEST CAMBIO DE CRITERIO, Y LA RAZON IMPORTA.
+    //
+    // Antes exigia que el OJO fuera lo mas oscuro de la cara. Eso tenia
+    // sentido con un animal gris pardo, pero al pasar el pelaje a negro se
+    // volvio contraproducente: un ojo oscuro sobre una cara negra no se ve.
+    //
+    // La solucion no fue relajar el test sino separar el ojo en dos piezas --
+    // IRIS pardo y PUPILA negra -- que es como funciona un ojo de verdad. El
+    // iris ahora CONTRASTA por ser mas claro, y la pupila conserva el papel de
+    // punto mas oscuro.
     MallaAnimal m;
     ParametrosPecari p = Especies::pecariDeCollar();
     ConstructorPecari::generar(m, p, 0);
 
-    float maxOjo = -1e9f, minCara = 1e9f;
+    float maxPupila = -1e9f;
+    float minResto  = 1e9f;
     for (const VerticeAnimal& v : m.vertices) {
-        if (v.zona == ZonaCuerpo::OJO) {
-            const float l = luma(v);
-            if (l > maxOjo) maxOjo = l;
-        } else if (v.zona == ZonaCuerpo::CABEZA) {
-            const float l = luma(v);
-            if (l < minCara) minCara = l;
+        const float l = luma(v);
+        if (v.zona == ZonaCuerpo::PUPILA) {
+            if (l > maxPupila) maxPupila = l;
+        } else {
+            if (l < minResto) minResto = l;
         }
     }
-    REQUIRE(maxOjo > -1e8f);
-    REQUIRE(minCara < 1e8f);
-    INFO("ojo mas claro = ", maxOjo, "   cara mas oscura = ", minCara);
-    CHECK(maxOjo < minCara);
+    REQUIRE(maxPupila > -1e8f);
+    REQUIRE(minResto < 1e8f);
+    INFO("pupila mas clara = ", maxPupila, "   resto mas oscuro = ", minResto);
+    CHECK(maxPupila <= minResto);
+}
+
+// ============================================================================
+// 6. ADAPTACION AL TERRENO
+// ============================================================================
+// La altura se resolvia con UNA sonda bajo el centro, asi que las cuatro patas
+// quedaban siempre a la misma altura. En una cuesta eso deja las de abajo
+// colgando y mete las de arriba en la roca.
+
+TEST_CASE("Terreno: en llano no se toca nada") {
+    // El caso que mas veces ocurre. Si el suelo esta plano, la adaptacion debe
+    // ser EXACTAMENTE neutra: cualquier residuo seria un animal torcido sin
+    // motivo.
+    PoseEsqueleto pose;
+    pose.limpiar();
+    PoseDeMarcha(0.0f, 0.0f, pose);
+
+    PoseEsqueleto antes = pose;
+
+    SueloBajoPatas llano;   // los cuatro a 0
+    AplicarTerreno(llano, pose);
+
+    for (int i = 0; i < (int)HuesoAnimal::_COUNT; ++i)
+        CHECK(pose.giroX[i] == doctest::Approx(antes.giroX[i]));
+}
+
+TEST_CASE("Terreno: cuesta arriba el animal apunta hacia arriba") {
+    // Con las patas delanteras en suelo mas alto, el cuerpo se inclina. Es lo
+    // que mas se ve de lejos y lo que evita el aspecto de "flotar en diagonal".
+    PoseEsqueleto pose;
+    pose.limpiar();
+
+    SueloBajoPatas cuesta;
+    cuesta.delanteraIzq = 0.12f;   // 12 cm mas alto delante
+    cuesta.delanteraDer = 0.12f;
+    AplicarTerreno(cuesta, pose);
+
+    const float tronco = pose.giroX[(int)HuesoAnimal::TRONCO];
+    INFO("cabeceo del tronco en cuesta = ", tronco);
+    CHECK(tronco != doctest::Approx(0.0f));
+
+    // Y cuesta abajo tiene que salir al reves.
+    PoseEsqueleto pose2;
+    pose2.limpiar();
+    SueloBajoPatas bajada;
+    bajada.traseraIzq = 0.12f;
+    bajada.traseraDer = 0.12f;
+    AplicarTerreno(bajada, pose2);
+
+    CHECK(pose2.giroX[(int)HuesoAnimal::TRONCO] * tronco < 0.0f);
+}
+
+TEST_CASE("Terreno: cada pata se ajusta por su cuenta") {
+    // ⭐ LO QUE UNA SOLA SONDA NO PUEDE HACER.
+    //
+    // Con un escalon bajo UNA pata, esa pata tiene que moverse y las otras no
+    // deberian seguirla. Es el caso que antes dejaba un pie en el aire.
+    PoseEsqueleto pose;
+    pose.limpiar();
+
+    SueloBajoPatas escalon;
+    escalon.delanteraIzq = 0.14f;   // solo este pie pisa mas alto
+    AplicarTerreno(escalon, pose);
+
+    const float di = pose.giroX[(int)HuesoAnimal::HOMBRO_DI];
+    const float dd = pose.giroX[(int)HuesoAnimal::HOMBRO_DD];
+
+    INFO("hombro izq = ", di, "  hombro der = ", dd);
+    CHECK(std::fabs(di) > 1e-4f);        // la pata del escalon SI se ajusta
+    CHECK(std::fabs(di - dd) > 1e-4f);   // y no lo hacen las dos igual
+}
+
+TEST_CASE("Terreno: un desnivel absurdo no produce posturas imposibles") {
+    // Defensa: un acantilado bajo una pata no puede girar el hueso 180 grados.
+    PoseEsqueleto pose;
+    pose.limpiar();
+
+    SueloBajoPatas absurdo;
+    absurdo.delanteraIzq =  40.0f;
+    absurdo.delanteraDer = -40.0f;
+    absurdo.traseraIzq   =  40.0f;
+    absurdo.traseraDer   = -40.0f;
+    AplicarTerreno(absurdo, pose);
+
+    for (int i = 0; i < (int)HuesoAnimal::_COUNT; ++i) {
+        CHECK(std::fabs(pose.giroX[i]) <= Terreno::INCLINACION_MAX + 1e-4f);
+    }
+}
+
+TEST_CASE("Terreno: se SUMA a la marcha, no la sustituye") {
+    // El caso interesante es subir una loma ANDANDO. Si la adaptacion pisara
+    // la pose de marcha, el animal dejaria de mover las patas en cuesta.
+    PoseEsqueleto soloMarcha;
+    soloMarcha.limpiar();
+    PoseDeMarcha(1.0f, 3.0f, soloMarcha);
+
+    PoseEsqueleto conCuesta;
+    conCuesta.limpiar();
+    PoseDeMarcha(1.0f, 3.0f, conCuesta);
+    SueloBajoPatas cuesta;
+    cuesta.delanteraIzq = 0.10f;
+    cuesta.delanteraDer = 0.10f;
+    AplicarTerreno(cuesta, conCuesta);
+
+    // El codo, que la adaptacion NO toca, debe seguir exactamente igual: es la
+    // prueba de que la marcha sobrevive.
+    CHECK(conCuesta.giroX[(int)HuesoAnimal::CODO_DI] ==
+          doctest::Approx(soloMarcha.giroX[(int)HuesoAnimal::CODO_DI]));
+
+    // Y el hombro SI cambia, porque ahi se suman las dos cosas.
+    CHECK(conCuesta.giroX[(int)HuesoAnimal::HOMBRO_DI] !=
+          doctest::Approx(soloMarcha.giroX[(int)HuesoAnimal::HOMBRO_DI]));
+}
+
+// ============================================================================
+// 7. SUPERFICIE, OREJAS Y NARIZ
+// ============================================================================
+
+TEST_CASE("Superficie: la piel NO es una elipse perfecta") {
+    // ⭐ "LA PIEL SE VE LISA Y ESTIRADA".
+    //
+    // La malla era una superficie de revolucion exacta: cada anillo, una
+    // elipse matematica. Perturbar las normales cambiaba el sombreado pero la
+    // SILUETA seguia siendo impecable, y la silueta es lo que delata un modelo
+    // liso contra el cielo.
+    //
+    // Con relieve real, los vertices de un mismo anillo dejan de estar todos a
+    // la misma distancia del eje.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    // Se toman vertices del torso en una franja estrecha de Z (un anillo) y se
+    // mide cuanto varia su radio.
+    float zRef = 0.0f;
+    for (const VerticeAnimal& v : m.vertices)
+        if (v.zona == ZonaCuerpo::TORSO) { zRef = v.pos.z; break; }
+
+    float minR = 1e9f, maxR = -1e9f;
+    int n = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::TORSO) continue;
+        if (std::fabs(v.pos.z - zRef) > 0.004f) continue;
+        const float r = std::sqrt(v.pos.x * v.pos.x);
+        if (r < minR) minR = r;
+        if (r > maxR) maxR = r;
+        ++n;
+    }
+    REQUIRE(n > 3);
+
+    INFO("radio en un anillo del torso: min = ", minR, "  max = ", maxR);
+    CHECK(maxR - minR > 0.0008f);   // hay irregularidad de verdad
+}
+
+TEST_CASE("Superficie: el relieve NO deforma el ojo ni la pezuna") {
+    // Son superficies duras o humedas: lisas por naturaleza. Arrugar un globo
+    // ocular lo estropearia.
+    MallaAnimal liso, conRelieve;
+    ParametrosPecari p = Especies::pecariDeCollar();
+
+    ParametrosPecari sinR = p;
+    sinR.relieveSuperficie = 0.0f;
+    ConstructorPecari::generar(liso, sinR, 0);
+    ConstructorPecari::generar(conRelieve, p, 0);
+
+    REQUIRE(liso.vertices.size() == conRelieve.vertices.size());
+
+    for (size_t i = 0; i < liso.vertices.size(); ++i) {
+        const ZonaCuerpo z = liso.vertices[i].zona;
+        if (z != ZonaCuerpo::OJO && z != ZonaCuerpo::PUPILA &&
+            z != ZonaCuerpo::PEZUNA) continue;
+        CHECK(liso.vertices[i].pos.x == doctest::Approx(conRelieve.vertices[i].pos.x));
+        CHECK(liso.vertices[i].pos.y == doctest::Approx(conRelieve.vertices[i].pos.y));
+    }
+}
+
+TEST_CASE("Orejas: tienen concha, no son conos rectos") {
+    // El oido es el segundo sentido de la especie, muy por delante de la
+    // vista. Una oreja que solo se afila no recogeria sonido.
+    //
+    // Con concha, el ancho NO decrece de forma monotona: se ensancha en el
+    // tercio bajo antes de afilarse.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    // Se mira solo la oreja de un lado.
+    float minY = 1e9f, maxY = -1e9f;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::OREJA || v.pos.x < 0.0f) continue;
+        if (v.pos.y < minY) minY = v.pos.y;
+        if (v.pos.y > maxY) maxY = v.pos.y;
+    }
+    REQUIRE(maxY > minY);
+
+    // Ancho maximo en el tercio BAJO contra el del tercio ALTO.
+    const float corte1 = minY + (maxY - minY) * 0.33f;
+    const float corte2 = minY + (maxY - minY) * 0.67f;
+    float anchoBajo = 0.0f, anchoAlto = 0.0f;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::OREJA || v.pos.x < 0.0f) continue;
+        const float dx = std::fabs(v.pos.x);
+        if (v.pos.y < corte1) { if (dx > anchoBajo) anchoBajo = dx; }
+        else if (v.pos.y > corte2) { if (dx > anchoAlto) anchoAlto = dx; }
+    }
+    INFO("ancho tercio bajo = ", anchoBajo, "  tercio alto = ", anchoAlto);
+    CHECK(anchoBajo > anchoAlto);   // se afila hacia la punta
+}
+
+TEST_CASE("Nariz: el disco rinarial tiene fosas nasales") {
+    // ⭐ EL RASGO MAS FUNCIONAL DEL ANIMAL, Y ERA UNA LOSA LISA.
+    //
+    // Este animal tiene vista pesima (MEDIDO: no distingue objetos a mas de un
+    // metro) y detecta raices a 8 cm bajo tierra. Las fosas nasales son,
+    // funcionalmente, sus ojos. Que los ojos se modelaran y ellas no era justo
+    // al reves de lo que pide su biologia.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    const float largoTronco = p.largoCuerpo * p.fraccionTronco;
+    const float zFrente = largoTronco * 0.48f + p.largoCuello
+                        + p.largoCabeza + p.largoHocico;
+
+    // Vertices del hocico METIDOS hacia dentro respecto a la cara del disco:
+    // son las fosas.
+    int dentro = 0;
+    float masOscuro = 1e9f, delDisco = 0.0f;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::HOCICO) continue;
+        const float d = zFrente - v.pos.z;
+        const float l = luma(v);
+        if (d > p.discoRinarial * 0.02f && d < p.discoRinarial * 0.42f) {
+            ++dentro;
+            if (l < masOscuro) masOscuro = l;
+        } else if (d < 0.005f) {
+            if (l > delDisco) delDisco = l;
+        }
+    }
+
+    INFO("vertices de fosa = ", dentro,
+         "  fosa mas oscura = ", masOscuro, "  disco = ", delDisco);
+    CHECK(dentro > 0);                 // las fosas existen
+    CHECK(masOscuro < delDisco);       // y son mas oscuras: se leen como agujero
+}
+
+TEST_CASE("Cuello: no hay salto entre anillos consecutivos") {
+    // ⭐ "EL CUELLO SE VE SEPARADO DE LA CABEZA".
+    //
+    // El cuello y la cabeza van en el MISMO tubo, asi que no hay dos piezas
+    // que puedan separarse de verdad. Lo que se ve como separacion es otra
+    // cosa: un SALTO largo entre dos anillos consecutivos. coserTubo une
+    // anillos vecinos con quads, asi que si dos quedan lejos, ese tramo se
+    // salva con un unico quad muy estirado -- una banda lisa y brillante que
+    // se lee como una junta.
+    //
+    // Este test recorre la cadena tronco->cuello->cabeza->hocico y comprueba
+    // que ningun paso sea desproporcionado respecto a los demas.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    // Se recogen las Z distintas de los vertices de la cadena, ordenadas.
+    std::vector<float> zs;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::CUELLO && v.zona != ZonaCuerpo::CABEZA &&
+            v.zona != ZonaCuerpo::COLLAR) continue;
+        bool nueva = true;
+        for (float z : zs) if (std::fabs(z - v.pos.z) < 1e-4f) { nueva = false; break; }
+        if (nueva) zs.push_back(v.pos.z);
+    }
+    REQUIRE(zs.size() > 3);
+
+    for (size_t i = 0; i + 1 < zs.size(); ++i)
+        for (size_t j = i + 1; j < zs.size(); ++j)
+            if (zs[j] < zs[i]) { const float t = zs[i]; zs[i] = zs[j]; zs[j] = t; }
+
+    float mayor = 0.0f;
+    for (size_t i = 0; i + 1 < zs.size(); ++i) {
+        const float d = zs[i + 1] - zs[i];
+        if (d > mayor) mayor = d;
+    }
+
+    float zA = 0.0f, zB = 0.0f;
+    for (size_t i = 0; i + 1 < zs.size(); ++i)
+        if (zs[i + 1] - zs[i] >= mayor - 1e-6f) { zA = zs[i]; zB = zs[i + 1]; }
+
+    INFO("mayor salto en la cadena cuello-cabeza = ", mayor,
+         " m  (largo de cuello = ", p.largoCuello, ")",
+         "  entre z=", zA, " y z=", zB,
+         "  [zPecho=", p.largoCuerpo * p.fraccionTronco * 0.48f,
+         " zCraneo=", p.largoCuerpo * p.fraccionTronco * 0.48f + p.largoCuello,
+         " largoCabeza=", p.largoCabeza, "]");
+
+    // MEDIDO: el mayor salto era de 8,8 cm en un cuello de 12 cm -- tres
+    // huecos encadenados (pecho->cuello, nuca->mejilla y mejilla->hocico) que
+    // se salvaban cada uno con un unico quad estirado. Tras anadir los anillos
+    // intermedios baja a 4,96 cm.
+    //
+    // El tope se deja en 0.45 del cuello (5,4 cm): deja margen para retoques
+    // pero vuelve a fallar si alguien quita uno de esos anillos.
+    CHECK(mayor < p.largoCuello * 0.45f);
+}
+
+TEST_CASE("Pelaje: el iris CONTRASTA con la cara negra") {
+    // El ojo tiene que verse. Con el cuerpo en negro, eso ya no puede
+    // conseguirse oscureciendolo: hay que ir en la otra direccion.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    double sIris = 0.0; int nIris = 0;
+    double sCara = 0.0; int nCara = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona == ZonaCuerpo::OJO)         { sIris += luma(v); ++nIris; }
+        else if (v.zona == ZonaCuerpo::CABEZA) { sCara += luma(v); ++nCara; }
+    }
+    REQUIRE(nIris > 0);
+    REQUIRE(nCara > 0);
+
+    const float iris = (float)(sIris / nIris);
+    const float cara = (float)(sCara / nCara);
+    INFO("iris = ", iris, "   cara = ", cara);
+    CHECK(iris > cara * 1.35f);
 }

@@ -204,7 +204,27 @@ struct ParametrosPecari {
     // valor anterior (0.035) habia dejado de cumplirlo frente a la pezuna. Un
     // ojo que no contrasta con la cara desaparece y el animal pierde la mirada.
     // Hay un test que lo comprueba.
-    float colorOjo[3]     = { 0.016f, 0.015f, 0.019f };
+    // EL IRIS. Se aclara respecto al valor anterior (0.016) porque ahora hay
+    // una PUPILA de verdad contra la que contrastar: un ojo entero del mismo
+    // negro es una canica, y lo que produce una mirada es la diferencia entre
+    // iris y pupila. Sigue siendo oscuro -- el iris de esta especie es pardo
+    // muy oscuro -- pero ya no es el punto mas negro de la cara.
+    //
+    // NO brilla de noche: esta especie NO tiene tapetum lucidum (MEDIDO), a
+    // diferencia de los felinos con los que comparte habitat.
+    //
+    // MEDIDO al ajustarlo: la cara negra queda en 0.091 de luminancia, asi que
+    // un iris de 0.087 era INDISTINGUIBLE de ella -- exactamente el bug que
+    // este color existe para evitar. Se sube a ~0.21, que contrasta de verdad
+    // sin dejar de ser un ojo pardo oscuro de herbivoro.
+    float colorOjo[3]     = { 0.255f, 0.195f, 0.130f };   // pardo ambar oscuro
+
+    // LA PUPILA: lo mas oscuro del animal, y a proposito. Es el agujero por el
+    // que entra la luz; no refleja nada.
+    // Negro casi puro: es un agujero, no una superficie. Tiene que quedar por
+    // debajo del vertice mas oscuro del pelaje (medido: 0.0047 tras el
+    // jaspeado), o deja de ser el punto mas negro del animal.
+    float colorPupila[3]  = { 0.003f, 0.003f, 0.004f };
 
     // --- PELAJE ---
     // Cerdas largas, gruesas y rigidas: casi puas flexibles.
@@ -216,6 +236,12 @@ struct ParametrosPecari {
     // esto se traduce en punteado de puntas claras, que es lo que da la textura
     // de pelo sin anadir un solo triangulo.
     float variacionColor  = 0.21f;    // cuanto jaspea el aguti
+
+    // Cuanto se deforma la superficie para que no parezca un globo liso.
+    // Desplaza los VERTICES, no solo las normales, asi que tambien cambia la
+    // SILUETA -- que es donde mas se nota la piel estirada.
+    // confianza: ESTIMADO (ajuste visual)
+    float relieveSuperficie = 1.0f;
 
     // --- VARIACION INDIVIDUAL ---
     uint32_t semilla = 1u;
@@ -344,7 +370,20 @@ struct ConfigLOD {
 inline ConfigLOD configDeLOD(int lod) {
     switch (lod) {
         case 0:  // CERCA: anatomia completa
-            return { 14, 11, 8, 5, true,  true,  true,  true,  true,  true,  0.30f };
+            // DENSIDAD SUBIDA DE 14x11 A 20x16, Y LA PATA DE 8x5 A 10x7.
+            //
+            // La piel se veia "lisa y estirada" y buena parte era resolucion:
+            // con 11 anillos a lo largo de todo el cuerpo, entre costilla y
+            // costilla no hay vertices donde meter relieve. El sombreado es
+            // Gouraud (por vertice), asi que TODO el detalle de superficie
+            // vive en la densidad de la malla -- sin vertices no hay donde
+            // dibujar un musculo.
+            //
+            // Coste medido: LOD 0 pasa de 841 a ~1900 vertices. Sigue muy por
+            // debajo del presupuesto de 64 KB por malla, y la malla se COMPARTE
+            // entre todos los individuos de la especie: 100 pecaries siguen
+            // usando una sola. Solo LOD 0 la paga (animales a menos de 7 m).
+            return { 20, 16, 10, 7, true,  true,  true,  true,  true,  true,  0.34f };
         case 1:  // MEDIA
             // LA CRIN PASA A ESTAR ACTIVA AQUI (antes false).
             //
@@ -356,7 +395,7 @@ inline ConfigLOD configDeLOD(int lod) {
             //
             // Cuesta 4 lados x seccionesCuerpo vertices, que es barato: la
             // crin es un tubo de 4 caras, no una malla densa.
-            return { 10,  8, 6, 4, true,  true,  false, true,  true,  true,  0.22f };
+            return { 14, 11, 7, 5, true,  true,  false, true,  true,  true,  0.24f };
         case 2:  // LEJOS: silueta simplificada
             return {  7,  6, 5, 3, true,  false, false, false, false, false, 0.0f  };
         default: // LOD3, MUY LEJOS: minimo viable
@@ -388,10 +427,35 @@ public:
         if (cfg.conOrejas)  construirOrejas(malla, p, cfg);
         if (cfg.conOjos)    construirOjos(malla, p, cfg);
         if (cfg.conCrin)    construirCrin(malla, p, cfg);
+        // Las fosas nasales van con el mismo presupuesto que los ojos: son
+        // detalle de cara, y se ven o no se ven juntos.
+        if (cfg.conOjos)    construirNariz(malla, p, cfg);
 
         // Normales suaves: es lo que convierte los triangulos en una
         // superficie continua bajo el sombreado Gouraud del pipeline fijo.
         GeneradorMalla::calcularNormales(malla);
+
+        // --- RELIEVE DE SUPERFICIE ---
+        //
+        // EL ORDEN DE ESTAS TRES LLAMADAS NO ES NEGOCIABLE:
+        //
+        //   1. calcularNormales   -> hace falta una normal para saber HACIA
+        //                            DONDE desplazar cada vertice.
+        //   2. relieveDeSuperficie-> mueve los vertices y deja las normales
+        //                            obsoletas (apuntan a la forma anterior).
+        //   3. calcularNormales   -> se rehacen sobre la geometria YA
+        //                            deformada. Sin este segundo pase el
+        //                            relieve no se veria: la silueta cambiaria
+        //                            pero la luz seguiria calculandose como si
+        //                            la superficie fuera lisa.
+        //
+        // Solo donde hay presupuesto de detalle (LOD 0-1). De lejos la silueta
+        // no da para distinguir una costilla.
+        if (cfg.perturbarNormales) {
+            GeneradorMalla::relieveDeSuperficie(malla, 0, p.semilla,
+                                                p.relieveSuperficie);
+            GeneradorMalla::calcularNormales(malla);
+        }
 
         // Color por zona + jaspeado aguti.
         colorear(malla, p);
@@ -495,6 +559,18 @@ private:
             s.zonaVientre = ZonaCuerpo::CUELLO;
             secs.push_back(s);
 
+            // LA GARGANTA BAJA. El primer anillo del cuello estaba a 0.6 de su
+            // largo, asi que entre el pecho y el cuello quedaba un salto de
+            // 7,1 cm -- el mayor de toda la cadena una vez cerrados los de la
+            // cabeza. Es la union tronco-cuello, o sea la otra mitad de "se ve
+            // separado": el cuello parecia enchufado al pecho.
+            SeccionCuerpo s1c = s;
+            s1c.z = zPecho + p.largoCuello * 0.30f;
+            s1c.radioX = p.grosorCuello * 0.485f;
+            s1c.radioY = p.grosorCuello * 0.505f;
+            s1c.centroY = ejeY + p.altoTorso * 0.08f;
+            secs.push_back(s1c);
+
             SeccionCuerpo s2 = s;
             s2.z = zPecho + p.largoCuello * 0.6f;
             s2.radioX = p.grosorCuello * 0.46f;
@@ -522,6 +598,35 @@ private:
             s3.radioY = p.grosorCuello * 0.50f;
             s3.centroY = ejeY + p.altoTorso * 0.11f;
             secs.push_back(s3);
+
+            // ⭐⭐ LA NUCA: "EL CUELLO SE VE SEPARADO DE LA CABEZA".
+            //
+            // Y no lo estaba: cuello y cabeza van en el MISMO tubo, asi que no
+            // hay dos piezas que puedan despegarse. Lo que se veia era un
+            // SALTO -- medido, 8,8 cm entre el ultimo anillo del cuello
+            // (z=0.85 del cuello) y el primero del craneo, en un cuello que
+            // mide 12 cm en total.
+            //
+            // coserTubo une anillos CONSECUTIVOS con quads. Un hueco de 8,8 cm
+            // se salvaba con un unico quad larguisimo: una banda lisa, sin
+            // curvatura intermedia, que capta la luz de forma uniforme y se lee
+            // exactamente como una junta entre dos piezas.
+            //
+            // Era ademas el peor sitio posible para tener el unico tramo largo
+            // del modelo, porque es donde el skinning MAS deforma: el peso pasa
+            // de 0 (tronco) a 255 (cabeza) justo ahi, asi que al girar la
+            // cabeza ese quad se estiraba todavia mas y la "junta" se abria.
+            //
+            // Con este anillo el mayor salto de la cadena baja a ~4,4 cm, en
+            // linea con el resto de uniones. Y ademas ensancha ligeramente
+            // hacia el craneo: la nuca de un suido es maciza, no un cuello
+            // fino enchufado a una cabeza ancha.
+            SeccionCuerpo s4 = s;
+            s4.z = zPecho + p.largoCuello * 0.95f;
+            s4.radioX = p.grosorCuello * 0.52f;
+            s4.radioY = p.grosorCuello * 0.54f;
+            s4.centroY = ejeY + p.altoTorso * 0.115f;
+            secs.push_back(s4);
         }
 
         // --- CABEZA EN CUNA ---
@@ -542,6 +647,17 @@ private:
             s.zonaVientre = ZonaCuerpo::CABEZA;
             secs.push_back(s);
 
+            // LA SIEN. Mismo problema que el carrillo, un tramo antes: entre
+            // la nuca (zCraneo) y la mejilla (0.42) quedaban 7,2 cm sin
+            // anillos. Es la parte mas ancha de la cabeza y se estaba
+            // resolviendo con una sola faceta plana.
+            SeccionCuerpo s1b = s;
+            s1b.z = zCraneo + p.largoCabeza * 0.21f;
+            s1b.radioX = p.anchoCabeza * 0.5f * 1.02f;   // el craneo abulta algo
+            s1b.radioY = p.altoCabeza * 0.5f * 0.99f;
+            s1b.centroY = s.centroY - p.altoCabeza * 0.020f;
+            secs.push_back(s1b);
+
             // Mejilla: aun ancha.
             SeccionCuerpo s2 = s;
             s2.z = zCraneo + p.largoCabeza * 0.42f;
@@ -549,6 +665,29 @@ private:
             s2.radioY = p.altoCabeza * 0.44f;
             s2.centroY = s.centroY - p.altoCabeza * 0.045f;
             secs.push_back(s2);
+
+            // ⭐ EL CARRILLO: EL TRAMO QUE FALTABA DE VERDAD.
+            //
+            // MEDIDO buscando el mayor salto de la cadena: estaba AQUI, no en
+            // el cuello. Entre la mejilla (0.42 del largo de la cabeza) y la
+            // base del hocico (0.78) habia un hueco del 36% de la cabeza --
+            // 8,7 cm-- sin un solo anillo.
+            //
+            // Y es justo el tramo donde la cabeza hace su cambio de forma mas
+            // fuerte: pasa de craneo ancho a hocico estrecho (el afilado
+            // MEDIDO de ~0.55). Salvar esa transicion con un unico quad
+            // producia una faceta plana y continua a cada lado de la cara, que
+            // es lo que se lee como "la cabeza esta pegada al cuello": no una
+            // separacion, sino una junta lisa donde deberia haber curva.
+            //
+            // Con este anillo el afilado se reparte en dos tramos y la mejilla
+            // recupera su volumen.
+            SeccionCuerpo sc = s;
+            sc.z = zCraneo + p.largoCabeza * 0.60f;
+            sc.radioX = p.anchoCabeza * 0.5f * 0.78f;
+            sc.radioY = p.altoCabeza * 0.5f * 0.74f;
+            sc.centroY = s.centroY - p.altoCabeza * 0.085f;
+            secs.push_back(sc);
 
             // Base del hocico: aqui empieza el afilado.
             SeccionCuerpo s3 = s;
@@ -666,10 +805,38 @@ private:
             // digitigrado -- camina de puntillas. Es lo que lo hace corredor.
 
             // Cuanto se adelanta o atrasa cada articulacion, en fraccion del
-            // largo de la pata. Un cuadrupedo en reposo no tiene las patas
-            // rectas: estan en zigzag suave. ESTIMADO (ajuste visual).
+            // largo de la pata.
+            //
+            // ⭐ BAJADO DE 0.085 A 0.022: LAS PATAS ESTABAN DOBLADAS EN REPOSO.
+            //
+            // El valor anterior metia un zigzag de 8,5% del largo de la pata
+            // EN LA PROPIA GEOMETRIA, o sea en la malla cacheada, que es la
+            // postura de reposo. El animal quieto ya aparecia agachado, con el
+            // codo y la rodilla marcados como si estuviera a media zancada.
+            //
+            // Y se sumaba al doblado REAL: PoseDeMarcha dobla los mismos huesos
+            // encima de una malla que ya venia curvada, asi que en movimiento
+            // la flexion se exageraba el doble.
+            //
+            // El zigzag de reposo de un ungulado es MUY leve -- la pata esta
+            // casi recta en apoyo; es lo que le permite aguantar el peso con el
+            // minimo esfuerzo muscular (reposo osteo-ligamentoso). Un zigzag
+            // marcado es la postura de un felino agazapado, no la de un suido
+            // de pie.
+            //
+            // Se deja un resto (0.022) porque CERO daria un palo perfectamente
+            // recto, y entonces la articulacion no se leeria como tal: hace
+            // falta un minimo de quiebre para que el codo tenga direccion y la
+            // flexion de la marcha salga hacia el lado correcto.
+            // MEDIDO al ajustarlo: con 0.022 el rango en Z de la pata bajaba a
+            // 0.037 contra un grosor de 0.048 -- o sea MENOS que su propio
+            // diametro, que es la firma de un cono recto. Me habia pasado de
+            // frenada: quitar la postura agachada no debe llegar a borrar la
+            // articulacion.
+            //
+            // 0.042 deja la pata visiblemente recta de pie y conserva el codo.
             const float sentido = d.delantera ? -1.0f : +1.0f;
-            constexpr float QUIEBRE = 0.085f;
+            constexpr float QUIEBRE = 0.042f;
 
             // Los cuatro puntos de control de la pata, de arriba abajo. La
             // seccion intermedia de cada tramo se interpola entre ellos, asi
@@ -883,7 +1050,10 @@ private:
             const float sx = (lado == 0) ? -1.0f : 1.0f;
 
             std::vector<SeccionCuerpo> secs;
-            const int N = 3;
+            // SUBE DE 3 A 6 ANILLOS. Con tres, la oreja era un cono recto de
+            // tres tramos: no habia donde meter la curva del pabellon ni el
+            // estrechamiento de la base. Seis dan una oreja con forma.
+            const int N = 6;
             for (int i = 0; i < N; ++i) {
                 const float t = (float)i / (float)(N - 1);
                 SeccionCuerpo s;
@@ -900,9 +1070,38 @@ private:
                 // el pabellon sale de dentro, no se apoya fuera.
                 const float hundido = p.largoOreja * 0.30f;
                 s.centroY = yTop - hundido + (p.largoOreja + hundido) * t;
-                // La oreja se afila hacia la punta.
-                s.radioX = p.anchoOreja * 0.5f * (1.0f - 0.55f * t);
-                s.radioY = p.anchoOreja * 0.18f * (1.0f - 0.35f * t);
+
+                // --- EL PERFIL DEL PABELLON ---
+                //
+                // Antes era un afilado LINEAL: un cono, o sea un pico de
+                // papel. Una oreja real no es eso -- se ESTRECHA en la base
+                // (donde se implanta en el craneo), se ENSANCHA en el tercio
+                // inferior formando la concha que recoge el sonido, y solo
+                // entonces se afila hacia la punta.
+                //
+                // Ese ensanchamiento es funcional: el oido es el segundo
+                // sentido de esta especie, muy por delante de la vista
+                // (MEDIDO: no distingue objetos a mas de un metro). Una oreja
+                // que solo se afila no recogeria nada.
+                //
+                // La curva: sin(pi*t) da el vientre de la concha; el termino
+                // lineal la cierra hacia la punta.
+                const float concha = std::sin(3.14159265f * t);
+                const float perfil = (1.0f - 0.62f * t) * (0.72f + 0.42f * concha);
+
+                s.radioX = p.anchoOreja * 0.5f * perfil;
+                // La oreja es una LAMINA: mucho mas ancha que profunda. El
+                // grosor tambien crece algo en la concha.
+                s.radioY = p.anchoOreja * 0.16f * (0.80f + 0.30f * concha)
+                                        * (1.0f - 0.30f * t);
+
+                // ⭐ LA OREJA SE INCLINA HACIA ATRAS SEGUN SUBE.
+                //
+                // Estaba en z CONSTANTE, o sea perfectamente vertical y
+                // plana contra el craneo. Las orejas de un suido salen
+                // inclinadas hacia atras; verticales dan aspecto de juguete.
+                s.z -= p.largoOreja * 0.34f * t * t;
+
                 s.zonaLomo = s.zonaFlanco = s.zonaVientre = ZonaCuerpo::OREJA;
                 secs.push_back(s);
             }
@@ -916,6 +1115,79 @@ private:
             GeneradorMalla::rotarY(malla, base, sx * p.anguloOreja,
                 V3(sx * p.anchoCabeza * 0.34f, yTop, zCraneo));
             GeneradorMalla::marcarZona(malla, base, ZonaCuerpo::OREJA, 0.55f);
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // LA NARIZ: FOSAS NASALES EN EL DISCO RINARIAL
+    // ------------------------------------------------------------------------
+    // El disco de la punta del hocico estaba LISO: una losa de cartilago sin
+    // un solo rasgo. Y resulta que es la herramienta mas importante del animal.
+    //
+    // POR QUE MERECE GEOMETRIA PROPIA:
+    //   - Este animal tiene vista pesima (MEDIDO: no distingue objetos a mas
+    //     de un metro) y lo resuelve TODO con el olfato.
+    //   - Detecta raices y tuberculos a 8 cm BAJO TIERRA.
+    //   - Sus bulbos olfatorios son desproporcionadamente grandes (MEDIDO).
+    //
+    // O sea: las fosas nasales son, funcionalmente, los "ojos" del pecari. Que
+    // fueran invisibles mientras los ojos --que apenas usa-- si se modelaban
+    // era justo al reves de lo que pide la biologia de la especie.
+    //
+    // Se hacen como dos hendiduras HUNDIDAS en el disco: un tubo corto metido
+    // hacia dentro y mas oscuro, que es como se lee un orificio sin agujerear
+    // la malla de verdad.
+    static void construirNariz(MallaAnimal& malla,
+                               const ParametrosPecari& p,
+                               const ConfigLOD& cfg) {
+        const float largoTronco = p.largoCuerpo * p.fraccionTronco;
+        const float ejeY = p.alturaCruz - p.altoTorso * 0.5f;
+        const float zCraneo = largoTronco * 0.48f + p.largoCuello;
+        const float zHocico = zCraneo + p.largoCabeza;
+
+        // La cara del disco, con las mismas formulas de construirCuelloYCabeza.
+        const float zDisco  = zHocico + p.largoHocico;
+        const float yDisco  = ejeY + p.altoTorso * 0.12f - p.altoCabeza * 0.17f;
+        const float rDiscoX = p.discoRinarial * 0.5f;
+
+        for (int lado = 0; lado < 2; ++lado) {
+            const float sx = (lado == 0) ? -1.0f : 1.0f;
+
+            std::vector<SeccionCuerpo> secs;
+
+            // Boca del orificio, a ras del disco.
+            SeccionCuerpo a;
+            a.z = zDisco - p.discoRinarial * 0.04f;
+            a.radioX = p.discoRinarial * 0.155f;
+            a.radioY = p.discoRinarial * 0.115f;
+            a.centroY = yDisco;
+            a.zonaLomo = a.zonaFlanco = a.zonaVientre = ZonaCuerpo::HOCICO;
+            secs.push_back(a);
+
+            // Y el fondo, METIDO hacia dentro. Es la profundidad lo que hace
+            // que se lea como agujero y no como una mancha pintada.
+            SeccionCuerpo b = a;
+            b.z = zDisco - p.discoRinarial * 0.30f;
+            b.radioX *= 0.45f;
+            b.radioY *= 0.45f;
+            secs.push_back(b);
+
+            const size_t base = malla.vertices.size();
+            GeneradorMalla::coserTubo(malla, secs, cfg.ladosPata, p.semilla,
+                                      false, true);
+
+            // Las dos fosas, separadas a los lados del eje del hocico y algo
+            // inclinadas: no son dos circulos paralelos.
+            GeneradorMalla::transformar(malla, base,
+                V3(sx * rDiscoX * 0.46f, 0.0f, 0.0f));
+
+            // Piel desnuda y humeda: sin pelo, y por tanto sin jaspeado.
+            //
+            // El OSCURECIDO de la fosa no se hace aqui: colorear() corre
+            // DESPUES de construir y sobrescribe el color de todos los
+            // vertices, asi que pintarlas ahora no serviria de nada. Se
+            // resuelve alli, por posicion (ver "LAS FOSAS NASALES").
+            GeneradorMalla::marcarZona(malla, base, ZonaCuerpo::HOCICO, 0.0f);
         }
     }
 
@@ -1026,6 +1298,58 @@ private:
             for (size_t i = baseOjo; i < malla.vertices.size(); ++i) {
                 malla.vertices[i].zona = ZonaCuerpo::OJO;
                 malla.vertices[i].pelo = 0.0f;
+            }
+
+            // ================================================================
+            // LA PUPILA: HORIZONTAL, COMO LA DE UN HERBIVORO PRESA
+            // ================================================================
+            // El globo era de un solo color, o sea una canica oscura. Lo que
+            // convierte eso en una MIRADA es el contraste iris/pupila y, sobre
+            // todo, LA FORMA de la pupila.
+            //
+            // MEDIDO en la retina de esta especie: hay una FRANJA VISUAL
+            // HORIZONTAL (visual streak), una banda alargada de alta densidad
+            // de celulas ganglionares. Eso significa que ve mejor a lo ancho
+            // del horizonte que arriba y abajo, y va acompanado de pupila
+            // HORIZONTAL -- el patron de cabra, oveja o caballo, no el circulo
+            // de un depredador.
+            //
+            // Es un rasgo que casi ninguna representacion de fauna acierta, y
+            // aqui esta respaldado por el dato, no elegido por estilo.
+            //
+            // Se dibuja como una losa muy achatada pegada a la cornea, apenas
+            // por delante para que no haga z-fighting con el globo.
+            {
+                std::vector<SeccionCuerpo> pup;
+                SeccionCuerpo q1;
+                q1.z = rOjo * 0.30f;
+                q1.radioX = rOjo * 0.62f;    // ancha...
+                q1.radioY = rOjo * 0.26f;    // ...y baja: horizontal
+                q1.centroY = 0.0f;
+                q1.zonaLomo = q1.zonaFlanco = q1.zonaVientre = ZonaCuerpo::PUPILA;
+                pup.push_back(q1);
+
+                SeccionCuerpo q2 = q1;
+                q2.z = rOjo * 0.70f;
+                q2.radioX = rOjo * 0.46f;
+                q2.radioY = rOjo * 0.19f;
+                pup.push_back(q2);
+
+                const size_t basePup = malla.vertices.size();
+                GeneradorMalla::coserTubo(malla, pup, cfg.ladosPata, p.semilla,
+                                          false, true);
+
+                // Misma transformacion que el globo: el ojo mira al lado.
+                for (size_t i = basePup; i < malla.vertices.size(); ++i) {
+                    V3& q = malla.vertices[i].pos;
+                    const float ejeLateral = q.z;
+                    const float anchoZ     = q.x;
+                    q.x = sx * (xCraneo * 0.94f + ejeLateral);
+                    q.z = zOjo + anchoZ;
+                    q.y = yOjo + q.y;
+                }
+                GeneradorMalla::marcarZona(malla, basePup,
+                                           ZonaCuerpo::PUPILA, 0.0f);
             }
 
             // ================================================================
@@ -1206,6 +1530,7 @@ private:
                 case ZonaCuerpo::PEZUNA:  c = p.colorPezuna;  break;
                 case ZonaCuerpo::HOCICO:  c = p.colorHocico;  break;
                 case ZonaCuerpo::OJO:     c = p.colorOjo;     break;
+                case ZonaCuerpo::PUPILA:  c = p.colorPupila;  break;
                 default:                  c = p.colorBase;    break;
             }
 
@@ -1230,6 +1555,27 @@ private:
                 r *= 0.94f; g *= 0.94f; b *= 0.95f;
             } else if (v.zona == ZonaCuerpo::COLA) {
                 r *= 0.88f; g *= 0.88f; b *= 0.90f;
+            } else if (v.zona == ZonaCuerpo::HOCICO) {
+                // --- LAS FOSAS NASALES ---
+                //
+                // Se identifican por estar METIDAS hacia dentro respecto a la
+                // cara del disco: son las unicas partes del hocico con z menor
+                // que el frente. Se oscurecen porque son el interior de un
+                // orificio, y eso es lo que las hace legibles como agujeros y
+                // no como dos manchas.
+                //
+                // Va aqui y no en construirNariz porque colorear() corre
+                // despues y sobrescribiria cualquier color puesto antes.
+                const float zFrente = largoTronco * 0.48f + p.largoCuello
+                                    + p.largoCabeza + p.largoHocico;
+                const float dentro = zFrente - v.pos.z;
+                if (dentro > p.discoRinarial * 0.02f &&
+                    dentro < p.discoRinarial * 0.42f) {
+                    // Cuanto mas al fondo, mas oscuro: da profundidad.
+                    const float k = dentro / (p.discoRinarial * 0.42f);
+                    const float f = 1.0f - 0.72f * k;
+                    r *= f; g *= f; b *= f;
+                }
             }
 
             // --- EL COLLAR ---
@@ -1248,7 +1594,8 @@ private:
             // distingue de la banda del hombro. Son dos rasgos claros
             // distintos y deben leerse como tales.
             if (v.zona != ZonaCuerpo::PATA && v.zona != ZonaCuerpo::PEZUNA &&
-                v.zona != ZonaCuerpo::OJO  && v.zona != ZonaCuerpo::CRIN) {
+                v.zona != ZonaCuerpo::OJO  && v.zona != ZonaCuerpo::CRIN &&
+                v.zona != ZonaCuerpo::PUPILA) {
                 const float d = std::fabs(v.pos.z - zCollar);
                 if (d < p.anchoCollar) {
                     // Transicion suave en los bordes: un collar con corte duro

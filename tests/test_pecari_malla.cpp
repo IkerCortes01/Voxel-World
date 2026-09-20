@@ -965,7 +965,46 @@ TEST_CASE("Color: los ojos se distinguen de la cara") {
     lumaCara /= nCara;
 
     INFO("ojo=", lumaOjo, " cara=", lumaCara);
-    CHECK(lumaOjo < lumaCara * 0.6);   // claramente mas oscuro: se ve
+
+    // ⭐ EL CRITERIO ES CONTRASTE, NO OSCURIDAD.
+    //
+    // Este CHECK era `lumaOjo < lumaCara * 0.6`: el ojo tenia que ser MAS
+    // OSCURO que la cara. Eso valia cuando el cuerpo era gris pardo.
+    //
+    // Con el pelaje ya en negro, un ojo oscuro es un ojo INVISIBLE: seria
+    // negro sobre negro, exactamente el bug que este test nacio para impedir.
+    // El iris pasa a ser pardo (mas CLARO que la cara) y la oscuridad la pone
+    // la PUPILA, que tiene su propia zona.
+    //
+    // Asi que lo que hay que exigir es lo que el test siempre quiso decir: que
+    // el ojo se DISTINGA de la cara. En que direccion es una decision de
+    // diseno que depende del tono del animal.
+    const double contraste = std::fabs(lumaOjo - lumaCara) /
+                             (lumaCara > 1e-6 ? lumaCara : 1e-6);
+    CHECK(contraste > 0.35);
+}
+
+TEST_CASE("Color: la PUPILA es lo mas oscuro de la cara") {
+    // Lo que convierte dos manchas en una MIRADA es el contraste iris/pupila.
+    // Un ojo de un solo tono es una canica.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    double lumaPup = 0, lumaIris = 0;
+    int nPup = 0, nIris = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        const double l = v.r * 0.3 + v.g * 0.6 + v.b * 0.1;
+        if (v.zona == ZonaCuerpo::PUPILA) { lumaPup  += l; ++nPup;  }
+        if (v.zona == ZonaCuerpo::OJO)    { lumaIris += l; ++nIris; }
+    }
+    REQUIRE(nPup  > 0);
+    REQUIRE(nIris > 0);
+    lumaPup  /= nPup;
+    lumaIris /= nIris;
+
+    INFO("pupila=", lumaPup, " iris=", lumaIris);
+    CHECK(lumaPup < lumaIris * 0.5);
 }
 
 TEST_CASE("Color: el animal no es de un solo tono") {

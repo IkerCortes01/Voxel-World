@@ -171,6 +171,7 @@ inline void CalcularPesosPecari(const MallaAnimal& malla,
         case ZonaCuerpo::HOCICO:
         case ZonaCuerpo::OREJA:
         case ZonaCuerpo::OJO:      // los ojos van con la cabeza, faltaria mas
+        case ZonaCuerpo::PUPILA:   // y la pupila con el ojo, obviamente
             w.hueso = (uint8_t)HuesoAnimal::CABEZA;
             w.peso  = 255;
             break;
@@ -302,6 +303,143 @@ inline void PoseDeMarcha(float fasePaso, float rapidez, PoseEsqueleto& pose) {
     // La cabeza acompana el paso con un cabeceo leve. Un cuadrupedo andando
     // mueve la cabeza al ritmo de las patas; sin esto se ve rigido.
     pose.giroX[(int)HuesoAnimal::CUELLO] = std::sin(fasePaso * 2.0f) * 0.035f * amp;
+}
+
+// ============================================================================
+// ADAPTACION AL TERRENO
+// ============================================================================
+// EL PROBLEMA: la altura del animal se resolvia con UNA sonda bajo su centro,
+// asi que las cuatro patas se colocaban a la misma altura siempre. En una
+// pendiente o sobre un escalon eso da dos resultados igual de malos: las patas
+// de abajo quedan colgando en el aire, o las de arriba se hunden en la roca.
+// El animal se ve flotando en diagonal, que es lo que se reporto.
+//
+// LA SOLUCION: se sondea el suelo BAJO CADA PATA y se corrige cada una por su
+// cuenta. Es la version simple de lo que en un motor grande hace un IK de dos
+// huesos -- y para una pata de tres segmentos con articulaciones de bisagra,
+// que es lo que el esqueleto MEDIDO permite, la version simple basta.
+//
+// Se reparte en dos efectos, y el reparto importa:
+//
+//   1. EL TRONCO SE INCLINA (cabeceo y alabeo). Un animal en cuesta no queda
+//      horizontal: se orienta con la pendiente. Esto resuelve la mayor parte y
+//      es lo que mas se ve de lejos.
+//
+//   2. CADA PATA AJUSTA LO QUE FALTE. Lo que la inclinacion del cuerpo no
+//      cubre, lo absorbe la pata: se extiende si el suelo esta mas bajo, se
+//      recoge si esta mas alto.
+//
+// Hacerlo SOLO con las patas dejaria el cuerpo plano sobre una cuesta, que se
+// ve antinatural. Hacerlo SOLO con el tronco haria que en un escalon las dos
+// patas de un lado quedaran mal igualmente. Hacen falta los dos.
+
+// Alturas del suelo bajo cada pata, en METROS y relativas a la altura del
+// suelo bajo el CENTRO del animal. Positivo = ese pie pisa mas alto.
+struct SueloBajoPatas {
+    float delanteraIzq = 0.0f;
+    float delanteraDer = 0.0f;
+    float traseraIzq   = 0.0f;
+    float traseraDer   = 0.0f;
+};
+
+namespace Terreno {
+    // Cuanto se permite corregir, en metros. Mas alla de esto el desnivel deja
+    // de ser "terreno irregular" y pasa a ser un escalon que el animal SUBE, no
+    // algo a lo que se adapta estando quieto.
+    //
+    // 0.18 m sobre una cruz de 0.44 m es un 40%: cubre holgadamente el terreno
+    // accidentado sin llegar a posturas imposibles.
+    constexpr float CORRECCION_MAX_M = 0.18f;
+
+    // Cuanto del desnivel absorbe el CUERPO inclinandose, y cuanto las patas.
+    // Con 0.55 el cuerpo hace algo mas de la mitad: es lo que da la lectura de
+    // "animal orientado con la cuesta" sin llegar a posturas forzadas.
+    constexpr float REPARTO_TRONCO = 0.55f;
+
+    // Limites de inclinacion del tronco, en radianes. ~17 grados. Por encima
+    // el animal se veria escalando en vez de caminando.
+    constexpr float INCLINACION_MAX = 0.30f;
+
+    // Cuanto baja el hombro por radian de correccion de pata. Sale de la
+    // geometria: la pata mide ~0.28 m, asi que 1 radian de giro del hueso
+    // superior desplaza el pie del orden de ese largo.
+    constexpr float METROS_POR_RADIAN = 0.28f;
+}
+
+inline float acotarT(float v, float lim) {
+    if (v >  lim) return  lim;
+    if (v < -lim) return -lim;
+    return v;
+}
+
+// Aplica la adaptacion al terreno SOBRE una pose de marcha ya calculada.
+//
+// Se suma en vez de sustituir: el animal sigue andando mientras se adapta, que
+// es justo el caso interesante -- subir una loma caminando.
+inline void AplicarTerreno(const SueloBajoPatas& suelo, PoseEsqueleto& pose) {
+    using namespace Terreno;
+
+    const float di = acotarT(suelo.delanteraIzq, CORRECCION_MAX_M);
+    const float dd = acotarT(suelo.delanteraDer, CORRECCION_MAX_M);
+    const float ti = acotarT(suelo.traseraIzq,   CORRECCION_MAX_M);
+    const float td = acotarT(suelo.traseraDer,   CORRECCION_MAX_M);
+
+    // --- 1. INCLINACION DEL TRONCO ---
+    //
+    // CABECEO: si el suelo esta mas alto DELANTE, el animal apunta hacia
+    // arriba. Es la media de las delanteras contra la de las traseras.
+    const float frente = (di + dd) * 0.5f;
+    const float detras = (ti + td) * 0.5f;
+
+    // El signo: suelo mas alto delante -> el morro sube -> giro negativo en X
+    // con el convenio del esqueleto (el mismo que usa la flexion de la marcha).
+    const float cabeceo = acotarT(-(frente - detras) * REPARTO_TRONCO /
+                                   METROS_POR_RADIAN, INCLINACION_MAX);
+    pose.giroX[(int)HuesoAnimal::TRONCO] += cabeceo;
+
+    // ALABEO: si el suelo esta mas alto a la izquierda, el animal se ladea.
+    // El esqueleto no tiene eje de alabeo propio, asi que se reparte entre las
+    // patas del lado (abajo). Es una aproximacion, y se declara como tal: con
+    // huesos de bisagra pura no hay donde meter un roll del tronco.
+    const float izq = (di + ti) * 0.5f;
+    const float der = (dd + td) * 0.5f;
+    const float ladeo = (izq - der) * (1.0f - REPARTO_TRONCO);
+
+    // --- 2. LO QUE FALTE, A CADA PATA ---
+    //
+    // Al cuerpo ya inclinado le queda un residuo por pata. Se convierte a giro
+    // del hueso superior: extender la pata = girar de modo que el pie baje.
+    //
+    // ⚠️ AQUI HUBO UN FALLO QUE CAZO UN TEST, Y CONVIENE DEJARLO ESCRITO.
+    //
+    // La primera version usaba `(di - frente)`, o sea la desviacion de cada
+    // pata respecto a la MEDIA DE SU EJE. Eso solo recoge la diferencia
+    // izquierda/derecha DENTRO del eje, y tira lo demas.
+    //
+    // Consecuencia: en una cuesta uniforme --las dos patas delanteras
+    // igual de altas-- ese termino daba CERO para las cuatro. El tronco se
+    // inclinaba y las patas no hacian nada, asi que los pies acababan
+    // hundidos o en el aire. Justo el caso mas comun, y el que toda esta
+    // funcion existe para resolver.
+    //
+    // Lo correcto es el residuo contra el suelo REAL de cada pie: la parte del
+    // desnivel que la inclinacion del tronco no ha llegado a cubrir.
+    const float resto = 1.0f - REPARTO_TRONCO;
+
+    struct Ajuste { HuesoAnimal hueso; float metros; };
+    const Ajuste ajustes[4] = {
+        { HuesoAnimal::HOMBRO_DI, di * resto + ladeo * 0.5f },
+        { HuesoAnimal::HOMBRO_DD, dd * resto - ladeo * 0.5f },
+        { HuesoAnimal::CADERA_TI, ti * resto + ladeo * 0.5f },
+        { HuesoAnimal::CADERA_TD, td * resto - ladeo * 0.5f },
+    };
+
+    for (const Ajuste& a : ajustes) {
+        // Suelo mas alto bajo ese pie -> la pata se RECOGE (el pie sube).
+        const float giro = acotarT(a.metros / METROS_POR_RADIAN,
+                                   INCLINACION_MAX);
+        pose.giroX[(int)a.hueso] += giro;
+    }
 }
 
 } // namespace Fauna

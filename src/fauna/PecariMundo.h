@@ -345,6 +345,10 @@ public:
                 // Posar sobre el terreno. Sin esto el animal caminaria a
                 // altura constante y atravesaria colinas.
                 posarEnSuelo(pecaries[i], mundo, dt);
+
+                // Y sondear el suelo bajo CADA PATA, para que en una cuesta no
+                // queden todas a la misma altura.
+                muestrearSueloPatas(pecaries[i], mundo, dt);
             }
         }
 
@@ -426,6 +430,11 @@ public:
         // que un animal lejano no cueste nada: a 30 bloques nadie ve doblarse
         // un codo.
         bool  articulado;
+
+        // Suelo bajo cada pata, en BLOQUES y relativo al centro. Lo usa
+        // AplicarTerreno para que el animal se adapte a la cuesta en vez de
+        // quedarse horizontal con dos patas en el aire.
+        float sueloDI, sueloDD, sueloTI, sueloTD;
     };
 
     // ------------------------------------------------------------------------
@@ -493,6 +502,11 @@ public:
                           ? cache.pesosDe(EspecieAnimal::PECARI_COLLAR,
                                           (int)p.etapa, lod)
                           : nullptr;
+
+            d.sueloDI = p.sueloPataDI;
+            d.sueloDD = p.sueloPataDD;
+            d.sueloTI = p.sueloPataTI;
+            d.sueloTD = p.sueloPataTD;
 
             salida.push_back(d);
         }
@@ -1389,6 +1403,77 @@ private:
             p.y += diferencia * factor;
         }
         p.enSuelo = true;
+    }
+
+    // ------------------------------------------------------------------------
+    // SONDEAR EL SUELO BAJO CADA PATA
+    // ------------------------------------------------------------------------
+    // Cuatro consultas de altura, una por pie, guardadas RELATIVAS al suelo
+    // bajo el centro. El esqueleto las usa para inclinar el tronco y ajustar
+    // cada pata (ver AplicarTerreno en PecariEsqueleto.h).
+    //
+    // POR QUE SE SUAVIZAN. La altura del terreno es una funcion ESCALONADA: al
+    // cruzar la frontera de un bloque salta de golpe. Sin suavizar, la pata
+    // daria un tiron seco cada vez que el animal avanza 60 cm -- peor que no
+    // adaptarse. Con el mismo 1-exp(-k*dt) que usa posarEnSuelo, el pie sube y
+    // baja de forma continua, y ademas queda independiente del framerate.
+    //
+    // La k es MAS BAJA que la del cuerpo (8 contra 12) a proposito: la pata
+    // debe ir ligeramente por detras del cuerpo, no adelantarse. Es lo que da
+    // la sensacion de que el pie BUSCA el suelo en vez de teletransportarse.
+    static void muestrearSueloPatas(PecariAgente& p, const IPecariMundo& mundo,
+                                    float dt) {
+        // En el aire no hay terreno al que adaptarse: las patas van a su
+        // postura de reposo. Sin esto, un animal cayendo por un acantilado
+        // seguiria estirando las patas hacia un suelo que ya no pisa.
+        if (!p.enSuelo) {
+            constexpr float K_AIRE = 6.0f;
+            const float f = 1.0f - std::exp(-K_AIRE * dt);
+            p.sueloPataDI -= p.sueloPataDI * f;
+            p.sueloPataDD -= p.sueloPataDD * f;
+            p.sueloPataTI -= p.sueloPataTI * f;
+            p.sueloPataTD -= p.sueloPataTD * f;
+            return;
+        }
+
+        // Donde cae cada pie, en el espacio del mundo. Hay que ROTAR los
+        // desplazamientos por la orientacion del animal: un pecari mirando al
+        // este tiene las patas delanteras al este, no al norte.
+        //
+        // Las separaciones salen de la anatomia (ver PecariAnatomia.h):
+        // ~0.10 m a los lados del eje y ~0.22 m adelante/atras. En bloques de
+        // 0.60 m son 0.17 y 0.37.
+        constexpr float SEP_X = 0.17f;
+        constexpr float SEP_Z = 0.37f;
+
+        const float c = std::cos(p.orientacion);
+        const float s = std::sin(p.orientacion);
+
+        const int bx = (int)std::floor(p.x);
+        const int bz = (int)std::floor(p.z);
+        const float sueloCentro = mundo.alturaSuelo(bx, bz) + 1.0f;
+
+        auto sondear = [&](float dxLocal, float dzLocal) -> float {
+            // Rotacion estandar en Y: el mismo convenio que usa el dibujo.
+            const float wx = p.x + dxLocal * c + dzLocal * s;
+            const float wz = p.z - dxLocal * s + dzLocal * c;
+            const float h = mundo.alturaSuelo((int)std::floor(wx),
+                                              (int)std::floor(wz)) + 1.0f;
+            return h - sueloCentro;
+        };
+
+        const float objDI = sondear(-SEP_X,  SEP_Z);
+        const float objDD = sondear( SEP_X,  SEP_Z);
+        const float objTI = sondear(-SEP_X, -SEP_Z);
+        const float objTD = sondear( SEP_X, -SEP_Z);
+
+        constexpr float K_PATA = 8.0f;
+        const float f = 1.0f - std::exp(-K_PATA * dt);
+
+        p.sueloPataDI += (objDI - p.sueloPataDI) * f;
+        p.sueloPataDD += (objDD - p.sueloPataDD) * f;
+        p.sueloPataTI += (objTI - p.sueloPataTI) * f;
+        p.sueloPataTD += (objTD - p.sueloPataTD) * f;
     }
 };
 

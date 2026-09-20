@@ -41569,6 +41569,22 @@ int main() {
                         if (inst.articulado && inst.pesos) {
                             Fauna::PoseDeMarcha(inst.fasePaso, inst.rapidez, poseEsq);
 
+                            // --- ADAPTACION AL TERRENO ---
+                            // El suelo bajo cada pata llega ya muestreado y
+                            // suavizado desde la simulacion. Aqui solo se
+                            // convierte de BLOQUES a METROS (el esqueleto vive
+                            // en metros) y se suma a la pose de marcha, para
+                            // que el animal siga andando mientras se adapta.
+                            {
+                                Fauna::SueloBajoPatas sp;
+                                constexpr float BLOQ_A_M = 0.60f;
+                                sp.delanteraIzq = inst.sueloDI * BLOQ_A_M;
+                                sp.delanteraDer = inst.sueloDD * BLOQ_A_M;
+                                sp.traseraIzq   = inst.sueloTI * BLOQ_A_M;
+                                sp.traseraDer   = inst.sueloTD * BLOQ_A_M;
+                                Fauna::AplicarTerreno(sp, poseEsq);
+                            }
+
                             // La cabeza gira aparte del cuerpo: es lo que
                             // permite que mire a los lados sin girarse entero.
                             poseEsq.giroY[(int)Fauna::HuesoAnimal::CABEZA] =

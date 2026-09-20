@@ -320,6 +320,27 @@ struct PecariAgente {
     // para cuando exista ALERTA.
     float erizado = 0.0f;
 
+    // --- ADAPTACION AL TERRENO ---
+    //
+    // Altura del suelo bajo CADA PATA, en bloques y relativa al suelo bajo el
+    // centro del animal. Positivo = ese pie pisa mas alto.
+    //
+    // POR QUE HACEN FALTA CUATRO Y NO UNA: la altura del cuerpo se resolvia con
+    // una sola sonda bajo el centro, asi que las cuatro patas acababan a la
+    // misma altura. En una cuesta eso deja las patas de abajo colgando en el
+    // aire y mete las de arriba en la roca -- el animal se ve flotando en
+    // diagonal.
+    //
+    // Se guardan en el agente (y no se calculan al dibujar) por dos razones:
+    // el muestreo del terreno es una consulta al mundo, que no debe ocurrir en
+    // el bucle de dibujo; y guardarlas permite SUAVIZARLAS entre frames, que es
+    // lo que evita que el animal de un tiron cada vez que un pie cruza la
+    // frontera de un bloque.
+    float sueloPataDI = 0.0f;   // delantera izquierda
+    float sueloPataDD = 0.0f;   // delantera derecha
+    float sueloPataTI = 0.0f;   // trasera izquierda
+    float sueloPataTD = 0.0f;   // trasera derecha
+
     // LOD en el que se dibujo la ultima vez. Lo necesita la HISTERESIS: sin
     // recordar el nivel anterior, un animal en el umbral oscilaria entre dos
     // niveles cada frame y costaria mas que estando siempre en el alto.

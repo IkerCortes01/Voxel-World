@@ -308,6 +308,7 @@ struct Vec3i {
 #include "render/EstadoChunk.h"        // maquina de estados: en que punto esta un chunk
 #include "render/PrioridadChunk.h"     // que chunk va primero: anillos + prediccion
 #include "render/VigilanteChunk.h"     // ningun chunk se queda atascado + presupuesto
+#include "render/RevisionMalla.h"      // una malla vieja no puede borrar una edicion nueva
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
@@ -786,6 +787,12 @@ static long long g_usLuzLocal = 0, g_nLuzLocal = 0;
 static double    g_msEsperaJugador = 0.0, g_msPeorEsperaJugador = 0.0;
 static long long g_nEsperaJugador  = 0, g_nEsperaPorTextura = 0;
 static long long g_nDescarteUrgente = 0;
+
+// Mallas que llegaron describiendo un contenido ya superado: el jugador
+// escribio mientras el worker trabajaba. No es un error -- la malla se integra
+// igual y el chunk se remalla -- pero si sube mucho indica que la ventana entre
+// encolar y entregar se ha hecho demasiado larga.
+static long long g_nMallaDesfasada = 0;
 
 // Guard RAII: enciende la bandera mientras dura el ambito y la apaga al salir,
 // tambien si hay un `return` a mitad o salta una excepcion. Se anida sin
@@ -7475,6 +7482,54 @@ struct Chunk {
     // pudo mallarse tras 8 intentos", que es otra cosa y ademas emite error.
     int esperasVecinos = 0;
     int framesConCandado;  // Frames seguidos con isUpdatingMesh puesto y sin mesh
+
+    // ========================================================================
+    // ⭐ REVISION DEL CONTENIDO: QUE EDICION VIO LA MALLA QUE SE ESTA HACIENDO
+    // ========================================================================
+    // BUG QUE ESTO CORRIGE: colocar un nivel y romperlo INMEDIATAMENTE dejaba
+    // el bloque de debajo dibujado con la geometria vieja, y ahi se quedaba.
+    //
+    // LA CARRERA, PASO A PASO:
+    //
+    //   1. El jugador coloca el nivel  -> needsRebuild = true, y el chunk se
+    //      encola a un worker.
+    //   2. El worker coge el encargo y saca su FOTO de los bloques. Esa foto
+    //      incluye el nivel.
+    //   3. El jugador rompe el nivel   -> setBlock -> needsRebuild = true otra
+    //      vez. Pero el worker ya tiene su foto: la malla que esta
+    //      construyendo describe un mundo que ya no existe.
+    //   4. El worker termina, subirMallaAGPU integra esa malla y al final hace
+    //      `needsRebuild = false` SIN MIRAR NADA.
+    //
+    // El paso 4 borra la peticion del paso 3. El chunk queda en LISTO,
+    // needsRebuild en false, y nadie vuelve a pedir el remallado: el nivel roto
+    // se sigue viendo hasta que otra cosa invalide el chunk por casualidad.
+    //
+    // POR QUE NO SE ARREGLA MIRANDO `needsRebuild` EN EL WORKER: ya se intento
+    // y es peor. El worker lo IGNORA a proposito (ver la nota larga en
+    // buildChunkMesh): respetarlo hacia que el 61% de las mallas de chunks
+    // recien tocados se descartaran, porque un mismo chunk entra varias veces
+    // en la cola y el encargo de turno encuentra la bandera ya bajada.
+    //
+    // LA SOLUCION es distinguir las dos preguntas, que no son la misma:
+    //
+    //   needsRebuild  -> "hay trabajo pendiente"     (del hilo principal)
+    //   revision      -> "QUE version del contenido" (viaja con el encargo)
+    //
+    // `revision` sube en cada escritura de bloque. El worker se lleva anotada
+    // la que vio, y al integrar solo se baja `needsRebuild` si coincide. Si no
+    // coincide, la malla se INTEGRA IGUAL --es mejor que la que hay-- pero la
+    // bandera se queda puesta y el chunk se remalla con el contenido de verdad.
+    //
+    // Asi se conservan las dos propiedades: el worker nunca tira trabajo hecho,
+    // y ninguna edicion del jugador se pierde.
+    uint32_t revision = 0;
+
+    // La revision que tenia el chunk cuando se encolo el encargo que esta
+    // ahora mismo en vuelo. La escribe el hilo principal al encolar y la lee
+    // al integrar, asi que no necesita ser atomica: el candado
+    // (isUpdatingMesh) garantiza que solo hay un encargo en vuelo por chunk.
+    uint32_t revisionEnVuelo = 0;
 
     // ⭐ ESTA MALLA SE HIZO CON EL BORDE INCOMPLETO (deuda pendiente).
     //
@@ -16127,6 +16182,22 @@ public:
         // setBlock desde los workers, y ahi la bandera tiene que valer false.
         const bool urgente = t_accionDelJugador;
 
+        // ⭐ EL CONTENIDO HA CAMBIADO: SUBE LA REVISION.
+        //
+        // Va ANTES de invalidarMalla y antes de cualquier encolado, para que
+        // un encargo que salga a partir de aqui se lleve ya el numero nuevo.
+        //
+        // Si hay una malla EN VUELO, su encargo quedo anotado con la revision
+        // anterior; al integrarla, subirMallaAGPU vera que no coincide y
+        // dejara `needsRebuild` puesto. Es lo que impide que esta escritura se
+        // pierda por haber llegado a mitad de un mallado.
+        //
+        // El desbordamiento a los 4.294 millones de escrituras es inofensivo:
+        // lo unico que se compara es la IGUALDAD con la revision anotada, y
+        // para colisionar harian falta exactamente 2^32 escrituras en el mismo
+        // chunk mientras una sola malla esta en vuelo.
+        ++chunk->revision;
+
         invalidarMalla(chunk);
         if (urgente) {
             chunk->urgentePorJugador = true;
@@ -16138,6 +16209,12 @@ public:
         auto invalidarVecino = [&](int dx, int dz) {
             Chunk* nc = getChunk(Vec3i(chunkPos.x + dx, 0, chunkPos.z + dz));
             if (nc && nc->isGenerated) {
+                // El vecino tambien cambia de contenido EFECTIVO: la cara que
+                // da a este chunk pasa de estar contra terreno a estar contra
+                // aire (o al reves). Si tiene una malla en vuelo, esa malla ya
+                // no describe lo que hay que dibujar, asi que su revision sube
+                // igual que la del chunk propio.
+                ++nc->revision;
                 invalidarMalla(nc);
                 if (urgente) nc->urgentePorJugador = true;
             }
@@ -24187,7 +24264,42 @@ public:
             chunk->buildRetries = 0;
         }
 
-        chunk->needsRebuild = false;
+        // ====================================================================
+        // ⭐ SOLO SE DA EL TRABAJO POR HECHO SI LA MALLA VIO EL CONTENIDO ACTUAL
+        // ====================================================================
+        // BUG QUE ESTO CORRIGE: colocar un nivel y romperlo INMEDIATAMENTE
+        // dejaba el bloque de debajo con la geometria vieja, de forma
+        // permanente.
+        //
+        // Aqui habia un `needsRebuild = false` a secas. El problema es que
+        // entre que el worker saca su foto de los bloques y entrega la malla
+        // pasan uno o varios frames, y en ese hueco el jugador puede escribir.
+        // Cuando eso ocurre, la escritura pone `needsRebuild = true`... y esta
+        // linea lo borraba al integrar una malla que NO la incluye.
+        //
+        // Resultado: chunk en LISTO, bandera en false, geometria obsoleta, y
+        // nadie que vuelva a pedir el remallado. El bloque se quedaba mal hasta
+        // que otra cosa invalidara el chunk por casualidad.
+        //
+        // Se dispara justo con "coloco y rompo rapido" porque son dos
+        // escrituras seguidas en el mismo chunk: la primera lanza el mallado y
+        // la segunda cae dentro de su ventana.
+        //
+        // LA MALLA SE INTEGRA IGUAL, Y ES IMPORTANTE QUE ASI SEA. Aunque le
+        // falte la ultima edicion, es mas nueva que la que el chunk tiene
+        // puesta: descartarla devolveria el parpadeo que costo arreglar (el
+        // 61% de mallas tiradas, ver la nota de buildChunkMesh). Lo unico que
+        // cambia es que la bandera se queda puesta y el chunk vuelve a la cola.
+        const bool mallaAlDia = Render::mallaAlDia(chunk->revisionEnVuelo,
+                                                   chunk->revision);
+
+        // La malla se queda en los dos casos; lo que cambia es si el chunk
+        // sigue pendiente. El `else` no va aqui sino al final de la funcion,
+        // despues de que se limpien `urgentePorJugador` y `tInvalidado`: si se
+        // pusieran antes, esas dos limpiezas los borrarian acto seguido.
+        if (mallaAlDia) {
+            chunk->needsRebuild = false;
+        }
 
         // La malla entro bien: la proxima vez que este chunk necesite
         // remallarse vuelve a tener derecho a esperar por sus vecinos. Sin
@@ -24228,6 +24340,39 @@ public:
         }
 
         chunk->cambiarEstado(Streaming::Estado::LISTO, glfwGetTime());
+
+        // ====================================================================
+        // ⭐ LA MALLA ERA VIEJA: EL CHUNK VUELVE A LA COLA, YA
+        // ====================================================================
+        // Va DESPUES de pasar a LISTO, y el orden es deliberado:
+        //
+        //   - LISTO es correcto aunque la malla este desfasada. El chunk TIENE
+        //     geometria valida en la GPU y el render debe dibujarla; lo que le
+        //     falta es una edicion, no la malla entera. Dejarlo fuera de LISTO
+        //     lo haria desaparecer, que es peor que verlo un frame desfasado.
+        //
+        //   - Y tiene que ir despues de las limpiezas de `urgentePorJugador` y
+        //     `tInvalidado` de mas arriba, que se ejecutan siempre. Puesto
+        //     antes, se borrarian justo despues de ponerlo.
+        //
+        // Esto cierra la ventana: la escritura que llego mientras el worker
+        // trabajaba queda registrada como trabajo pendiente en vez de perderse.
+        if (!mallaAlDia) {
+            chunk->needsRebuild = true;
+            // La desincronizacion nace de una accion del jugador, asi que el
+            // remallado conserva su prioridad: va por delante del terreno
+            // nuevo, igual que la escritura que lo provoco.
+            chunk->urgentePorJugador = true;
+            chunk->tInvalidado = glfwGetTime();
+            // ⚠️ Y vuelve a GENERADO. Si se quedara en LISTO con needsRebuild
+            // puesto, se repetiria exactamente la incoherencia que
+            // invalidarMalla existe para evitar (ver su nota): bandera y
+            // estado diciendo cosas distintas. GENERADO es lo correcto -- el
+            // terreno es valido, solo falta rehacer la geometria -- y el chunk
+            // conserva sus batches mientras tanto, asi que se sigue viendo.
+            chunk->cambiarEstado(Streaming::Estado::GENERADO, glfwGetTime());
+            ++g_nMallaDesfasada;   // medicion
+        }
     }
 
     // ¿Existe ya este chunk guardado? Si sí conviene cargarlo (rápido) en vez
@@ -25266,6 +25411,18 @@ public:
                 EncargoMalla encargo{ chunk, chunk->position,
                                       Render::BordeVecinos{}, false };
                 encargo.vecinosCompletos = capturarBorde(chunk, encargo.borde);
+
+                // ⭐ SE ANOTA QUE VERSION DEL CONTENIDO VA A VER ESTE ENCARGO.
+                //
+                // Justo aqui, junto a la foto del borde: a partir de este punto
+                // el worker trabaja sobre un mundo congelado, y cualquier
+                // escritura posterior subira `revision` por encima de esto.
+                //
+                // Al integrar, subirMallaAGPU compara las dos. Si difieren, la
+                // malla se usa igual (es mas nueva que la que hay) pero el
+                // chunk se queda pendiente de remallado, asi que la edicion
+                // que llego tarde no se pierde.
+                chunk->revisionEnVuelo = chunk->revision;
 
                 // ⚠️ AQUI NO SE FILTRA POR VECINOS. SE ENCOLA IGUAL.
                 //
@@ -26532,6 +26689,7 @@ public:
                               << " | espera: n=" << g_nEsperaJugador
                               << " media=" << (g_nEsperaJugador ? g_msEsperaJugador / g_nEsperaJugador : 0.0) << "ms"
                               << " peor=" << g_msPeorEsperaJugador << "ms porTex=" << g_nEsperaPorTextura << " descUrg=" << g_nDescarteUrgente
+                              << " desfasadas=" << g_nMallaDesfasada
                               << " pendientes=" << deuda
                               << " follaje=" << g_diagRemalladoFollaje.load();
                 }

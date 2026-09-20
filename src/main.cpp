@@ -309,6 +309,7 @@ struct Vec3i {
 #include "render/PrioridadChunk.h"     // que chunk va primero: anillos + prediccion
 #include "render/VigilanteChunk.h"     // ningun chunk se queda atascado + presupuesto
 #include "render/RevisionMalla.h"      // una malla vieja no puede borrar una edicion nueva
+#include "render/TexturaTuna.h"        // que imagen usa una tuna (precarga y mesher, misma lista)
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
@@ -5769,6 +5770,75 @@ public:
             }
         }
 
+        // ====================================================================
+        // ⭐ LAS TUNAS NO ENTRAN POR getBlockTexture, Y POR ESO ERAN INVISIBLES
+        // ====================================================================
+        // BUG QUE ESTO CORRIGE: las tunas no se dibujaban NUNCA. No es que
+        // tardaran: el fruto simplemente no estaba.
+        //
+        // LA CADENA COMPLETA, QUE ATRAVIESA TRES DECISIONES CORRECTAS:
+        //
+        //   1. La textura de una tuna depende de su POSICION EN EL MUNDO: la
+        //      variedad sale de una rejilla de 8 y la madurez de un hash de la
+        //      celda (ver getTexturaTuna). Asi que NO se puede pedir con
+        //      `getBlockTexture(tipo, cara)` -- le faltan las coordenadas.
+        //
+        //      Consecuencia: el bucle de arriba, que recorre el enum entero
+        //      pidiendo las seis caras de cada bloque, NUNCA llega a la tuna.
+        //
+        //   2. El unico sitio que llama a getTexturaTuna es el mesher, y el
+        //      mesher corre en WORKERS. Alli `puedeCargar()` es false a
+        //      proposito -- abrir un PNG y crear una textura de GL desde un
+        //      hilo de trabajo cuelga el driver -- asi que cargarTunaSinHuecos
+        //      devuelve 0.
+        //
+        //   3. El mesher hace `if (texT != 0)` y, si es 0, NO EMITE NINGUNA
+        //      CARA. Y como esa rama no pasa por `texSegura`, tampoco marca
+        //      `texturasFaltantes`: el chunk llega a LISTO tan tranquilo, sin
+        //      tunas, y nadie vuelve a pedir el remallado.
+        //
+        // Las tres piezas son razonables por separado. Juntas dejaban la tuna
+        // en un punto ciego permanente: nadie la carga y nadie se queja.
+        //
+        // LA SOLUCION es la misma idea que el barrido de arriba -- que NO HAYA
+        // CEROS -- aplicada a la puerta que se salta el enum. Se cargan aqui,
+        // desde el hilo principal, TODAS las imagenes que getTexturaTuna puede
+        // llegar a pedir. A partir de ahi el worker las encuentra en el cache y
+        // `puedeCargar()` ni se consulta: el `return` del cache esta ANTES de
+        // la barrera.
+        //
+        // Son TRES archivos para cuatro casos: el fruto sin madurar y la
+        // variedad verde comparten "Tuna verde crecida.png" (uno nace verde y
+        // el otro se queda verde, pero la imagen es la misma).
+        //
+        // Estan enumerados a mano porque son los que el switch de
+        // getTexturaTuna puede elegir; si se anade una variedad, este es el
+        // sitio que hay que tocar. La marca de `texturasFaltantes` del mesher
+        // es la red de seguridad para cuando alguien lo olvide.
+        {
+            const size_t antesTunas = textures.size();
+            // La lista vive en render/TexturaTuna.h, junto a la funcion que
+            // ELIGE el archivo. Tenerlas separadas es como nacio el bug: la
+            // precarga cargaria unas imagenes y el mesher pediria otras.
+            size_t nTunas = 0;
+            const char* const* ARCHIVOS_TUNA =
+                Render::archivosTunaPrecarga(nTunas);
+            for (size_t i = 0; i < nTunas; ++i) {
+                const char* arch = ARCHIVOS_TUNA[i];
+                char ruta[224];
+                snprintf(ruta, sizeof(ruta),
+                         "resourcepacks/Textures/Items/%s", arch);
+                // Misma llamada que hace el mesher: asi se cachea con la MISMA
+                // clave ("<archivo>#macizo") y el relleno de huecos ya hecho.
+                // Pedirla por loadTexture cargaria la version CON agujeros y
+                // bajo otra clave, que no serviria de nada.
+                cargarTunaSinHuecos(arch, gamePath(ruta));
+            }
+            std::cout << "=== Precarga de tunas: "
+                      << (int)(textures.size() - antesTunas)
+                      << " texturas ===" << std::endl;
+        }
+
         std::cout << "=== Precarga exhaustiva: "
                   << (int)(textures.size() - antes) << " texturas nuevas, "
                   << textures.size() << " en cache ===" << std::endl;
@@ -5847,16 +5917,13 @@ public:
         // El fruto TIERNO se distingue por el color (verde), no por recortar
         // la textura: recortarla deformaria el dibujo, que es justo lo que se
         // queria evitar.
-        const char* arch;
-        if (!madura) {
-            arch = "Tuna verde crecida.png";      // aun verde: sin madurar
-        } else {
-            switch (variedad) {
-                case 1:  arch = "Tuna amarilla crecida.png"; break;
-                case 2:  arch = "Tuna roja crecida.png";  break;
-                default: arch = "Tuna verde crecida.png"; break;
-            }
-        }
+        //
+        // La ELECCION del archivo vive en render/TexturaTuna.h, en la misma
+        // funcion que usa la precarga para saber que subir a la GPU. Tenerlas
+        // en dos sitios es como nacio el bug de las tunas invisibles: la
+        // precarga cargaba unas imagenes y el mesher pedia otras.
+        const char* arch = Render::archivoTuna(
+            (Render::VariedadTuna)variedad, madura);
         char ruta[224];
         snprintf(ruta, sizeof(ruta), "resourcepacks/Textures/Items/%s", arch);
         return cargarTunaSinHuecos(arch, gamePath(ruta));
@@ -22520,6 +22587,28 @@ public:
                                 // cada tuna.
                                 const GLuint texT = g_textureManager->getTexturaTuna(
                                     block, (int)wx, (int)wy, (int)wz);
+
+                                // ⭐ UN CERO AQUI TIENE QUE QUEJARSE.
+                                //
+                                // Sin esta linea, una tuna sin textura
+                                // desaparecia EN SILENCIO: el `if` de abajo no
+                                // emitia caras, la rama no pasa por texSegura
+                                // --que es quien marca el fallo para el resto
+                                // del mesher-- y el chunk llegaba a LISTO sin
+                                // fruto y sin nada pendiente. Nadie volvia a
+                                // pedir el remallado nunca.
+                                //
+                                // La precarga de precargarTodasLasCaras() ya
+                                // hace que esto no deberia ocurrir, pero el
+                                // punto ciego era justo ese "no deberia": si
+                                // alguien anade una variedad y olvida
+                                // anadirla alli, el fruto vuelve a esfumarse
+                                // sin dejar rastro. Marcandolo, el chunk se
+                                // reintenta y el hilo principal acaba cargando
+                                // la textura -- que es el contrato que el
+                                // resto del mesher ya cumple.
+                                if (texT == 0) texturasFaltantes = true;
+
                                 if (texT != 0) {
                                     // Las seis caras: es un volumen cerrado.
                                     pushCaraTex(texT, tx0,ty0,tz1, tx0,ty0,tz0,

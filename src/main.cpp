@@ -310,6 +310,7 @@ struct Vec3i {
 #include "render/VigilanteChunk.h"     // ningun chunk se queda atascado + presupuesto
 #include "render/RevisionMalla.h"      // una malla vieja no puede borrar una edicion nueva
 #include "render/TexturaTuna.h"        // que imagen usa una tuna (precarga y mesher, misma lista)
+#include "render/TinteBioma.h"         // el pasto toma el color de su bioma
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
@@ -7592,6 +7593,31 @@ struct Chunk {
     // y ninguna edicion del jugador se pierde.
     uint32_t revision = 0;
 
+    // ========================================================================
+    // ⭐ BIOMA POR COLUMNA: PARA QUE EL PASTO TENGA EL COLOR DE SU BIOMA
+    // ========================================================================
+    // 256 bytes por chunk (16x16 de uint8_t). Se rellena al generar, donde el
+    // bioma YA esta calculado -- `columns[x][z].biome` -- asi que no cuesta
+    // ni una evaluacion de ruido extra.
+    //
+    // POR QUE POR COLUMNA Y NO UNO POR CHUNK. Un chunk mide 16 bloques y las
+    // fronteras entre biomas lo cruzan por la mitad continuamente. Con un solo
+    // bioma por chunk, el color del pasto daria un salto CUADRADO de 16x16 en
+    // cada frontera -- se verian los chunks, que es justo lo que ningun motor
+    // quiere que se vea.
+    //
+    // POR QUE EN EL CHUNK Y NO CONSULTANDO EL GENERADOR AL MALLAR. El mesher
+    // corre en WORKERS. GetBiomeAt() es const y solo hace ruido, asi que
+    // llamarlo seria seguro, pero cuesta una evaluacion de clima completa por
+    // consulta y el mesher pregunta una vez por CARA. Teniendolo aqui es una
+    // lectura de un array.
+    //
+    // NO SE GUARDA EN DISCO, y es deliberado: el bioma es funcion determinista
+    // de la semilla y la posicion, asi que al recargar un mundo se recalcula
+    // identico. Guardarlo seria ocupar espacio para repetir un dato que ya se
+    // sabe. Los chunks cargados de disco lo rellenan en la carga.
+    uint8_t biomaColumna[CHUNK_SIZE][CHUNK_SIZE] = {};
+
     // La revision que tenia el chunk cuando se encolo el encargo que esta
     // ahora mismo en vuelo. La escribe el hilo principal al encolar y la lee
     // al integrar, asi que no necesita ser atomica: el candado
@@ -12456,6 +12482,32 @@ public:
         chunk->isGenerated = true;
         chunk->isModified = false;
 
+        // ⭐ EL BIOMA NO SE GUARDA EN DISCO: SE RECALCULA.
+        //
+        // Es funcion determinista de la semilla y la posicion, asi que sale
+        // identico al que tenia cuando el chunk se genero. Guardarlo seria
+        // ocupar 256 bytes por chunk para repetir un dato que ya se sabe -- y
+        // ademas obligaria a migrar los mundos ya guardados.
+        //
+        // Sin esto, un chunk cargado de disco tendria biomaColumna todo a
+        // cero (= BIOME_OCEAN_DEEP) y su pasto saldria del color equivocado:
+        // el bug se veria solo al volver a una zona ya explorada, que es la
+        // clase de fallo que tarda meses en reproducirse.
+        //
+        // Cuesta 256 evaluaciones de clima por chunk cargado. Es el mismo
+        // orden que el computeSkylight que se hace justo debajo, y solo
+        // ocurre al cargar, no por frame.
+        if (worldGen) {
+            for (int x = 0; x < CHUNK_SIZE; ++x) {
+                for (int z = 0; z < CHUNK_SIZE; ++z) {
+                    const int wx = chunkPos.x * CHUNK_SIZE + x;
+                    const int wz = chunkPos.z * CHUNK_SIZE + z;
+                    chunk->biomaColumna[x][z] =
+                        (uint8_t)worldGen->GetBiomeAt(wx, wz);
+                }
+            }
+        }
+
         // El save no guarda la luz: recalcularla al cargar.
         const double t0Luz = glfwGetTime();
         chunk->computeSkylight();
@@ -12637,6 +12689,11 @@ public:
                 // el generador nunca asume una altura fija.
                 columns[x][z] = worldGen->GenerateColumnTo(
                     writer, worldX, worldZ, x, z, CHUNK_HEIGHT);
+
+                // El bioma ya esta calculado aqui: se guarda para que el
+                // mesher pueda tenir el pasto sin recalcular el clima por
+                // cara. Ver Chunk::biomaColumna.
+                chunk->biomaColumna[x][z] = (uint8_t)columns[x][z].biome;
             }
         }
 
@@ -17239,6 +17296,23 @@ public:
     // cuatro vecinos?" tiene que salir de la MISMA foto que se va a usar para
     // mallar. Deducirlo despues volveria a exigir consultar el mapa, que es
     // justo lo que se esta evitando.
+    // ------------------------------------------------------------------------
+    // BIOMA DE UNA COLUMNA QUE CAE FUERA DEL CHUNK
+    // ------------------------------------------------------------------------
+    // Lo necesita la mezcla de tintes: el degradado entre biomas se calcula con
+    // una vecindad de 5x5 columnas, y en los bordes del chunk esa vecindad se
+    // sale. Cortarla ahi dejaria el degradado interrumpido justo en la juntura
+    // -- o sea, volveria a verse la cuadricula de chunks.
+    //
+    // ⚠️ SE LLAMA DESDE WORKERS. Por eso NO mira el mapa `chunks` (eso solo
+    // puede hacerlo el hilo principal) sino que pregunta al generador, que es
+    // `const` y solo evalua ruido. Es la misma razon por la que el mesher
+    // recibe la foto del borde ya hecha en vez de buscar los vecinos el mismo.
+    TerrainGen::BiomeType biomaVecinoParaTinte(int wx, int wz) const {
+        if (!worldGen) return TerrainGen::BIOME_PLAINS;
+        return worldGen->GetBiomeAt(wx, wz);
+    }
+
     void buildChunkMesh(Chunk* chunk,
                         Render::MallaChunk* salidaCPU = nullptr,
                         const Render::BordeVecinos* bordePrehecho = nullptr,
@@ -17690,6 +17764,80 @@ public:
         // todas las peticiones de textura.)
 
         int facesRendered = 0;  // Contador para debug
+
+            // ================================================================
+            // ⭐ TINTE DE BIOMA, PRECALCULADO POR COLUMNA
+            // ================================================================
+            // El pasto de un pastizal de altiplano, el de un encinar y el de
+            // un matorral de desierto usan la MISMA textura: lo que los
+            // distingue es este color, que se multiplica al escribir los
+            // vertices (la textura aporta la FORMA, el bioma el COLOR).
+            //
+            // SE CALCULA UNA VEZ POR COLUMNA, no por cara. Un chunk tiene 256
+            // columnas y decenas de miles de caras; hacerlo por cara seria
+            // repetir el mismo promedio cientos de veces.
+            //
+            // LA MEZCLA DE FRONTERA. Sin suavizar, el color cambia en la linea
+            // exacta donde cambia el bioma y se ve como un recorte de tijera
+            // sobre el prado. Se promedia una vecindad de 5x5 columnas, que a
+            // 0.6 m por bloque son unos 3 metros de degradado: suficiente para
+            // que no se vea la costura y corto para que el bioma siga
+            // leyendose como tal.
+            //
+            // La vecindad se sale del chunk a proposito -- lee biomas de los
+            // chunks de al lado a traves del generador -- porque si se cortara
+            // en el borde, el degradado se interrumpiria justo ahi y volveria
+            // a verse la cuadricula de chunks, que es lo que se quiere evitar.
+            static thread_local uint8_t tinteCol[CHUNK_SIZE][CHUNK_SIZE][3];
+            {
+                constexpr int RADIO_MEZCLA = 2;   // 5x5 columnas
+
+                for (int cx = 0; cx < CHUNK_SIZE; ++cx) {
+                    for (int cz = 0; cz < CHUNK_SIZE; ++cz) {
+                        Render::TinteRGB vecinos[(RADIO_MEZCLA * 2 + 1) *
+                                                 (RADIO_MEZCLA * 2 + 1)];
+                        int n = 0;
+
+                        for (int dx = -RADIO_MEZCLA; dx <= RADIO_MEZCLA; ++dx) {
+                            for (int dz = -RADIO_MEZCLA; dz <= RADIO_MEZCLA; ++dz) {
+                                const int nx = cx + dx;
+                                const int nz = cz + dz;
+
+                                TerrainGen::BiomeType bio;
+                                if (nx >= 0 && nx < CHUNK_SIZE &&
+                                    nz >= 0 && nz < CHUNK_SIZE) {
+                                    // Dentro del chunk: lectura de array.
+                                    bio = (TerrainGen::BiomeType)
+                                          chunk->biomaColumna[nx][nz];
+                                } else {
+                                    // Fuera: se pregunta al generador. Es
+                                    // `const` y solo hace ruido, asi que es
+                                    // seguro desde un worker. Son como mucho
+                                    // 16 columnas del reborde por lado.
+                                    bio = biomaVecinoParaTinte(
+                                        chunk->position.x * CHUNK_SIZE + nx,
+                                        chunk->position.z * CHUNK_SIZE + nz);
+                                }
+                                vecinos[n++] = Render::tintePasto(bio);
+                            }
+                        }
+
+                        const Render::TinteRGB t =
+                            Render::mezclarTintes(vecinos, n);
+
+                        // A byte: es lo que permite que el greedy compare
+                        // tintes por igualdad sin que el ruido del sexto
+                        // decimal impida toda fusion en la franja de mezcla.
+                        auto aByte = [](float v) -> uint8_t {
+                            const float c = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+                            return (uint8_t)(c * 255.0f + 0.5f);
+                        };
+                        tinteCol[cx][cz][0] = aByte(t.r);
+                        tinteCol[cx][cz][1] = aByte(t.g);
+                        tinteCol[cx][cz][2] = aByte(t.b);
+                    }
+                }
+            }
 
         // OPTIMIZACIÓN: Reset texture bind cache para este chunk
         g_textureManager->resetBindCache();
@@ -20934,9 +21082,30 @@ public:
                         // 1.0, OpenGL lo saturaba a blanco puro y aparecían
                         // destellos/rayas BLANCAS en los bordes del sprite.
                         auto clamp1 = [](float v) { return v > 1.0f ? 1.0f : v; };
-                        const float cr = clamp1(lightFactor * lightColorR);
-                        const float cg = clamp1(lightFactor * lightColorG);
-                        const float cb = clamp1(lightFactor * lightColorB);
+
+                        // ⭐ TINTE DE BIOMA PARA LA HIERBA ALTA.
+                        //
+                        // La hierba alta NO pasa por el greedy (es un sprite en
+                        // cruz, no un cubo), asi que necesita su propia linea:
+                        // sin esto, el pasto del suelo cambiaria de color con
+                        // el bioma y las matas que crecen encima seguirian
+                        // todas del mismo verde. Se veria como hierba de otro
+                        // sitio plantada ahi.
+                        //
+                        // Se lee de la misma tabla precalculada por columna, asi
+                        // que el color de la mata y el del suelo que pisa
+                        // coinciden exactamente.
+                        Render::TinteRGB tinteSprite{ 1.0f, 1.0f, 1.0f };
+                        if (Render::caraSeTine(block, 0)) {
+                            constexpr float INV255 = 1.0f / 255.0f;
+                            tinteSprite.r = (float)tinteCol[x][z][0] * INV255;
+                            tinteSprite.g = (float)tinteCol[x][z][1] * INV255;
+                            tinteSprite.b = (float)tinteCol[x][z][2] * INV255;
+                        }
+
+                        const float cr = clamp1(lightFactor * lightColorR * tinteSprite.r);
+                        const float cg = clamp1(lightFactor * lightColorG * tinteSprite.g);
+                        const float cb = clamp1(lightFactor * lightColorB * tinteSprite.b);
                         const float ca = 1.0f;
 
                         // MARGEN DE MEDIO TÉXEL EN LAS UV.
@@ -23229,6 +23398,23 @@ public:
                 /// el no pueden fusionarse, o el quad resultante emitiria (o
                 /// se saltaria) gemelas que no le tocan.
                 bool interior = false;
+
+                /// ⭐ TINTE DE BIOMA. El pasto de un desierto y el de un
+                /// encinar usan la MISMA textura y se distinguen por este
+                /// color, que se multiplica al escribir los vertices.
+                ///
+                /// ENTRA EN LA COMPARACION DEL GREEDY, y es imprescindible:
+                /// sin eso, el fusionador uniria una cara de pradera con otra
+                /// de desierto en un solo quad, y el quad entero saldria con
+                /// el color de la primera. La frontera entre biomas se veria
+                /// como un escalon recto de hasta 16 bloques.
+                ///
+                /// Se cuantiza a byte a proposito (ver tinteCuantizado): dos
+                /// columnas del mismo bioma dan floats identicos, pero dos
+                /// columnas de una MEZCLA de frontera dan valores que diferian
+                /// en el sexto decimal y habrian impedido toda fusion en la
+                /// zona de degradado -- justo donde mas caras hay.
+                uint8_t tinteR = 255, tinteG = 255, tinteB = 255;
             };
 
             // Órdenes de vértice y UV idénticos a las caras individuales de
@@ -23376,8 +23562,30 @@ public:
 
             auto emitQuad = [&](int dir, GLuint tex, uint8_t light,
                                 int layer, int u0, int v0, int w, int h,
-                                bool interior = false) {
+                                bool interior = false,
+                                uint8_t tinteR = 255, uint8_t tinteG = 255,
+                                uint8_t tinteB = 255) {
                 const float f = lightToFactor(light) * DIR_BRIGHT[dir];
+
+                // ⭐ EL COLOR DEL BIOMA SE MULTIPLICA SOBRE LA LUZ.
+                //
+                // La textura del pasto es UNA para todo el mundo: aporta la
+                // FORMA (briznas, grano). El color lo pone el bioma aqui. Es
+                // el mismo principio que usa Minecraft desde hace quince anos,
+                // y lo que permite que un pastizal de altiplano, un encinar y
+                // un matorral de desierto se vean distintos sin tres texturas.
+                //
+                // Va MULTIPLICADO y no sustituyendo porque la luz ya esta en
+                // `f`: sustituir dejaria el pasto igual de brillante en una
+                // cueva que a pleno sol.
+                //
+                // Con tinte 255,255,255 (todo lo que no es hierba) esto es
+                // exactamente f, asi que el resto del mundo no cambia ni un
+                // bit respecto a antes.
+                constexpr float INV255 = 1.0f / 255.0f;
+                const float fr = f * (float)tinteR * INV255;
+                const float fg = f * (float)tinteG * INV255;
+                const float fb = f * (float)tinteB * INV255;
                 if (tex != quadTexAnt || !quadVerts) {
                     quadTexAnt  = tex;
                     quadVerts   = &verticesByTexture[tex];
@@ -23451,7 +23659,8 @@ public:
                         ru = nu; rv = nv;
                     }
                     verts.push_back(px); verts.push_back(py); verts.push_back(pz);
-                    cols.push_back(f); cols.push_back(f); cols.push_back(f); cols.push_back(1.0f);
+                    cols.push_back(fr); cols.push_back(fg); cols.push_back(fb);
+                    cols.push_back(1.0f);
                     uvs.push_back(ru); uvs.push_back(rv);
                     (void)mh;
                 };
@@ -23563,6 +23772,7 @@ public:
             // La máscara más grande es 16 (u) x 128 (v); se reutiliza.
             static thread_local FaceCell mask[CHUNK_SIZE][CHUNK_HEIGHT];
 
+
             for (int dir = 0; dir < 6; dir++) {
                 const int dx = DIR_VEC[dir][0], dy = DIR_VEC[dir][1], dz = DIR_VEC[dir][2];
                 const bool vertical = (dir < 2);
@@ -23613,6 +23823,24 @@ public:
                             cell.interior = muestraInterior(b);
 
                             cell.tex = texSegura(b, dir);
+
+                            // ⭐ EL TINTE DE SU BIOMA.
+                            //
+                            // Solo la vegetacion herbacea: tenir la tierra, la
+                            // piedra o la arena las pondria del color del
+                            // pasto, que es justo el error que esto arregla.
+                            // La cara de ABAJO de un bloque de pasto es
+                            // tierra, y por eso se decide por (bloque, cara).
+                            if (Render::caraSeTine(b, dir)) {
+                                // La columna del bloque, no la del quad: el
+                                // greedy fusiona despues, y para entonces ya
+                                // se comparo que el tinte coincide.
+                                cell.tinteR = tinteCol[bx][bz][0];
+                                cell.tinteG = tinteCol[bx][bz][1];
+                                cell.tinteB = tinteCol[bx][bz][2];
+                            } else {
+                                cell.tinteR = cell.tinteG = cell.tinteB = 255;
+                            }
 
                             // ================================================
                             // HOJAS GENERATIVAS
@@ -23830,8 +24058,17 @@ public:
                             int h = 1;
                             while (v + h < maxV) {
                                 const FaceCell& n = mask[u][v + h];
+                                // ⭐ EL TINTE ENTRA EN LA COMPARACION.
+                                //
+                                // Sin esto, el greedy fusionaria una cara de
+                                // pradera con una de desierto en un solo quad,
+                                // y el quad entero saldria del color de la
+                                // primera: la frontera entre biomas se veria
+                                // como un escalon recto de hasta 16 bloques.
                                 if (!n.visible || n.tex != c.tex || n.light != c.light ||
-                                    n.interior != c.interior) break;
+                                    n.interior != c.interior ||
+                                    n.tinteR != c.tinteR || n.tinteG != c.tinteG ||
+                                    n.tinteB != c.tinteB) break;
                                 h++;
                             }
 
@@ -23842,7 +24079,9 @@ public:
                                 for (int k = 0; k < h; k++) {
                                     const FaceCell& n = mask[u + w][v + k];
                                     if (!n.visible || n.tex != c.tex || n.light != c.light ||
-                                        n.interior != c.interior) {
+                                        n.interior != c.interior ||
+                                        n.tinteR != c.tinteR || n.tinteG != c.tinteG ||
+                                        n.tinteB != c.tinteB) {
                                         grow = false;
                                         break;
                                     }
@@ -23852,7 +24091,8 @@ public:
 
                             // El quad usa (u,v) como (ancho, alto) según el eje:
                             // en caras verticales u=x/v=z; en laterales u=x|z, v=y.
-                            emitQuad(dir, c.tex, c.light, layer, u, v, w, h, c.interior);
+                            emitQuad(dir, c.tex, c.light, layer, u, v, w, h, c.interior,
+                                     c.tinteR, c.tinteG, c.tinteB);
 
                             // Consumir el rectángulo
                             for (int du = 0; du < w; du++)

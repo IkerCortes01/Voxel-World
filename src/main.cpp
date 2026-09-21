@@ -28631,6 +28631,32 @@ struct GameState {
     float miningParticleTimer;  // Timer para partículas de minado
     bool mouseLeftPressed;
 
+    // ========================================================================
+    // ⭐ COLOCAR EN CONTINUO MANTENIENDO EL CLIC DERECHO
+    // ========================================================================
+    // Antes, colocar era un bloque POR CLIC: construir una pared de treinta
+    // bloques eran treinta clics. El minado ya funcionaba manteniendo pulsado
+    // desde hace tiempo; colocar se habia quedado atras sin ninguna razon.
+    //
+    // Se copia EXACTAMENTE el mismo patron que el minado, incluido su freno:
+    //   - el boton guarda su estado (pulsado / suelto) en vez de actuar en el
+    //     evento de PRESS
+    //   - un temporizador limita el ritmo, para que no dependa del framerate
+    //
+    // POR QUE HACE FALTA EL FRENO, Y NO ES OPCIONAL. Sin el se colocaria UN
+    // BLOQUE POR FRAME: a 130 FPS son 130 bloques por segundo, asi que un roce
+    // del raton levantaria una torre de veinte antes de poder reaccionar. Y
+    // seria distinto en cada maquina -- el mismo gesto construiria el doble en
+    // un PC rapido. Es el mismo fallo que ya se corrigio en el excavado.
+    // ⚠️ EL TEMPORIZADOR YA EXISTIA: es `placeCooldown`, declarado mas arriba.
+    //
+    // placeBlock() lo pone a 0.25 s en cada colocacion y sale por lo alto si
+    // aun corre. O sea que el freno del ritmo YA ESTABA -- lo unico que
+    // faltaba era que algo volviera a llamar a placeBlock mientras el boton
+    // sigue pulsado. Anadir un segundo temporizador habria sido duplicar
+    // logica y arriesgarse a que los dos se desincronizaran.
+    bool mouseRightPressed = false;
+
     // ⭐ ¿Esta el golpe rearmado?
     //
     // El minado es continuo (mantener pulsado pica), pero ATACAR no puede
@@ -35033,6 +35059,19 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             g_gameState->pauseMenuState = PAUSE_MENU_MAIN; // Siempre empezar en el menú principal
             g_gameState->cursorLocked = false;
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+            // ⭐ SE SUELTAN LOS BOTONES AL PAUSAR.
+            //
+            // Los dos guardan si estan pulsados para actuar en continuo. Si el
+            // jugador pausa CON EL BOTON DADO y lo suelta dentro del menu, el
+            // evento de RELEASE llega mientras el juego esta en pausa: la
+            // bandera se queda encendida y, al reanudar, el mundo sigue
+            // picando o colocando sin que nadie toque el raton.
+            //
+            // Es el fallo clasico de toda entrada con estado, y solo se ve
+            // cuando alguien pausa justo mientras construye.
+            g_gameState->mouseLeftPressed = false;
+            g_gameState->mouseRightPressed = false;
         }
     }
 
@@ -35152,6 +35191,12 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             }
             g_gameState->cursorLocked = false;
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+            // Igual que al pausar: si se abre el inventario con el boton dado
+            // y se suelta dentro, el RELEASE se pierde y al cerrar el mundo
+            // seguiria picando o colocando solo. Ver la nota del menu de pausa.
+            g_gameState->mouseLeftPressed = false;
+            g_gameState->mouseRightPressed = false;
         } else {
             // Al cerrar el inventario, devolver el item del cursor al inventario
             if (!g_gameState->heldSlot.isEmpty()) {
@@ -35794,9 +35839,28 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
             } else if (action == GLFW_RELEASE) {
                 g_gameState->mouseLeftPressed = false;
             }
-        } else if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
-            // Click derecho = colocar bloque
-            placeBlock(g_gameState);
+        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+            // Mantener click derecho = colocar en continuo, igual que el
+            // izquierdo mina en continuo. Ver updatePlacing.
+            if (action == GLFW_PRESS) {
+                g_gameState->mouseRightPressed = true;
+
+                // ⭐ EL PRIMER BLOQUE VA EN EL ACTO.
+                //
+                // Es lo que mantiene el clic suelto igual de inmediato que
+                // antes: si se dejara al bucle, colocar un solo bloque tendria
+                // hasta un frame de retraso y se sentiria pastoso.
+                //
+                // placeBlock arma su propio cooldown, asi que el segundo
+                // bloque ya respeta el ritmo sin que haya que tocarlo aqui.
+                placeBlock(g_gameState);
+            } else if (action == GLFW_RELEASE) {
+                g_gameState->mouseRightPressed = false;
+
+                // Al soltar se rearma, para que el siguiente clic suelto sea
+                // otra vez inmediato en vez de heredar la espera del anterior.
+                g_gameState->placeCooldown = 0.0f;
+            }
         }
         return;
     }
@@ -41459,6 +41523,21 @@ int main() {
                 // Sistema de minado progresivo (como Minecraft)
                 if (!g_gameState->inventoryOpen) {
                     updateMining(g_gameState, deltaTime);
+
+                    // ⭐ COLOCAR EN CONTINUO MIENTRAS EL CLIC DERECHO SIGA DADO.
+                    //
+                    // Simetrico al minado, que ya funcionaba asi. Construir
+                    // una pared de treinta bloques eran treinta clics.
+                    //
+                    // El ritmo lo marca `placeCooldown`, que placeBlock ya
+                    // gestionaba: sale por lo alto si aun corre y lo rearma al
+                    // colocar. Por eso aqui basta con volver a llamarlo -- sin
+                    // el temporizador se colocaria UN BLOQUE POR FRAME, que a
+                    // 130 FPS son 130 por segundo y ademas distinto en cada
+                    // maquina.
+                    if (g_gameState->mouseRightPressed) {
+                        placeBlock(g_gameState);
+                    }
                 }
 
                 // Actualizar sistema de partículas (gravedad, vida, etc.)

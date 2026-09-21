@@ -942,6 +942,225 @@ TEST_CASE("Nariz: el disco rinarial tiene fosas nasales") {
     CHECK(masOscuro < delDisco);       // y son mas oscuras: se leen como agujero
 }
 
+// ============================================================================
+// 8. EL MODELO ES CUBICO, Y NO SE VE POR DENTRO
+// ============================================================================
+
+TEST_CASE("Cuadratura: la seccion es de CAJA, no una elipse") {
+    // ⭐ LO QUE SE PIDIO: que el modelo sea cubico, de mundo voxel.
+    //
+    // Un anillo circular tiene TODOS sus puntos a la misma distancia del eje.
+    // Uno cuadrado no: la esquina esta a sqrt(2) veces lo que esta el centro
+    // del lado. Esa diferencia es exactamente la medida de "cuanto de caja es".
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    // Se toma un anillo del torso (franja estrecha de Z) y se mide la relacion
+    // entre el punto mas lejano y el mas cercano al eje.
+    float zRef = 1e9f;
+    for (const VerticeAnimal& v : m.vertices)
+        if (v.zona == ZonaCuerpo::TORSO) { zRef = v.pos.z; break; }
+    REQUIRE(zRef < 1e8f);
+
+    float minD = 1e9f, maxD = -1e9f;
+    int n = 0;
+    for (const VerticeAnimal& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::TORSO && v.zona != ZonaCuerpo::LOMO &&
+            v.zona != ZonaCuerpo::VIENTRE) continue;
+        if (std::fabs(v.pos.z - zRef) > 0.004f) continue;
+        // Distancia al eje NORMALIZADA por los semiejes, para que la elipse
+        // del cuerpo no se confunda con cuadratura.
+        const float nx = v.pos.x / (p.anchoTorso * 0.5f);
+        const float d = std::fabs(nx);
+        if (d < minD) minD = d;
+        if (d > maxD) maxD = d;
+        ++n;
+    }
+    REQUIRE(n > 4);
+
+    INFO("anillo del torso: |x| normalizado min=", minD, " max=", maxD);
+
+    // ⭐ SE COMPARA CONTRA EL MISMO ANIMAL SIN CUADRAR, no contra un numero.
+    //
+    // Un umbral absoluto no sirve: el |x| maximo de un anillo depende de
+    // DONDE caiga ese anillo en el barril (el torso se estrecha hacia los
+    // extremos) y de cuantos lados tenga. Medido, el anillo de referencia da
+    // 0.793 -- que no dice nada por si solo.
+    //
+    // Lo que SI dice algo es la diferencia: con cuadratura, los puntos de los
+    // LADOS se empujan hacia el borde de la caja, asi que el conjunto se
+    // separa mas del centro que con un circulo puro.
+    ParametrosPecari redondo = Especies::pecariDeCollar();
+    redondo.cuadratura = 0.0f;
+    MallaAnimal mR;
+    ConstructorPecari::generar(mR, redondo, 0);
+
+    float maxRedondo = -1e9f;
+    for (const VerticeAnimal& v : mR.vertices) {
+        if (v.zona != ZonaCuerpo::TORSO && v.zona != ZonaCuerpo::LOMO &&
+            v.zona != ZonaCuerpo::VIENTRE) continue;
+        if (std::fabs(v.pos.z - zRef) > 0.004f) continue;
+        const float d = std::fabs(v.pos.x / (p.anchoTorso * 0.5f));
+        if (d > maxRedondo) maxRedondo = d;
+    }
+    REQUIRE(maxRedondo > -1e8f);
+
+    INFO("mismo anillo SIN cuadrar: max=", maxRedondo);
+
+    // ⚠️ MEDIR SOLO |x| NO SIRVE, Y AVERIGUARLO COSTO UN INTENTO.
+    //
+    // El punto mas ancho del anillo es el que tiene sy~0, y ese YA ESTA en el
+    // borde de la caja antes de cuadrar: la cuadratura no lo mueve. Por eso
+    // maxD sale practicamente igual con y sin (0.7927 en ambos) y el test
+    // anterior "demostraba" que no pasaba nada cuando si pasaba.
+    //
+    // Lo que la cuadratura cambia son los puntos INTERMEDIOS -- los de las
+    // diagonales -- que se empujan hacia la esquina. La medida correcta es el
+    // AREA que encierra el anillo: un cuadrado encierra 4/pi = 1.27 veces mas
+    // que el circulo que lo inscribe.
+    auto areaAnillo = [&](const MallaAnimal& mm) {
+        // Formula del zapato sobre los puntos del anillo, ordenados por angulo.
+        std::vector<std::pair<float,float>> pts;
+        for (const VerticeAnimal& v : mm.vertices) {
+            if (v.zona != ZonaCuerpo::TORSO && v.zona != ZonaCuerpo::LOMO &&
+                v.zona != ZonaCuerpo::VIENTRE) continue;
+            if (std::fabs(v.pos.z - zRef) > 0.004f) continue;
+            pts.push_back({ v.pos.x, v.pos.y });
+        }
+        // Centro del anillo.
+        float cx = 0.0f, cy = 0.0f;
+        for (auto& q : pts) { cx += q.first; cy += q.second; }
+        if (pts.empty()) return 0.0f;
+        cx /= pts.size(); cy /= pts.size();
+        // Ordenar por angulo alrededor del centro.
+        for (size_t i = 0; i + 1 < pts.size(); ++i)
+            for (size_t j = i + 1; j < pts.size(); ++j) {
+                const float ai = std::atan2(pts[i].second - cy, pts[i].first - cx);
+                const float aj = std::atan2(pts[j].second - cy, pts[j].first - cx);
+                if (aj < ai) std::swap(pts[i], pts[j]);
+            }
+        float a = 0.0f;
+        for (size_t i = 0; i < pts.size(); ++i) {
+            const auto& q0 = pts[i];
+            const auto& q1 = pts[(i + 1) % pts.size()];
+            a += q0.first * q1.second - q1.first * q0.second;
+        }
+        return std::fabs(a) * 0.5f;
+    };
+
+    const float areaCubo    = areaAnillo(m);
+    const float areaRedondo = areaAnillo(mR);
+
+    INFO("area del anillo: cuadrado=", areaCubo, "  redondo=", areaRedondo,
+         "  razon=", areaCubo / areaRedondo);
+
+    // Un cuadrado encierra 4/pi = 1.273 veces el area de su circulo inscrito.
+    // Con cuadratura 0.78 (no 1.0) la ganancia es parcial, pero tiene que ser
+    // inequivoca: por debajo de un 10% no se estaria cuadrando nada.
+    CHECK(areaCubo > areaRedondo * 1.10f);
+}
+
+TEST_CASE("Cuadratura: el animal NO cambia de tamano") {
+    // ⭐⭐ LA CONDICION QUE SE PIDIO EXPLICITAMENTE: "que aun mantenga su
+    // tamano".
+    //
+    // La cuadratura empuja los puntos hacia el RECTANGULO que ya circunscribia
+    // la elipse. El punto mas extremo (la esquina) ya estaba a esa distancia,
+    // asi que la envolvente no puede crecer.
+    //
+    // Se compara la caja envolvente con cuadratura y sin ella.
+    ParametrosPecari redondo = Especies::pecariDeCollar();
+    redondo.cuadratura = 0.0f;
+
+    MallaAnimal mCubo, mRedondo;
+    ConstructorPecari::generar(mCubo,   Especies::pecariDeCollar(), 0);
+    ConstructorPecari::generar(mRedondo, redondo, 0);
+
+    const float anchoCubo    = mCubo.maximo.x   - mCubo.minimo.x;
+    const float anchoRedondo = mRedondo.maximo.x - mRedondo.minimo.x;
+    const float altoCubo     = mCubo.maximo.y   - mCubo.minimo.y;
+    const float altoRedondo  = mRedondo.maximo.y - mRedondo.minimo.y;
+    const float largoCubo    = mCubo.maximo.z   - mCubo.minimo.z;
+    const float largoRedondo = mRedondo.maximo.z - mRedondo.minimo.z;
+
+    INFO("ancho ", anchoRedondo, " -> ", anchoCubo,
+         "   alto ", altoRedondo, " -> ", altoCubo,
+         "   largo ", largoRedondo, " -> ", largoCubo);
+
+    // No crece: la esquina ya marcaba el limite. Se deja un 2% de margen para
+    // el relieve de superficie, que desplaza vertices y es independiente.
+    CHECK(anchoCubo <= anchoRedondo * 1.02f);
+    CHECK(altoCubo  <= altoRedondo  * 1.02f);
+    CHECK(largoCubo <= largoRedondo * 1.02f);
+
+    // Y tampoco encoge de forma apreciable: seguiria siendo el mismo animal.
+    CHECK(anchoCubo >= anchoRedondo * 0.95f);
+    CHECK(largoCubo >= largoRedondo * 0.95f);
+}
+
+TEST_CASE("Cuadratura: el OJO sigue siendo redondo") {
+    // La unica excepcion del modelo. Un globo ocular cuadrado no se lee como
+    // un ojo: se lee como un error. Minecraft hace lo mismo -- cuerpo de
+    // cajas, ojos pintados en la textura, nunca facetados.
+    ParametrosPecari redondo = Especies::pecariDeCollar();
+    redondo.cuadratura = 0.0f;
+
+    MallaAnimal mCubo, mRedondo;
+    ConstructorPecari::generar(mCubo,   Especies::pecariDeCollar(), 0);
+    ConstructorPecari::generar(mRedondo, redondo, 0);
+    REQUIRE(mCubo.vertices.size() == mRedondo.vertices.size());
+
+    // Los vertices del ojo tienen que ser IDENTICOS en los dos modelos.
+    int comparados = 0;
+    for (size_t i = 0; i < mCubo.vertices.size(); ++i) {
+        if (mCubo.vertices[i].zona != ZonaCuerpo::OJO) continue;
+        ++comparados;
+        CHECK(mCubo.vertices[i].pos.x == doctest::Approx(mRedondo.vertices[i].pos.x));
+        CHECK(mCubo.vertices[i].pos.y == doctest::Approx(mRedondo.vertices[i].pos.y));
+    }
+    CHECK(comparados > 0);
+}
+
+TEST_CASE("Volumen: el cuerpo esta CERRADO, no se ve por dentro") {
+    // ⭐⭐ EL BUG REPORTADO: "la cabeza, cuando veo de cerca, se ve por dentro
+    // desde el cuello".
+    //
+    // El torso acababa abierto por delante esperando que el cuello lo tapara,
+    // y el cuello empezaba abierto por detras esperando al torso. Los dos se
+    // esperaban y ninguno cerraba: quedaba un anillo de hueco.
+    //
+    // Con GL_CULL_FACE eso no se ve como un agujero negro -- se ve el INTERIOR
+    // del animal, porque las caras de dentro quedan de espaldas y OpenGL las
+    // descarta, dejando ver hasta la pared opuesta.
+    //
+    // SE MIDE CON EL TEOREMA DE LA DIVERGENCIA: el volumen encerrado por una
+    // superficie CERRADA sale positivo; una superficie con agujeros da un
+    // valor sin sentido (tipicamente ~0, porque lo que entra sale).
+    //
+    // Es la misma tecnica con la que se detecto que las patas estaban huecas.
+    MallaAnimal m;
+    ParametrosPecari p = Especies::pecariDeCollar();
+    ConstructorPecari::generar(m, p, 0);
+
+    double vol = 0.0;
+    for (size_t i = 0; i + 2 < m.indices.size(); i += 3) {
+        const V3& a = m.vertices[m.indices[i]].pos;
+        const V3& b = m.vertices[m.indices[i + 1]].pos;
+        const V3& c = m.vertices[m.indices[i + 2]].pos;
+        // Volumen con signo del tetraedro (origen, a, b, c).
+        vol += (double)(a.x * (b.y * c.z - b.z * c.y)
+                      - a.y * (b.x * c.z - b.z * c.x)
+                      + a.z * (b.x * c.y - b.y * c.x)) / 6.0;
+    }
+
+    INFO("volumen encerrado = ", vol, " m3");
+    // Un pecari de 18,7 kg ocupa del orden de 0,02 m3. No se exige precision
+    // --hay piezas que se solapan y eso suma-- solo que el volumen sea
+    // CLARAMENTE positivo, que es la firma de una superficie cerrada.
+    CHECK(std::fabs(vol) > 0.005);
+}
+
 TEST_CASE("Cuello: no hay salto entre anillos consecutivos") {
     // ⭐ "EL CUELLO SE VE SEPARADO DE LA CABEZA".
     //

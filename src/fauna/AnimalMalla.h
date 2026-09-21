@@ -217,6 +217,16 @@ struct SeccionCuerpo {
     float achatadoVientre = 0.0f;   // 0..1
     float alzadoLomo      = 0.0f;   // 0..1
 
+    // ⭐ CUANTO SE "CUADRA" LA SECCION: 0 = elipse, 1 = caja.
+    //
+    // Es lo que convierte al animal de organico a VOXEL sin cambiarle el
+    // tamano: los puntos se empujan hacia el rectangulo que ya circunscribia
+    // la elipse, asi que la envolvente es la misma y solo cambia la forma.
+    //
+    // Valor por defecto 0 para que cualquier pieza que no lo pida siga
+    // saliendo exactamente como antes.
+    float cuadratura      = 0.0f;   // 0..1
+
     ZonaCuerpo zonaLomo    = ZonaCuerpo::LOMO;
     ZonaCuerpo zonaFlanco  = ZonaCuerpo::TORSO;
     ZonaCuerpo zonaVientre = ZonaCuerpo::VIENTRE;
@@ -248,6 +258,32 @@ public:
     //
     // Devuelve el indice del primer vertice generado, por si quien llama
     // necesita coser algo a este tubo.
+    // ------------------------------------------------------------------------
+    // ⭐ LA CUADRATURA SE APLICA A TODO EL ANIMAL DESDE UN SOLO SITIO
+    // ------------------------------------------------------------------------
+    // Hay once llamadas a coserTubo repartidas por el constructor del pecari
+    // (tronco, cabeza, cuatro patas, pezunas, orejas, ojos, pupila, crin,
+    // nariz). Poner `sec.cuadratura = X` en cada una seria once sitios que
+    // recordar, y el que se olvidara saldria redondo en medio de un animal
+    // cuadrado -- un fallo visible pero dificil de localizar.
+    //
+    // Con esto, quien construye declara UNA vez cuanto se cuadra el animal y
+    // todas las piezas lo heredan. Las que necesiten otra cosa (el ojo, que
+    // debe seguir siendo esferico) lo ponen en su seccion y este valor no las
+    // pisa: solo se aplica donde la seccion no dijo nada.
+    //
+    // ⚠️ VA COMO PARAMETRO, NO COMO ESTADO ESTATICO. La malla se genera desde
+    // WORKERS, y un `static float` compartido seria una carrera de datos: dos
+    // hilos construyendo especies distintas se pisarian el valor. Pasarlo por
+    // la pila lo hace imposible.
+    static void aplicarCuadratura(std::vector<SeccionCuerpo>& secciones,
+                                  float cuadratura) {
+        for (SeccionCuerpo& s : secciones) {
+            // Solo donde la seccion no eligio ya su propia forma.
+            if (s.cuadratura == 0.0f) s.cuadratura = cuadratura;
+        }
+    }
+
     static size_t coserTubo(MallaAnimal& malla,
                             const std::vector<SeccionCuerpo>& secciones,
                             int lados,
@@ -267,6 +303,48 @@ public:
                 const float ang = TAU * (float)i / (float)lados;
                 float cx = std::cos(ang);   // -1 abajo .. +1 arriba en Y
                 float sy = std::sin(ang);
+
+                // ============================================================
+                // ⭐ CUADRATURA: DE SECCION REDONDA A SECCION DE CAJA
+                // ============================================================
+                // El anillo es un circulo (cos, sin), asi que el animal sale
+                // con seccion ovalada -- organico, pero ajeno a un mundo de
+                // voxeles. Aqui se empuja cada punto hacia el CUADRADO que
+                // circunscribe ese circulo, conservando su angulo.
+                //
+                // COMO: un punto del circulo unidad se lleva al borde del
+                // cuadrado unidad dividiendo por la mayor de sus dos
+                // coordenadas en valor absoluto. El que ya esta en una esquina
+                // no se mueve; el que esta en mitad de un lado se empuja hacia
+                // fuera hasta tocarlo. El resultado son lados RECTOS con
+                // esquinas marcadas.
+                //
+                // `cuadratura` mezcla entre las dos formas: 0 = circulo puro
+                // (lo de antes), 1 = caja pura. Un valor intermedio da la caja
+                // con las aristas suavizadas, que es lo que se quiere aqui:
+                // el animal tiene que leerse como voxel SIN perder que es un
+                // ser vivo y no un cubo con patas.
+                //
+                // ⚠️ EL TAMANO NO CAMBIA. La cuadratura mueve los puntos
+                // DENTRO del rectangulo radioX x radioY, nunca fuera: el punto
+                // mas extremo sigue siendo la esquina, que ya estaba a esa
+                // distancia. Asi el animal conserva sus medidas anatomicas
+                // (que estan MEDIDAS y protegidas por tests) y solo cambia de
+                // FORMA -- que es exactamente lo que se pidio.
+                if (sec.cuadratura > 0.0f) {
+                    const float ax = std::fabs(cx);
+                    const float ay = std::fabs(sy);
+                    const float mayor = (ax > ay) ? ax : ay;
+                    if (mayor > 1e-5f) {
+                        const float inv = 1.0f / mayor;
+                        // Punto equivalente sobre el cuadrado.
+                        const float qx = cx * inv;
+                        const float qy = sy * inv;
+                        const float k = sec.cuadratura;
+                        cx = cx * (1.0f - k) + qx * k;
+                        sy = sy * (1.0f - k) + qy * k;
+                    }
+                }
 
                 // --- Deformacion 1: achatar el vientre ---
                 // Solo afecta a la mitad inferior (sy < 0). Es lo que hace que

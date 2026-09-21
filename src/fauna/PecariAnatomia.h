@@ -1,4 +1,4 @@
-#ifndef PECARI_ANATOMIA_H
+﻿#ifndef PECARI_ANATOMIA_H
 #define PECARI_ANATOMIA_H
 
 #include "AnimalMalla.h"
@@ -154,7 +154,7 @@ struct ParametrosPecari {
     // MEDIDO (cualitativo): "negro y gris jaspeado, mas claro en los hombros,
     // con una raya dorsal oscura". Pelo AGUTI: bandas alternas en cada pelo,
     // por eso se ve jaspeado y no liso.
-    // ⭐ PELO NEGRO EN TODO EL CUERPO.
+    // â­ PELO NEGRO EN TODO EL CUERPO.
     //
     // Se pidio pelo negro cubriendo el animal entero, y NO contradice el dato:
     // 13_PECARI_ANATOMIA describe las cerdas como "de tonos grisaceos, NEGROS o
@@ -243,6 +243,26 @@ struct ParametrosPecari {
     // confianza: ESTIMADO (ajuste visual)
     float relieveSuperficie = 1.0f;
 
+    // ------------------------------------------------------------------------
+    // â­ CUANTO SE "CUADRA" EL ANIMAL: DE ORGANICO A VOXEL
+    // ------------------------------------------------------------------------
+    // Se pidio que el modelo fuera CUBICO -- que encaje en un mundo de
+    // voxeles -- MANTENIENDO su tamano.
+    //
+    // Las dos cosas son compatibles porque la cuadratura no escala nada: lleva
+    // cada punto del anillo desde la elipse hasta el RECTANGULO que ya la
+    // circunscribia. El punto mas lejano (la esquina) ya estaba a esa
+    // distancia, asi que la envolvente del animal no crece ni un milimetro y
+    // las medidas anatomicas MEDIDAS siguen siendo las mismas. Hay tests que
+    // lo comprueban.
+    //
+    // 0.78 y no 1.0: a tope del todo el animal se lee como una caja con patas
+    // y pierde que es un ser vivo. Con 0.78 los lados son claramente planos y
+    // las aristas se ven, pero queda el redondeo justo para que el lomo siga
+    // siendo un lomo. Es la misma decision que toma cualquier modelo voxel de
+    // criatura: caja de base, esquinas apenas matadas.
+    float cuadratura = 0.78f;
+
     // --- VARIACION INDIVIDUAL ---
     uint32_t semilla = 1u;
 };
@@ -254,12 +274,12 @@ struct ParametrosPecari {
 // Se resuelve con funciones que DEVUELVEN parametros, no con clases nuevas.
 namespace Especies {
 
-    // Dicotyles tajacu — pecari de collar. El de este proyecto.
+    // Dicotyles tajacu â€” pecari de collar. El de este proyecto.
     inline ParametrosPecari pecariDeCollar() {
         return ParametrosPecari{};   // los valores por defecto
     }
 
-    // Tayassu pecari — pecari labiado.
+    // Tayassu pecari â€” pecari labiado.
     //
     // ADVERTENCIA: es OTRA ESPECIE, no una variante. Manadas de 25-100+,
     // NOCTURNO en vez de diurno, y comportamiento muy distinto. Se incluye
@@ -284,7 +304,7 @@ namespace Especies {
         return p;
     }
 
-    // Catagonus wagneri — pecari del Chaco.
+    // Catagonus wagneri â€” pecari del Chaco.
     // NO vive en Mexico. Se declara porque cambia UN numero (dos dedos
     // traseros en vez de tres) y demuestra que el modelo lo admite.
     inline ParametrosPecari pecariDelChaco() {
@@ -526,9 +546,29 @@ private:
             secs.push_back(s);
         }
 
+        // Cuadrar la seccion: el animal es de un mundo de voxeles.
+        GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
+        // ⭐⭐ EL PECHO SE TAPA. "SE VE POR DENTRO DESDE EL CUELLO".
+        //
+        // Estaba en `false`, con la idea de que el cuello lo taparia al
+        // enchufarse. Pero el cuello es OTRO TUBO, mas estrecho que el pecho y
+        // que ademas empieza tambien abierto por detras: entre el borde del
+        // torso y el del cuello queda un anillo de hueco.
+        //
+        // Con GL_CULL_FACE activo ese hueco no se ve como un agujero negro --
+        // se ve el INTERIOR del animal, porque las caras de dentro del torso
+        // quedan de espaldas y OpenGL las descarta, dejando ver hasta la pared
+        // opuesta. De ahi el efecto de "mirar dentro de la cabeza" al
+        // acercarse al cuello.
+        //
+        // No se arregla ensanchando el cuello: el cuello es MAS estrecho que
+        // el pecho por anatomia, asi que siempre habria reborde. Se arregla
+        // cerrando cada tubo por su cuenta, que ademas es lo correcto -- son
+        // dos volumenes solidos, no un tubo continuo.
+        //
+        // Coste: un abanico de triangulos por tapa. Nada.
         GeneradorMalla::coserTubo(malla, secs, cfg.ladosCuerpo, p.semilla,
-                                  true, false);
-        // El extremo delantero NO se tapa: ahi se enchufa el cuello.
+                                  true, true);
     }
 
     // ------------------------------------------------------------------------
@@ -578,7 +618,7 @@ private:
             s2.centroY = ejeY + p.altoTorso * 0.10f;
             secs.push_back(s2);
 
-            // ⭐ LA GARGANTA: el tramo que faltaba.
+            // â­ LA GARGANTA: el tramo que faltaba.
             //
             // El cuello acababa en 0.6 y la cabeza empezaba en 1.0, asi que el
             // 40% final no tenia NINGUNA seccion. coserTubo cose anillos
@@ -599,7 +639,7 @@ private:
             s3.centroY = ejeY + p.altoTorso * 0.11f;
             secs.push_back(s3);
 
-            // ⭐⭐ LA NUCA: "EL CUELLO SE VE SEPARADO DE LA CABEZA".
+            // â­â­ LA NUCA: "EL CUELLO SE VE SEPARADO DE LA CABEZA".
             //
             // Y no lo estaba: cuello y cabeza van en el MISMO tubo, asi que no
             // hay dos piezas que puedan despegarse. Lo que se veia era un
@@ -666,7 +706,7 @@ private:
             s2.centroY = s.centroY - p.altoCabeza * 0.045f;
             secs.push_back(s2);
 
-            // ⭐ EL CARRILLO: EL TRAMO QUE FALTABA DE VERDAD.
+            // â­ EL CARRILLO: EL TRAMO QUE FALTABA DE VERDAD.
             //
             // MEDIDO buscando el mayor salto de la cadena: estaba AQUI, no en
             // el cuello. Entre la mejilla (0.42 del largo de la cabeza) y la
@@ -734,8 +774,19 @@ private:
             secs.push_back(s3);
         }
 
+        // Cuadrar la seccion: el animal es de un mundo de voxeles.
+        GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
+        // ⭐⭐ Y LA GARGANTA TAMBIEN SE TAPA, por lo mismo.
+        //
+        // Este tubo empezaba abierto por detras esperando que el torso lo
+        // tapara. Los dos se esperaban el uno al otro y ninguno cerraba: ese
+        // era el hueco por el que se veia el interior de la cabeza.
+        //
+        // La tapa queda METIDA dentro del pecho --el cuello nace por dentro
+        // del torso, no pegado a su cara-- asi que no se ve desde fuera. Solo
+        // cierra el volumen.
         const size_t base = GeneradorMalla::coserTubo(
-            malla, secs, cfg.ladosCuerpo, p.semilla, false, true);
+            malla, secs, cfg.ladosCuerpo, p.semilla, true, true);
         (void)base;
     }
 
@@ -762,7 +813,7 @@ private:
             std::vector<SeccionCuerpo> secs;
 
             // ================================================================
-            // ⭐ LA PATA TIENE TRES SEGMENTOS Y DOS ARTICULACIONES
+            // â­ LA PATA TIENE TRES SEGMENTOS Y DOS ARTICULACIONES
             // ================================================================
             // Antes era un CONO RECTO: `centroY = yHombro - largoPata * t` es
             // una linea, y `z = d.sz` constante. Un palo liso que se estrecha.
@@ -807,7 +858,7 @@ private:
             // Cuanto se adelanta o atrasa cada articulacion, en fraccion del
             // largo de la pata.
             //
-            // ⭐ BAJADO DE 0.085 A 0.022: LAS PATAS ESTABAN DOBLADAS EN REPOSO.
+            // â­ BAJADO DE 0.085 A 0.022: LAS PATAS ESTABAN DOBLADAS EN REPOSO.
             //
             // El valor anterior metia un zigzag de 8,5% del largo de la pata
             // EN LA PROPIA GEOMETRIA, o sea en la malla cacheada, que es la
@@ -884,7 +935,7 @@ private:
                 s.radioX = grosor * 0.5f;
                 s.radioY = grosor * 0.5f;
 
-                // ⭐ LA ARTICULACION ES MAS ANCHA QUE EL HUESO.
+                // â­ LA ARTICULACION ES MAS ANCHA QUE EL HUESO.
                 //
                 // Un codo o una rodilla abultan: hay epifisis, ligamento y
                 // tendon. Sin esto la pata se ve como una manguera doblada.
@@ -916,7 +967,7 @@ private:
             }
 
             const size_t base = malla.vertices.size();
-            // ⭐ LAS PATAS VAN TAPADAS POR ARRIBA.
+            // â­ LAS PATAS VAN TAPADAS POR ARRIBA.
             //
             // Estaban con las dos tapas a false, o sea tubos ABIERTOS por los
             // dos extremos. Con GL_CULL_FACE activo eso deja ver el interior
@@ -930,6 +981,8 @@ private:
             // Arriba SI se tapa, porque ahi el tubo se mete en el cuerpo y el
             // agujero queda a la vista desde abajo. Abajo NO hace falta: lo
             // cubre la pezuna.
+            // Cuadrar la seccion: el animal es de un mundo de voxeles.
+            GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
             GeneradorMalla::coserTubo(malla, secs, cfg.ladosPata, p.semilla,
                                       true, false);
             GeneradorMalla::transformar(malla, base,
@@ -980,6 +1033,8 @@ private:
             secs.push_back(b);
 
             const size_t base = malla.vertices.size();
+            // Cuadrar la seccion: el animal es de un mundo de voxeles.
+            GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
             GeneradorMalla::coserTubo(malla, secs, 4, p.semilla, true, true);
 
             // Reparto lateral de los dedos.
@@ -1028,6 +1083,8 @@ private:
         secs.push_back(b);
 
         const size_t base = malla.vertices.size();
+        // Cuadrar la seccion: el animal es de un mundo de voxeles.
+        GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
         GeneradorMalla::coserTubo(malla, secs, 4, p.semilla, false, true);
         GeneradorMalla::marcarZona(malla, base, ZonaCuerpo::COLA, 1.0f);
         (void)cfg;
@@ -1058,7 +1115,7 @@ private:
                 const float t = (float)i / (float)(N - 1);
                 SeccionCuerpo s;
                 s.z = zCraneo + p.largoCabeza * 0.10f;
-                // ⭐ LA OREJA ARRANCA DENTRO DEL CRANEO, no posada encima.
+                // â­ LA OREJA ARRANCA DENTRO DEL CRANEO, no posada encima.
                 //
                 // Antes empezaba justo en yTop, que es el borde de la cabeza:
                 // nacia exactamente en la superficie, sin morder carne. Medido,
@@ -1095,7 +1152,7 @@ private:
                 s.radioY = p.anchoOreja * 0.16f * (0.80f + 0.30f * concha)
                                         * (1.0f - 0.30f * t);
 
-                // ⭐ LA OREJA SE INCLINA HACIA ATRAS SEGUN SUBE.
+                // â­ LA OREJA SE INCLINA HACIA ATRAS SEGUN SUBE.
                 //
                 // Estaba en z CONSTANTE, o sea perfectamente vertical y
                 // plana contra el craneo. Las orejas de un suido salen
@@ -1107,6 +1164,8 @@ private:
             }
 
             const size_t base = malla.vertices.size();
+            // Cuadrar la seccion: el animal es de un mundo de voxeles.
+            GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
             GeneradorMalla::coserTubo(malla, secs, cfg.ladosPata, p.semilla,
                                       true, true);
             GeneradorMalla::transformar(malla, base,
@@ -1173,6 +1232,8 @@ private:
             secs.push_back(b);
 
             const size_t base = malla.vertices.size();
+            // Cuadrar la seccion: el animal es de un mundo de voxeles.
+            GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
             GeneradorMalla::coserTubo(malla, secs, cfg.ladosPata, p.semilla,
                                       false, true);
 
@@ -1206,7 +1267,7 @@ private:
         const float ejeY = p.alturaCruz - p.altoTorso * 0.5f;
         const float zCraneo = largoTronco * 0.48f + p.largoCuello;
 
-        // ⭐ EL OJO SE APOYA EN EL CRANEO, NO FLOTA A UNA ALTURA FIJA
+        // â­ EL OJO SE APOYA EN EL CRANEO, NO FLOTA A UNA ALTURA FIJA
         //
         // Antes el ojo era un tubito colocado en una coordenada calculada a
         // ojo, del mismo diametro por delante y por detras, y con el eje en Z
@@ -1280,6 +1341,15 @@ private:
             secs.push_back(c);
 
             const size_t baseOjo = malla.vertices.size();
+            // ⚠️ EL OJO NO SE CUADRA, Y ES LA UNICA EXCEPCION DEL MODELO.
+            //
+            // Todo lo demas pasa a seccion de caja para encajar en un mundo de
+            // voxeles, pero un globo ocular cuadrado no se lee como un ojo: se
+            // lee como un error. Es una esfera humeda, la unica pieza del
+            // animal cuya forma redonda es su rasgo.
+            //
+            // Minecraft hace lo mismo con los suyos: el cuerpo es de cajas y
+            // los ojos van pintados en la textura, nunca facetados.
             GeneradorMalla::coserTubo(malla, secs, cfg.ladosPata, p.semilla,
                                       true, true);
 
@@ -1336,6 +1406,8 @@ private:
                 pup.push_back(q2);
 
                 const size_t basePup = malla.vertices.size();
+                // La pupila tampoco se cuadra: va pegada al globo y tiene que
+                // seguir su curvatura, o se despegaria en las esquinas.
                 GeneradorMalla::coserTubo(malla, pup, cfg.ladosPata, p.semilla,
                                           false, true);
 
@@ -1403,7 +1475,7 @@ private:
     // ------------------------------------------------------------------------
     // LA CRIN DORSAL
     // ------------------------------------------------------------------------
-    // De la CORONILLA a la GRUPA — no solo el lomo. Es un detalle que casi
+    // De la CORONILLA a la GRUPA â€” no solo el lomo. Es un detalle que casi
     // todas las representaciones se saltan.
     //
     // NO es un pelo por geometria: es UNA cresta continua, un solo tubo fino
@@ -1423,7 +1495,7 @@ private:
         const float z0Tronco = -largoTronco * 0.52f;
         const float z1Tronco =  largoTronco * 0.48f;
 
-        // ⭐ LA CRIN VA PEGADA AL LOMO, Y ANTES FLOTABA
+        // â­ LA CRIN VA PEGADA AL LOMO, Y ANTES FLOTABA
         //
         // Estaba colgada de una constante: `ejeY + altoTorso*0.5*1.30`. Ese
         // 1.30 la subia un 30% por encima del radio del torso, o sea unos 2 cm
@@ -1475,7 +1547,7 @@ private:
             s.radioX = p.anchoCollar * 0.16f;
             s.radioY = p.altoCrinReposo * 0.5f * (0.5f + 0.9f * perfil);
 
-            // ⭐ SE HUNDE EN EL LOMO, NO SE POSA ENCIMA.
+            // â­ SE HUNDE EN EL LOMO, NO SE POSA ENCIMA.
             //
             // El centro del tubo se coloca de modo que su mitad baja quede
             // METIDA bajo la piel. Dos razones:
@@ -1499,6 +1571,8 @@ private:
         }
 
         const size_t base = malla.vertices.size();
+        // Cuadrar la seccion: el animal es de un mundo de voxeles.
+        GeneradorMalla::aplicarCuadratura(secs, p.cuadratura);
         GeneradorMalla::coserTubo(malla, secs, 4, p.semilla, true, true);
         // Zona propia: es lo que le permite ser blanco grisaceo sin arrastrar
         // consigo la raya dorsal oscura. Antes iba marcada como LOMO.
@@ -1512,7 +1586,7 @@ private:
     // anatomicas. Ambas cosas se resuelven aqui, en CPU, una sola vez.
     //
     // El pelo AGUTI (bandas alternas en cada pelo) es lo que hace que el
-    // animal se vea "grizzled black and gray" — jaspeado, no gris liso. Se
+    // animal se vea "grizzled black and gray" â€” jaspeado, no gris liso. Se
     // reproduce variando el tono por vertice con ruido de baja frecuencia.
     static void colorear(MallaAnimal& malla, const ParametrosPecari& p) {
         const float largoTronco = p.largoCuerpo * p.fraccionTronco;
@@ -1650,7 +1724,7 @@ private:
             const float n2 = GeneradorMalla::ruido(p.semilla + 991, (int)i / 3, 1) - 0.5f;
             float jasp = (n1 * 0.65f + n2 * 0.35f) * p.variacionColor * v.pelo;
 
-            // ⭐ EL JASPEADO SE SESGA HACIA LA LUZ EN LO OSCURO.
+            // â­ EL JASPEADO SE SESGA HACIA LA LUZ EN LO OSCURO.
             //
             // El aguti es ADITIVO y simetrico: +-0.08 alrededor del tono base.
             // Con el pelaje ya en negro (lomo a 0.048) la mitad negativa se

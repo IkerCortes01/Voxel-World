@@ -1124,6 +1124,43 @@ inline float pencaCaidaProgreso(int x, int y, int z) {
     return -1.0f;
 }
 
+// ============================================================================
+// ¿ESTE BLOQUE SOSTIENE UNA PENCA?
+// ============================================================================
+// Una penca suelta apoyada en algo solido no se queda de pie: es una pieza
+// plana y pesada, sin nada que la sujete, asi que se tumba.
+//
+// ⭐ POR QUE ES UNA FUNCION Y NO UNA LAMBDA DENTRO DEL MESHER.
+//
+// La respuesta la necesitan DOS sitios:
+//
+//   - el MESHER, para decidir si dibuja la penca tumbada o de pie
+//   - la COLOCACION, para decidir si lanza la animacion de caida
+//
+// Estaban separados, con listas de excepciones distintas escritas a mano. El
+// resultado era el peor posible: sobre un bloque que estuviera en una lista y
+// no en la otra, la animacion se disparaba y al terminar el mesher dejaba la
+// penca DE PIE -- se caia y se volvia a levantar sola.
+//
+// Con una sola funcion no pueden discrepar.
+//
+// LO QUE NO SOSTIENE, y por que:
+//   aire, agua, lava    no hay nada donde apoyarse
+//   nopal               la penca encadena con la planta, no se tumba sobre ella
+//   hojas, hierba,      ceden: una penca no se queda plana sobre follaje
+//   ramas, raices
+//
+// LOS NIVELES DE BLOQUE SI SOSTIENEN, y es deliberado: media losa de piedra es
+// una superficie tan firme como el bloque entero. No aparecen en las
+// excepciones, asi que entran por la regla general.
+inline bool nopalTieneApoyo(BlockType b) {
+    return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
+           b != BLOCK_TALLGRASS && !isNopal(b) && !isRama(b) &&
+           !esRaiz(b) &&
+           b != BLOCK_LEAVES && b != BLOCK_LEAVES_ENCINO &&
+           b != BLOCK_LEAVES_OYAMEL && b != BLOCK_LEAVES_OCOTE;
+}
+
 // ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
 // la planta, para que una penca pegada al tallo no deje costura.
 // `propio` es el bloque que PREGUNTA. Hace falta porque una penca no encadena
@@ -1235,13 +1272,11 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // Un bloque sirve de apoyo si es macizo: aire, agua, lava y la propia
     // vegetacion no sujetan nada. `isBlockSolid` esta definida mas abajo en el
     // archivo, asi que aqui va el mismo criterio en corto.
-    auto esApoyo = [](BlockType b) {
-        return b != BLOCK_AIR && b != BLOCK_WATER && b != BLOCK_LAVA &&
-               b != BLOCK_TALLGRASS && !isNopal(b) && !isRama(b) &&
-               !esRaiz(b) &&
-               b != BLOCK_LEAVES && b != BLOCK_LEAVES_ENCINO &&
-               b != BLOCK_LEAVES_OYAMEL && b != BLOCK_LEAVES_OCOTE;
-    };
+    // La regla vive en `nopalTieneApoyo` (declarada mas arriba) y no en una
+    // lambda local: la usan TAMBIEN la colocacion --para decidir si lanza la
+    // animacion de caida-- y los tests. Tenerla en dos sitios era el bug de
+    // "la penca se cae y se vuelve a levantar sola".
+    auto esApoyo = [](BlockType b) { return nopalTieneApoyo(b); };
     const bool apoyoAbajo  = esApoyo(get( 0,-1, 0));
     const bool apoyoArriba = esApoyo(get( 0, 1, 0));
     const bool paredXm     = esApoyo(get(-1, 0, 0));
@@ -1436,6 +1471,26 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
             f.minX = A0; f.maxX = A1;
             f.minY = c0; f.maxY = c1;
             f.minZ = A0; f.maxZ = A1;
+
+            // ⭐ SI DEBAJO HAY UN NIVEL, LA PENCA SE POSA ENCIMA DE EL.
+            //
+            // Un nivel parcial no llena su voxel: media losa llega a 0.5, no a
+            // 1.0. La penca tumbada se dibuja centrada en SU voxel, asi que
+            // sobre medio bloque quedaba flotando en el aire con el hueco a la
+            // vista.
+            //
+            // Es el mismo ajuste que ya hacen los guijarros (ver la caja de
+            // esGuijarro): la pieza BAJA hasta apoyarse en la cara de arriba
+            // del nivel. `alturaDe` da esa altura en fraccion de voxel, y al
+            // restarle 1 queda el desplazamiento negativo que hay que aplicar.
+            {
+                const BlockType debajo = get(0, -1, 0);
+                if (esNivelParcial(debajo)) {
+                    const float baja = 1.0f - alturaDe(debajo);
+                    f.minY -= baja;
+                    f.maxY -= baja;
+                }
+            }
             break;
         default: {        // bloque ACHATADO
             const float g = GROSOR * 1.6f;
@@ -1486,19 +1541,55 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         const float dePieG0 = 0.5f - PENCA_GRUESO * 0.5f;
         const float dePieG1 = 0.5f + PENCA_GRUESO * 0.5f;
 
-        // Tumbada: el largo pasa al plano y el grosor a la vertical, apoyada
-        // en el suelo.
-        const float ejeY0 = EPS_Y;
-        const float ejeY1 = EPS_Y + PENCA_GRUESO;
+        // ====================================================================
+        // ⭐ LA CAIDA TIENE QUE ACABAR EXACTAMENTE EN LA CAJA DE REPOSO
+        // ====================================================================
+        // BUG QUE ESTO CORRIGE: al colocar una penca "se estiraba mucho y
+        // luego volvia a su forma". Era literal, y el salto estaba medido en
+        // el propio codigo sin que nadie lo cruzara:
+        //
+        //   La animacion terminaba en   X = 15 px  (PENCA_LARGO)
+        //   El reposo (orientacion 4) es X =  8 px  (A0..A1)
+        //
+        // O sea que la penca crecia hasta casi el doble de ancha durante los
+        // 0,40 s de la caida y, al acabar, pegaba un tiron de vuelta a su
+        // tamano real. Lo mismo en Y: la animacion la dejaba apoyada en el
+        // suelo del voxel (EPS_Y) y el reposo la pone CENTRADA (c0..c1).
+        //
+        // La causa es que las dos formas se escribieron por separado: la
+        // animacion interpolaba hacia "una penca tumbada" imaginaria en vez de
+        // hacia LA penca tumbada que el mesher dibuja un momento despues.
+        //
+        // Ahora el destino se toma de las MISMAS constantes que usa
+        // `case 4`, asi que por construccion no puede haber salto: en t=1 la
+        // caja de la animacion y la de reposo son la misma.
+        //
+        // ⚠️ Se usan A0/A1 y c0/c1, no valores nuevos. Si alguien cambia el
+        // tamano de la penca en un sitio, los dos cambian juntos.
+        const float finX0 = A0, finX1 = A1;   // identico a `case 4`
+        float finY0 = c0, finY1 = c1;
+        const float finZ0 = A0, finZ1 = A1;
+
+        // Y el mismo descenso si debajo hay un nivel parcial, por la misma
+        // razon: si la animacion acabara centrada y el reposo bajado, el
+        // tiron reaparece -- solo que en vertical en vez de en anchura.
+        {
+            const BlockType debajoCae = get(0, -1, 0);
+            if (esNivelParcial(debajoCae)) {
+                const float baja = 1.0f - alturaDe(debajoCae);
+                finY0 -= baja;
+                finY1 -= baja;
+            }
+        }
 
         auto mezcla = [t](float a, float b) { return a + (b - a) * t; };
 
-        f.minY = mezcla(dePieY0, ejeY0);
-        f.maxY = mezcla(dePieY1, ejeY1);
-        f.minX = mezcla(dePieA0, 0.5f - PENCA_LARGO * 0.5f);
-        f.maxX = mezcla(dePieA1, 0.5f + PENCA_LARGO * 0.5f);
-        f.minZ = mezcla(dePieG0, dePieA0);
-        f.maxZ = mezcla(dePieG1, dePieA1);
+        f.minY = mezcla(dePieY0, finY0);
+        f.maxY = mezcla(dePieY1, finY1);
+        f.minX = mezcla(dePieA0, finX0);
+        f.maxX = mezcla(dePieA1, finX1);
+        f.minZ = mezcla(dePieG0, finZ0);
+        f.maxZ = mezcla(dePieG1, finZ1);
         return f;   // la caida manda: nada mas puede tocar la caja
     }
 
@@ -34248,12 +34339,29 @@ void placeBlock(GameState* state) {
 
             // PENCA QUE SE CAE: si se coloca sobre suelo firme, se apunta
             // para que caiga girando en vez de aparecer tumbada de golpe.
+            //
+            // ⭐ LA CONDICION TIENE QUE SER LA MISMA QUE LA DEL MESHER.
+            //
+            // BUG QUE ESTO CORRIGE: la penca no se tumbaba sobre ciertos
+            // bloques. La causa era que aqui se usaba una lista de excepciones
+            // ESCRITA A MANO (aire, agua, lava, nopal) y el mesher usa otra
+            // distinta -- `esApoyo`, que ademas descarta hojas, hierba, ramas
+            // y raices.
+            //
+            // Con las dos listas separadas, un bloque que estuviera en una y
+            // no en la otra daba el peor resultado posible: la ANIMACION de
+            // caida se disparaba (aqui decia "firme") pero al terminar el
+            // mesher decidia que no habia apoyo y dejaba la penca DE PIE. La
+            // penca se caia y se volvia a levantar sola.
+            //
+            // Llamando a la misma funcion, las dos deciden siempre lo mismo.
+            // Y como `esApoyo` acepta los NIVELES de bloque --no estan en sus
+            // excepciones-- la penca se tumba tambien sobre medio bloque, que
+            // es lo que se pidio.
             if (blockToPlace == BLOCK_NOPAL_FRUTO) {
                 const BlockType debajo = state->world.getBlock(
                     placePos.x, placePos.y - 1, placePos.z);
-                const bool firme = debajo != BLOCK_AIR && debajo != BLOCK_WATER &&
-                                   debajo != BLOCK_LAVA && !isNopal(debajo);
-                if (firme) {
+                if (nopalTieneApoyo(debajo)) {
                     g_pencasCayendo.push_back({ placePos.x, placePos.y,
                                                 placePos.z,
                                                 g_tiempoJugadoSegundos });

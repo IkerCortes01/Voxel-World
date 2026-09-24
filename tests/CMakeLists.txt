@@ -51,6 +51,7 @@ add_executable(voxel_tests
     test_revision_malla.cpp
     test_textura_tuna.cpp
     test_tinte_bioma.cpp
+    test_caida_penca.cpp
     test_streaming_estres.cpp
     test_distancia_vision.cpp
     test_altura_mundo.cpp

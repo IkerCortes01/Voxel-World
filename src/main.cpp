@@ -1298,8 +1298,44 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     //
     // Solo aplica a la PENCA suelta (BLOCK_NOPAL_FRUTO). Los cladodios de una
     // mata siguen de pie aunque toquen el suelo: los sujeta la planta.
-    const bool pencaCaida = (f.tipo == BLOCK_NOPAL_FRUTO) &&
-                            sueltaEnPlanta && apoyoAbajo;
+    // ========================================================================
+    // ⭐⭐ LA PENCA SUELTA SIEMPRE ESTA CAIDA. SIN CONDICIONES.
+    // ========================================================================
+    // BUG REPORTADO: "esta levantado el nopal la penca". Y se pidio que quede
+    // caida "como el codigo de la penca de nopal en tiras".
+    //
+    // Esa es la pista buena, y describe exactamente la solucion. Mira lo que
+    // hace BLOCK_NOPAL_TIRAS (ver su rama en el mesher y en nopalHitboxCon):
+    //
+    //     minY = EPS;  maxY = EPS + ALTO;   // y ya esta
+    //
+    // Ni una condicion. Ni orientacion, ni vecinos, ni apoyo. Unas tiras
+    // cortadas estan echadas sobre la superficie y punto -- no hay ningun
+    // sitio donde puedan ponerse de pie.
+    //
+    // LA PENCA TENIA LO CONTRARIO: una cadena de siete condiciones para
+    // decidir su orientacion, y CUATRO de ellas la dejaban de pie. Bastaba
+    // con que se cumpliera cualquiera:
+    //
+    //   - `sueltaEnPlanta` exige CERO vecinos encadenados... pero
+    //     `nopalEncadena` cuenta el tallo, las bases y otros cladodios. Poner
+    //     una penca cerca de un nopal la levantaba.
+    //   - las diagonales tambien suman (enX/enZ), asi que una penca en
+    //     diagonal a otra pieza bastaba para decantar un eje vertical.
+    //   - `hayPared` la ponia de canto contra cualquier muro.
+    //   - y el `else` final la orientaba AL AZAR con un hash.
+    //
+    // Cada una de esas reglas se escribio para la penca que crece EN LA MATA,
+    // donde tiene sentido que se alinee con sus vecinas. Pero la penca que el
+    // jugador COLOCA es otra cosa: es una pieza cortada, plana y pesada, que
+    // se ha caido. No tiene nada que la sujete.
+    //
+    // Asi que se hace lo que hacen las tiras: caida SIEMPRE.
+    //
+    // Lo que se conserva: el GIRO en el plano (el rumbo de las 8 direcciones,
+    // mas abajo) sigue variando, asi que dos pencas tiradas juntas no salen
+    // clonadas. Lo que desaparece es la posibilidad de que se levante.
+    const bool pencaCaida = (f.tipo == BLOCK_NOPAL_FRUTO);
 
     // Progreso de la caida, si esta cayendo ahora mismo. -1 = quieta.
     f.cayendo = pencaCaidaProgreso(wx, wy, wz);
@@ -1467,10 +1503,38 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
             f.minY = Y0; f.maxY = Y1;
             f.minZ = A0; f.maxZ = A1;
             break;
-        case 4:           // losa HORIZONTAL (tumbada)
+        case 4: {         // losa HORIZONTAL (tumbada)
             f.minX = A0; f.maxX = A1;
             f.minY = c0; f.maxY = c1;
             f.minZ = A0; f.maxZ = A1;
+
+            // ⭐⭐ LA PENCA TIRADA ES UNA LAMINA, NO UN LADRILLO DE CANTO.
+            //
+            // "ESTA LEVANTADO EL NOPAL LA PENCA", y con razon: el GROSOR de la
+            // penca suelta es de 13 px, y en esta orientacion el grosor es
+            // justo lo que va en VERTICAL. O sea que la penca "tumbada" medía
+            // 13 de alto por 8 de ancho -- MAS ALTA QUE ANCHA. No parecia
+            // tirada en el suelo: parecia un ladrillo puesto de canto.
+            //
+            // Los 13 px vienen de la penca DE PIE, donde tienen sentido: ahi
+            // el grosor es la profundidad y hace que la pieza se vea maciza en
+            // el voxel. Al tumbarla, ese mismo numero es lo que la levanta.
+            //
+            // La referencia que se pidio son las TIRAS de nopal, que usan 3 px
+            // de alto (ver BLOCK_NOPAL_TIRAS en el mesher). Y coincide con el
+            // dato real: un cladodio mide 1,15 cm de grosor sobre 37 de largo
+            // (108 ejemplares, Ramirez-Castano et al. 2023) -- una PLACA, con
+            // una relacion de 1:32. A escala de voxel eso es medio pixel.
+            //
+            // 5 px es el compromiso: se lee como lamina echada en el suelo y
+            // conserva canto suficiente para verse desde un lado. Sigue siendo
+            // cuatro veces mas gruesa que la tira, porque una penca entera
+            // tiene mas cuerpo que unas tiras cortadas.
+            if (f.tipo == BLOCK_NOPAL_FRUTO || f.tipo == BLOCK_NOPAL_MOJADO) {
+                constexpr float GRUESO_TIRADA = 5.0f / 16.0f;
+                f.minY = EPS_Y;
+                f.maxY = EPS_Y + GRUESO_TIRADA;
+            }
 
             // ⭐ SI DEBAJO HAY UN NIVEL, LA PENCA SE POSA ENCIMA DE EL.
             //
@@ -1492,6 +1556,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
                 }
             }
             break;
+        }
         default: {        // bloque ACHATADO
             const float g = GROSOR * 1.6f;
             const float d0 = 0.5f - g * 0.5f, d1 = 0.5f + g * 0.5f;
@@ -1570,6 +1635,15 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         float finY0 = c0, finY1 = c1;
         const float finZ0 = A0, finZ1 = A1;
 
+        // Y la penca suelta acaba siendo una LAMINA de 5 px, no un ladrillo de
+        // canto de 13. Mismo valor que `case 4`, por la misma razon de
+        // siempre: si los dos no coinciden, vuelve el tiron del final.
+        if (f.tipo == BLOCK_NOPAL_FRUTO || f.tipo == BLOCK_NOPAL_MOJADO) {
+            constexpr float GRUESO_TIRADA = 5.0f / 16.0f;
+            finY0 = EPS_Y;
+            finY1 = EPS_Y + GRUESO_TIRADA;
+        }
+
         // Y el mismo descenso si debajo hay un nivel parcial, por la misma
         // razon: si la animacion acabara centrada y el reposo bajado, el
         // tiron reaparece -- solo que en vertical en vez de en anchura.
@@ -1630,9 +1704,24 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         }
     };
 
-    ajustar(f.uneXm,    f.uneXp,     f.minX, f.maxX);
-    ajustar(f.uneZm,    f.uneZp,     f.minZ, f.maxZ);
-    ajustar(f.uneAbajo, f.uneArriba, f.minY, f.maxY);
+    // ⭐ LA PENCA CAIDA NO SE ESTIRA HACIA NADIE.
+    //
+    // Este ajuste existe para los cladodios de una MATA: son piezas de una
+    // misma planta y tienen que soldarse entre si o queda costura.
+    //
+    // Una penca TIRADA EN EL SUELO no es eso. Es una pieza cortada y suelta,
+    // como las tiras de nopal, y tiene que conservar su silueta: si se
+    // estirara hacia el vecino, dos pencas contiguas se fundirian en una losa
+    // verde continua y se perderia que son dos objetos.
+    //
+    // Es ademas lo que la protege de deformarse: sin esto, la caja recien
+    // interpolada por la caida se estiraba acto seguido hacia los lados con
+    // vecino, que es otra via para el mismo "se estira" que se reporto.
+    if (!pencaCaida) {
+        ajustar(f.uneXm,    f.uneXp,     f.minX, f.maxX);
+        ajustar(f.uneZm,    f.uneZp,     f.minZ, f.maxZ);
+        ajustar(f.uneAbajo, f.uneArriba, f.minY, f.maxY);
+    }
 
     // --- LLEGAR HASTA LA TUNA ---
     // La tuna se queda dentro de SU voxel, asi que si la penca tampoco llega
@@ -1642,7 +1731,11 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // Solo se ALARGA hacia ese lado, nunca se encoge, asi que la silueta se
     // conserva. Y como sigue sin salirse del voxel, lo que se ve es
     // exactamente lo que se puede seleccionar.
-    {
+    //
+    // Tampoco se aplica a la penca CAIDA: una penca tirada en el suelo no
+    // sostiene ningun fruto, asi que no tiene a que llegar -- y estirarse
+    // seria deformarla por otra via.
+    if (!pencaCaida) {
         auto hayTuna = [&](int dx, int dy, int dz) {
             return esTuna(get(dx, dy, dz));
         };
@@ -2352,6 +2445,23 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         type != BLOCK_NOPAL_MOJADO) return false;
 
     const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz, type);
+
+    // ⭐ LA PENCA SUELTA USA SU CAJA TAL CUAL.
+    //
+    // El estirado a 0.0/1.0 es para los cladodios de una mata, que se sueldan
+    // entre si. Una penca tirada en el suelo esta CAIDA y conserva su silueta
+    // (ver `pencaCaida`), asi que si la caja de colision se estirara al voxel
+    // entero, el jugador chocaria con aire por encima de una pieza plana --
+    // y el resaltado marcaria un cubo donde se ve una losa.
+    //
+    // Es la misma regla que ya siguen las TIRAS de nopal: su caja es su forma,
+    // sin ajustes por vecindad.
+    if (type == BLOCK_NOPAL_FRUTO) {
+        minX = f.minX;  maxX = f.maxX;
+        minY = f.minY;  maxY = f.maxY;
+        minZ = f.minZ;  maxZ = f.maxZ;
+        return true;
+    }
 
     minX = f.uneXm ? 0.0f : f.minX;   maxX = f.uneXp ? 1.0f : f.maxX;
     minY = f.uneAbajo ? 0.0f : f.minY; maxY = f.uneArriba ? 1.0f : f.maxY;
@@ -22296,12 +22406,30 @@ public:
                             // invisible) pero ya no hay dos planos peleando.
                             constexpr float EPS = 0.0005f;
 
-                            float bx0 = nf.uneXm ? EPS        : nf.minX;
-                            float bx1 = nf.uneXp ? 1.0f - EPS : nf.maxX;
-                            float by0 = nf.uneAbajo  ? EPS        : nf.minY;
-                            float by1 = nf.uneArriba ? 1.0f - EPS : nf.maxY;
-                            float bz0 = nf.uneZm ? EPS        : nf.minZ;
-                            float bz1 = nf.uneZp ? 1.0f - EPS : nf.maxZ;
+                            // ⭐ LA PENCA SUELTA USA SU CAJA TAL CUAL.
+                            //
+                            // Este estirado a los bordes del voxel existe para
+                            // los cladodios de una MATA, que tienen que
+                            // soldarse con sus vecinos.
+                            //
+                            // Una penca TIRADA EN EL SUELO esta caida y
+                            // conserva su silueta (ver `pencaCaida`). Si aqui
+                            // se estirara igualmente, la losa plana volveria a
+                            // crecer hasta el voxel entero -- que es el
+                            // "se estira" que se reporto, entrando por la
+                            // ultima puerta que quedaba abierta.
+                            //
+                            // Es la misma regla que ya siguen las TIRAS de
+                            // nopal: su caja es su forma, sin ajustes.
+                            const bool sueltaTirada =
+                                (block == BLOCK_NOPAL_FRUTO);
+
+                            float bx0 = (nf.uneXm && !sueltaTirada) ? EPS        : nf.minX;
+                            float bx1 = (nf.uneXp && !sueltaTirada) ? 1.0f - EPS : nf.maxX;
+                            float by0 = (nf.uneAbajo  && !sueltaTirada) ? EPS        : nf.minY;
+                            float by1 = (nf.uneArriba && !sueltaTirada) ? 1.0f - EPS : nf.maxY;
+                            float bz0 = (nf.uneZm && !sueltaTirada) ? EPS        : nf.minZ;
+                            float bz1 = (nf.uneZp && !sueltaTirada) ? 1.0f - EPS : nf.maxZ;
 
                             // La PENCA conserva su forma de penca: es una
                             // pieza de la planta, no el fruto. La tuna se
@@ -34358,14 +34486,17 @@ void placeBlock(GameState* state) {
             // Y como `esApoyo` acepta los NIVELES de bloque --no estan en sus
             // excepciones-- la penca se tumba tambien sobre medio bloque, que
             // es lo que se pidio.
+            //
+            // ⭐ Y SE LANZA SIEMPRE, no solo sobre "suelo firme".
+            //
+            // La penca acaba CAIDA en todos los casos (ver `pencaCaida` en
+            // calcularFormaNopalCon), asi que si la animacion no se disparara
+            // en alguno, la penca apareceria tumbada DE GOLPE en vez de
+            // caerse. El gesto es el mismo la pongas donde la pongas.
             if (blockToPlace == BLOCK_NOPAL_FRUTO) {
-                const BlockType debajo = state->world.getBlock(
-                    placePos.x, placePos.y - 1, placePos.z);
-                if (nopalTieneApoyo(debajo)) {
-                    g_pencasCayendo.push_back({ placePos.x, placePos.y,
-                                                placePos.z,
-                                                g_tiempoJugadoSegundos });
-                }
+                g_pencasCayendo.push_back({ placePos.x, placePos.y,
+                                            placePos.z,
+                                            g_tiempoJugadoSegundos });
             }
 
             // ⭐ SISTEMA DE AGUA: Si se coloca agua, programar actualización

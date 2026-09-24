@@ -50,12 +50,35 @@ struct CajaPenca {
 // `bajada` es cuanto desciende por apoyarse en un nivel parcial: media losa
 // llega a 0.5, no a 1.0, asi que la penca tiene que bajar 0.5 o quedaria
 // flotando. Vale 0 sobre un bloque entero.
+//
+// ⭐⭐ EL GROSOR TIRADA NO ES EL GROSOR DE LA PENCA DE PIE, Y ESE ERA EL BUG
+// QUE QUEDABA.
+//
+// "Esta levantado el nopal la penca", y con razon: el grosor de la penca
+// suelta es 13 px, y en esta postura el grosor es lo que va EN VERTICAL. La
+// penca "tumbada" medía 13 de alto por 8 de ancho -- mas alta que ancha. No
+// parecia tirada en el suelo: parecia un ladrillo puesto de canto.
+//
+// Los 13 px vienen de la penca DE PIE, donde son la profundidad y hacen que se
+// vea maciza. Al tumbarla, ese mismo numero es justo lo que la levanta.
+//
+// La referencia pedida son las TIRAS de nopal, que usan 3 px. Y coincide con
+// el dato real: un cladodio mide 1,15 cm de grosor sobre 37 de largo (108
+// ejemplares, Ramirez-Castano et al. 2023) -- una PLACA de 1:32, que a escala
+// de voxel es medio pixel.
+//
+// 5 px es el compromiso: lamina echada en el suelo, con canto suficiente para
+// verse de lado.
+constexpr float GRUESO_PENCA_TIRADA = 5.0f / 16.0f;
+
 inline CajaPenca cajaReposoTumbada(float ancho, float grosor, float bajada) {
+    (void)grosor;   // el grosor de pie NO se usa tumbada: ver la nota de arriba
     const float m  = 0.5f - ancho * 0.5f;
     const float a0 = m, a1 = 1.0f - m;
-    const float c0 = 0.5f - grosor * 0.5f;
-    const float c1 = 0.5f + grosor * 0.5f;
-    return CajaPenca{ a0, a1, c0 - bajada, c1 - bajada, a0, a1 };
+    constexpr float EPS = 0.0005f;
+    const float y0 = EPS;
+    const float y1 = EPS + GRUESO_PENCA_TIRADA;
+    return CajaPenca{ a0, a1, y0 - bajada, y1 - bajada, a0, a1 };
 }
 
 // ----------------------------------------------------------------------------

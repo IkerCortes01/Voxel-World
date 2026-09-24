@@ -127,10 +127,17 @@ TEST_CASE("Penca: de pie es alta y tumbada es baja") {
     INFO("de pie: alto=", altoDe(dePie), "  tumbada: alto=", altoDe(reposo));
     CHECK(altoDe(dePie) > altoDe(reposo));
 
-    // Y tumbada ocupa mas planta: el largo pasa al plano horizontal... o no.
-    // OJO: en este modelo la penca tumbada NO se alarga en el plano, conserva
-    // su ancho. Lo que cambia es que su eje LARGO deja de estar en vertical.
-    CHECK(altoDe(reposo) == doctest::Approx(GRUESO));
+    // ⚠️ TUMBADA NO USA EL GROSOR DE PIE, y es el bug que quedaba.
+    //
+    // Este CHECK decia `altoDe(reposo) == GRUESO` (13 px) y pasaba -- porque
+    // describia exactamente el fallo: la penca "tumbada" era mas alta (13) que
+    // ancha (8), o sea un ladrillo de canto. Por eso se seguia viendo
+    // levantada.
+    //
+    // Tumbada es una LAMINA. El grosor de pie es la profundidad de la pieza
+    // vertical y no tiene nada que hacer en el eje Y.
+    CHECK(altoDe(reposo) == doctest::Approx(GRUESO_PENCA_TIRADA));
+    CHECK(altoDe(reposo) < GRUESO);   // mucho mas fina que el grosor de pie
 }
 
 // ----------------------------------------------------------------------------
@@ -192,6 +199,36 @@ TEST_CASE("Penca: la caida acelera, no es lineal") {
     INFO("a mitad de tiempo se ha recorrido el ", recorrido * 100.0f, "%");
     CHECK(recorrido < 0.40f);   // claramente por debajo del 50% lineal
     CHECK(recorrido > 0.10f);   // pero se ha movido
+}
+
+TEST_CASE("Penca: tumbada es PLANA, como las tiras de nopal") {
+    // ⭐ "ESTA LEVANTADO EL NOPAL LA PENCA", y la pista de como arreglarlo:
+    // "como el codigo de la penca de nopal en tiras".
+    //
+    // Las tiras (BLOCK_NOPAL_TIRAS) son la referencia buena y su codigo es de
+    // una linea: minY = EPS, maxY = EPS + 3px. Ni orientacion, ni vecinos, ni
+    // apoyo -- estan echadas sobre la superficie y punto.
+    //
+    // La penca tenia siete condiciones para decidir su orientacion, y cuatro
+    // de ellas la dejaban de pie. Ahora es como las tiras: caida siempre.
+    //
+    // Lo que este test fija es la CONSECUENCIA geometrica: tumbada, la pieza
+    // tiene que ser mas ancha que alta. Si algun dia vuelve a levantarse, esto
+    // falla.
+    const CajaPenca reposo = cajaReposoTumbada(ANCHO, GRUESO, 0.0f);
+
+    INFO("tumbada: ancho=", anchoDe(reposo), " alto=", altoDe(reposo),
+         " fondo=", fondoDe(reposo));
+
+    // Es una losa: su eje vertical es el CORTO.
+    CHECK(altoDe(reposo) <= anchoDe(reposo) + 1e-4f);
+    CHECK(altoDe(reposo) <= fondoDe(reposo) + 1e-4f);
+
+    // Y de pie es al reves: el vertical es el LARGO. Las dos posturas tienen
+    // que ser inequivocamente distintas.
+    const CajaPenca dePie = cajaDePie(LARGO, ANCHO, GRUESO);
+    CHECK(altoDe(dePie) > anchoDe(dePie));
+    CHECK(altoDe(dePie) > altoDe(reposo) * 1.3f);
 }
 
 TEST_CASE("Penca: la caida es monotona, no rebota") {

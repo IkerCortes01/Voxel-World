@@ -98,6 +98,7 @@ using namespace VoxelWorld::SaveSystem;
 //                                       |-- JumpSystem
 //                                     CameraSystem
 #include "player/PlayerController.h"
+#include "player/TeclasDeMenu.h"       // con un menu delante, SHIFT no agacha
 #include "player/PlayerDebug.h"
 #include "player/EngineAdapter.h"
 
@@ -28577,8 +28578,14 @@ void dropSelectedItem(GameState* state);  // Declaración forward
 // `durmiendo` llega por PARAMETRO y no se lee de g_gameState porque en este
 // punto del archivo GameState todavia no esta definido (solo declarado). Es la
 // misma razon por la que `keys` y `player` tambien vienen por parametro.
+//
+// Y `menuAbierto` llega por la misma via y por la misma razon: dice si el
+// inventario o la pausa estan abiertos, para que SHIFT y CTRL no lleguen al
+// personaje mientras el jugador esta usando un menu. Ver la nota de
+// "CON EL INVENTARIO ABIERTO, SHIFT NO AGACHA" mas abajo.
 void updatePlayerPhysics(Player& player, World& world, float deltaTime,
-                         bool keys[256], bool durmiendo) {
+                         bool keys[256], bool durmiendo,
+                         bool menuAbierto = false) {
     // ========================================================================
     // DELEGACION AL CHARACTER CONTROLLER MODULAR
     // ========================================================================
@@ -28634,6 +28641,41 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime,
         ctrlDown  = (glfwGetKey(win, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) ||
                     (glfwGetKey(win, GLFW_KEY_RIGHT_CONTROL)== GLFW_PRESS);
     }
+
+    // ========================================================================
+    // ⭐ CON EL INVENTARIO ABIERTO, SHIFT NO AGACHA
+    // ========================================================================
+    // BUG REPORTADO: al estar en el inventario y pulsar SHIFT, el personaje se
+    // agachaba detras del menu.
+    //
+    // POR QUE SE ESCAPABA ESTA TECLA Y NO LAS DEMAS. El resto del movimiento
+    // (WASD, salto) pasa por `keys[]`, y `keyCallback` tiene esta guarda:
+    //
+    //     if (isPaused || inventoryOpen) return;   // no procesar movimiento
+    //
+    // asi que esas teclas ni llegan a registrarse. Pero SHIFT y CTRL NO estan
+    // en keys[]: se leen aqui directamente con glfwGetKey, que pregunta al
+    // sistema operativo por el estado fisico del teclado. Esa via se salta la
+    // guarda entera.
+    //
+    // Y SHIFT es justo la tecla que MAS se usa dentro de un inventario: es el
+    // modificador de "mover la pila entera" en cualquier juego del genero. O
+    // sea que el jugador lo pulsa constantemente mientras ordena cosas, y el
+    // personaje se agachaba cada vez.
+    //
+    // ⚠️ CTRL ENTRA TAMBIEN. Tiene el mismo problema por la misma via -- se
+    // lee igual y tampoco esta en keys[] -- y correr con el inventario abierto
+    // es igual de absurdo que agacharse. Arreglar solo SHIFT dejaria la mitad
+    // del fallo en pie.
+    //
+    // La pausa ya paraba el juego entero, asi que ahi no se notaba; se incluye
+    // de todas formas por coherencia con la guarda de keyCallback.
+    // La regla vive en player/TeclasDeMenu.h. Las dos teclas pasan por la
+    // MISMA funcion a proposito: cuando el filtro se escribe dos veces, tarde
+    // o temprano una de las dos se queda sin actualizar.
+    shiftDown = PlayerSys::teclaParaElPersonaje(shiftDown, menuAbierto, false);
+    ctrlDown  = PlayerSys::teclaParaElPersonaje(ctrlDown,  menuAbierto, false);
+
     // CTRL = correr, SHIFT = agacharse (convencion estandar de sandbox voxel).
     // En vuelo, SHIFT desciende.
     im.setSprint(!durmiendo && ctrlDown);
@@ -41501,7 +41543,11 @@ int main() {
                 const float fallSpeedBefore = -g_gameState->player.velocity.y;
 
                 updatePlayerPhysics(g_gameState->player, g_gameState->world, deltaTime,
-                                    g_gameState->keys, g_gameState->durmiendo);
+                                    g_gameState->keys, g_gameState->durmiendo,
+                                    // Con un menu delante, SHIFT y CTRL son del
+                                    // menu, no del personaje.
+                                    g_gameState->inventoryOpen ||
+                                    g_gameState->isPaused);
 
                 // ============================================================
                 // SONIDO DE PASOS

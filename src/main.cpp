@@ -28909,10 +28909,30 @@ public:
     // aire recorreria los 512 bloques de alto del mundo. 24 cubre de sobra
     // cualquier caida que un animal pueda dar sin morirse, y por debajo de eso
     // se cae de verdad -- que es lo que debe pasar al asomarse a una sima.
+    // ⚠️⚠️ CONTRATO: DEVUELVE LA SUPERFICIE PISABLE, NO EL INDICE DEL BLOQUE.
+    //
+    // O sea la Y donde se apoyan las pezunas. Sobre un bloque entero en y=64
+    // eso es 65.0; sobre media losa en y=64, 64.5.
+    //
+    // ESTO CAMBIO Y ROMPIO A SUS CUATRO LLAMANTES. Antes devolvia
+    // `GetTerrainHeight`, que es el INDICE del ultimo bloque solido, y todos
+    // sus llamantes le sumaban 1 para obtener la superficie. Al pasar a
+    // devolver ya la superficie, ese `+1` heredado convirtio el suelo en un
+    // bloque de aire: el animal caminaba flotando un bloque por encima de la
+    // hierba, con las patas colgando -- exactamente lo que se reporto.
+    //
+    // El `+1` ya esta quitado de los cuatro sitios. Quien anada un llamante
+    // nuevo: NO sumes nada, esto ya es la superficie.
     float alturaSuelo(int x, int z) const override {
         if (!gen) return 64.0f;
 
-        const float base = (float)gen->GetTerrainHeight(x, z);
+        // OJO: GetTerrainHeight da el INDICE del ultimo solido, asi que su
+        // superficie esta un bloque mas arriba. Se convierte aqui para que el
+        // respaldo cumpla el mismo contrato que el camino normal -- si no, un
+        // animal fuera de los chunks cargados se hundiria medio cuerpo.
+        const int idxBase = gen->GetTerrainHeight(x, z);
+        const float base  = (float)idxBase + 1.0f;
+
         if (mundo == nullptr) return base;
 
         // Solo dentro de lo cargado: fuera no hay bloques que consultar.
@@ -28925,8 +28945,10 @@ public:
         constexpr int ARRIBA = 6;
         constexpr int ABAJO  = 24;
 
-        const int desde = (int)base + ARRIBA;
-        const int hasta = (int)base - ABAJO;
+        // Se barre desde el INDICE del relieve, no desde su superficie: lo que
+        // se busca son bloques, y `idxBase` es el ultimo solido conocido.
+        const int desde = idxBase + ARRIBA;
+        const int hasta = idxBase - ABAJO;
 
         for (int y = desde; y >= hasta && y > 0; --y) {
             if (!esSolido(x, y, z)) continue;

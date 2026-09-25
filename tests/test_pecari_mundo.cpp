@@ -167,8 +167,21 @@ TEST_CASE("Mundo: los pecaries acaban SOBRE el terreno") {
     for (const PecariAgente& p : mundo.todos()) {
         const int bx = (int)std::floor(p.x);
         const int bz = (int)std::floor(p.z);
-        const float suelo = terreno.alturaSuelo(bx, bz) + 1.0f;
-        CHECK(std::fabs(p.y - suelo) < 1.0f);
+
+        // ⚠️ SIN `+1`. `alturaSuelo` devuelve la SUPERFICIE PISABLE, no el
+        // indice del ultimo bloque solido (ver su contrato en IPecariMundo).
+        //
+        // Este test tenia el `+1` heredado de cuando si devolvia el indice, y
+        // por eso aceptaba como bueno un animal flotando un bloque por encima
+        // de la hierba -- que es justo el bug que se reporto. El test pasaba y
+        // el juego se veia mal.
+        const float suelo = terreno.alturaSuelo(bx, bz);
+
+        // Y el margen baja de 1.0 a 0.25: con un bloque de holgura, un animal
+        // flotando entero seguia dando el test por bueno. 0.25 deja sitio al
+        // suavizado de `posarEnSuelo` pero no a un bloque de aire.
+        INFO("y=", p.y, "  suelo=", suelo, "  diferencia=", p.y - suelo);
+        CHECK(std::fabs(p.y - suelo) < 0.25f);
     }
 }
 
@@ -806,10 +819,72 @@ TEST_CASE("Soltar uno: aparece donde se pide y sobre el suelo") {
     const PecariAgente& p = m.todos()[0];
     CHECK(p.x == doctest::Approx(100.0f));
     CHECK(p.z == doctest::Approx(200.0f));
-    // Sobre el terreno, no enterrado ni flotando.
-    CHECK(p.y > mundo.altura);
-    CHECK(p.y < mundo.altura + 3.0f);
+    // ⚠️ SOBRE el terreno = EXACTAMENTE en su superficie.
+    //
+    // Esto pedia `p.y > mundo.altura` estricto, que era correcto cuando
+    // `alturaSuelo` devolvia el INDICE del ultimo bloque solido y soltarUno le
+    // sumaba 1. Con el contrato actual --devuelve ya la superficie-- el animal
+    // se posa justo ahi, asi que el `>` estricto fallaba por igualdad.
+    //
+    // Se comprueba lo que de verdad importa: que no este enterrado ni
+    // flotando. El margen de 3 bloques de la version anterior era tan holgado
+    // que un animal flotando un bloque entero lo pasaba.
+    INFO("y=", p.y, "  superficie=", mundo.altura);
+    CHECK(p.y >= mundo.altura - 0.01f);
+    CHECK(p.y <= mundo.altura + 0.01f);
     CHECK(p.etapa == EtapaPecari::ADULTO);
+}
+
+TEST_CASE("Soltar uno: NO flota un bloque sobre el suelo") {
+    // ⭐⭐ EL BUG QUE SE VEIA EN PANTALLA: el pecari caminaba flotando un
+    // bloque por encima de la hierba, con las patas colgando en el aire.
+    //
+    // LA CAUSA fue un cambio de contrato sin actualizar a sus llamantes.
+    // `alturaSuelo` pasó de devolver el INDICE del ultimo bloque solido a
+    // devolver la SUPERFICIE PISABLE, y los cinco sitios que lo usaban se
+    // quedaron con el `+1` que antes hacia falta. Ese `+1` heredado es,
+    // literalmente, el bloque de aire que se veia debajo del animal.
+    //
+    // POR QUE NO LO CAZO NINGUN TEST: el que comprobaba "acaban sobre el
+    // terreno" tenia el mismo `+1` en su expectativa, asi que medía el bug
+    // contra si mismo. Y su margen era de 1.0 bloques -- justo lo que flotaba.
+    //
+    // Este test mide contra la superficie REAL y con margen estrecho.
+    MundoLlano mundo;
+    MundoPecaries m(999);
+
+    REQUIRE(m.soltarUno(50.0f, 50.0f, EtapaPecari::ADULTO, mundo) >= 0);
+    const PecariAgente& p = m.todos()[0];
+
+    const float flotacion = p.y - mundo.altura;
+    INFO("flota ", flotacion, " bloques sobre la superficie");
+
+    // Medio bloque ya se ve a simple vista; un bloque entero es el bug.
+    CHECK(flotacion < 0.5f);
+    // Y tampoco enterrado.
+    CHECK(flotacion > -0.5f);
+}
+
+TEST_CASE("Suelo: la superficie NO es el indice del bloque") {
+    // ⚠️ EL CONTRATO QUE SE ROMPIO, FIJADO COMO TEST.
+    //
+    // `alturaSuelo` devuelve donde se APOYAN LAS PEZUNAS, no el indice del
+    // ultimo bloque solido. Sobre un bloque entero en y=64 eso es 65.0.
+    //
+    // La diferencia parece trivial y no lo es: confundirlas es exactamente lo
+    // que dejo al animal flotando. Se fija aqui para que quien cambie la
+    // implementacion vea el contrato antes que el bug.
+    MundoLlano mundo;
+
+    // El mundo de prueba declara su superficie en `altura`. Lo que devuelve
+    // alturaSuelo tiene que ser ESO, sin sumas ni restas por el camino.
+    CHECK(mundo.alturaSuelo(0, 0) == doctest::Approx(mundo.altura));
+    CHECK(mundo.alturaSuelo(1000, -1000) == doctest::Approx(mundo.altura));
+
+    // Y un animal soltado ahi se posa en ese mismo numero.
+    MundoPecaries m(5);
+    REQUIRE(m.soltarUno(0.0f, 0.0f, EtapaPecari::ADULTO, mundo) >= 0);
+    CHECK(m.todos()[0].y == doctest::Approx(mundo.altura));
 }
 
 TEST_CASE("Soltar uno: la etapa pedida es la que sale") {

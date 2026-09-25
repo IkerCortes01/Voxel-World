@@ -81,7 +81,18 @@ class IPecariMundo {
 public:
     virtual ~IPecariMundo() = default;
 
-    // Altura del suelo en esa columna, en bloques. Para posar al animal.
+    // ⚠️⚠️ LA SUPERFICIE PISABLE, NO EL INDICE DEL BLOQUE.
+    //
+    // Devuelve la Y donde se apoyan las pezunas. Sobre un bloque entero en
+    // y=64 eso es 65.0; sobre media losa en y=64, 64.5.
+    //
+    // NO SE LE SUMA UNO. Este contrato cambio una vez --antes daba el indice
+    // del ultimo bloque solido y cada llamante le sumaba 1-- y los cinco
+    // sitios que lo usaban se quedaron con ese `+1` heredado. El resultado:
+    // el animal caminaba flotando un bloque por encima de la hierba, con las
+    // patas colgando en el aire.
+    //
+    // Si anades un llamante nuevo, usalo tal cual.
     virtual float alturaSuelo(int x, int z) const = 0;
 
     // Bioma de la columna. Decide si la especie vive ahi.
@@ -193,7 +204,7 @@ public:
         // genere donde marca el huevo y que las fisicas hagan el resto.
         p.y = (yForzada == yForzada)          // false solo si es NaN
             ? yForzada
-            : (mundo.alturaSuelo(px, pz) + 1.0f);
+            : (mundo.alturaSuelo(px, pz));
         p.semilla = (uint32_t)(p.id * 2654435761u) | 1u;
         p.audacia = AudaciaDeSemilla(p.semilla);
         // El ritmo (0-50) sale de la misma semilla, con otro mezclador: ver
@@ -608,7 +619,7 @@ private:
             p.idManada = idManada;
             p.x = (float)px + 0.5f;
             p.z = (float)pz + 0.5f;
-            p.y = mundo.alturaSuelo(px, pz) + 1.0f;
+            p.y = mundo.alturaSuelo(px, pz);
             p.semilla = (uint32_t)(p.id * 2654435761u) | 1u;
 
             // El caracter y la salud salen de la semilla y de la etapa, asi
@@ -658,7 +669,7 @@ private:
             p.idManada = idManada;
             p.x = (float)px + 0.5f;
             p.z = (float)pz + 0.5f;
-            p.y = mundo.alturaSuelo(px, pz) + 1.0f;
+            p.y = mundo.alturaSuelo(px, pz);
             p.semilla = (uint32_t)(p.id * 2654435761u) | 1u;
 
             // El caracter y la salud salen de la semilla y de la etapa, asi
@@ -1377,7 +1388,11 @@ private:
                              float dt) {
         const int bx = (int)std::floor(p.x);
         const int bz = (int)std::floor(p.z);
-        const float suelo = mundo.alturaSuelo(bx, bz) + 1.0f;
+
+        // ⚠️ SIN `+1`. `alturaSuelo` YA devuelve la superficie pisable (ver su
+        // contrato). Sumarle uno ponia al animal un bloque POR ENCIMA de la
+        // hierba, con las patas colgando en el aire -- el bug reportado.
+        const float suelo = mundo.alturaSuelo(bx, bz);
 
         const float diferencia = suelo - p.y;
 
@@ -1401,7 +1416,7 @@ private:
             // celda a mitad de la caida.
             const int nx = (int)std::floor(p.x);
             const int nz = (int)std::floor(p.z);
-            const float sueloAhora = mundo.alturaSuelo(nx, nz) + 1.0f;
+            const float sueloAhora = mundo.alturaSuelo(nx, nz);
 
             if (p.y <= sueloAhora) {
                 p.y = sueloAhora;
@@ -1483,14 +1498,19 @@ private:
 
         const int bx = (int)std::floor(p.x);
         const int bz = (int)std::floor(p.z);
-        const float sueloCentro = mundo.alturaSuelo(bx, bz) + 1.0f;
+        const float sueloCentro = mundo.alturaSuelo(bx, bz);
 
         auto sondear = [&](float dxLocal, float dzLocal) -> float {
             // Rotacion estandar en Y: el mismo convenio que usa el dibujo.
             const float wx = p.x + dxLocal * c + dzLocal * s;
             const float wz = p.z - dxLocal * s + dzLocal * c;
+            // Sin `+1`: alturaSuelo ya da la superficie. Y aqui importa
+            // doblemente porque lo que se devuelve es una DIFERENCIA contra
+            // `sueloCentro` -- que se calcula sin sumar nada. Con el `+1` en
+            // un lado y no en el otro, las cuatro patas creian que su suelo
+            // estaba un bloque mas alto que el del cuerpo.
             const float h = mundo.alturaSuelo((int)std::floor(wx),
-                                              (int)std::floor(wz)) + 1.0f;
+                                              (int)std::floor(wz));
             return h - sueloCentro;
         };
 

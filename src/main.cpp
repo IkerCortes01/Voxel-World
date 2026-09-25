@@ -1530,8 +1530,23 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
             // conserva canto suficiente para verse desde un lado. Sigue siendo
             // cuatro veces mas gruesa que la tira, porque una penca entera
             // tiene mas cuerpo que unas tiras cortadas.
+            //
+            // ⚠️ Y LA CAJA TIENE QUE SER LA DE LA LOSA QUE SE DIBUJA.
+            //
+            // El mesher dibuja la penca tirada con la MISMA geometria que las
+            // tiras de nopal: un cuadrado de 14 px (M..1-M) por 5 de alto.
+            // Aqui la caja salia de A0..A1, que son 8 px de ancho.
+            //
+            // Con los dos valores distintos volvia el tiron: la animacion
+            // acababa en 8 px de ancho y el dibujo de reposo la ponia en 14.
+            // Es la MISMA clase de fallo que este archivo ya ha tenido tres
+            // veces -- dos sitios calculando la misma forma por separado --
+            // asi que aqui se toman literalmente las constantes del mesher.
             if (f.tipo == BLOCK_NOPAL_FRUTO || f.tipo == BLOCK_NOPAL_MOJADO) {
                 constexpr float GRUESO_TIRADA = 5.0f / 16.0f;
+                constexpr float MARGEN_LOSA   = 1.0f / 16.0f;
+                f.minX = MARGEN_LOSA;  f.maxX = 1.0f - MARGEN_LOSA;
+                f.minZ = MARGEN_LOSA;  f.maxZ = 1.0f - MARGEN_LOSA;
                 f.minY = EPS_Y;
                 f.maxY = EPS_Y + GRUESO_TIRADA;
             }
@@ -1631,15 +1646,19 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         //
         // ⚠️ Se usan A0/A1 y c0/c1, no valores nuevos. Si alguien cambia el
         // tamano de la penca en un sitio, los dos cambian juntos.
-        const float finX0 = A0, finX1 = A1;   // identico a `case 4`
+        float finX0 = A0, finX1 = A1;   // identico a `case 4`
         float finY0 = c0, finY1 = c1;
-        const float finZ0 = A0, finZ1 = A1;
+        float finZ0 = A0, finZ1 = A1;
 
-        // Y la penca suelta acaba siendo una LAMINA de 5 px, no un ladrillo de
-        // canto de 13. Mismo valor que `case 4`, por la misma razon de
-        // siempre: si los dos no coinciden, vuelve el tiron del final.
+        // Y la penca suelta acaba siendo la LOSA que dibuja el mesher: 14 px
+        // de lado por 5 de alto, la misma geometria que las tiras de nopal.
+        // Mismos valores que `case 4`, por la razon de siempre: si los dos no
+        // coinciden, vuelve el tiron del final.
         if (f.tipo == BLOCK_NOPAL_FRUTO || f.tipo == BLOCK_NOPAL_MOJADO) {
             constexpr float GRUESO_TIRADA = 5.0f / 16.0f;
+            constexpr float MARGEN_LOSA   = 1.0f / 16.0f;
+            finX0 = MARGEN_LOSA;  finX1 = 1.0f - MARGEN_LOSA;
+            finZ0 = MARGEN_LOSA;  finZ1 = 1.0f - MARGEN_LOSA;
             finY0 = EPS_Y;
             finY1 = EPS_Y + GRUESO_TIRADA;
         }
@@ -2430,15 +2449,34 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // --- TIRAS Y BABA: la losa tumbada ---
     // Las mismas medidas que dibuja el mesher, para que el jugador toque y
     // seleccione justo donde ve la pieza.
-    if (type == BLOCK_NOPAL_TIRAS || type == BLOCK_NOPAL_SIN_BABA ||
-        type == BLOCK_NOPAL_BABA) {
-        constexpr float EPS = 0.0005f;
-        constexpr float ALTO = 3.0f / 16.0f;
-        constexpr float M    = 1.0f / 16.0f;
-        minX = M;    maxX = 1.0f - M;
-        minY = EPS;  maxY = EPS + ALTO;
-        minZ = M;    maxZ = 1.0f - M;
-        return true;
+    //
+    // ⭐ Y LA PENCA SUELTA CUANDO ESTA EN EL SUELO: misma losa, misma caja.
+    //
+    // Tiene que ir junto a las tiras y no en su propia rama, porque lo que se
+    // DIBUJA para las dos es la misma geometria (ver el mesher). Si la caja de
+    // colision se calculara aparte, el jugador chocaria con aire por encima de
+    // una pieza plana y el resaltado marcaria un cubo donde se ve una losa.
+    {
+        const bool pencaTirada =
+            (type == BLOCK_NOPAL_FRUTO || type == BLOCK_NOPAL_MOJADO) &&
+            nopalTieneApoyo(get(0, -1, 0));
+
+        if (type == BLOCK_NOPAL_TIRAS || type == BLOCK_NOPAL_SIN_BABA ||
+            type == BLOCK_NOPAL_BABA || pencaTirada) {
+            constexpr float EPS = 0.0005f;
+            const float ALTO = pencaTirada ? (5.0f / 16.0f) : (3.0f / 16.0f);
+            constexpr float M = 1.0f / 16.0f;
+
+            // Baja con el nivel parcial de debajo, igual que el dibujo.
+            float baja = 0.0f;
+            const BlockType abajoLosa = get(0, -1, 0);
+            if (esNivelParcial(abajoLosa)) baja = 1.0f - alturaDe(abajoLosa);
+
+            minX = M;          maxX = 1.0f - M;
+            minY = EPS - baja; maxY = EPS + ALTO - baja;
+            minZ = M;          maxZ = 1.0f - M;
+            return true;
+        }
     }
 
     if (!esCladodio(type) && type != BLOCK_NOPAL_FRUTO &&
@@ -22290,18 +22328,70 @@ public:
                         // La losa es plana a proposito: unas tiras cortadas o
                         // un charco de baba no tienen volumen, estan echados
                         // sobre la superficie.
+                        //
+                        // ⭐⭐ Y LA PENCA SUELTA, CUANDO ESTA EN EL SUELO.
+                        //
+                        // Se pidio que la penca tirada tenga ESTA MISMA FORMA
+                        // --la losa plana-- pero con SU textura (la de la
+                        // penca de Castilla, que ya usa: ver getBlockTexture).
+                        //
+                        // Reusar esta rama en vez de copiar la geometria es lo
+                        // que garantiza que las dos piezas se vean igual de
+                        // planas: si se duplicara, en cuanto alguien tocara una
+                        // las dos dejarian de coincidir. Es el mismo error que
+                        // ya produjo tres bugs en esta sesion (la caja de la
+                        // caida contra la de reposo, las dos listas de "suelo
+                        // firme", y la precarga de tunas contra el mesher).
+                        //
+                        // ⚠️ SOLO EN EL SUELO. La penca que crece EN LA MATA
+                        // sigue con su caja adaptativa de siempre, que es la
+                        // que le permite soldarse con el tallo y las vecinas.
+                        // Esta rama es para la pieza CORTADA que el jugador
+                        // deja caer, que es otra cosa.
+                        //
+                        // "En el suelo" se decide con nopalTieneApoyo, la misma
+                        // funcion que usan la colocacion y el mesher para lo
+                        // mismo. Acepta los NIVELES parciales, asi que la penca
+                        // se tumba igual sobre media losa -- que es lo que se
+                        // pidio ("en bloques/niveles de todos los bloques").
+                        const bool pencaEnSuelo =
+                            (block == BLOCK_NOPAL_FRUTO ||
+                             block == BLOCK_NOPAL_MOJADO) &&
+                            nopalTieneApoyo(
+                                getNeighborBlockCached(x, y, z, 0, -1, 0));
+
                         if (block == BLOCK_NOPAL_TIRAS ||
                             block == BLOCK_NOPAL_SIN_BABA ||
-                            block == BLOCK_NOPAL_BABA) {
+                            block == BLOCK_NOPAL_BABA ||
+                            pencaEnSuelo) {
                             constexpr float EPS = 0.0005f;
                             // 3 px de alto: lo justo para que se vea el canto.
-                            constexpr float ALTO = 3.0f / 16.0f;
+                            // La penca entera es algo mas gruesa que unas tiras
+                            // cortadas, pero sigue siendo una lamina.
+                            const float ALTO = pencaEnSuelo ? (5.0f / 16.0f)
+                                                            : (3.0f / 16.0f);
                             // Deja un margen para que no toque el borde del
                             // voxel y pelee con el bloque de al lado.
                             constexpr float M = 1.0f / 16.0f;
 
+                            // ⭐ SOBRE UN NIVEL PARCIAL, LA LOSA BAJA CON EL.
+                            //
+                            // Media losa llega a 0.5, no a 1.0. Sin esto la
+                            // pieza se dibuja pegada al suelo de SU voxel y
+                            // queda flotando medio bloque por encima del nivel
+                            // que deberia estar pisando.
+                            //
+                            // Es el mismo ajuste que ya hacen los guijarros.
+                            float baja = 0.0f;
+                            {
+                                const BlockType abajoLosa =
+                                    getNeighborBlockCached(x, y, z, 0, -1, 0);
+                                if (esNivelParcial(abajoLosa))
+                                    baja = 1.0f - alturaDe(abajoLosa);
+                            }
+
                             const float x0 = M,        x1 = 1.0f - M;
-                            const float y0 = EPS,      y1 = EPS + ALTO;
+                            const float y0 = EPS - baja, y1 = EPS + ALTO - baja;
                             const float z0 = M,        z1 = 1.0f - M;
 
                             auto cara = [&](float ax,float ay,float az,

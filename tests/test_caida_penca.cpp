@@ -86,24 +86,41 @@ TEST_CASE("Penca: NO se estira en ningun momento de la caida") {
     }
 }
 
-TEST_CASE("Penca: el ancho NO crece durante la caida") {
-    // ⭐ LA FORMA PRECISA DEL SINTOMA.
+TEST_CASE("Penca: el ancho crece de forma MONOTONA, sin pasarse") {
+    // ⭐ LA FORMA PRECISA DEL SINTOMA QUE SE REPORTO.
     //
-    // De pie y tumbada la penca mide lo MISMO de ancho (8 px): la caida solo
-    // la gira, no la deforma. Asi que el ancho tiene que ser constante de
-    // principio a fin.
+    // El bug era que la penca "se estiraba mucho y luego volvia a su forma":
+    // durante la caida el ancho llegaba a 15 px (el LARGO) y al acabar pegaba
+    // un tiron de vuelta a 8. Crecia y DECRECIA.
     //
-    // Con el bug crecia hasta 15 y volvia. Este test lo habria cazado.
+    // Ahora la penca tirada es la losa de 14 px --la misma forma que las tiras
+    // de nopal, que es lo que se pidio-- asi que el ancho SI cambia: la pieza
+    // se despliega de 8 a 14 al tumbarse, como una hoja que se abre.
+    //
+    // Lo que no puede pasar es que se PASE y vuelva. Eso es lo que se fija:
+    //   - nunca supera el destino
+    //   - nunca decrece
     const CajaPenca dePie  = cajaDePie(LARGO, ANCHO, GRUESO);
     const CajaPenca reposo = cajaReposoTumbada(ANCHO, GRUESO, 0.0f);
 
-    const float anchoInicial = anchoDe(dePie);
+    const float anchoFinal = anchoDe(reposo);
+    float anterior = -1.0f;
+
     for (int i = 0; i <= 20; ++i) {
         const float t = (float)i / 20.0f;
         const CajaPenca c = cajaCayendo(dePie, reposo, t);
-        INFO("t=", t, "  ancho=", anchoDe(c), "  inicial=", anchoInicial);
-        CHECK(anchoDe(c) == doctest::Approx(anchoInicial).epsilon(0.02));
+        INFO("t=", t, "  ancho=", anchoDe(c), "  destino=", anchoFinal);
+
+        // Nunca se pasa del destino: no hay estiron que luego se corrija.
+        CHECK(anchoDe(c) <= anchoFinal + 1e-4f);
+        // Y nunca retrocede.
+        CHECK(anchoDe(c) >= anterior - 1e-4f);
+        anterior = anchoDe(c);
     }
+
+    // Acaba exactamente en el destino.
+    CHECK(anchoDe(cajaCayendo(dePie, reposo, 1.0f)) ==
+          doctest::Approx(anchoFinal));
 }
 
 TEST_CASE("Penca: la caida EMPIEZA de pie") {

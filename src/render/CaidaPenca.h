@@ -71,11 +71,22 @@ struct CajaPenca {
 // verse de lado.
 constexpr float GRUESO_PENCA_TIRADA = 5.0f / 16.0f;
 
+// ⭐ Y EL LADO ES EL DE LA LOSA, NO EL ANCHO DE LA PENCA DE PIE.
+//
+// La penca tirada se dibuja con la MISMA geometria que las tiras de nopal
+// (BLOCK_NOPAL_TIRAS): un cuadrado que deja 1 px de margen a cada lado del
+// voxel, o sea 14 px de lado. Es la forma que se pidio.
+//
+// El ANCHO de la penca de pie (8 px) es otra cosa: es lo fina que es la pieza
+// vertical. Usarlo aqui daba una losa estrecha en vez del cuadrado.
+constexpr float MARGEN_LOSA_PENCA = 1.0f / 16.0f;
+
 inline CajaPenca cajaReposoTumbada(float ancho, float grosor, float bajada) {
-    (void)grosor;   // el grosor de pie NO se usa tumbada: ver la nota de arriba
-    const float m  = 0.5f - ancho * 0.5f;
-    const float a0 = m, a1 = 1.0f - m;
+    (void)ancho;    // ni el ancho ni el grosor de pie se usan tumbada:
+    (void)grosor;   // la losa tiene sus propias medidas. Ver las notas arriba.
     constexpr float EPS = 0.0005f;
+    const float a0 = MARGEN_LOSA_PENCA;
+    const float a1 = 1.0f - MARGEN_LOSA_PENCA;
     const float y0 = EPS;
     const float y1 = EPS + GRUESO_PENCA_TIRADA;
     return CajaPenca{ a0, a1, y0 - bajada, y1 - bajada, a0, a1 };

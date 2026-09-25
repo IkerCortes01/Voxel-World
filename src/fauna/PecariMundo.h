@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <cstdint>
 #include <cmath>
+#include <limits>      // el centinela NaN de soltarUno/soltarManada
 #include "PecariSpawn.h"
 #include "PecariRepoblacion.h"
 #include "PecariEntidad.h"
@@ -148,8 +149,28 @@ public:
     // punto del mundo. Esta ruta es honesta: no pretende ser natural.
     //
     // Devuelve el id del animal creado, o -1 si no cabe.
+    // ------------------------------------------------------------------------
+    // ⭐ `yForzada`: SOLTARLO DONDE SE PIDE, NO EN EL SUELO
+    // ------------------------------------------------------------------------
+    // BUG REPORTADO: al poner pecaris en creativo a 70 o mas bloques de altura,
+    // aparecian ABAJO DEL TODO y sofocados dentro del pilar.
+    //
+    // La causa es que esta funcion solo recibia X y Z: la altura la decidia
+    // ella con `alturaSuelo`, que devuelve la superficie del terreno. Daba
+    // igual que el jugador estuviera en lo alto de una torre -- el animal
+    // nacia en el suelo de esa columna, y si el pilar ocupaba esa celda,
+    // dentro de la piedra.
+    //
+    // Con `yForzada` el huevo puede decir "aqui exactamente". El valor por
+    // defecto (NaN) conserva el comportamiento de siempre para las manadas
+    // naturales, que SI deben nacer en el suelo.
+    //
+    // Se usa NaN y no -1 como centinela porque -1 es una altura valida en un
+    // mundo que baja hasta 0, y un centinela que puede confundirse con un dato
+    // real es justo la clase de detalle que acaba en bug.
     int soltarUno(float x, float z, EtapaPecari etapa,
-                  const IPecariMundo& mundo, int idManadaForzado = -1) {
+                  const IPecariMundo& mundo, int idManadaForzado = -1,
+                  float yForzada = std::numeric_limits<float>::quiet_NaN()) {
         if (pecaries.size() >= MAX_PECARIES) return -1;
 
         const int px = (int)std::floor(x);
@@ -162,7 +183,17 @@ public:
         p.idManada = (idManadaForzado >= 0) ? idManadaForzado : siguienteIdManada++;
         p.x = x;
         p.z = z;
-        p.y = mundo.alturaSuelo(px, pz) + 1.0f;
+
+        // Donde lo pide quien llama, o en el suelo si no lo pide.
+        //
+        // ⭐ Y NO SE LE FUERZA `enSuelo`: se deja en false, que es el valor por
+        // defecto del agente. Asi, si se suelta en el aire, la fisica de caida
+        // se encarga desde el primer frame -- el animal CAE hasta el suelo en
+        // vez de aparecer clavado a media altura. Es lo que se pidio: que se
+        // genere donde marca el huevo y que las fisicas hagan el resto.
+        p.y = (yForzada == yForzada)          // false solo si es NaN
+            ? yForzada
+            : (mundo.alturaSuelo(px, pz) + 1.0f);
         p.semilla = (uint32_t)(p.id * 2654435761u) | 1u;
         p.audacia = AudaciaDeSemilla(p.semilla);
         // El ritmo (0-50) sale de la misma semilla, con otro mezclador: ver
@@ -190,7 +221,8 @@ public:
     //
     // Devuelve cuantos se pusieron de verdad (puede ser menos que 'miembros'
     // si se llega al tope).
-    int soltarManada(float x, float z, int miembros, const IPecariMundo& mundo) {
+    int soltarManada(float x, float z, int miembros, const IPecariMundo& mundo,
+                     float yForzada = std::numeric_limits<float>::quiet_NaN()) {
         if (miembros < 1) miembros = 1;
 
         const int idManada = siguienteIdManada++;
@@ -208,7 +240,7 @@ public:
             const float mz = z + std::sin(ang) * rad;
 
             if (soltarUno(mx, mz, etapaSegunIndice(i, miembros),
-                          mundo, idManada) >= 0) {
+                          mundo, idManada, yForzada) >= 0) {
                 ++puestos;
             }
         }

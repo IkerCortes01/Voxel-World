@@ -142,12 +142,22 @@ struct TransHueso {
     float m[9];      // rotacion, por filas
     V3    t;         // traslacion
 
+    // ⭐ EL PIVOTE DEL HUESO, EN ESPACIO DE REPOSO.
+    //
+    // No hace falta para transformar --eso ya lo lleva `t`-- sino para
+    // CORREGIR el encogimiento del skinning lineal: un vertice a medio peso se
+    // interpola en linea recta y pierde distancia al pivote, que es lo que
+    // hundia el cuello al girar la cabeza. Teniendo el pivote a mano se le
+    // devuelve esa distancia. Ver DeformarMalla.
+    V3    pivote;
+
     static TransHueso identidad() {
         TransHueso r;
         r.m[0]=1; r.m[1]=0; r.m[2]=0;
         r.m[3]=0; r.m[4]=1; r.m[5]=0;
         r.m[6]=0; r.m[7]=0; r.m[8]=1;
         r.t = V3(0,0,0);
+        r.pivote = V3(0,0,0);
         return r;
     }
 
@@ -213,6 +223,10 @@ inline void ResolverPose(const EsqueletoReposo& esq,
                      h.pivote.y - (r[3]*h.pivote.x + r[4]*h.pivote.y + r[5]*h.pivote.z),
                      h.pivote.z - (r[6]*h.pivote.x + r[7]*h.pivote.y + r[8]*h.pivote.z));
 
+        // El pivote viaja con la transformacion: lo necesita DeformarMalla
+        // para corregir el encogimiento del skinning lineal.
+        local.pivote = h.pivote;
+
         if (h.padre < 0) {
             salida[i] = local;
         } else {
@@ -227,6 +241,17 @@ inline void ResolverPose(const EsqueletoReposo& esq,
                 }
             }
             S.t = P.aplicarPunto(local.t);
+
+            // ⚠️ El pivote se copia APARTE porque este `else` escribe S campo
+            // a campo (m y t), no con una asignacion entera como el `if` de
+            // arriba. Sin esta linea, todos los huesos con padre --o sea,
+            // TODOS menos el tronco-- se quedarian con basura y la correccion
+            // de encogimiento haria estragos.
+            //
+            // Va en espacio de REPOSO, igual que en el caso sin padre: es la
+            // posicion con la que se comparan los vertices, que tambien estan
+            // en reposo.
+            S.pivote = h.pivote;
         }
     }
 }
@@ -274,9 +299,61 @@ inline void DeformarMalla(const MallaAnimal& reposo,
             o.normal = nMov;
         } else {
             const float j = 1.0f - k;
-            o.pos = V3(v.pos.x*j + pMov.x*k,
-                       v.pos.y*j + pMov.y*k,
-                       v.pos.z*j + pMov.z*k);
+            V3 mez(v.pos.x*j + pMov.x*k,
+                   v.pos.y*j + pMov.y*k,
+                   v.pos.z*j + pMov.z*k);
+
+            // ================================================================
+            // ⭐⭐ EL CUELLO YA NO SE ENCOGE AL GIRAR LA CABEZA
+            // ================================================================
+            // BUG REPORTADO: "que no se estire el cuello cuando mira arriba,
+            // abajo, a los lados".
+            //
+            // Es el defecto clasico del skinning lineal, y aqui se veia entero
+            // porque el cuello gira hasta 65 grados a cada lado.
+            //
+            // EL PROBLEMA, en una linea: mezclar POSICIONES no es lo mismo que
+            // mezclar GIROS. Un vertice a medio peso deberia recorrer el ARCO
+            // entre su sitio quieto y su sitio girado; al interpolar en linea
+            // recta recorre la CUERDA, que es mas corta. Cuanto mas abre el
+            // angulo, mas se acorta -- y el cuello se hunde hacia dentro,
+            // que en pantalla se lee como que se estira y adelgaza.
+            //
+            //        quieto ●────────● girado      el vertice deberia ir por
+            //                ╲      ╱              el arco (arriba) y va por
+            //                 ╲    ╱               la cuerda (abajo): pierde
+            //                  ╲  ╱                distancia al pivote.
+            //                   ●                  <- posicion mezclada
+            //
+            // LA CORRECCION: la mezcla se queda, pero se le devuelve su
+            // DISTANCIA AL PIVOTE del hueso. El vertice acaba sobre el arco en
+            // vez de dentro de el, que es lo que hace que el cuello conserve
+            // su grosor al girar.
+            //
+            // POR QUE ASI Y NO CON CUATERNIONES: la alternativa correcta es
+            // interpolar la rotacion (dual quaternion skinning), pero eso
+            // obliga a cambiar el formato de TransHueso y a tocar toda la
+            // cadena de poses. Esto arregla el sintoma visible --el unico que
+            // hay, porque solo el cuello tiene pesos intermedios-- con seis
+            // lineas y sin tocar nada mas.
+            const V3& piv = trans[h].pivote;
+
+            const V3 dQuieto(v.pos.x - piv.x, v.pos.y - piv.y, v.pos.z - piv.z);
+            const V3 dMez   (mez.x  - piv.x,  mez.y  - piv.y,  mez.z  - piv.z);
+
+            const float lQuieto = dQuieto.longitud();
+            const float lMez    = dMez.longitud();
+
+            // Solo se corrige si de verdad se ha encogido y hay algo que
+            // medir. Un vertice EN el pivote no tiene direccion que escalar.
+            if (lMez > 1e-5f && lQuieto > 1e-5f && lMez < lQuieto) {
+                const float f = lQuieto / lMez;
+                mez = V3(piv.x + dMez.x * f,
+                         piv.y + dMez.y * f,
+                         piv.z + dMez.z * f);
+            }
+
+            o.pos = mez;
             o.normal = V3(v.normal.x*j + nMov.x*k,
                           v.normal.y*j + nMov.y*k,
                           v.normal.z*j + nMov.z*k).normalizado();

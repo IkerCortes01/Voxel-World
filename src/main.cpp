@@ -1195,6 +1195,7 @@ inline bool nopalTieneApoyo(BlockType b) {
            b != BLOCK_LEAVES_OYAMEL && b != BLOCK_LEAVES_OCOTE;
 }
 
+
 // ¿Este bloque encadena con un cladodio? Se unen entre si y con el resto de
 // la planta, para que una penca pegada al tallo no deje costura.
 // `propio` es el bloque que PREGUNTA. Hace falta porque una penca no encadena
@@ -1219,6 +1220,40 @@ inline bool nopalEncadena(BlockType b, BlockType propio = BLOCK_AIR) {
            b == BLOCK_NOPAL_BASE_PASTO || b == BLOCK_NOPAL_BASE_TIERRA ||
            b == BLOCK_NOPAL_BASE_ARENA || b == BLOCK_NOPAL_BASE_T_ARCILLA ||
            b == BLOCK_NOPAL_BASE_A_ARCILLA;
+}
+
+// ============================================================================
+// ⭐ ¿ESTA PENCA LA PUSO EL JUGADOR, O LA GENERO UN NOPAL?
+// ============================================================================
+// Se pidio que la penca quede acostada SOLO cuando la coloca el jugador, y que
+// las nacidas de un nopal conserven su forma de siempre.
+//
+// LAS DOS SON EL MISMO BLOQUE (BLOCK_NOPAL_FRUTO), asi que el ID no distingue.
+// Pero hay una diferencia real en el mundo: la generacion SOLO coloca pencas
+// PEGADAS a un cladodio -- comprueba `tocaCladodio` antes de escribir cada una
+// -- mientras que la que pone el jugador cae donde el apunte.
+//
+// O sea: "pegada a la planta" = generada, "suelta" = puesta a mano. No es una
+// marca guardada en el bloque, es una propiedad del sitio donde esta, y por
+// eso sobrevive a guardar y cargar el mundo sin ocupar un solo byte.
+//
+// ⚠️ TIENE QUE SER UNA FUNCION Y NO ESTAR ESCRITA EN CADA SITIO. La responden
+// TRES sitios --la forma del mesher, la caja de colision y el dibujo de la
+// losa-- y si discreparan, la penca se veria plana y se colisionaria como un
+// cubo, o al reves. Es el mismo patron que ya ha producido varios bugs aqui.
+template <typename TGet>
+inline bool pencaPuestaPorJugador(BlockType tipo, TGet get) {
+    if (tipo != BLOCK_NOPAL_FRUTO && tipo != BLOCK_NOPAL_MOJADO) return false;
+
+    // Pegada a la planta por cualquiera de sus seis caras -> es de la mata.
+    static const int CARAS[6][3] = {
+        { 1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+    };
+    for (int i = 0; i < 6; ++i) {
+        if (nopalEncadena(get(CARAS[i][0], CARAS[i][1], CARAS[i][2]), tipo))
+            return false;
+    }
+    return true;
 }
 
 constexpr int NOPAL_PATRONES      = 100;
@@ -1333,43 +1368,40 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // Solo aplica a la PENCA suelta (BLOCK_NOPAL_FRUTO). Los cladodios de una
     // mata siguen de pie aunque toquen el suelo: los sujeta la planta.
     // ========================================================================
-    // ⭐⭐ LA PENCA SUELTA SIEMPRE ESTA CAIDA. SIN CONDICIONES.
+    // ⭐⭐ CAIDA SOLO SI ESTA SUELTA. LA DE LA MATA CONSERVA SU FORMA.
     // ========================================================================
-    // BUG REPORTADO: "esta levantado el nopal la penca". Y se pidio que quede
-    // caida "como el codigo de la penca de nopal en tiras".
+    // Se pidio que la penca quede acostada SOLO cuando la coloca el jugador, y
+    // que las generadas por un nopal conserven su forma de siempre.
     //
-    // Esa es la pista buena, y describe exactamente la solucion. Mira lo que
-    // hace BLOCK_NOPAL_TIRAS (ver su rama en el mesher y en nopalHitboxCon):
+    // COMO SE DISTINGUEN, SI SON EL MISMO BLOQUE. Las dos son
+    // BLOCK_NOPAL_FRUTO, asi que el ID no sirve. Pero hay una diferencia real
+    // en el mundo: la generacion SOLO coloca pencas pegadas a un cladodio
+    // --comprueba `tocaCladodio` antes de escribir cada una-- mientras que la
+    // que pone el jugador cae donde el apunte, casi siempre lejos de la mata.
     //
-    //     minY = EPS;  maxY = EPS + ALTO;   // y ya esta
+    // `sueltaEnPlanta` es exactamente esa pregunta: cero vecinos encadenados.
+    // Ya existia y ya se calculaba aqui arriba; lo que fallaba antes era
+    // usarla como UNICA condicion junto con otras seis que competian con ella.
     //
-    // Ni una condicion. Ni orientacion, ni vecinos, ni apoyo. Unas tiras
-    // cortadas estan echadas sobre la superficie y punto -- no hay ningun
-    // sitio donde puedan ponerse de pie.
+    // Ahora es la condicion PRINCIPAL y manda sobre el resto:
     //
-    // LA PENCA TENIA LO CONTRARIO: una cadena de siete condiciones para
-    // decidir su orientacion, y CUATRO de ellas la dejaban de pie. Bastaba
-    // con que se cumpliera cualquiera:
+    //   PEGADA A LA MATA  -> sigue la cadena de orientacion de siempre, que es
+    //                        la que la alinea con sus vecinas y con el tallo.
+    //   SUELTA            -> caida, como las tiras de nopal. Sin excepciones:
+    //                        ni pared, ni diagonales, ni el hash del final
+    //                        pueden levantarla.
     //
-    //   - `sueltaEnPlanta` exige CERO vecinos encadenados... pero
-    //     `nopalEncadena` cuenta el tallo, las bases y otros cladodios. Poner
-    //     una penca cerca de un nopal la levantaba.
-    //   - las diagonales tambien suman (enX/enZ), asi que una penca en
-    //     diagonal a otra pieza bastaba para decantar un eje vertical.
-    //   - `hayPared` la ponia de canto contra cualquier muro.
-    //   - y el `else` final la orientaba AL AZAR con un hash.
+    // Lo que se conserva en los dos casos: el GIRO en el plano (el rumbo de
+    // las 8 direcciones, mas abajo), asi que dos pencas tiradas juntas no
+    // salen clonadas.
     //
-    // Cada una de esas reglas se escribio para la penca que crece EN LA MATA,
-    // donde tiene sentido que se alinee con sus vecinas. Pero la penca que el
-    // jugador COLOCA es otra cosa: es una pieza cortada, plana y pesada, que
-    // se ha caido. No tiene nada que la sujete.
-    //
-    // Asi que se hace lo que hacen las tiras: caida SIEMPRE.
-    //
-    // Lo que se conserva: el GIRO en el plano (el rumbo de las 8 direcciones,
-    // mas abajo) sigue variando, asi que dos pencas tiradas juntas no salen
-    // clonadas. Lo que desaparece es la posibilidad de que se levante.
-    const bool pencaCaida = (f.tipo == BLOCK_NOPAL_FRUTO);
+    // ⚠️ NO SE MIRA EL APOYO. Una penca suelta EN EL AIRE tambien sale caida,
+    // y es lo correcto: el jugador no puede colocar nada flotando (placeBlock
+    // lo impide) y las que caen ya pasan por la animacion. Exigir apoyo aqui
+    // reabriria el caso de "la penca se cae y se vuelve a levantar sola",
+    // porque este mesher y la colocacion tendrian que coincidir en que es
+    // suelo firme -- que es justo el bug que costo separar en su dia.
+    const bool pencaCaida = (f.tipo == BLOCK_NOPAL_FRUTO) && sueltaEnPlanta;
 
     // Progreso de la caida, si esta cayendo ahora mismo. -1 = quieta.
     f.cayendo = pencaCaidaProgreso(wx, wy, wz);
@@ -2491,9 +2523,9 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // colision se calculara aparte, el jugador chocaria con aire por encima de
     // una pieza plana y el resaltado marcaria un cubo donde se ve una losa.
     {
-        const bool pencaTirada =
-            (type == BLOCK_NOPAL_FRUTO || type == BLOCK_NOPAL_MOJADO) &&
-            nopalTieneApoyo(get(0, -1, 0));
+        // Solo la penca SUELTA (la que puso el jugador) es una losa plana. La
+        // que nace de un nopal conserva su forma de pieza de la planta.
+        const bool pencaTirada = pencaPuestaPorJugador(type, get);
 
         if (type == BLOCK_NOPAL_TIRAS || type == BLOCK_NOPAL_SIN_BABA ||
             type == BLOCK_NOPAL_BABA || pencaTirada) {
@@ -22405,11 +22437,17 @@ public:
                         // mismo. Acepta los NIVELES parciales, asi que la penca
                         // se tumba igual sobre media losa -- que es lo que se
                         // pidio ("en bloques/niveles de todos los bloques").
-                        const bool pencaEnSuelo =
-                            (block == BLOCK_NOPAL_FRUTO ||
-                             block == BLOCK_NOPAL_MOJADO) &&
-                            nopalTieneApoyo(
-                                getNeighborBlockCached(x, y, z, 0, -1, 0));
+                        // ⚠️ Y SOLO SI LA PUSO EL JUGADOR. La penca que nace
+                        // de un nopal esta pegada a la planta y conserva su
+                        // forma de siempre -- se distingue por eso, no por el
+                        // ID, que es el mismo en las dos. Ver
+                        // pencaPuestaPorJugador.
+                        const bool pencaEnSuelo = pencaPuestaPorJugador(
+                            block,
+                            [&](int dx, int dy, int dz) {
+                                return getNeighborBlockCached(x, y, z,
+                                                              dx, dy, dz);
+                            });
 
                         if (block == BLOCK_NOPAL_TIRAS ||
                             block == BLOCK_NOPAL_SIN_BABA ||
@@ -22562,8 +22600,10 @@ public:
                             //
                             // Es la misma regla que ya siguen las TIRAS de
                             // nopal: su caja es su forma, sin ajustes.
-                            const bool sueltaTirada =
-                                (block == BLOCK_NOPAL_FRUTO);
+                            // Solo la que puso el jugador: la de la mata SI
+                            // tiene que estirarse hacia sus vecinas, que es
+                            // lo que suelda la planta sin costuras.
+                            const bool sueltaTirada = pencaEnSuelo;
 
                             float bx0 = (nf.uneXm && !sueltaTirada) ? EPS        : nf.minX;
                             float bx1 = (nf.uneXp && !sueltaTirada) ? 1.0f - EPS : nf.maxX;
@@ -28813,9 +28853,77 @@ public:
     AdaptadorMundoFauna(TerrainGen::WorldGeneratorAAA* g, World* w = nullptr)
         : gen(g), mundo(w) {}
 
+    // ========================================================================
+    // ⭐⭐ LA ALTURA SALE DEL MUNDO REAL, NO DEL RELIEVE GENERADO
+    // ========================================================================
+    // DOS BUGS QUE ESTO CIERRA, Y LOS DOS TENIAN LA MISMA CAUSA:
+    //
+    //   "los pecaris FLOTAN cuando caminan en niveles del 1 al 3 o 4"
+    //   "cuando caminan por una cueva expuesta NO CAEN"
+    //
+    // Esto devolvia `GetTerrainHeight`, que es la altura del RELIEVE GENERADO:
+    // una consulta de ruido que no sabe nada de lo que hay de verdad en el
+    // mundo. Para ella no existen:
+    //
+    //   - los NIVELES PARCIALES. Una capa de 3/8 le llega al animal al
+    //     tobillo, pero el terreno base sigue estando donde estaba: el pecari
+    //     se posaba a la altura del bloque ENTERO y quedaba flotando sobre la
+    //     losa. Justo los niveles 1 a 4, como se reporto -- del 5 en adelante
+    //     `esSolido` ya los cuenta como suelo y el efecto se disimula.
+    //
+    //   - las CUEVAS. Un hueco excavado bajo tierra no cambia el ruido del
+    //     relieve, asi que seguia diciendo "el suelo esta arriba". El animal
+    //     caminaba sobre el techo de la cueva como si el agujero no existiera.
+    //
+    //   - y lo que CONSTRUYE el jugador, por lo mismo.
+    //
+    // Ahora se busca el suelo REAL bajando desde la posicion del animal con
+    // `esSolido`, que SI entiende niveles, vegetacion y cuevas (y que ya se
+    // arreglo en su dia por este mismo motivo). El relieve generado se
+    // conserva solo como respaldo: fuera de los chunks cargados no hay bloques
+    // que mirar, y es lo unico que se puede contestar.
+    //
+    // ⚠️ EL BARRIDO ESTA ACOTADO. Sin tope, una consulta sobre una columna de
+    // aire recorreria los 512 bloques de alto del mundo. 24 cubre de sobra
+    // cualquier caida que un animal pueda dar sin morirse, y por debajo de eso
+    // se cae de verdad -- que es lo que debe pasar al asomarse a una sima.
     float alturaSuelo(int x, int z) const override {
         if (!gen) return 64.0f;
-        return (float)gen->GetTerrainHeight(x, z);
+
+        const float base = (float)gen->GetTerrainHeight(x, z);
+        if (mundo == nullptr) return base;
+
+        // Solo dentro de lo cargado: fuera no hay bloques que consultar.
+        const Vec3i cp = mundo->worldToChunkPos(
+            Vec3((float)x, base, (float)z));
+        if (mundo->getChunk(cp) == nullptr) return base;
+
+        // Se empieza un poco POR ENCIMA del relieve, para no perderse lo que
+        // el jugador haya construido sobre el terreno.
+        constexpr int ARRIBA = 6;
+        constexpr int ABAJO  = 24;
+
+        const int desde = (int)base + ARRIBA;
+        const int hasta = (int)base - ABAJO;
+
+        for (int y = desde; y >= hasta && y > 0; --y) {
+            if (!esSolido(x, y, z)) continue;
+
+            // Encontrado el primer bloque solido bajando. La superficie que
+            // pisa el animal es su CARA DE ARRIBA.
+            //
+            // ⭐ Y SI ES UN NIVEL PARCIAL, esa cara no esta en y+1 sino mas
+            // abajo: media losa llega a y+0.5. Devolver y+1 es exactamente lo
+            // que hacia flotar al animal.
+            const BlockType b = mundo->getBlock(x, y, z);
+            if (esNivelParcial(b)) return (float)y + alturaDe(b);
+
+            return (float)y + 1.0f;
+        }
+
+        // Nada solido en todo el barrido: se responde el relieve base, que es
+        // lo que hacia antes. Un animal aqui esta cayendo, y eso es correcto.
+        return base;
     }
 
     TerrainGen::BiomeType biomaEn(int x, int z) const override {
@@ -33795,10 +33903,31 @@ void placeBlock(GameState* state) {
         // Donde cae. Si la mira no toca nada, se suelta unos pasos delante:
         // asi el huevo tambien sirve en campo abierto mirando al horizonte,
         // que es justo cuando uno quiere poblar una llanura.
+        // ⭐⭐ Y TAMBIEN LA ALTURA: NACE DONDE SE APUNTA.
+        //
+        // BUG REPORTADO: al poner pecaris en creativo a 70 o mas bloques de
+        // altura, aparecian ABAJO DEL TODO y sofocados dentro del pilar.
+        //
+        // La causa era que aqui solo se tomaban X y Z, y la altura la decidia
+        // `soltarUno` con `alturaSuelo` -- la superficie del terreno. Daba
+        // igual que el jugador estuviera en lo alto de una torre: el animal
+        // nacia en el suelo de esa columna, y si el pilar ocupaba esa celda,
+        // dentro de la piedra.
+        //
+        // Ahora se usa `previousPos`, que es la celda de AIRE pegada a la cara
+        // apuntada -- exactamente donde se pondria un bloque. Es el sitio que
+        // el jugador esta senalando, y esta libre por definicion.
+        //
+        // Si cae en el aire, no pasa nada: el animal nace con `enSuelo` en
+        // false y la fisica de caida lo baja desde el primer frame. Eso es lo
+        // que se pidio -- que aparezca donde marca el huevo y que las fisicas
+        // hagan el resto.
         float sx, sz;
+        float sy = std::numeric_limits<float>::quiet_NaN();   // = al suelo
         if (r.hit) {
-            sx = (float)r.blockPos.x + 0.5f;
-            sz = (float)r.blockPos.z + 0.5f;
+            sx = (float)r.previousPos.x + 0.5f;
+            sz = (float)r.previousPos.z + 0.5f;
+            sy = (float)r.previousPos.y;
         } else {
             sx = state->player.position.x + dir.x * 3.0f;
             sz = state->player.position.z + dir.z * 3.0f;
@@ -33823,12 +33952,12 @@ void placeBlock(GameState* state) {
 
         int puestos = 0;
         if (conShift) {
-            puestos = state->pecaries->soltarManada(sx, sz, 8, adaptador);
+            puestos = state->pecaries->soltarManada(sx, sz, 8, adaptador, sy);
             std::cout << "[Huevo] Manada de " << puestos
                       << " pecaries en (" << sx << ", " << sz << ")" << std::endl;
         } else {
             const int id = state->pecaries->soltarUno(
-                sx, sz, Fauna::EtapaPecari::ADULTO, adaptador);
+                sx, sz, Fauna::EtapaPecari::ADULTO, adaptador, -1, sy);
             puestos = (id >= 0) ? 1 : 0;
             std::cout << "[Huevo] Pecari adulto en (" << sx << ", " << sz << ")"
                       << std::endl;
@@ -35283,6 +35412,16 @@ void renderText(const char* text, float x, float y, float size) {
 
 // Forward declarations
 bool renameWorld(GameState* state, int worldIndex, const std::string& newName);
+
+// Cambia SOLO el `LevelName=` de un level.dat, sin tocar el resto del archivo.
+// Se define mas abajo, junto a saveLevelDat, pero renameWorld la necesita
+// antes. Ver su nota: renombrar no puede alterar los datos del mundo.
+bool renombrarEnLevelDat(const std::string& worldPath,
+                         const std::string& nombreNuevo);
+
+// Rehace los botones de la lista de mundos. Se define mas abajo, pero el
+// teclado la necesita al confirmar un renombrado con ENTER.
+void initWorldSelectButtons(GameState* state, int screenWidth, int screenHeight);
 // isAutoSave: solo chunks modificados, sin bloquear el frame (el default vive
 // aquí; las demás declaraciones deben ir sin él para no duplicarlo).
 void saveWorld(GameState* state, bool isAutoSave = false);
@@ -35361,6 +35500,25 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                     std::cout << "Mundo renombrado exitosamente!" << std::endl;
                 } else {
                     std::cout << "Error al renombrar el mundo" << std::endl;
+                }
+
+                // ⭐ REHACER LOS BOTONES, IGUAL QUE HACE EL BOTON "GUARDAR".
+                //
+                // Los botones de la lista guardan el nombre que tenian al
+                // crearse, asi que sin esto el mundo seguia rotulado con el
+                // nombre viejo hasta que algo mas los regenerara -- cambiar de
+                // pantalla y volver, por ejemplo.
+                //
+                // El raton ya lo hacia; guardar con ENTER no. O sea que el
+                // mismo cambio se veia o no segun como lo confirmaras, que es
+                // de las incoherencias mas desconcertantes para quien juega.
+                //
+                // Se llama tambien si el renombrado FALLA, por lo mismo que en
+                // la ruta del raton: deja la lista mostrando el estado real.
+                {
+                    int anchoV = 0, altoV = 0;
+                    glfwGetWindowSize(window, &anchoV, &altoV);
+                    initWorldSelectButtons(g_gameState, anchoV, altoV);
                 }
             } else {
                 if (g_gameState->editingWorldNewName.empty()) {
@@ -37613,10 +37771,25 @@ bool renameWorld(GameState* state, int worldIndex, const std::string& newName) {
 
         // Renombrar el directorio
         std::filesystem::rename(oldPath, newPath);
+
+        // ⭐⭐ Y EL NOMBRE GUARDADO DENTRO DEL MUNDO.
+        //
+        // Sin esto, el nombre nuevo NO se veia: `scanSavedWorlds` toma el
+        // nombre de la carpeta y acto seguido `loadLevelDat` lo PISA con el
+        // `LevelName=` del archivo, que seguia siendo el viejo. La carpeta se
+        // renombraba bien y la lista mostraba el nombre anterior.
+        //
+        // Se cambia SOLO esa linea, no se reescribe el level.dat entero: la
+        // funcion que lo guarda recalcula el tiempo jugado y el tamano en
+        // disco, y renombrar no puede cambiar los datos del mundo. Ver
+        // renombrarEnLevelDat.
+        renombrarEnLevelDat(newPath, newName);
+
         std::cout << "Mundo renombrado exitosamente!" << std::endl;
         std::cout << "========================" << std::endl;
 
-        // Recargar la lista de mundos
+        // Recargar la lista de mundos. Ahora si devuelve el nombre nuevo,
+        // porque el level.dat ya lo lleva.
         scanSavedWorlds(state);
 
         // Intentar mantener la selección en el mundo renombrado
@@ -39052,6 +39225,74 @@ std::string formatTimestamp(long long timestamp) {
     char buffer[64];
     strftime(buffer, sizeof(buffer), "%d/%m/%Y %H:%M", timeinfo);
     return std::string(buffer);
+}
+
+// ============================================================================
+// ⭐ CAMBIAR SOLO EL NOMBRE DE level.dat, SIN TOCAR NADA MAS
+// ============================================================================
+// BUG REPORTADO: al renombrar un mundo, el nombre nuevo no se veia al
+// instante. Y con una condicion explicita: que la INFORMACION del mundo no
+// cambie para nada.
+//
+// POR QUE NO SE VEIA. `renameWorld` renombraba la CARPETA y volvia a escanear,
+// pero `scanSavedWorlds` hace esto:
+//
+//     worldInfo.name = <nombre de la carpeta>;   // el nuevo
+//     loadLevelDat(...);                         // y esto lo PISA
+//
+// y dentro de loadLevelDat, `LevelName=` sobrescribe el nombre con el que
+// quedo guardado en el archivo -- el VIEJO. O sea que la carpeta se renombraba
+// bien y la lista seguia mostrando el nombre anterior.
+//
+// POR QUE NO SE USA saveLevelDat. Esa funcion reescribe el archivo ENTERO y de
+// paso recalcula cosas: suma la sesion actual al tiempo jugado y vuelve a
+// medir el tamano del mundo en disco. Llamarla aqui cambiaria datos del mundo
+// por el hecho de renombrarlo, que es exactamente lo que se pidio evitar.
+//
+// Asi que esto hace lo minimo: lee el archivo, cambia LA LINEA de LevelName y
+// lo vuelve a escribir tal cual. Todo lo demas --semilla, fechas, tiempo
+// jugado, posicion, modo de juego-- pasa byte a byte sin que nadie lo mire.
+//
+// Si el archivo no existe o no tiene LevelName, no pasa nada: el nombre saldra
+// de la carpeta, que ya es el nuevo.
+bool renombrarEnLevelDat(const std::string& worldPath,
+                         const std::string& nombreNuevo) {
+    const std::filesystem::path levelPath =
+        std::filesystem::path(worldPath) / "level.dat";
+
+    std::error_code ec;
+    if (!std::filesystem::exists(levelPath, ec)) return false;
+
+    // --- Leer entero ---
+    std::vector<std::string> lineas;
+    {
+        std::ifstream in(levelPath);
+        if (!in.is_open()) return false;
+        std::string l;
+        while (std::getline(in, l)) lineas.push_back(l);
+    }
+
+    // --- Cambiar SOLO la linea del nombre ---
+    bool cambiada = false;
+    for (std::string& l : lineas) {
+        // Mismo criterio que usa loadLevelDat al parsear: clave antes del '='.
+        if (l.rfind("LevelName=", 0) == 0) {
+            l = "LevelName=" + nombreNuevo;
+            cambiada = true;
+            break;   // solo puede haber una
+        }
+    }
+
+    // Si el archivo no la tenia, se anade: asi un mundo viejo sin ese campo
+    // queda con el nombre correcto a partir de ahora.
+    if (!cambiada) lineas.push_back("LevelName=" + nombreNuevo);
+
+    // --- Volver a escribir ---
+    std::ofstream out(levelPath, std::ios::trunc);
+    if (!out.is_open()) return false;
+    for (const std::string& l : lineas) out << l << "\n";
+
+    return true;
 }
 
 // ⭐⭐⭐ GUARDAR LEVEL.DAT (Como Minecraft pero mejorado con formato de texto) ⭐⭐⭐

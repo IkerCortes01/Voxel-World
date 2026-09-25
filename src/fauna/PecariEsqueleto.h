@@ -192,6 +192,35 @@ inline void CalcularPesosPecari(const MallaAnimal& malla,
             w.peso  = 128;
             break;
 
+        // --- LA CRIN: EL PELO DEL CUELLO SIGUE A LA CABEZA ---
+        //
+        // Se pidio que "el pelo del cuello reaccione al movimiento de la
+        // cabeza". No lo hacia: CRIN no tenia caso aqui, asi que caia en el
+        // `default` de arriba --TRONCO con peso 0-- y se quedaba CLAVADA
+        // mientras la cabeza giraba por debajo. El animal movia la cabeza y la
+        // cresta no se enteraba.
+        //
+        // La crin recorre el lomo de la GRUPA a la CORONILLA, asi que su
+        // reaccion tiene que ser GRADUAL: la parte de atras va con el cuerpo y
+        // la de delante con la cabeza. Un peso plano la arrancaria del lomo
+        // por un lado o la dejaria rigida por el otro.
+        //
+        // Se usa el MISMO reparto que el cuello --de zPecho a zCraneo-- para
+        // que el pelo y la piel de debajo se muevan juntos. Si cada uno
+        // siguiera su propia curva, la crin se despegaria del lomo al girar.
+        //
+        // ⚠️ Y CON EL HUESO DEL CUELLO, NO EL DE LA CABEZA. El pelo que hay
+        // sobre el craneo es poco; el grueso de la crin esta sobre el cuello,
+        // que es lo que acompana el gesto sin exagerarlo. Con el hueso de la
+        // cabeza, la cresta entera daria el bandazo completo del giro.
+        case ZonaCuerpo::CRIN: {
+            const float t = (v.pos.z - zPecho) / (zCraneo - zPecho + 1e-5f);
+            const float k = (t < 0.0f) ? 0.0f : (t > 1.0f ? 1.0f : t);
+            w.hueso = (uint8_t)HuesoAnimal::CUELLO;
+            w.peso  = (uint8_t)(k * 255.0f);
+            break;
+        }
+
         case ZonaCuerpo::COLA:
             w.hueso = (uint8_t)HuesoAnimal::COLA;
             w.peso  = 255;
@@ -290,11 +319,30 @@ inline void PoseDeMarcha(float fasePaso, float rapidez, PoseEsqueleto& pose) {
         // zancada.
         pose.giroX[(int)pa.sup] = std::sin(f) * pa.ampSup * amp;
 
-        // El codo y la rodilla solo FLEXIONAN, nunca al reves: una pata no se
-        // dobla hacia el otro lado. De ahi el max(0, ...): la articulacion se
-        // pliega en la fase de recogida y se estira del todo en la de apoyo.
+        // ====================================================================
+        // ⭐ LA PATA SE ESTIRA EN APOYO Y SOLO SE DOBLA AL RECOGERLA
+        // ====================================================================
+        // BUG REPORTADO: las patas se veian dobladas; se pidieron "rectas, con
+        // articulaciones realistas".
+        //
+        // La causa estaba en esta curva. Era `max(0, sin(f + pi/2))`, que vale
+        // mas de cero durante MEDIO CICLO ENTERO y llega a 1 en su centro. O
+        // sea: la rodilla se quedaba flexionada la mitad del tiempo, incluida
+        // buena parte de la fase en que la pata sostiene el peso.
+        //
+        // Un ungulado hace lo contrario, y es lo que le permite estar de pie
+        // sin cansarse: en APOYO la pata esta casi recta --la columna osea
+        // aguanta el peso, no el musculo-- y solo se pliega en la fase de
+        // VUELO, para que la pezuna despegue del suelo y no vaya arrastrando.
+        //
+        // La curva nueva concentra la flexion en el cuarto de ciclo del vuelo:
+        // `max(0, sin)` elevado al cuadrado cae mucho mas rapido a los lados,
+        // asi que la pata pasa la mayor parte del paso estirada.
+        //
+        //     ANTES  ▁▂▄▆█▆▄▂▁▁▁▁▁▁▁▁   flexionada medio ciclo
+        //     AHORA  ▁▁▁▂▅█▅▂▁▁▁▁▁▁▁▁   flexionada solo al recoger
         const float flex = std::sin(f + PI * 0.5f);
-        const float soloFlex = (flex > 0.0f) ? flex : 0.0f;
+        const float soloFlex = (flex > 0.0f) ? (flex * flex) : 0.0f;
 
         pose.giroX[(int)pa.med] = soloFlex * pa.ampMed * amp * pa.sentido;
         pose.giroX[(int)pa.inf] = soloFlex * pa.ampInf * amp * pa.sentido * 0.6f;

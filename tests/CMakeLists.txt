@@ -56,6 +56,7 @@ add_executable(voxel_tests
     test_teclas_menu.cpp
     test_renombrar_mundo.cpp
     test_penca_jugador.cpp
+    test_nopal_arborescente.cpp
     test_streaming_estres.cpp
     test_distancia_vision.cpp
     test_altura_mundo.cpp

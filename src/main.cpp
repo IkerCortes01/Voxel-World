@@ -1091,6 +1091,38 @@ std::vector<Fisica::PiezaCayendo> g_piezasCayendo;
 constexpr size_t MAX_BLOQUES_CAYENDO = 512;
 constexpr size_t MAX_PIEZAS_CAYENDO  = 32;
 
+// ============================================================================
+// ⭐ LO QUE SE DESPRENDE SE CONVIERTE EN ITEMS, NO EN UNA PIEZA QUE CAE
+// ============================================================================
+// Se pidio que al romper el bloque de abajo, el arbol NO se venga abajo como
+// una pieza solida: que los bloques desaparezcan y solo queden los items por
+// el suelo, como cuando se rompe un bloque a mano.
+//
+// POR QUE UNA COLA Y NO UNA LLAMADA DIRECTA.
+//
+// `desprenderEstructura` recibe `World&`, no `GameState&`, y quien crea los
+// items es `GameState::spawnItem`. Los tres sitios que llaman a
+// `revisarSoporte` tampoco tienen GameState a mano (uno de ellos esta dentro
+// de la propia fisica de caida).
+//
+// Pasar GameState por toda esa cadena obligaria a que el modulo de soporte
+// estructural conociera el inventario, las particulas y el jugador -- que es
+// justo lo que hoy NO sabe, y por eso se puede llamar desde donde sea.
+//
+// Con la cola, el desprendimiento solo APUNTA que hay que soltar algo, y el
+// bucle principal --que si tiene GameState-- lo convierte en items. Es el
+// mismo patron que ya usan `g_pencasCayendo` y `g_pastoTapado`.
+struct SueltaPendiente {
+    int x, y, z;
+    BlockType tipo;
+};
+std::vector<SueltaPendiente> g_sueltasPendientes;
+
+// Tope por si alguien derriba un bosque entero de una vez: mas alla de esto
+// los items se pierden, pero el frame no se hunde intentando crear miles de
+// entidades a la vez.
+constexpr size_t MAX_SUELTAS_PENDIENTES = 2048;
+
 // ⭐ HACIA DONDE CAE EL ARBOL
 //
 // Un arbol talado se vence hacia el lado CONTRARIO al hachazo: si le pegas
@@ -9354,16 +9386,33 @@ public:
             recipe.pattern[0] = BLOCK_WOOD_OYAMEL;
             recipes.push_back(recipe);
         }
-        // El ocote da los suyos, y tambien desde el tronco ya cortado: al
-        // talar quedan los dos IDs y seria raro que uno no sirviera.
-        {
+        // ====================================================================
+        // ⭐ LOS DOS OCOTES DAN EL MISMO TABLON
+        // ====================================================================
+        // Se pidio que "los arboles de ocote compartan la misma tablones de
+        // madera", y ademas habia un agujero: el ocote CHINO (Pinus
+        // leiophylla) no tenia NINGUNA receta de tablones. Su tronco no servia
+        // para nada -- se podia talar y quedarse con madera inutilizable.
+        //
+        // Ahora las cuatro entradas --los dos troncos de cada especie, por
+        // fuera y por dentro-- dan BLOCK_PLANKS_OCOTE.
+        //
+        // Y tiene sentido mas alla de lo practico: las dos son OCOTE. Pinus
+        // montezumae y Pinus leiophylla se aprovechan igual y su madera se
+        // vende bajo el mismo nombre; lo que las separa en el monte es la cota
+        // y la corteza, no la tabla que sale de ellas. Por eso el TRONCO de
+        // cada una conserva su textura propia (rojiza el chino, en placas
+        // gruesas el blanco) y solo se unifica el producto final.
+        //
+        // Los cuatro troncos entran porque al talar quedan los dos IDs de cada
+        // arbol --el de corteza y el del corte-- y seria raro que uno sirviera
+        // y el otro no.
+        for (BlockType tronco : { BLOCK_WOOD_OCOTE,
+                                  BLOCK_WOOD_OCOTE_DENTRO,
+                                  BLOCK_WOOD_OCOTE_CHINO,
+                                  BLOCK_WOOD_OCOTE_CHINO_DENTRO }) {
             CraftingRecipe recipe(BLOCK_PLANKS_OCOTE, 6, true);
-            recipe.pattern[0] = BLOCK_WOOD_OCOTE;
-            recipes.push_back(recipe);
-        }
-        {
-            CraftingRecipe recipe(BLOCK_PLANKS_OCOTE, 6, true);
-            recipe.pattern[0] = BLOCK_WOOD_OCOTE_DENTRO;
+            recipe.pattern[0] = tronco;
             recipes.push_back(recipe);
         }
 
@@ -31687,139 +31736,50 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
 
     if (apoyada || encontrados.empty()) return false;
 
-    // --- Se desprende: sacar del mundo y armar la pieza ---
-    Fisica::PiezaCayendo pieza;
-
-    // El ancla es el bloque mas bajo, para que la caida se mida desde ahi.
-    int anclaY = encontrados[0].y;
-    for (const Vec3i& p : encontrados) if (p.y < anclaY) anclaY = p.y;
-
-    pieza.x = (float)x;
-    pieza.y = (float)anclaY;
-    pieza.z = (float)z;
-    pieza.velocidad = 0.0f;
-
-    // Para el area frontal: cuenta COLUMNAS distintas, no bloques. Los que
-    // estan uno encima de otro se tapan entre si, y el aire solo empuja
-    // contra la silueta vista desde abajo.
+    // ========================================================================
+    // ⭐⭐ SE DESPRENDE: LOS BLOQUES DESAPARECEN Y QUEDAN LOS ITEMS
+    // ========================================================================
+    // Lo que se pidio: al romper el bloque de abajo, el arbol NO se viene
+    // abajo como una pieza solida. Los bloques se borran y en su sitio quedan
+    // los items sueltos, exactamente como al romper un bloque a mano.
     //
-    // static por lo mismo que las de arriba: se reutiliza la memoria en vez
-    // de pedirla en cada desprendimiento.
-    static std::unordered_set<long long> columnas;
-    columnas.clear();
-
+    // QUE HABIA ANTES, Y POR QUE SE CAMBIA
+    //
+    // Antes se armaba una `Fisica::PiezaCayendo`: la estructura entera bajaba
+    // como un solido, se volcaba si era mas alta que ancha, y al aterrizar se
+    // RECOLOCABA bloque a bloque en el mundo. Era vistoso, pero tenia una
+    // consecuencia que el jugador acaba notando: el arbol talado seguia ahi,
+    // ahora tumbado en el suelo, y habia que picarlo entero otra vez.
+    //
+    // Con items, talar termina en un gesto: rompes el pie y recoges.
+    //
+    // LO QUE SE SUELTA ES EL DROP REAL DE CADA BLOQUE, no el bloque en si. Asi
+    // las hojas sueltan lo que sueltan las hojas (normalmente nada) y el
+    // tronco suelta madera, igual que si se hubieran roto uno a uno. Se usa
+    // `getBlockDrops`, que es la MISMA funcion que usa el minado -- si manana
+    // cambia lo que suelta un tronco, esto cambia solo.
+    //
+    // LA COLA. Aqui no hay GameState (ver la nota de g_sueltasPendientes), asi
+    // que solo se apunta la posicion y el tipo; el bucle principal crea los
+    // items. Dos beneficios de paso: el pico de crear cientos de entidades no
+    // cae dentro del flood fill, y el tope MAX_SUELTAS_PENDIENTES protege el
+    // frame si alguien derriba un bosque.
     for (const Vec3i& p : encontrados) {
         const BlockType t = world.getBlock(p.x, p.y, p.z);
-        pieza.bloques.push_back({ p.x - x, p.y - anclaY, p.z - z, t });
-        pieza.masaTotal += Fisica::masaDe(t);
-        columnas.insert(((long long)(p.x + 1048576) << 21) |
-                        (long long)(p.z + 1048576));
+
+        if (g_sueltasPendientes.size() < MAX_SUELTAS_PENDIENTES) {
+            g_sueltasPendientes.push_back({ p.x, p.y, p.z, t });
+        }
+
         world.setBlock(p.x, p.y, p.z, BLOCK_AIR);
     }
 
-    pieza.areaTotal = (float)columnas.size() * Fisica::AREA_M2;
-
-    // ========================================================================
-    // ⭐ ¿SE VIENE ABAJO DE LADO, O CAE RECTO?
-    // ========================================================================
-    // Un ARBOL se vence: es alto, estrecho y esta clavado por el pie, asi que
-    // se tumba hacia un lado. Un trozo de terreno o una losa de piedra no:
-    // esos bajan rectos, como un bloque suelto.
-    //
-    // La diferencia se decide por la FORMA, no por el tipo de bloque: si es
-    // bastante mas alto que ancho, se comporta como un arbol. Asi una torre
-    // que hayas construido tambien se vence, sin codigo especifico para ella.
-    {
-        int altura = 1, anchoX = 1, anchoZ = 1;
-        int minDX = 0, maxDX = 0, minDZ = 0, maxDZ = 0, maxDY = 0;
-        for (const auto& b : pieza.bloques) {
-            if (b.dx < minDX) minDX = b.dx;
-            if (b.dx > maxDX) maxDX = b.dx;
-            if (b.dz < minDZ) minDZ = b.dz;
-            if (b.dz > maxDZ) maxDZ = b.dz;
-            if (b.dy > maxDY) maxDY = b.dy;
-        }
-        altura = maxDY + 1;
-        anchoX = maxDX - minDX + 1;
-        anchoZ = maxDZ - minDZ + 1;
-        const int ancho = (anchoX > anchoZ) ? anchoX : anchoZ;
-
-        // Al menos el doble de alto que ancho, y de cierta altura: por debajo
-        // de eso volcar no se aprecia y queda mas natural que baje recto.
-        if (altura >= 4 && altura >= ancho * 2) {
-            pieza.vuelca = true;
-            pieza.angulo = 0.0f;
-
-            // Cae hacia el lado CONTRARIO al hachazo. Si no hay direccion
-            // apuntada (el arbol se cayo solo, no lo talo nadie), se elige
-            // una por la posicion, para que sea siempre la misma en el mismo
-            // sitio y no cambie al recargar el mundo.
-            // ⭐ EL RUMBO ES CONTINUO, NO UNO DE CUATRO.
-            //
-            // Antes solo habia cuatro direcciones posibles (las cardinales),
-            // asi que talando un bosque todos los troncos acababan alineados
-            // en cruz -- se veia artificial de inmediato.
-            //
-            // Ahora se calcula un ANGULO completo: el arbol puede caer en
-            // cualquiera de los 360 grados. De ese angulo se derivan las dos
-            // cosas que hacen falta:
-            //
-            //   rumboX/Z   el vector exacto, que es lo que dibuja el render
-            //              mientras el arbol se vence.
-            //   volcarX/Z  el eje entero dominante, que es lo que usa el
-            //              aterrizaje para recolocar los bloques en la
-            //              rejilla de voxeles (una celda no puede estar a 37
-            //              grados).
-            float anguloCaida;
-
-            if (g_golpeDirX != 0 || g_golpeDirZ != 0) {
-                // Cae hacia el lado CONTRARIO al hachazo, que es lo que pasa
-                // de verdad: la cuña abierta por el hacha decide el lado.
-                anguloCaida = atan2f((float)(-g_golpeDirZ), (float)(-g_golpeDirX));
-
-                // ⭐ PERO NO EXACTAMENTE AL CONTRARIO.
-                //
-                // Un arbol real nunca cae en la direccion perfecta: influyen
-                // el viento, el peso de la copa y donde estaba mas podrido.
-                // Se le suma una desviacion de hasta ~28 grados, sacada de la
-                // posicion para que sea determinista -- el mismo arbol del
-                // mismo mundo cae siempre igual.
-                unsigned hd = (unsigned)(x * 73856093) ^ (unsigned)(z * 19349663)
-                            ^ (unsigned)(y * 83492791);
-                hd ^= hd >> 13; hd *= 1274126177u; hd ^= hd >> 16;
-                const float desvio = ((float)(hd % 1000u) / 1000.0f - 0.5f) * 1.0f;
-                anguloCaida += desvio;
-            } else {
-                // Se cayo solo (sin hachazo): rumbo por posicion, para que sea
-                // siempre el mismo en el mismo sitio y no cambie al recargar.
-                unsigned h = (unsigned)(x * 73856093) ^ (unsigned)(z * 19349663);
-                h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
-                anguloCaida = ((float)(h % 10000u) / 10000.0f) * 6.2831853f;
-            }
-
-            pieza.rumboX = cosf(anguloCaida);
-            pieza.rumboZ = sinf(anguloCaida);
-
-            // El eje entero dominante: el que mas pesa de los dos.
-            if (fabsf(pieza.rumboX) >= fabsf(pieza.rumboZ)) {
-                pieza.volcarX = (pieza.rumboX >= 0.0f) ? 1 : -1;
-                pieza.volcarZ = 0;
-            } else {
-                pieza.volcarX = 0;
-                pieza.volcarZ = (pieza.rumboZ >= 0.0f) ? 1 : -1;
-            }
-
-            // La altura hace falta para la velocidad del vuelco: un arbol
-            // alto se tumba mas despacio (ver aceleracionVuelco).
-            pieza.alturaBloques = (float)altura;
-        }
-    }
-
-    // Se consume la direccion del golpe: el siguiente hachazo pondra la suya.
+    // Se consume la direccion del golpe: ya no la usa nadie para volcar, pero
+    // dejarla puesta haria que el SIGUIENTE desprendimiento heredara un rumbo
+    // que no le corresponde.
     g_golpeDirX = 0;
     g_golpeDirZ = 0;
 
-    g_piezasCayendo.push_back(std::move(pieza));
     return true;
 }
 
@@ -41767,6 +41727,33 @@ int main() {
                 // cuesta nada.
                 actualizarBloquesCayendo(g_gameState, deltaTime);
                 actualizarPiezasCayendo(g_gameState, deltaTime);
+
+                // ⭐ LO QUE SE DESPRENDIO SE CONVIERTE EN ITEMS.
+                //
+                // `desprenderEstructura` borra los bloques y apunta aqui lo
+                // que habia. Se hace en el bucle principal y no alli porque
+                // crear items necesita GameState, que el modulo de soporte
+                // estructural no conoce -- ni deberia (ver
+                // g_sueltasPendientes).
+                //
+                // Se sueltan los DROPS de cada bloque, no el bloque en si:
+                // getBlockDrops es la misma funcion que usa el minado, asi que
+                // talar un arbol deja exactamente lo que dejaria picarlo
+                // bloque a bloque.
+                if (!g_sueltasPendientes.empty()) {
+                    for (const SueltaPendiente& s : g_sueltasPendientes) {
+                        const Vec3 pos((float)s.x + 0.5f,
+                                       (float)s.y + 0.5f,
+                                       (float)s.z + 0.5f);
+                        for (const BlockDrop& d :
+                                 getBlockDrops(s.tipo, s.x, s.y, s.z)) {
+                            if (d.chance < 1.0f) continue;
+                            for (int n = 0; n < d.count; ++n)
+                                g_gameState->spawnItem(pos, d.itemType);
+                        }
+                    }
+                    g_sueltasPendientes.clear();
+                }
 
                 // ⭐ VIDA: un corazon por cada hora jugada.
                 // Solo cuenta el tiempo DENTRO del mundo (no los menus ni la

@@ -313,6 +313,7 @@ struct Vec3i {
 #include "render/TexturaTuna.h"        // que imagen usa una tuna (precarga y mesher, misma lista)
 #include "render/TinteBioma.h"         // el pasto toma el color de su bioma
 #include "render/EspacioJugador.h"     // nada se materializa dentro del jugador
+#include "render/PencaDelJugador.h"    // ¿la penca la puso el jugador o un nopal?
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
@@ -1238,22 +1239,35 @@ inline bool nopalEncadena(BlockType b, BlockType propio = BLOCK_AIR) {
 // eso sobrevive a guardar y cargar el mundo sin ocupar un solo byte.
 //
 // ⚠️ TIENE QUE SER UNA FUNCION Y NO ESTAR ESCRITA EN CADA SITIO. La responden
-// TRES sitios --la forma del mesher, la caja de colision y el dibujo de la
-// losa-- y si discreparan, la penca se veria plana y se colisionaria como un
-// cubo, o al reves. Es el mismo patron que ya ha producido varios bugs aqui.
+// CUATRO sitios --la orientacion de la forma, la caja de colision, el dibujo
+// de la losa y el estirado hacia vecinos-- y si discreparan, la penca se veria
+// plana y se colisionaria como un cubo, o al reves. Es el mismo patron que ya
+// ha producido varios bugs aqui.
+//
+// ⚠️⚠️ Y MIRA TAMBIEN LAS DIAGONALES. Esto empezo mirando solo las seis caras
+// rectas, y eso la dejaba EN DESACUERDO con `sueltaEnPlanta` --la condicion
+// que usa la orientacion-- que si cuenta las diagonales a media fuerza.
+//
+// El desacuerdo se veia en un caso concreto y nada raro: una penca en diagonal
+// a un cladodio, que es justo como sale un brote del borde superior de otra.
+// `sueltaEnPlanta` la daba por pegada a la mata (se quedaba de pie) y esta
+// funcion por suelta (el mesher le dibujaba la losa plana). O sea: de pie por
+// dentro, tumbada por fuera.
+//
+// Un brote en diagonal ES parte de la planta, asi que la respuesta correcta
+// para las dos es "pegada". Por eso se miran las 18 vecindades que mira
+// `sueltaEnPlanta`: las 6 caras, las 8 diagonales verticales y las 4 esquinas
+// del plano.
+// La LISTA de vecindades vive en render/PencaDelJugador.h, junto a la
+// explicacion de por que son esas 18 y no las 6 rectas. Aqui solo se le aplica
+// `nopalEncadena`, que es lo que necesita conocer BlockType.
 template <typename TGet>
 inline bool pencaPuestaPorJugador(BlockType tipo, TGet get) {
     if (tipo != BLOCK_NOPAL_FRUTO && tipo != BLOCK_NOPAL_MOJADO) return false;
 
-    // Pegada a la planta por cualquiera de sus seis caras -> es de la mata.
-    static const int CARAS[6][3] = {
-        { 1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
-    };
-    for (int i = 0; i < 6; ++i) {
-        if (nopalEncadena(get(CARAS[i][0], CARAS[i][1], CARAS[i][2]), tipo))
-            return false;
-    }
-    return true;
+    return Render::pencaSuelta([&](int dx, int dy, int dz) {
+        return nopalEncadena(get(dx, dy, dz), tipo);
+    });
 }
 
 constexpr int NOPAL_PATRONES      = 100;
@@ -1379,11 +1393,19 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // --comprueba `tocaCladodio` antes de escribir cada una-- mientras que la
     // que pone el jugador cae donde el apunte, casi siempre lejos de la mata.
     //
-    // `sueltaEnPlanta` es exactamente esa pregunta: cero vecinos encadenados.
-    // Ya existia y ya se calculaba aqui arriba; lo que fallaba antes era
-    // usarla como UNICA condicion junto con otras seis que competian con ella.
+    // La pregunta la responde `pencaPuestaPorJugador`, que es LA MISMA que
+    // usan el mesher y la caja de colision.
     //
-    // Ahora es la condicion PRINCIPAL y manda sobre el resto:
+    // ⚠️ ANTES AQUI SE USABA `sueltaEnPlanta`, Y NO ERA EQUIVALENTE. Esa
+    // variable cuenta las diagonales a media fuerza (ver enX/enZ mas arriba);
+    // la funcion miraba solo las seis caras rectas. El desacuerdo se veia en
+    // un caso nada raro -- una penca en diagonal a un cladodio, que es justo
+    // como sale un brote del borde de otra: quedaba DE PIE por la orientacion
+    // y TUMBADA por el dibujo.
+    //
+    // Ahora las dos preguntan a la misma funcion, asi que no pueden discrepar.
+    //
+    // Y manda sobre el resto de la cadena:
     //
     //   PEGADA A LA MATA  -> sigue la cadena de orientacion de siempre, que es
     //                        la que la alinea con sus vecinas y con el tallo.
@@ -1401,7 +1423,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // reabriria el caso de "la penca se cae y se vuelve a levantar sola",
     // porque este mesher y la colocacion tendrian que coincidir en que es
     // suelo firme -- que es justo el bug que costo separar en su dia.
-    const bool pencaCaida = (f.tipo == BLOCK_NOPAL_FRUTO) && sueltaEnPlanta;
+    const bool pencaCaida = pencaPuestaPorJugador(f.tipo, get);
 
     // Progreso de la caida, si esta cayendo ahora mismo. -1 = quieta.
     f.cayendo = pencaCaidaProgreso(wx, wy, wz);
@@ -34799,16 +34821,38 @@ void placeBlock(GameState* state) {
             // excepciones-- la penca se tumba tambien sobre medio bloque, que
             // es lo que se pidio.
             //
-            // ⭐ Y SE LANZA SIEMPRE, no solo sobre "suelo firme".
+            // ⭐⭐ SOLO SI DE VERDAD VA A QUEDAR CAIDA.
             //
-            // La penca acaba CAIDA en todos los casos (ver `pencaCaida` en
-            // calcularFormaNopalCon), asi que si la animacion no se disparara
-            // en alguno, la penca apareceria tumbada DE GOLPE en vez de
-            // caerse. El gesto es el mismo la pongas donde la pongas.
+            // Desde que la penca PEGADA A UN NOPAL conserva su forma de
+            // planta, "se coloca" y "se cae" dejaron de ser lo mismo: poner
+            // una penca junto a una mata la deja DE PIE, encadenada con sus
+            // vecinas.
+            //
+            // Si la animacion se lanzara igualmente, se veria caer y volver a
+            // levantarse de golpe al terminar -- el mismo sintoma que ya costo
+            // arreglar cuando las dos condiciones no coincidian.
+            //
+            // Se pregunta a `pencaPuestaPorJugador`, que es la MISMA funcion
+            // que usan el mesher y la caja de colision. Las tres deciden
+            // siempre lo mismo porque son literalmente la misma pregunta.
+            //
+            // ⚠️ Y SE CONSULTA EL MUNDO YA ESCRITO: el bloque acaba de
+            // colocarse, asi que los vecinos que ve la funcion son los
+            // definitivos.
             if (blockToPlace == BLOCK_NOPAL_FRUTO) {
-                g_pencasCayendo.push_back({ placePos.x, placePos.y,
-                                            placePos.z,
-                                            g_tiempoJugadoSegundos });
+                const bool quedaraCaida = pencaPuestaPorJugador(
+                    blockToPlace,
+                    [&](int dx, int dy, int dz) {
+                        return state->world.getBlock(placePos.x + dx,
+                                                     placePos.y + dy,
+                                                     placePos.z + dz);
+                    });
+
+                if (quedaraCaida) {
+                    g_pencasCayendo.push_back({ placePos.x, placePos.y,
+                                                placePos.z,
+                                                g_tiempoJugadoSegundos });
+                }
             }
 
             // ⭐ SISTEMA DE AGUA: Si se coloca agua, programar actualización

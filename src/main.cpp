@@ -311,6 +311,7 @@ struct Vec3i {
 #include "render/RevisionMalla.h"      // una malla vieja no puede borrar una edicion nueva
 #include "render/TexturaTuna.h"        // que imagen usa una tuna (precarga y mesher, misma lista)
 #include "render/TinteBioma.h"         // el pasto toma el color de su bioma
+#include "render/EspacioJugador.h"     // nada se materializa dentro del jugador
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
@@ -32154,6 +32155,31 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
         int colocados = 0;
         world.abrirLote();
 
+        // ====================================================================
+        // ⭐⭐ NADA SE MATERIALIZA DENTRO DEL JUGADOR
+        // ====================================================================
+        // ESTA ERA LA SOFOCACION.
+        //
+        // `placeBlock` ya comprueba que el bloque no se ponga dentro del
+        // jugador -- esa parte estaba bien. Pero un bloque que CAE no pasa por
+        // ahi: aterriza y hace `world.setBlock` sin preguntarle a nadie. Si el
+        // jugador estaba en esa celda, se quedaba dentro de la piedra.
+        //
+        // El caso tipico era justo el pilar: colocas un bloque en el aire, se
+        // desprende, tu caes con el, y al tocar suelo el bloque se recoloca en
+        // la celda que ocupas.
+        //
+        // La caja del jugador se calcula UNA vez, fuera del bucle: se consulta
+        // por cada bloque de la pieza y no cambia entre ellos.
+        const Render::CajaJugador cajaJug = Render::cajaDelJugador(
+            state->player.position.x, state->player.position.y,
+            state->player.position.z,
+            state->player.WIDTH, state->player.HEIGHT);
+
+        auto pisaAlJugador = [&](int cx, int cy, int cz) {
+            return Render::celdaPisaAlJugador(cx, cy, cz, cajaJug);
+        };
+
         for (const auto* b : orden) {
             int cx = baseX + b->dx;
             int cy = baseY + b->dy;
@@ -32164,11 +32190,21 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
             // Si su celda esta ocupada, sube hasta encontrar hueco. Es lo que
             // hace que la estructura se pose sobre un relieve irregular en
             // vez de meterse dentro de el.
+            //
+            // ⭐ Y EL JUGADOR CUENTA COMO OCUPADA. Asi el bloque le pasa por
+            // ENCIMA en vez de dentro: es el mismo mecanismo que ya salvaba el
+            // relieve irregular, aplicado a una celda que esta "ocupada" por
+            // una persona. Si no cabe arriba, el `continue` de abajo lo
+            // descarta -- mejor perder un bloque que enterrar al jugador.
             int intentos = 0;
             while (intentos < 8 && cy < CHUNK_HEIGHT &&
-                   world.getBlock(cx, cy, cz) != BLOCK_AIR) {
+                   (world.getBlock(cx, cy, cz) != BLOCK_AIR ||
+                    pisaAlJugador(cx, cy, cz))) {
                 ++cy; ++intentos;
             }
+
+            // Si tras subir sigue encima del jugador, no se coloca.
+            if (pisaAlJugador(cx, cy, cz)) continue;
 
             if (cy >= CHUNK_HEIGHT || world.getBlock(cx, cy, cz) != BLOCK_AIR)
                 continue;
@@ -32344,11 +32380,23 @@ void actualizarBloquesCayendo(GameState* state, float deltaTime) {
                     world.setBlock(celdaX, celdaAbajo, celdaZ, fus.resultado);
 
                     // Lo que no cupo sube a la celda de encima.
-                    if (fus.sobrante != BLOCK_AIR &&
-                        celdaAbajo + 1 < CHUNK_HEIGHT &&
-                        world.getBlock(celdaX, celdaAbajo + 1, celdaZ) == BLOCK_AIR) {
-                        world.setBlock(celdaX, celdaAbajo + 1, celdaZ,
-                                       fus.sobrante);
+                    //
+                    // ⭐ Salvo que ahi este el jugador: esa celda es
+                    // justamente donde estan sus pies si se cayo un nivel
+                    // debajo de el, y meterle el sobrante lo sofocaria. Se
+                    // pierde el sobrante antes que enterrarlo.
+                    const int cyArr = celdaAbajo + 1;
+                    const bool sobreJugador = Render::celdaPisaAlJugador(
+                        celdaX, cyArr, celdaZ,
+                        Render::cajaDelJugador(
+                            state->player.position.x, state->player.position.y,
+                            state->player.position.z,
+                            state->player.WIDTH, state->player.HEIGHT));
+
+                    if (fus.sobrante != BLOCK_AIR && !sobreJugador &&
+                        cyArr < CHUNK_HEIGHT &&
+                        world.getBlock(celdaX, cyArr, celdaZ) == BLOCK_AIR) {
+                        world.setBlock(celdaX, cyArr, celdaZ, fus.sobrante);
                     }
 
                     if (g_soundManager)
@@ -32368,13 +32416,27 @@ void actualizarBloquesCayendo(GameState* state, float deltaTime) {
             // Si la celda de aterrizaje esta ocupada, se busca hueco arriba.
             // Si no lo hay en tres intentos, el bloque se pierde antes que
             // machacar lo que haya.
+            //
+            // ⭐ Y EL JUGADOR CUENTA COMO OCUPADA, igual que en las piezas
+            // (ver `pisaAlJugador` en actualizarPiezasCayendo). Un bloque que
+            // cae no pasa por la comprobacion de placeBlock, asi que sin esto
+            // aterriza DENTRO del jugador y lo deja sofocado.
+            const Render::CajaJugador cajaJugB = Render::cajaDelJugador(
+                state->player.position.x, state->player.position.y,
+                state->player.position.z,
+                state->player.WIDTH, state->player.HEIGHT);
+            auto pisaJugadorB = [&](int cy) {
+                return Render::celdaPisaAlJugador(celdaX, cy, celdaZ, cajaJugB);
+            };
+
             int intentos = 0;
             while (intentos < 3 && destinoY < CHUNK_HEIGHT &&
-                   world.getBlock(celdaX, destinoY, celdaZ) != BLOCK_AIR) {
+                   (world.getBlock(celdaX, destinoY, celdaZ) != BLOCK_AIR ||
+                    pisaJugadorB(destinoY))) {
                 ++destinoY; ++intentos;
             }
 
-            if (destinoY < CHUNK_HEIGHT &&
+            if (destinoY < CHUNK_HEIGHT && !pisaJugadorB(destinoY) &&
                 world.getBlock(celdaX, destinoY, celdaZ) == BLOCK_AIR) {
                 world.setBlock(celdaX, destinoY, celdaZ, b.tipo);
 
@@ -34478,7 +34540,36 @@ void placeBlock(GameState* state) {
                                                         placePos.y - 1,
                                                         placePos.z));
 
-                if (!esVegetacion && sinSuelo &&
+                // ============================================================
+                // ⭐⭐ EL BLOQUE QUE SOSTIENE AL JUGADOR NO SE CAE
+                // ============================================================
+                // ESTE ES EL PILAR SALTANDO, y hay que protegerlo
+                // explicitamente: se pidio arreglar la sofocacion "solo
+                // cuidando que no detenga la habilidad de colocar pilares
+                // saltando y colocando bloques desde abajo".
+                //
+                // El gesto es: saltas, y en el aire pones un bloque bajo tus
+                // pies. En ese instante el bloque NO tiene nada debajo --
+                // estas construyendo hacia arriba, el pilar aun no llega--
+                // asi que la regla de "lo que se pone en el aire se cae" lo
+                // mandaba abajo. El jugador caia con el, y al aterrizar el
+                // bloque se recolocaba DENTRO de el: sofocado.
+                //
+                // La regla correcta no es "tiene suelo" sino "hay algo que lo
+                // justifique". Un bloque puesto justo bajo los pies del
+                // jugador lo sostiene a EL, que es soporte de sobra: es
+                // exactamente lo que hace un andamio.
+                //
+                // Se mira la columna del jugador y una franja de un bloque por
+                // debajo de sus pies, que es donde cae el bloque del pilar.
+                const bool bajoLosPies = Render::sostieneAlJugador(
+                    placePos.x, placePos.y, placePos.z,
+                    Render::cajaDelJugador(
+                        state->player.position.x, state->player.position.y,
+                        state->player.position.z,
+                        state->player.WIDTH, state->player.HEIGHT));
+
+                if (!esVegetacion && sinSuelo && !bajoLosPies &&
                     g_piezasCayendo.size() < MAX_PIEZAS_CAYENDO) {
 
                     // Se saca del mundo y se manda a caer como pieza de un

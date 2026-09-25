@@ -134,6 +134,86 @@ TEST_CASE("Texturas: las del maguey estan y con el nombre correcto") {
     }
 }
 
+TEST_CASE("Texturas: las del pasto y la tierra estan") {
+    // ⭐ SE ROMPIO UNA VEZ, Y ASI ES COMO.
+    //
+    // Al sustituir las texturas de pasto, los .png originales se borraron y
+    // en su sitio quedaron .jfif con otro nombre. El codigo sigue pidiendo los
+    // nombres de siempre --son literales en getBlockTexture-- asi que el
+    // mundo se habria quedado sin textura de pasto hasta que alguien mirara.
+    //
+    // No da error al compilar ni al arrancar: `getTexture` devuelve 0 y el
+    // mesher lo interpreta como "aun no esta, reintenta", asi que el bloque
+    // sale sin textura y el juego lo reintenta para siempre.
+    const std::string raiz = raizProyecto();
+    REQUIRE_FALSE(raiz.empty());
+
+    const std::string dir = raiz + "resourcepacks/Textures/Blocks/";
+    const char* DEL_SUELO[] = {
+        // Pasto: cara de arriba, costado y sus variantes floridas.
+        "Bloque de pasto up.png",
+        "Bloque de pasto up 1v.png",
+        "Bloque de pasto.png",
+        "Bloque de pasto 1v.png",
+
+        // La hierba corta. Es un SPRITE EN CRUZ, asi que ademas necesita
+        // canal alfa -- ver el test de abajo.
+        "Pasto corto.png",
+
+        // Tierra y sus variantes.
+        //
+        // ⚠️ "Bloque de Tierra.png", y no "Tierra.png": el codigo pedia el
+        // segundo en CINCO sitios y ese archivo nunca existio. La tierra
+        // llevaba todo este tiempo sin textura, sin dar un solo error.
+        "Bloque de Tierra.png",
+        "Tierra arcillosa.png",
+        "Tierra negra fertil.png",
+    };
+
+    for (const char* t : DEL_SUELO) {
+        INFO("textura del suelo: ", t);
+        CHECK(existe(dir + t));
+    }
+}
+
+TEST_CASE("Texturas: la hierba corta tiene canal alfa") {
+    // ⭐⭐ LO QUE UN .jpg NO PUEDE DAR.
+    //
+    // `Pasto corto` es un sprite en cruz: dos quads cruzados con la silueta de
+    // la mata recortada. Si su imagen no tiene canal alfa, el recorte
+    // desaparece y la hierba se dibuja como un CUADRADO VERDE opaco.
+    //
+    // Es justo lo que habria pasado al sustituirla por un JPEG, que no tiene
+    // alfa por definicion. Por eso se convirtio a PNG con el fondo blanco
+    // pasado a transparente.
+    //
+    // Se comprueba leyendo la cabecera del PNG: el byte 25 es el tipo de
+    // color, y 6 = RGBA (4 = gris+alfa tambien valdria).
+    const std::string raiz = raizProyecto();
+    REQUIRE_FALSE(raiz.empty());
+
+    const std::string ruta =
+        raiz + "resourcepacks/Textures/Blocks/Pasto corto.png";
+    REQUIRE(existe(ruta));
+
+    std::ifstream f(ruta, std::ios::binary);
+    REQUIRE(f.is_open());
+
+    unsigned char cab[26] = {0};
+    f.read(reinterpret_cast<char*>(cab), sizeof(cab));
+
+    // Firma PNG: 89 50 4E 47
+    REQUIRE(cab[0] == 0x89);
+    REQUIRE(cab[1] == 'P');
+    REQUIRE(cab[2] == 'N');
+    REQUIRE(cab[3] == 'G');
+
+    const int tipoColor = (int)cab[25];
+    INFO("tipo de color PNG = ", tipoColor, " (4 = gris+alfa, 6 = RGBA)");
+    const bool tieneAlfa = (tipoColor == 4 || tipoColor == 6);
+    CHECK(tieneAlfa);
+}
+
 TEST_CASE("Texturas: el codigo ya no pide los nombres viejos") {
     // Las texturas se renombraron de 'Maguei' a 'Maguey' y el codigo se quedo
     // con los viejos. Esto comprueba que no vuelvan a colarse.

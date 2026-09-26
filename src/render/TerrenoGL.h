@@ -86,8 +86,21 @@ typedef void (APIENTRY *PFN_glVertexAttribPointer)(GLuint, GLint, GLenum, GLbool
 typedef void (APIENTRY *PFN_glEnableVertexAttribArray)(GLuint);
 typedef void (APIENTRY *PFN_glDisableVertexAttribArray)(GLuint);
 
+// ⭐ LOS MIPMAPS, QUE ESTE MOTOR NO TENIA.
+//
+// Sin ellos, una textura mas grande que el area que ocupa en pantalla CENTELLEA
+// al moverse: cada frame se muestrea un texel distinto de los muchos que caen
+// dentro de un mismo pixel. Con 16x16 apenas se notaba; con una textura HD de
+// 2048x2048 el suelo entero hierve.
+//
+// `glGenerateMipmap` es de GL 3.0, asi que va por wglGetProcAddress como todo
+// lo demas de este header. Si la GPU no lo trae, se queda en nullptr y el motor
+// sigue como siempre -- sin mipmaps, pero funcionando.
+typedef void (APIENTRY *PFN_glGenerateMipmap)(GLenum);
+
 inline PFN_glTexImage3D              pglTexImage3D = nullptr;
 inline PFN_glTexSubImage3D           pglTexSubImage3D = nullptr;
+inline PFN_glGenerateMipmap          pglGenerateMipmap = nullptr;
 inline PFN_glActiveTexture           pglActiveTexture = nullptr;
 inline PFN_glCreateShader            pglCreateShader = nullptr;
 inline PFN_glShaderSource            pglShaderSource = nullptr;
@@ -217,6 +230,10 @@ inline bool cargarFunciones() {
     auto get = [](const char* n) { return (void*)wglGetProcAddress(n); };
     pglTexImage3D    = (PFN_glTexImage3D)get("glTexImage3D");
     pglTexSubImage3D = (PFN_glTexSubImage3D)get("glTexSubImage3D");
+    // ⚠️ NO entra en el `return` de abajo: los mipmaps son una MEJORA, no un
+    // requisito. Sin ellos el motor dibuja igual (con centelleo en las
+    // texturas grandes), asi que no puede tumbar el camino del shader.
+    pglGenerateMipmap = (PFN_glGenerateMipmap)get("glGenerateMipmap");
     pglActiveTexture = (PFN_glActiveTexture)get("glActiveTexture");
     pglCreateShader  = (PFN_glCreateShader)get("glCreateShader");
     pglShaderSource  = (PFN_glShaderSource)get("glShaderSource");

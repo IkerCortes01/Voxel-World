@@ -120,7 +120,7 @@ TEST_CASE("Texturas: las del maguey estan y con el nombre correcto") {
 
     const std::string dir = raiz + "resourcepacks/Textures/Blocks/";
     const char* DEL_MAGUEY[] = {
-        "Maguey.png",                  // el cuerpo de la planta
+        "Penca de Maguey.png",         // el cuerpo de la planta
         "Puntas de Maguey.png",        // las espinas
         "Maguei por dentro.png",       // el cajete abierto
         "Tallo de Maguey en Pasto.png",

@@ -369,10 +369,24 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
     // soltaba una nube de particulas BLANCAS en vez de verdes -- se veia como
     // si estuviera hecho de nieve.
     if (Compuesto::esCompuesto(type)) {
-        if (Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY) {
-            // El verde azulado del agave, mas apagado que la hierba.
-            r = 0.28f; g = 0.45f; b = 0.26f;
-            return;
+        switch (Compuesto::familiaDe(type)) {
+            case Compuesto::FAM_MAGUEY:
+                // El verde azulado del agave, mas apagado que la hierba.
+                r = 0.28f; g = 0.45f; b = 0.26f;
+                return;
+            case Compuesto::FAM_AGAVE_AZUL:
+                // El azul plateado de la cera del tequilana. Le faltaba su
+                // rama: caia al default y sus particulas salian BLANCAS, el
+                // mismo sintoma que este bloque existe para evitar.
+                r = 0.52f; g = 0.62f; b = 0.58f;
+                return;
+            case Compuesto::FAM_AGAVE_ABISAII:
+                // Verde glauco: mas claro y mas gris que el pulquero, pero
+                // sin llegar al azul del tequilana.
+                r = 0.42f; g = 0.54f; b = 0.38f;
+                return;
+            default:
+                break;
         }
     }
     switch (type) {
@@ -798,6 +812,18 @@ static long long g_nDescarteUrgente = 0;
 // igual y el chunk se remalla -- pero si sube mucho indica que la ventana entre
 // encolar y entregar se ha hecho demasiado larga.
 static long long g_nMallaDesfasada = 0;
+
+// ⭐ POR QUE UN CHUNK NO SE FUNDE EN UN SOLO RANGO DE DIBUJO.
+//
+// Fundir exige que TODOS los batches del chunk tengan capa en el array de
+// texturas. Basta una textura fuera para tumbar el chunk entero al camino
+// lento (~10 rangos en vez de 3).
+//
+// `g_texSinCapa` guarda la PRIMERA culpable: es el dato que convierte "el
+// render va lento" en "esta textura concreta es la que falta".
+static long long g_nBatchSinCapa   = 0;
+static long long g_nChunkSinFundir = 0;
+static unsigned  g_texSinCapa      = 0;
 
 // Guard RAII: enciende la bandera mientras dura el ambito y la apaga al salir,
 // tambien si hay un `return` a mitad o salta una excepcion. Se anida sin
@@ -3300,6 +3326,13 @@ bool shouldRenderFace(BlockType currentBlock, BlockType neighborBlock) {
     // ⭐ Con niveles hay una excepcion: dos celdas de agua a DISTINTA altura
     // si necesitan la cara que las separa, o el escalon entre una celda llena
     // y una a medias se veria como un corte transparente al vacio.
+    //
+    // ⚠️ ESTA VERSION NO SABE QUE CARA LE PIDEN, y por eso el agua tenia
+    // caras que faltaban y otras que se veian del reves. La buena es
+    // `deberiaDibujarCaraAgua()`, justo debajo, que si recibe la direccion.
+    // Esta se conserva porque la llaman rutas que no son el mesher del agua
+    // (y alli el resultado por altura es inofensivo), pero para el agua la
+    // respuesta correcta depende de si la cara mira arriba, abajo o al lado.
     if (esAguaCualquiera(currentBlock)) {
         if (!esAguaCualquiera(neighborBlock)) return true;
         return Compuesto::Agua::alturaVisual(currentBlock) !=
@@ -3329,6 +3362,77 @@ bool shouldRenderFace(BlockType currentBlock, BlockType neighborBlock) {
     if (!isBlockOpaque(currentBlock)) return true;
     if (isBlockOpaque(neighborBlock)) return false;
     return true;
+}
+
+// ============================================================================
+// ⭐⭐ QUE CARAS DEL AGUA SE DIBUJAN, SABIENDO CUAL ES CADA UNA
+// ============================================================================
+// BUG REPORTADO: "los niveles y bloques de agua, al verlos de frente o desde
+// cualquier angulo, se ve a traves de ellos o desaparecen algunas caras".
+//
+// LA CAUSA. `shouldRenderFace` recibe SOLO los dos bloques: no sabe si le
+// estan preguntando por la cara de arriba, la de abajo o un lateral. Para
+// todo lo demas da igual --dos piedras no necesitan la cara entre ellas, mire
+// donde mire-- pero el agua con niveles NO es simetrica: ocupa la parte baja
+// del cubo y deja aire encima. La respuesta correcta depende de la direccion,
+// y la version ciega se equivocaba en las tres a la vez:
+//
+//   ARRIBA. Con dos celdas del MISMO nivel devolvia false, asi que la
+//   superficie de un mar plano no se dibujaba en ningun sitio... salvo que la
+//   celda de encima fuese aire, donde el primer `if` ya devolvia true. El
+//   resultado era una superficie que aparecia y desaparecia segun el vecino.
+//
+//   ABAJO. Una celda de agua sobre otra MENOS llena devolvia true --alturas
+//   distintas-- y dibujaba un suelo de agua flotando DENTRO de la de abajo,
+//   visible a traves de ella.
+//
+//   LADOS. Es el caso que se ve peor. Entre una celda llena y una a medias hay
+//   un escalon de pared mojada que SI hay que dibujar; pero la version ciega
+//   comparaba la altura sin mirar CUAL de las dos es mas alta, asi que las DOS
+//   celdas emitian esa pared, una dentro de la otra. Dos caras en el mismo
+//   plano con transparencia y sin orden definido: z-fighting, y el agua se ve
+//   "a traves" segun el angulo. Eso es exactamente el sintoma reportado.
+//
+// LA REGLA, en una linea por caso:
+//
+//   ARRIBA  se dibuja si encima no hay agua que continue el volumen. Una
+//           celda llena bajo otra llena no tiene superficie: es agua interior.
+//   ABAJO   NUNCA contra otra agua. El fondo de una celda apoyada sobre agua
+//           no existe; solo se ve el del fondo del todo, contra el terreno.
+//   LADOS   solo la celda MAS ALTA dibuja el escalon, y solo la parte que
+//           sobresale. La mas baja no dibuja nada: su pared esta sumergida.
+//
+// El `dy` distingue las tres: +1 arriba, -1 abajo, 0 lateral.
+inline bool deberiaDibujarCaraAgua(BlockType agua, BlockType vecino, int dy) {
+    // Contra cualquier cosa que no sea agua manda la regla de siempre.
+    if (!esAguaCualquiera(vecino)) return shouldRenderFace(agua, vecino);
+
+    const float hPropia = Compuesto::Agua::alturaVisual(agua);
+    const float hVecina = Compuesto::Agua::alturaVisual(vecino);
+
+    // --- ARRIBA ---
+    // Solo hay superficie si esta celda esta llena y la de encima tambien
+    // tiene agua: entonces el volumen continua y no hay lamina que pintar.
+    // Si esta celda NO esta llena, su superficie queda por debajo del techo
+    // del cubo y hay que dibujarla aunque arriba haya agua (puede ser una
+    // celda de agua cayendo, que no llena su cubo).
+    if (dy > 0) {
+        constexpr float LLENA = 1.0f;
+        return hPropia < LLENA;
+    }
+
+    // --- ABAJO ---
+    // Contra otra agua no hay fondo que dibujar: seria una tapa metida dentro
+    // del volumen de la celda inferior, visible a traves de ella.
+    if (dy < 0) return false;
+
+    // --- LATERALES ---
+    // El escalon lo dibuja SOLO la celda mas alta, y solo si de verdad
+    // sobresale. Con la desigualdad estricta, dos celdas iguales no emiten
+    // nada (no hay pared entre dos aguas al mismo nivel) y de un par desigual
+    // emite una sola: la alta. Sin esto las dos dibujaban la misma pared y
+    // peleaban por el mismo plano.
+    return hPropia > hVecina;
 }
 
 // ============================================================================
@@ -5138,6 +5242,33 @@ private:
     // textura se registra ANTES de que su handle pueda llegar a un worker.
     static constexpr int MAX_CAPAS  = 256;   // el byte de la capa da para esto
     static constexpr int MAX_HANDLE = 4096;
+
+    // ========================================================================
+    // ⭐ RESOLUCION DEL ARRAY: LO QUE PERMITE TEXTURAS HD
+    // ========================================================================
+    // El array era de 16x16 fijos, y `registrarCapa` rechazaba cualquier otra
+    // medida con un `return` mudo. Consecuencia: una textura de 2048x2048 se
+    // cargaba bien como GL_TEXTURE_2D pero NO entraba al array.
+    //
+    // Y eso no era un detalle cosmetico. Basta con que UN batch de un chunk no
+    // tenga capa para que ese chunk entero vuelva al dibujado por textura
+    // (ver `fundir` en subirMallaAGPU): de 3 rangos a ~11. Como el pasto esta
+    // en casi todos los chunks, una sola textura HD de pasto habria tirado el
+    // mundo entero al camino lento.
+    //
+    // Ahora el array es de LADO_CAPA y las texturas de otro tamano se
+    // REESCALAN al entrar. Asi:
+    //   - de cerca se ve la textura completa (el GL_TEXTURE_2D de siempre)
+    //   - de lejos, cuando el motor funde chunks, se ve la version del array
+    //
+    // 64 y no 16: es la resolucion a la que el array deja de ser el limite del
+    // detalle visible a media distancia. Cuesta 16 veces mas VRAM que 16x16,
+    // que en total son 256 capas * 64*64*4 = 4 MB. Despreciable frente a los
+    // 16 MB que ocupa UNA SOLA textura de 2048x2048.
+    //
+    // Subirlo mas no compensa: a la distancia en la que el motor funde chunks,
+    // un texel de 64 ya cae por debajo de un pixel de pantalla.
+    static constexpr int LADO_CAPA = 64;
     GLuint arrayTex = 0;
     int capasUsadas = 0;
     int capaPorHandle[MAX_HANDLE];
@@ -5157,7 +5288,7 @@ public:
 
         glBindTexture(GL_TEXTURE_2D_ARRAY, arrayTex);
         Render::pglTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA,
-                              16, 16, MAX_CAPAS, 0,
+                              LADO_CAPA, LADO_CAPA, MAX_CAPAS, 0,
                               GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         if (glGetError() != GL_NO_ERROR) {
             glDeleteTextures(1, &arrayTex);
@@ -5188,7 +5319,8 @@ public:
         #endif
         GLint maxCapas = 0;
         glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxCapas);
-        std::cout << "[ARRAY] Listo: " << MAX_CAPAS << " capas de 16x16"
+        std::cout << "[ARRAY] Listo: " << MAX_CAPAS << " capas de "
+                  << LADO_CAPA << "x" << LADO_CAPA
                   << " (la GPU admite " << maxCapas << ")" << std::endl;
         return true;
     }
@@ -5197,31 +5329,131 @@ public:
     // las demas (UI, iconos grandes) no las dibuja nunca el mesher.
     void registrarCapa(GLuint handle, int w, int h, int channels,
                        const unsigned char* data) {
-        if (!arrayListo || !data) return;
-        if (w != 16 || h != 16) return;
-        if (handle == 0 || handle >= MAX_HANDLE) return;
-        if (capaPorHandle[handle] >= 0) return;         // ya tiene
-        if (capasUsadas >= MAX_CAPAS) return;           // array lleno
+        // ⭐ LOS RECHAZOS SE DICEN, NO SE CALLAN.
+        //
+        // Este `return` mudo es lo que escondio durante mucho tiempo que las
+        // texturas grandes no entraban al array. Un rechazo silencioso aqui
+        // tira el chunk entero al camino lento (~10 rangos en vez de 3) sin
+        // que nada lo diga.
+        //
+        // Con el motivo en el log, "el render va lento" pasa a ser "esta
+        // textura concreta no entro, y por esto".
+        auto rechazo = [&](const char* motivo) {
+            static std::set<GLuint> yaAvisados;
+            if (yaAvisados.insert(handle).second) {
+                std::cout << "[ARRAY] textura " << handle << " (" << w << "x" << h
+                          << ") fuera del array: " << motivo << std::endl;
+            }
+        };
 
-        // El array es RGBA; una textura sin alfa se completa con opaco.
-        const unsigned char* rgba = data;
-        std::vector<unsigned char> conversion;
-        if (channels != 4) {
-            conversion.resize(16 * 16 * 4, 255);
-            for (int i = 0; i < 16 * 16; ++i)
-                for (int c = 0; c < 3; ++c)
-                    conversion[i * 4 + c] =
-                        (channels >= 3) ? data[i * channels + c] : data[i * channels];
-            rgba = conversion.data();
+        if (!arrayListo || !data) return;
+        if (w <= 0 || h <= 0) { rechazo("tamano invalido"); return; }
+        if (handle == 0 || handle >= MAX_HANDLE) { rechazo("handle fuera de rango"); return; }
+        if (capaPorHandle[handle] >= 0) return;         // ya tiene
+        if (capasUsadas >= MAX_CAPAS) { rechazo("array lleno"); return; }
+
+        // ====================================================================
+        // ⭐ CUALQUIER TAMANO ENTRA: SE REESCALA A LA RESOLUCION DEL ARRAY
+        // ====================================================================
+        // Antes habia aqui un `if (w != 16 || h != 16) return;` -- un rechazo
+        // MUDO. Una textura de 2048x2048 se cargaba perfectamente como
+        // GL_TEXTURE_2D y se quedaba fuera del array sin que nada lo dijera.
+        //
+        // Y el precio era alto: basta con que UN batch de un chunk no tenga
+        // capa para que el chunk entero vuelva al dibujado por textura (ver
+        // `fundir`), de 3 rangos a ~11. Con el pasto en casi todos los chunks,
+        // una sola textura HD habria tirado el mundo al camino lento.
+        //
+        // EL REESCALADO ES POR AREA, NO POR VECINO MAS CERCANO.
+        //
+        // Reducir 2048 -> 64 significa que cada texel de destino cubre 32x32
+        // de origen. Tomar solo uno de esos 1024 pixeles (nearest) da un
+        // resultado que CAMBIA por completo segun cual toque: una brizna de
+        // hierba clara puede convertirse en un texel casi blanco. Promediando
+        // el bloque entero, el color resultante es el que el ojo ve al mirar
+        // esa zona de lejos, que es exactamente para lo que sirve esta copia.
+        std::vector<unsigned char> escalada(LADO_CAPA * LADO_CAPA * 4, 255);
+
+        for (int dy = 0; dy < LADO_CAPA; ++dy) {
+            // Bloque del origen que cae en esta fila de destino.
+            const int sy0 = (dy * h) / LADO_CAPA;
+            int sy1 = ((dy + 1) * h) / LADO_CAPA;
+            if (sy1 <= sy0) sy1 = sy0 + 1;              // al menos una fila
+
+            for (int dx = 0; dx < LADO_CAPA; ++dx) {
+                const int sx0 = (dx * w) / LADO_CAPA;
+                int sx1 = ((dx + 1) * w) / LADO_CAPA;
+                if (sx1 <= sx0) sx1 = sx0 + 1;
+
+                unsigned long acum[4] = { 0, 0, 0, 0 };
+                unsigned long n = 0;
+
+                for (int sy = sy0; sy < sy1 && sy < h; ++sy) {
+                    for (int sx = sx0; sx < sx1 && sx < w; ++sx) {
+                        const unsigned char* p =
+                            data + ((size_t)sy * w + sx) * channels;
+
+                        if (channels >= 3) {
+                            acum[0] += p[0]; acum[1] += p[1]; acum[2] += p[2];
+                        } else {
+                            // Escala de grises: el mismo valor en los tres.
+                            acum[0] += p[0]; acum[1] += p[0]; acum[2] += p[0];
+                        }
+                        acum[3] += (channels == 4) ? p[3] : 255;
+                        ++n;
+                    }
+                }
+
+                if (n == 0) n = 1;
+                unsigned char* d =
+                    &escalada[((size_t)dy * LADO_CAPA + dx) * 4];
+                d[0] = (unsigned char)(acum[0] / n);
+                d[1] = (unsigned char)(acum[1] / n);
+                d[2] = (unsigned char)(acum[2] / n);
+                d[3] = (unsigned char)(acum[3] / n);
+            }
         }
 
         glBindTexture(GL_TEXTURE_2D_ARRAY, arrayTex);
         Render::pglTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
-                                 0, 0, capasUsadas, 16, 16, 1,
-                                 GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+                                 0, 0, capasUsadas,
+                                 LADO_CAPA, LADO_CAPA, 1,
+                                 GL_RGBA, GL_UNSIGNED_BYTE, escalada.data());
         glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
         capaPorHandle[handle] = capasUsadas++;
+
+        // ⭐ REHACER LOS MIPMAPS DEL ARRAY.
+        //
+        // El array se dibuja a media y larga distancia --es el camino de los
+        // chunks fundidos-- asi que es justo donde el centelleo se ve mas.
+        //
+        // Se regenera el array ENTERO en cada capa nueva, y es aceptable
+        // porque solo ocurre al CARGAR una textura: son ~130 veces en toda la
+        // partida, casi todas en el arranque. Hacerlo por capa suelta no es
+        // posible con glGenerateMipmap, que trabaja sobre el objeto completo.
+        if (Render::pglGenerateMipmap) {
+            glBindTexture(GL_TEXTURE_2D_ARRAY, arrayTex);
+            Render::pglGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+            if (glGetError() == GL_NO_ERROR) {
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER,
+                                GL_LINEAR_MIPMAP_LINEAR);
+            }
+            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        }
+    }
+
+    // El nombre de archivo de un handle, buscando en el cache al reves.
+    //
+    // Solo para DIAGNOSTICO: es una busqueda lineal sobre el mapa de texturas
+    // y se llama como mucho una vez por partida, cuando se detecta la primera
+    // textura sin capa. Un numero de handle no dice que arreglar; un nombre
+    // de archivo si.
+    std::string nombreDe(GLuint handle) const {
+        std::shared_lock<std::shared_mutex> lock(texturasMutex);
+        for (const auto& par : textures)
+            if (par.second == handle) return par.first;
+        return "(desconocida)";
     }
 
     // La capa de una textura, o -1 si no tiene. La leen los workers.
@@ -5277,6 +5509,43 @@ public:
         int width, height, channels;
         stbi_set_flip_vertically_on_load(true); // Voltear verticalmente para OpenGL (PNG origin = top-left, OpenGL origin = bottom-left)
         unsigned char* data = stbi_load(fullPath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+
+        // ====================================================================
+        // ⭐⭐ `channels` ES DEL ARCHIVO; EL BUFFER SIEMPRE TIENE 4
+        // ====================================================================
+        // BUG REPORTADO: "la arena, grava, troncos, pasto son de color azul
+        // claro con blanco".
+        //
+        // LA CAUSA. Se pide STBI_rgb_alpha, que convierte SIEMPRE a RGBA, pero
+        // `channels` no dice cuantos canales tiene el BUFFER: dice cuantos
+        // tenia el ARCHIVO. Un PNG sin transparencia devuelve channels = 3 y
+        // un buffer de 4 bytes por pixel. Los dos consumidores se lo creian:
+        //
+        //   1. glTexImage2D cogia GL_RGB y leia el buffer de 3 en 3 sobre
+        //      datos de 4. Cada pixel se desplaza un byte mas que el anterior,
+        //      asi que el rojo del pixel N acaba siendo el alfa del N-1: la
+        //      imagen sale con los canales rotados y desplazandose en
+        //      diagonal. Con alfa 255 en todas partes, el canal que se cuela
+        //      es blanco -- de ahi el lavado a blanco azulado.
+        //
+        //   2. registrarCapa avanzaba `* channels` sobre el mismo buffer, con
+        //      el mismo desfase, asi que la copia del array salia igual de
+        //      rota. Por eso el fallo se ve tanto de cerca como de lejos.
+        //
+        // POR QUE APARECIO AHORA. Las texturas de siempre son PNG de 16x16
+        // CON transparencia: 4 canales, y entonces el numero coincidia por
+        // casualidad y todo funcionaba. Las nuevas en alta resolucion se
+        // exportaron SIN alfa -- el log las lista como "3 canales" -- y ahi el
+        // desfase se hizo visible. El bug llevaba ahi desde siempre; lo que
+        // cambio fue el material que lo destapa.
+        //
+        // EL ARREGLO. El buffer es RGBA y punto, asi que se dice la verdad. Se
+        // conserva `channels` con lo que informo stbi por si algun dia hace
+        // falta saber si el ORIGEN tenia alfa, pero nadie debe usarlo para
+        // recorrer `data`.
+        const int canalesEnArchivo = channels;   // solo informativo
+        channels = 4;                            // lo que de verdad hay en `data`
+        (void)canalesEnArchivo;
 
         if (!data) {
             // ⭐ CACHÉ NEGATIVA *SOLO* SI EL ARCHIVO NO EXISTE.
@@ -5354,8 +5623,40 @@ public:
             return 0;   // sin caché negativa: el fallo puede ser puntual
         }
 
-        // Filtros para estilo pixelado (como Minecraft) - NEAREST = mejor performance que LINEAR
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        // ====================================================================
+        // ⭐ FILTROS: NITIDO DE CERCA, SIN CENTELLEO DE LEJOS
+        // ====================================================================
+        // MAGNIFICACION siempre GL_NEAREST. Es lo que da el pixel art: al
+        // acercarse a un bloque se ven los texeles cuadrados, no un borron
+        // interpolado. Esto NO se toca.
+        //
+        // MINIFICACION es otra historia, y es donde estaba el problema. Con
+        // GL_NEAREST, cuando una textura ocupa menos pixeles en pantalla que
+        // texeles tiene, la GPU elige UNO de los muchos que caen dentro de
+        // cada pixel -- y al moverse la camara elige otro distinto cada frame.
+        // Eso es el CENTELLEO.
+        //
+        // Con 16x16 apenas se notaba porque la textura rara vez es mas grande
+        // que su area en pantalla. Con una textura HD de 2048x2048, a diez
+        // bloques de distancia hay ~200 texeles por pixel y el suelo entero
+        // hierve.
+        //
+        // GL_LINEAR_MIPMAP_LINEAR (trilineal) lo resuelve: la GPU tiene
+        // versiones prereducidas de la textura y mezcla las dos que mejor
+        // encajan con el tamano en pantalla. Es el promedio correcto en vez de
+        // una muestra al azar.
+        //
+        // ⚠️ SOLO SI HAY MIPMAPS. Pedir un filtro de mipmap sin haberlos
+        // generado deja la textura INCOMPLETA y OpenGL la dibuja en NEGRO. De
+        // ahi que el filtro se elija segun si la generacion funciono.
+        bool conMipmaps = false;
+        if (Render::pglGenerateMipmap) {
+            Render::pglGenerateMipmap(GL_TEXTURE_2D);
+            conMipmaps = (glGetError() == GL_NO_ERROR);
+        }
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        conMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
         // Wrap mode - REPEAT para texturas repetidas (compatible con OpenGL 1.1)
@@ -5462,14 +5763,14 @@ public:
     // ANIMACIÓN: Obtener frame actual de agua
     GLuint getCurrentWaterFrame() {
         if (waterFrames.empty()) {
-            return getTexture("Agua.png"); // Fallback
+            return getTexture("Agua.gif"); // Fallback
         }
         return waterFrames[currentWaterFrame];
     }
 
     // ANIMACIÓN: Obtener textura base del agua (para comparación en render)
     GLuint getWaterTexture() {
-        return getTexture("Agua.png");
+        return getTexture("Agua.gif");
     }
 
     // ANIMACIÓN: Cargar frames de agua animada (simulación procedural)
@@ -5486,7 +5787,7 @@ public:
         // invalidaría la textura de agua del mundo.
         waterFrames.clear();
 
-        GLuint waterTex = getTexture("Agua.png");
+        GLuint waterTex = getTexture("Agua.gif");
         if (waterTex > 0) {
             waterFrames.push_back(waterTex);
             // En el futuro: cargar Agua_1.png, Agua_2.png, etc.
@@ -5902,21 +6203,31 @@ public:
 
         // Texturas básicas
         loadTexture("Piedra.png");          // BLOCK_STONE
-        loadTexture("Tierra.png");          // BLOCK_DIRT
+        // ⚠️ "Bloque de Tierra.png", no "Tierra.png".
+        //
+        // El codigo pedia "Tierra.png" en CINCO sitios y ese archivo NO EXISTE
+        // -- el que hay en disco siempre se llamo "Bloque de Tierra.png". La
+        // tierra llevaba todo este tiempo sin textura.
+        //
+        // No daba error en ningun sitio: getTexture devuelve 0, el mesher lo
+        // lee como "aun no esta, reintenta", y el bloque se queda sin textura
+        // reintentandose para siempre. Lo caso el test de texturas al anadirle
+        // las del suelo.
+        loadTexture("Bloque de Tierra.png");          // BLOCK_DIRT
         loadTexture("Arena.png");           // BLOCK_SAND
 
         // Texturas de madera/tronco
         // ⭐ El tronco original es PINO: los archivos se renombraron de
         // "Roble" a "Pino", pero el codigo seguia pidiendo el nombre viejo
         // y la textura no cargaba (aparecia el bloque sin textura).
-        loadTexture("Tronco de Pino.png");            // BLOCK_WOOD sides
+        loadTexture("Tronco de Pino corteza.png");            // BLOCK_WOOD sides
         loadTexture("Tronco de Pino por dentro.png"); // BLOCK_WOOD top/bottom
 
         // ---- ESPECIES NUEVAS ----
-        loadTexture("Tronco de Encino.png");
+        loadTexture("Troco de Encino Corteza.png");
         loadTexture("Tronco de Encino por dentro.png");
         loadTexture("Hojas de Encino.png");
-        loadTexture("Tronco de Oyame.png");
+        loadTexture("Tronco de Oyame Corteza.png");
         loadTexture("Tronco de Oyame por dentro.png");
         loadTexture("Hojas de Oyame.png");
         // El ocote (Pinus montezumae): corteza en placas, corte resinoso y
@@ -5930,7 +6241,7 @@ public:
         // Su copa usa UNA sola textura de hoja: los mechones de aciculas son
         // sprites orientados en todas direcciones, asi que no hay "cara de
         // arriba" que necesite una imagen aparte (ver AciculaOcote.h).
-        loadTexture("tronco de Ocote Chino.png");
+        loadTexture("Tronco de Ocote chino corteza.png");
         loadTexture("tronco de Ocote chino por dentro.png");
         loadTexture("Hojas de ocote chino.png");
         loadTexture("Madera de Ocote chino.png");
@@ -5940,11 +6251,14 @@ public:
         loadTexture("Objetos cosmicos/Sol.png");
         loadTexture("Objetos cosmicos/Luna llena.png");
 
-        loadTexture("Bloque de pasto up.png"); // BLOCK_GRASS top
+        loadTexture("Bloque de Pasto UP.png"); // BLOCK_GRASS top
         // Variante florida del pasto: no es un bloque, solo otra textura para
         // la cara de arriba (ver getTexturaPastoFlores).
-        loadTexture("Bloque de pasto up 1v.png");
+        loadTexture("Bloque de Pasto Up v1.png");
         loadTexture("Bloque de pasto.png");    // BLOCK_GRASS side
+        // Y el costado florido, que va con la de arriba: un bloque que
+        // florece lo hace entero (ver getTexturaPastoFlores).
+        loadTexture("Bloque de Pasto v1.png");
 
         // Texturas de hojas
         loadTexture("Hojas de Pino.png");      // BLOCK_LEAVES
@@ -5953,7 +6267,7 @@ public:
         loadTexture("Pasto corto.png");        // BLOCK_TALLGRASS
 
         // Texturas de agua y lava
-        loadTexture("Agua.png");               // BLOCK_WATER
+        loadTexture("Agua.gif");               // BLOCK_WATER
         loadTexture("Lava.gif");               // BLOCK_LAVA (será tratada como PNG)
 
         // Texturas adicionales
@@ -5992,7 +6306,7 @@ public:
         loadTexture("Tallo de Nopal de castilla en arena.png");
         loadTexture("Tallo de Nopal de Castilla en tierra arcillosa.png");
         loadTexture("Tallo de Nopal de Castilla en arena arcillosa.png");
-        loadTexture("Tierra arcillosa.png");             // BLOCK_CLAY_DIRT
+        loadTexture("Tierra Arcillosa.png");             // BLOCK_CLAY_DIRT
         loadTexture("Arena arcillosa.png");              // BLOCK_CLAY_SAND
         loadTexture("Mineral de Oro.png");               // BLOCK_GOLD_ORE
         loadTexture("Mineral de Plata.png");             // BLOCK_SILVER_ORE
@@ -6368,7 +6682,19 @@ public:
             invalidateBindCache(tex);
             return loadTextureFromPath(ruta);
         }
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        // La tuna la dibuja el MESHER, asi que su textura tiene que estar en
+        // el array o el chunk que la contenga cae al camino lento. Mismo
+        // motivo que en loadTextureFromPath.
+        registrarCapa(tex, w, h, 4, out.data());
+
+        bool tunaConMipmaps = false;
+        if (Render::pglGenerateMipmap) {
+            Render::pglGenerateMipmap(GL_TEXTURE_2D);
+            tunaConMipmaps = (glGetError() == GL_NO_ERROR);
+        }
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        tunaConMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -6566,7 +6892,16 @@ public:
     //
     // Devuelve 0 si a ese bloque no le tocan flores, y entonces se usa la
     // textura normal del pasto.
-    GLuint getTexturaPastoFlores(int wx, int wy, int wz) {
+    // ⭐ `cara` permite pedir la variante del LADO, no solo la de arriba.
+    //
+    // Las texturas nuevas traen las DOS versiones floridas: la de la cara
+    // superior y la del costado. Antes solo existia la de arriba, asi que un
+    // bloque florido se veia con flores en el techo y con el pasto liso en
+    // los lados -- el corte se notaba justo en la arista.
+    //
+    // La decision de SI florece es la misma para las dos caras (mismo hash,
+    // misma posicion), asi que un bloque florido lo es por completo.
+    GLuint getTexturaPastoFlores(int wx, int wy, int wz, int cara = 0) {
         unsigned h = (unsigned)(wx * 374761393) ^ (unsigned)(wy * 668265263)
                    ^ (unsigned)(wz * 2246822519u);
         h ^= h >> 15; h *= 2654435761u; h ^= h >> 13;
@@ -6576,7 +6911,9 @@ public:
         // aparezca florido, que se veria artificial.
         if ((int)(h % 100u) >= 12) return 0;
 
-        return getTexture("Bloque de pasto up 1v.png");
+        // cara 0 = arriba; 2..5 = los cuatro costados.
+        if (cara == 0) return getTexture("Bloque de Pasto Up v1.png");
+        return getTexture("Bloque de Pasto v1.png");
     }
 
     GLuint getTexturaRaices(BlockType suelo, BlockType encima, int wx, int wz,
@@ -6778,7 +7115,7 @@ public:
         // fallback de abajo.
         if (Compuesto::esCompuesto(type) &&
             Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY) {
-            return getTexture("Maguey.png");
+            return getTexture("Penca de Maguey.png");
         }
 
         // ⭐ EL AGAVE TEQUILANA AZUL
@@ -6808,7 +7145,7 @@ public:
         // enum es razonable pero para una PLANTA no: se dibujaria como roca y
         // parece terreno corrupto, no un fallo de textura.
         if (Compuesto::esCompuesto(type)) {
-            return getTexture("Maguey.png");
+            return getTexture("Penca de Maguey.png");
         }
 
         switch (type) {
@@ -6868,6 +7205,17 @@ public:
             case BLOCK_AGAVE_AZUL_FLOR:
                 return getTexture("Hojas de Encino.png");
 
+            // ⭐ LAS DOS PIEZAS DEL AGAVE ABISAII
+            //
+            // Mismo reparto que el tequilana: la hoja lleva una imagen y la
+            // espina otra. No es un capricho de organizacion -- es lo que
+            // permite que el mesher cambie de textura a mitad de la hoja
+            // escribiendo en otro vector, sin tocar UVs.
+            case BLOCK_AGAVE_ABISAII_PENCA:
+                return getTexture("Agave abisaii penca.png");
+            case BLOCK_AGAVE_ABISAII_PUNTA:
+                return getTexture("Agave abisaii punta.png");
+
             case BLOCK_NOPAL_SECO:
                 return getTexture("../Items/Penca de Nopal de Castilla seco sin espinas.png");
 
@@ -6882,12 +7230,12 @@ public:
                 return getTexture("partes del horno.png");
 
             case BLOCK_GRASS:
-                if (face == 0) return getTexture("Bloque de pasto up.png"); // Top
-                else if (face == 1) return getTexture("Tierra.png");         // Bottom
+                if (face == 0) return getTexture("Bloque de Pasto UP.png"); // Top
+                else if (face == 1) return getTexture("Bloque de Tierra.png");         // Bottom
                 else return getTexture("Bloque de pasto.png");               // Sides
 
             case BLOCK_DIRT:
-                return getTexture("Tierra.png");
+                return getTexture("Bloque de Tierra.png");
 
             case BLOCK_STONE:
                 return getTexture("Piedra.png");
@@ -6898,15 +7246,15 @@ public:
             case BLOCK_WOOD:
                 // Tronco: anillos en top/bottom, corteza en sides
                 if (face == 0 || face == 1) return getTexture("Tronco de Pino por dentro.png"); // Top/Bottom
-                else return getTexture("Tronco de Pino.png");                                   // Sides
+                else return getTexture("Tronco de Pino corteza.png");                                   // Sides
 
             case BLOCK_WOOD_ENCINO:
                 if (face == 0 || face == 1) return getTexture("Tronco de Encino por dentro.png");
-                else return getTexture("Tronco de Encino.png");
+                else return getTexture("Troco de Encino Corteza.png");
 
             case BLOCK_WOOD_OYAMEL:
                 if (face == 0 || face == 1) return getTexture("Tronco de Oyame por dentro.png");
-                else return getTexture("Tronco de Oyame.png");
+                else return getTexture("Tronco de Oyame Corteza.png");
 
             case BLOCK_LEAVES_ENCINO:
                 return getTexture("Hojas de Encino.png");
@@ -6980,7 +7328,7 @@ public:
                 if (face == 0 || face == 1)
                     return getTexture("tronco de Ocote chino por dentro.png");
                 else
-                    return getTexture("tronco de Ocote Chino.png");
+                    return getTexture("Tronco de Ocote chino corteza.png");
 
             case BLOCK_WOOD_OCOTE_CHINO_DENTRO:
                 // El corte visto por todas sus caras.
@@ -7077,11 +7425,11 @@ public:
 
             // --- RAMAS: cada especie usa la textura de SU tronco ---
             case BLOCK_RAMA_PINO:
-                return getTexture("Tronco de Pino.png");
+                return getTexture("Tronco de Pino corteza.png");
             case BLOCK_RAMA_ENCINO:
-                return getTexture("Tronco de Encino.png");
+                return getTexture("Troco de Encino Corteza.png");
             case BLOCK_RAMA_OYAMEL:
-                return getTexture("Tronco de Oyame.png");
+                return getTexture("Tronco de Oyame Corteza.png");
             case BLOCK_RAMA_OCOTE:
                 return getTexture("Pinus montezumae tronco.png");
 
@@ -7094,7 +7442,7 @@ public:
             case BLOCK_RAIZ_MEDIANA:
             case BLOCK_RAIZ_GRANDE:
             case BLOCK_RAIZ_ENORME:
-                return getTexture("Tronco de Encino.png");
+                return getTexture("Troco de Encino Corteza.png");
 
             // PENCA de Nopal de Castilla. Es la penca en si, NO la tuna: la
             // tuna es el fruto que le crece encima y tiene su propia textura
@@ -7206,12 +7554,12 @@ public:
             // Antes salian como piedra gris, que es justo lo contrario de lo
             // que son.
             case BLOCK_DIRT_MOJADA:
-                return getTexture("Tierra.png");
+                return getTexture("Bloque de Tierra.png");
             case BLOCK_SAND_MOJADA:
                 return getTexture("Arena.png");
             case BLOCK_GRASS_MOJADA:
-                if (face == 0) return getTexture("Bloque de pasto up.png");
-                if (face == 1) return getTexture("Tierra.png");
+                if (face == 0) return getTexture("Bloque de Pasto UP.png");
+                if (face == 1) return getTexture("Bloque de Tierra.png");
                 return getTexture("Bloque de pasto.png");
 
             case BLOCK_PEDAZO_PIEDRA:
@@ -7236,7 +7584,7 @@ public:
             case BLOCK_IXTLE_PEQUENA:
             case BLOCK_IXTLE_GRANDE:
             case BLOCK_IXTLE_ENORME:
-                return getTexture("Maguey.png");
+                return getTexture("Penca de Maguey.png");
             case BLOCK_IXTLE_PUNTA:
                 return getTexture("Puntas de Maguey.png");
 
@@ -7246,7 +7594,7 @@ public:
             case BLOCK_IXTLE_CON_HIERBA:
             case BLOCK_IXTLE_CON_FLOR:
             case BLOCK_IXTLE_DOBLE:
-                return getTexture("Maguey.png");
+                return getTexture("Penca de Maguey.png");
 
             // LA TUNA. El color y la madurez los decide el mesher segun la
             // posicion (ver getTexturaTuna); esta es la de respaldo, para el
@@ -7266,7 +7614,7 @@ public:
                 return getTexture("Piedra caliza.png");
 
             case BLOCK_CLAY_DIRT:
-                return getTexture("Tierra arcillosa.png");
+                return getTexture("Tierra Arcillosa.png");
 
             case BLOCK_CLAY_SAND:
                 return getTexture("Arena arcillosa.png");
@@ -7414,7 +7762,40 @@ private:
         GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        // ====================================================================
+        // ⭐⭐ ESTA TEXTURA TAMBIEN ENTRA AL ARRAY
+        // ====================================================================
+        // MEDIDO, Y ERA LA CAUSA DE QUE CASI NINGUN CHUNK SE FUNDIERA:
+        //
+        //     sinFundir=191  batchSinCapa=567  texCulpable=115
+        //
+        // O sea 191 chunks cayendo al camino lento (~10 rangos de dibujo en
+        // vez de 3) por culpa de una textura sin capa en el array.
+        //
+        // `registrarCapa` estaba SOLO en `loadTexture`. Esta funcion --que se
+        // llama "de item" pero la usan el nopal, las tunas, el agave y varios
+        // bloques de terreno-- creaba la textura y nunca la registraba.
+        //
+        // Y fundir es un `all_of`: basta UNA textura sin capa para tumbar el
+        // chunk entero. Como el nopal y el agave salen por medio mundo, el
+        // efecto era general.
+        //
+        // No se detecto antes porque el rechazo era MUDO: la textura se
+        // cargaba perfectamente, se dibujaba bien, y lo unico que pasaba es
+        // que su chunk dibujaba mas lento. Nada en pantalla lo delata.
+        registrarCapa(textureID, width, height, channels, data);
+
+        // Y los mismos mipmaps que el otro cargador, por lo mismo: sin ellos
+        // una textura grande centellea al alejarse. Ver la nota larga en
+        // loadTexture.
+        bool conMipmaps = false;
+        if (Render::pglGenerateMipmap) {
+            Render::pglGenerateMipmap(GL_TEXTURE_2D);
+            conMipmaps = (glGetError() == GL_NO_ERROR);
+        }
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        conMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -7814,7 +8195,7 @@ struct Chunk {
         // Antes el render lo deducia comparando el ID de textura del batch
         // con getWaterTexture(). Eso es fragil: el mesher guarda el FRAME
         // ANIMADO del agua (getCurrentWaterFrame) mientras que el render
-        // comparaba con la textura BASE ("Agua.png"). En cuanto ambas dejan
+        // comparaba con la textura BASE ("Agua.gif"). En cuanto ambas dejan
         // de coincidir —basta con que la animacion tenga mas de un frame— el
         // agua no se reconoce como transparente y se dibuja en el pase
         // OPACO: aparecen placas azules solidas tapando el terreno.
@@ -13513,6 +13894,171 @@ public:
                                         if (chunk->getBlock(x, yy, z) != BLOCK_AIR) break;
                                         chunk->setBlock(x, yy, z,
                                             AG::conSegmento(planta, (uint16_t)dy));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // ================================================================
+                // ---- AGAVE ABISAII ----
+                // ================================================================
+                // La tercera especie de agave, y la que ocupa el nicho que las
+                // otras dos dejan libre: el AFLORAMIENTO DE ROCA de las faldas
+                // de montana.
+                //
+                //   PULQUERO   suelo blando del Altiplano   (pasto, tierra)
+                //   TEQUILANA  llano seco y ladera          (desierto, montana)
+                //   ABISAII    roca desnuda en media altura (lo de aqui)
+                //
+                // Las tres condiciones salen de la peticion, y cada una tiene
+                // su motivo biologico:
+                //
+                //   1. BASE DE PIEDRA. Simula los afloramientos calizos donde
+                //      arraiga. Es la condicion que mas lo separa de las otras
+                //      dos: ninguna de ellas crece en roca desnuda --de hecho
+                //      `esSueloParaNopal` EXCLUYE la piedra a proposito-- asi
+                //      que las tres especies no compiten por la misma celda.
+                //
+                //   2. ALTURA 60-85. Las faldas: por debajo empieza el llano y
+                //      por encima la montana se vuelve pico pelado.
+                //
+                //   3. TEMPLADO-CALIDO PERO NO DESIERTO. temperature > 0.6
+                //      pide calor; excluir BIOME_DESERT evita que invada el
+                //      territorio del tequilana, que es el agave de la arena.
+                //
+                // ⚠️ ESTO ES DELIBERADAMENTE RARO, Y HAY QUE SABERLO.
+                //
+                // Las tres condiciones se multiplican entre si, y la de piedra
+                // es MUY restrictiva: la superficie generada es casi toda
+                // pasto, tierra o arena, y la roca asoma poco. Con la rareza de
+                // abajo se ven colonias sueltas donde el terreno se rompe, que
+                // es lo que se busca -- pero si en juego salen demasiado pocas,
+                // el numero que hay que tocar es RAREZA_FOCO, y esta aislado
+                // aqui justo para eso.
+                {
+                    // ⭐ LA CONDICION 3, EN DOS MITADES.
+                    //
+                    // "Temperatura > 0.6 pero que no sea desierto puro" no es
+                    // una sola pregunta: el umbral de calor lo da el clima y la
+                    // exclusion del desierto la da el bioma. Se piden las dos
+                    // por separado porque un bioma de montana puede pasar de
+                    // 0.6 en su cara sur, y es justo ahi donde debe salir.
+                    const bool calidoSinSerDesierto =
+                        (col.climate.temperature > 0.6f) &&
+                        (col.biome != TerrainGen::BIOME_DESERT);
+
+                    // Condicion 2: las faldas. Inclusivo en los dos extremos.
+                    const bool enLasFaldas =
+                        (surfaceY >= 60) && (surfaceY <= 85);
+
+                    // Condicion 1: afloramiento calizo. Se pide la PIEDRA
+                    // concreta y no "cualquier cosa dura": la grava o el
+                    // mineral no son un afloramiento, y dejarlos entrar
+                    // convertiria esta condicion en "casi cualquier sitio".
+                    const bool sobreRoca = (ground == BLOCK_STONE);
+
+                    if (calidoSinSerDesierto && enLasFaldas && sobreRoca &&
+                        chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
+
+                        // Colonia por rizoma, como las otras dos agavaceas.
+                        // Rejilla de 20: entre el 16 del pulquero y el 24 del
+                        // tequilana.
+                        const int fx = (worldX >= 0 ? worldX : worldX - 19) / 20;
+                        const int fz = (worldZ >= 0 ? worldZ : worldZ - 19) / 20;
+
+                        // ⚠️ CONSTANTE DE HASH PROPIA (0xc2b2ae35).
+                        //
+                        // Distinta de la del pulquero y de la del tequilana
+                        // (0x9d2c5681) A PROPOSITO: con la misma semilla las
+                        // colonias caerian en las mismas coordenadas y las
+                        // especies saldrian siempre juntas.
+                        unsigned hf = (unsigned)(fx * 374761393) ^
+                                      (unsigned)(fz * 668265263) ^ 0xc2b2ae35u;
+                        hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
+
+                        // ⭐ CASI TODA CELDA TIENE FOCO, Y ESTA MEDIDO.
+                        //
+                        // Con RAREZA_FOCO = 3 (1 de cada 3, como las otras
+                        // especies) el test de densidad dio 0,66 % de las
+                        // columnas de roca ya validas -- y eso es ANTES de
+                        // multiplicar por lo raro que es que la roca asome en
+                        // la franja 60-85 con temperatura > 0.6. En juego la
+                        // planta seria practicamente inencontrable.
+                        //
+                        // Por eso aqui el filtro de foco es MUCHO mas suave
+                        // que en el pulquero (1 de 4) o el tequilana (1 de 6):
+                        // esas dos crecen en suelo blando, que esta por todas
+                        // partes, asi que su rareza tiene que ponerla el hash.
+                        // Esta crece en roca, y la rareza ya la pone el
+                        // terreno.
+                        //
+                        // ⚠️ SI AUN ASI SALEN POCAS EN JUEGO, ESTE ES EL
+                        // NUMERO. Bajarlo a 1 hace que toda celda de la
+                        // rejilla tenga foco. Lo vigila
+                        // test_agave_abisaii.cpp ("es ENCONTRABLE en roca
+                        // valida"), que falla si la densidad se sale de la
+                        // horquilla por arriba o por abajo.
+                        constexpr unsigned RAREZA_FOCO = 1u;
+
+                        if ((hf % RAREZA_FOCO) == 0u) {
+                            const int cx = fx * 20 + (int)((hf >> 3) % 20u);
+                            const int cz = fz * 20 + (int)((hf >> 11) % 20u);
+                            const int dx = worldX - cx;
+                            const int dz = worldZ - cz;
+                            const int d2 = dx * dx + dz * dz;
+
+                            // Colonias de 3 a 6 de radio. Mas amplias que las
+                            // de las otras dos especies por lo mismo que el
+                            // foco es mas frecuente: el sitio donde puede
+                            // crecer ya es escaso de por si.
+                            const int radio = 3 + (int)((hf >> 19) % 4u);
+
+                            if (d2 <= radio * radio) {
+                                unsigned hb = (unsigned)(worldX * 4517) ^
+                                              (unsigned)(worldZ * 8291) ^
+                                              0x27d4eb2fu;
+                                hb ^= hb >> 13; hb *= 2246822519u; hb ^= hb >> 16;
+
+                                const int borde = radio * radio;
+                                // Denso en el centro (45%), disperso al borde
+                                // (15%). La roseta del abisaii es ancha: mas
+                                // juntas se solapan en un bulto.
+                                const unsigned prob = 45u -
+                                    (unsigned)((30 * d2) / (borde > 0 ? borde : 1));
+
+                                if ((hb % 100u) < prob) {
+                                    namespace AB = Compuesto::AgaveAbisaii;
+
+                                    // La etapa sale del hash de la POSICION,
+                                    // asi que una mata concreta nace siempre
+                                    // igual: volver a mirarla no la cambia.
+                                    const unsigned d100 = (hb >> 7) % 100u;
+                                    uint16_t etapa;
+                                    if      (d100 < 20u) etapa = AB::HIJUELO;
+                                    else if (d100 < 40u) etapa = AB::JOVEN;
+                                    else if (d100 < 62u) etapa = AB::MEDIA;
+                                    else if (d100 < 84u) etapa = AB::HECHA;
+                                    else                 etapa = AB::MADURA;
+
+                                    // Ocho orientaciones: con hojas anchas,
+                                    // cuatro se notan repetidas enseguida.
+                                    const uint16_t giro =
+                                        (uint16_t)((hb >> 17) & 7u);
+
+                                    const BlockType planta = AB::nuevo(etapa, giro);
+
+                                    // LA PLANTA ENTERA, NO SOLO SU BASE.
+                                    // Sembrar solo la celda de abajo la dejaria
+                                    // decapitada: el bug que ya se corrigio dos
+                                    // veces en este archivo.
+                                    const int celdas = AB::celdasDeEtapa(etapa);
+                                    for (int dy = 0; dy < celdas; ++dy) {
+                                        const int yy = surfaceY + 1 + dy;
+                                        if (yy >= CHUNK_HEIGHT) break;
+                                        if (chunk->getBlock(x, yy, z) != BLOCK_AIR) break;
+                                        chunk->setBlock(x, yy, z,
+                                            AB::conSegmento(planta, (uint16_t)dy));
                                     }
                                 }
                             }
@@ -20903,6 +21449,402 @@ public:
                         continue;   // fase desconocida: no dibujar cubo
                     }
 
+                    // ========================================================
+                    // ⭐⭐ EL AGAVE ABISAII: LA ROSETA DE HOJA ANCHA
+                    // ========================================================
+                    // La tercera especie de agave. Comparte el ESQUELETO del
+                    // dibujado con el tequilana --barrido de anillos con
+                    // seccion en V, dientes colgados del borde, espina
+                    // terminal-- y se diferencia en tres numeros:
+                    //
+                    //   ANCHO   la hoja es mucho mas ancha (0.46 del recorrido
+                    //           frente a 0.30), que es el rasgo de la especie.
+                    //   CAIDA   se ARQUEA: sube, llega a su punto alto y se
+                    //           vence por su peso. El tequilana es rigido.
+                    //   HOJAS   menos, porque cada una tapa mucho mas.
+                    //
+                    // ⚠️ NO SE FACTORIZA CON LA RAMA DEL TEQUILANA, y es
+                    // deliberado. Son ~200 lineas parecidas, pero fundirlas
+                    // obligaria a pasar una docena de parametros de forma y a
+                    // preguntar "de que especie eres" dentro de cada bucle del
+                    // barrido -- justo lo que BloqueCompuesto.h evita al darle
+                    // familia propia a cada planta. Si algun dia hay una
+                    // cuarta especie de roseta, ENTONCES vale la pena extraer
+                    // un generador comun; con dos, el parametrizado cuesta mas
+                    // de lo que ahorra.
+                    if (Compuesto::esCompuesto(block) &&
+                        Compuesto::familiaDe(block) == Compuesto::FAM_AGAVE_ABISAII) {
+                        namespace B = Compuesto::AgaveAbisaii;
+
+                        const uint16_t etapa = B::etapaDe(block);
+                        const uint16_t giro  = B::giroDe(block);
+                        const int      SEG   = (int)B::segmentoDe(block);
+
+                        // LA PLANTA ENTERA SE DIBUJA DESDE SU CELDA BASE.
+                        // Misma regla que el tequilana y por el mismo motivo:
+                        // las hojas cruzan la frontera de celda EN DIAGONAL, y
+                        // un quad recortado por altura se pierde en las dos
+                        // celdas a la vez. Las celdas altas siguen existiendo
+                        // (dan colision); simplemente no pintan.
+                        if (SEG != 0) continue;
+
+                        const float ALTO  = B::alturaReal(etapa);
+                        const float RADIO = B::radioDeEtapa(etapa);
+                        const float CAIDA = B::caidaDeEtapa(etapa);
+                        const float GRUESO = B::engrosado(etapa);
+                        const int   NHOJAS = B::hojasDeEtapa(etapa);
+                        const int   NDIENTES = B::dientesDeEtapa(etapa);
+
+                        // Se posa sobre el suelo real: si debajo hay un nivel
+                        // parcial, la planta baja lo que le falte a esa capa
+                        // para ser bloque entero.
+                        float POSADA = 0.0f;
+                        {
+                            const BlockType abajo =
+                                getNeighborBlockCached(x, y, z, 0, -1, 0);
+                            if (abajo != BLOCK_AIR) {
+                                const float h = alturaDe(abajo);
+                                if (h > 0.0f && h < 1.0f) POSADA = 1.0f - h;
+                            }
+                        }
+                        // 1.5 px de 16: solo visual, para que no se vea
+                        // flotando. La hitbox no mira esto.
+                        constexpr float ELEVADO = 1.5f / 16.0f;
+                        const float DESP_Y = -POSADA + ELEVADO;
+
+                        const float lzm = faceLightFactor(x, y, z, 0, 1, 0);
+                        auto tope1 = [](float v) { return v > 1.0f ? 1.0f : v; };
+
+                        // Cascada de reserva: si la punta no carga se dibuja
+                        // con la textura de la hoja. Un agujero es el peor
+                        // sintoma posible porque no hay nada que mirar para
+                        // saber que falta.
+                        const GLuint texPenca =
+                            texSegura(BLOCK_AGAVE_ABISAII_PENCA, 0);
+                        const GLuint texPuntaRaw =
+                            texSegura(BLOCK_AGAVE_ABISAII_PUNTA, 0);
+                        const GLuint texPunta =
+                            (texPuntaRaw != 0) ? texPuntaRaw : texPenca;
+
+                        const float CEN = 0.5f;
+
+                        // Semilla estable por posicion: la misma planta se
+                        // dibuja igual siempre, y dos vecinas no salen
+                        // calcadas.
+                        unsigned ha = (unsigned)((int)wx * 73856093)
+                                    ^ (unsigned)((int)wy * 19349663)
+                                    ^ (unsigned)((int)wz * 83492791)
+                                    ^ (unsigned)(giro * 2654435761u);
+                        ha ^= ha >> 13; ha *= 1274126177u; ha ^= ha >> 16;
+                        auto dadoB = [&](unsigned sal) {
+                            unsigned v = ha ^ (sal * 2654435761u);
+                            v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
+                            v *= 3266489917u; v ^= v >> 16;
+                            return v;
+                        };
+
+                        // Quad suelto por las dos caras (dientes y espinas).
+                        auto quadB = [&](GLuint tex,
+                                         const float PX_[4], const float PY_[4],
+                                         const float PZ_[4], float br) {
+                            if (tex == 0) return;
+                            const float lf = tope1(lzm) * br;
+                            const float cr = tope1(lf * lightColorR);
+                            const float cg = tope1(lf * lightColorG);
+                            const float cb = tope1(lf * lightColorB);
+                            auto& V = verticesByTexture[tex];
+                            auto& C = colorsByTexture[tex];
+                            auto& U = uvsByTexture[tex];
+                            const float TU[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
+                            const float TV[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+                            for (int i = 0; i < 4; ++i) {
+                                V.push_back(wx + PX_[i]);
+                                V.push_back(wy + PY_[i]);
+                                V.push_back(wz + PZ_[i]);
+                                C.push_back(cr); C.push_back(cg);
+                                C.push_back(cb); C.push_back(1.0f);
+                                U.push_back(TU[i]); U.push_back(TV[i]);
+                            }
+                            for (int i = 3; i >= 0; --i) {
+                                V.push_back(wx + PX_[i]);
+                                V.push_back(wy + PY_[i]);
+                                V.push_back(wz + PZ_[i]);
+                                C.push_back(cr * 0.82f); C.push_back(cg * 0.82f);
+                                C.push_back(cb * 0.82f); C.push_back(1.0f);
+                                U.push_back(TU[i]); U.push_back(TV[i]);
+                            }
+                        };
+
+                        // ---- LAS HOJAS ----
+                        constexpr int PASOS = 7;
+                        constexpr int LADOS = 4;
+                        constexpr float ANG_ORO = 2.39996f;   // 137.5 grados
+
+                        // Bordes de cada paso, para colgar los dientes.
+                        float bordeX[PASOS + 1][2];
+                        float bordeY[PASOS + 1][2];
+                        float bordeZ[PASOS + 1][2];
+
+                        for (int p = 0; p < NHOJAS; ++p) {
+                            // Espiral aurea: es como se reparten las hojas de
+                            // una roseta de verdad, y evita que se alineen.
+                            const float ang = giro * 0.7853982f + ANG_ORO * p;
+                            const float dirX = cosf(ang);
+                            const float dirZ = sinf(ang);
+                            const float px = -dirZ, pz = dirX;
+
+                            // Variacion por hoja: ni dos iguales dentro de la
+                            // misma planta.
+                            const unsigned dv = dadoB((unsigned)p);
+                            const float var = 0.86f + (float)(dv % 29u) * 0.01f;
+
+                            const float r0 = RADIO * B::ARRANQUE;
+                            const float largo = (RADIO - r0) * var;
+                            const float alto = ALTO * var;
+                            const float recorrido = r0 + largo;
+
+                            // ⭐ AQUI ESTA LA ESPECIE: 0.46 frente al 0.30 del
+                            // tequilana. La hoja del abisaii es ANCHA, y es lo
+                            // primero que se ve de ella.
+                            const float anchoMax = recorrido * 0.46f * GRUESO;
+
+                            // ⭐ EL GROSOR CARNOSO, LOS 4 PX PEDIDOS.
+                            //
+                            // 0.25 de bloque = 4/16, que es el grosor con el
+                            // que el motor dibuja hoja carnosa (la penca suelta
+                            // de nopal usa el mismo criterio). Se toma como
+                            // TOPE y no como valor fijo: una hoja estrecha no
+                            // puede ser mas gruesa que ancha, o se ve como un
+                            // palo. Por eso se coge el menor de los dos.
+                            constexpr float GRUESO_4PX = 4.0f / 16.0f;
+                            const float porAncho = anchoMax * 0.34f;
+                            const float grosor = (porAncho < GRUESO_4PX)
+                                               ? porAncho : GRUESO_4PX;
+
+                            // Torsion leve: la hoja ancha se gira un poco
+                            // sobre su eje, que es lo que impide que la roseta
+                            // se vea como un molinillo plano.
+                            const float torsion =
+                                ((float)(dv >> 8 & 15u) / 15.0f - 0.5f) * 0.55f;
+
+                            struct Pt { float x, y, z; };
+                            Pt anillo[2][LADOS + 1];
+                            float uAnt = 0.0f;
+
+                            const float lf = tope1(lzm);
+                            const float cr = tope1(lf * lightColorR);
+                            const float cg = tope1(lf * lightColorG);
+                            const float cb = tope1(lf * lightColorB);
+
+                            auto& V = verticesByTexture[texPenca];
+                            auto& C = colorsByTexture[texPenca];
+                            auto& U = uvsByTexture[texPenca];
+
+                            for (int paso = 0; paso <= PASOS; ++paso) {
+                                const float s = (float)paso / (float)PASOS;
+
+                                // ⭐ LA CURVA QUE LA DEFINE.
+                                //
+                                // `subida` con exponente < 1 sube deprisa al
+                                // principio y se aplana arriba; el termino
+                                // cubico de CAIDA la vence al final. Juntos dan
+                                // el arco de la hoja pesada: sube, se asoma y
+                                // cae.
+                                //
+                                // El tequilana usa el mismo esqueleto con
+                                // exponente 0.88 y CAIDA diez veces menor, y
+                                // por eso sale recto como una espada.
+                                const float subida = powf(s, 0.72f);
+                                const float rad = r0 + largo * s;
+                                const float cy  = alto * subida
+                                                - CAIDA * s * s * s;
+
+                                // Ancho lanceolado, mas panzudo que el
+                                // tequilana (exponente 0.42 frente a 0.55):
+                                // la hoja ensancha antes y mantiene el cuerpo.
+                                float w = anchoMax
+                                        * powf(sinf(s * 3.14159265f), 0.42f);
+                                if (s < 0.14f) {
+                                    const float k = s / 0.14f;
+                                    const float wb = anchoMax * 0.70f;
+                                    w = wb + (w - wb) * k;
+                                }
+                                if (paso == PASOS) w = 0.0f;   // el pico
+
+                                // Grosor: carnosa abajo, afilada arriba.
+                                const float g = grosor * (1.0f - 0.78f * s * s);
+
+                                const float tw = torsion * s;
+                                const float ct = cosf(tw), st = sinf(tw);
+
+                                const float bx = CEN + dirX * rad;
+                                const float bz = CEN + dirZ * rad;
+
+                                const int cur = paso & 1;
+                                for (int i = 0; i <= LADOS; ++i) {
+                                    const float q = (float)i / (float)LADOS
+                                                  * 2.0f - 1.0f;
+                                    // Canal en V: bordes altos, centro
+                                    // hundido. Es el perfil real de la hoja
+                                    // de agave, y lo que le da grosor visible
+                                    // sin gastar geometria en una caja.
+                                    const float hondo = (q * q - 0.5f) * g;
+                                    const float lat = q * w * 0.5f;
+                                    const float lx = lat * ct - hondo * st;
+                                    const float ly = lat * st + hondo * ct;
+
+                                    anillo[cur][i].x = bx + px * lx;
+                                    anillo[cur][i].y = cy + ly + DESP_Y;
+                                    anillo[cur][i].z = bz + pz * lx;
+                                }
+                                bordeX[paso][0] = anillo[cur][0].x;
+                                bordeY[paso][0] = anillo[cur][0].y;
+                                bordeZ[paso][0] = anillo[cur][0].z;
+                                bordeX[paso][1] = anillo[cur][LADOS].x;
+                                bordeY[paso][1] = anillo[cur][LADOS].y;
+                                bordeZ[paso][1] = anillo[cur][LADOS].z;
+
+                                if (paso == 0) { uAnt = 0.0f; continue; }
+
+                                const int ant = (paso - 1) & 1;
+
+                                // Reparto LINEAL de la textura a lo largo de
+                                // la hoja: avanzar un tramo de hoja avanza el
+                                // mismo tramo de imagen. Con una curva la
+                                // textura se amontona contra el pico, que es
+                                // un bug que ya se corrigio en el tequilana.
+                                const float uAct = s;
+
+                                for (int i = 0; i < LADOS; ++i) {
+                                    const Pt& a  = anillo[ant][i];
+                                    const Pt& b  = anillo[ant][i + 1];
+                                    const Pt& c  = anillo[cur][i + 1];
+                                    const Pt& e2 = anillo[cur][i];
+
+                                    const float u0 = (float)i / (float)LADOS;
+                                    const float u1 = (float)(i + 1) / (float)LADOS;
+
+                                    // Relieve del canal sin luz por pixel.
+                                    const float mid = fabsf((float)i
+                                                    / (float)LADOS - 0.5f);
+                                    const float sh = 1.0f
+                                                   - 0.14f * (1.0f - mid * 2.0f);
+                                    const float qr = tope1(cr * sh);
+                                    const float qg = tope1(cg * sh);
+                                    const float qb = tope1(cb * sh);
+
+                                    const float PX_[4] = { a.x, b.x, c.x, e2.x };
+                                    const float PY_[4] = { a.y, b.y, c.y, e2.y };
+                                    const float PZ_[4] = { a.z, b.z, c.z, e2.z };
+                                    const float TU[4]  = { u0, u1, u1, u0 };
+                                    const float TV[4]  = { uAnt, uAnt, uAct, uAct };
+
+                                    for (int i2 = 0; i2 < 4; ++i2) {
+                                        V.push_back(wx + PX_[i2]);
+                                        V.push_back(wy + PY_[i2]);
+                                        V.push_back(wz + PZ_[i2]);
+                                        C.push_back(qr); C.push_back(qg);
+                                        C.push_back(qb); C.push_back(1.0f);
+                                        U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                    }
+                                    // Por detras: es superficie, no solido.
+                                    for (int i2 = 3; i2 >= 0; --i2) {
+                                        V.push_back(wx + PX_[i2]);
+                                        V.push_back(wy + PY_[i2]);
+                                        V.push_back(wz + PZ_[i2]);
+                                        C.push_back(qr * 0.82f);
+                                        C.push_back(qg * 0.82f);
+                                        C.push_back(qb * 0.82f);
+                                        C.push_back(1.0f);
+                                        U.push_back(TU[i2]); U.push_back(TV[i2]);
+                                    }
+                                }
+                                uAnt = uAct;
+                            }
+
+                            // ---- DIENTES DEL BORDE ----
+                            // Con la textura de PUNTA: son espinas, no hoja.
+                            // Se cuelgan de los bordes guardados arriba, asi
+                            // que siguen la hoja aunque se curve o se tuerza.
+                            for (int di = 0; di < NDIENTES; ++di) {
+                                const float sd = 0.24f + 0.58f
+                                               * ((float)di / (float)(NDIENTES > 1
+                                                                    ? NDIENTES - 1
+                                                                    : 1));
+                                const int paso = (int)(sd * PASOS);
+                                if (paso < 1 || paso > PASOS - 1) continue;
+
+                                for (int lado = 0; lado < 2; ++lado) {
+                                    const float ex = bordeX[paso][lado];
+                                    const float ey = bordeY[paso][lado];
+                                    const float ez = bordeZ[paso][lado];
+
+                                    const float sgn = (lado == 0) ? -1.0f : 1.0f;
+                                    const float dl = anchoMax * 0.22f;
+                                    const float tipX = ex + px * sgn * dl
+                                                     + dirX * dl * 0.55f;
+                                    const float tipY = ey + dl * 0.30f;
+                                    const float tipZ = ez + pz * sgn * dl
+                                                     + dirZ * dl * 0.55f;
+
+                                    const float bw = anchoMax * 0.13f;
+                                    const float PX_[4] = {
+                                        ex - dirX * bw, ex + dirX * bw,
+                                        tipX,           tipX };
+                                    const float PY_[4] = { ey, ey, tipY, tipY };
+                                    const float PZ_[4] = {
+                                        ez - dirZ * bw, ez + dirZ * bw,
+                                        tipZ,           tipZ };
+                                    quadB(texPunta, PX_, PY_, PZ_, 0.72f);
+                                }
+                            }
+
+                            // ---- LA ESPINA TERMINAL ----
+                            //
+                            // ⭐ AQUI SE RESUELVE "LA PUNTA EN LA SECCION
+                            // FINAL DE LA HOJA", Y NO CON UV.
+                            //
+                            // La espina es GEOMETRIA APARTE con su propia
+                            // textura, prolongando la hoja en su misma
+                            // direccion. No es un tramo del mapa de la penca.
+                            //
+                            // Por que no por UV: el motor tesela con
+                            // GL_REPEAT y las capas del texture array son
+                            // imagenes completas de 16x16. Reservar el tramo
+                            // final del mapa para la punta obligaria a que
+                            // las dos imagenes vivieran en la misma capa, y
+                            // entonces el repetido de la hoja barreria tambien
+                            // la espina. Con dos capas cada una se tesela sola.
+                            {
+                                const float radTip = r0 + largo;
+                                const float yTip = alto * powf(1.0f, 0.72f)
+                                                 - CAIDA + DESP_Y;
+                                const float bxT = CEN + dirX * radTip;
+                                const float bzT = CEN + dirZ * radTip;
+
+                                // La espina del abisaii es mas corta y ancha
+                                // que la del tequilana: la hoja acaba en punta
+                                // roma con pua, no en estilete.
+                                const float len = anchoMax * 0.55f;
+                                const float exT = bxT + dirX * len;
+                                // Sigue la caida de la hoja: si la hoja se
+                                // vence, su espina apunta hacia abajo.
+                                const float eyT = yTip - CAIDA * 0.18f;
+                                const float ezT = bzT + dirZ * len;
+                                const float hw = anchoMax * 0.16f;
+
+                                const float PX_[4] = {
+                                    bxT - px * hw, bxT + px * hw, exT, exT };
+                                const float PY_[4] = { yTip, yTip, eyT, eyT };
+                                const float PZ_[4] = {
+                                    bzT - pz * hw, bzT + pz * hw, ezT, ezT };
+                                quadB(texPunta, PX_, PY_, PZ_, 0.68f);
+                            }
+                        }
+
+                        continue;   // no emitir las caras del cubo
+                    }
+
                     // Y los bloques SUELTOS del sistema viejo del maguey: la
                     // punta, el tocon capado y el aguamiel. Misma razon.
                     //
@@ -23541,12 +24483,48 @@ public:
                     // pueden descuadrarse entre si.
                     const float ySup = wy + altura;
 
+                    // ⭐ QUE CARAS SE EMITEN.
+                    //
+                    // El AGUA usa la regla que conoce la direccion
+                    // (deberiaDibujarCaraAgua): con niveles, la respuesta
+                    // depende de si la cara mira arriba, abajo o al lado, y
+                    // tratarlas por igual era lo que dejaba caras dobles
+                    // peleando por el mismo plano -- el agua "vista a traves".
+                    //
+                    // La LAVA sigue por el camino de siempre: llena el cubo
+                    // entero, asi que es simetrica y no necesita saber la
+                    // direccion.
+                    auto caraLiquida = [&](BlockType propio, BlockType vecino,
+                                           int dy) {
+                        return isWater
+                            ? deberiaDibujarCaraAgua(propio, vecino, dy)
+                            : shouldRenderFace(propio, vecino);
+                    };
+
+                    // ⭐ DONDE EMPIEZA LA PARED LATERAL.
+                    //
+                    // La pared iba SIEMPRE de `wy` (el fondo del cubo) a
+                    // `ySup`. Contra una celda de agua mas baja eso dibuja la
+                    // parte sumergida DENTRO del vecino: dos superficies
+                    // transparentes solapadas, que es la otra mitad del "se ve
+                    // a traves del agua".
+                    //
+                    // Lo que se ve de verdad es solo el ESCALON: de la
+                    // superficie del vecino para arriba. Contra cualquier cosa
+                    // que no sea agua (terreno, aire) la pared sigue bajando
+                    // hasta el fondo, como debe.
+                    auto baseLateral = [&](BlockType vecino) -> float {
+                        if (!isWater) return (float)wy;
+                        if (!esAguaCualquiera(vecino)) return (float)wy;
+                        return (float)wy + Compuesto::Agua::alturaVisual(vecino);
+                    };
+
                     // Variable para multiplicador de brillo por cara
                     float faceBrightness;
 
                     // Top face (+Y) - face index 0
                     BlockType topNeighbor = getNeighborBlockCached(x, y, z, 0, 1, 0);
-                    if (shouldRenderFace(block, topNeighbor)) {
+                    if (caraLiquida(block, topNeighbor, 1)) {
                         GLuint texture = texSegura(block, 0);
                         float faceBrightness = 1.0f; // Top = más brillante
                         const float lightFactor = faceLightFactor(x, y, z, 0, 1, 0);
@@ -23605,7 +24583,7 @@ public:
                          block == BLOCK_LEAVES_OCOTE_CHINO ||
                          block == BLOCK_LEAVES_OCOTE_CHINO_RAMA);
 
-                    if (!copaSinSuelo && shouldRenderFace(block, bottomNeighbor)) {
+                    if (!copaSinSuelo && caraLiquida(block, bottomNeighbor, -1)) {
                         GLuint texture = texSegura(block, 1);
                         faceBrightness = 0.5f; // Bottom = más oscuro
                         const float lightFactor = faceLightFactor(x, y, z, 0, -1, 0);
@@ -23646,7 +24624,9 @@ public:
                     //
                     // North face (+Z) - face index 2
                     BlockType northNeighbor = getNeighborBlockCached(x, y, z, 0, 0, 1);
-                    if (shouldRenderFace(block, northNeighbor)) {
+                    if (caraLiquida(block, northNeighbor, 0)) {
+                        // El borde inferior de la pared: el escalon, no el fondo.
+                        const float yBase = baseLateral(northNeighbor);
                         GLuint texture = texSegura(block, 2);
                         faceBrightness = 0.8f; // N/S faces
                         const float lightFactor = faceLightFactor(x, y, z, 0, 0, 1);
@@ -23660,11 +24640,11 @@ public:
                         auto& cols = colorsByTexture[texture];
                         auto& uvCoords = uvsByTexture[texture];
 
-                        verts.push_back(wx); verts.push_back(wy); verts.push_back(wz + 1);
+                        verts.push_back(wx); verts.push_back(yBase); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx + 1); verts.push_back(wy); verts.push_back(wz + 1);
+                        verts.push_back(wx + 1); verts.push_back(yBase); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
@@ -23681,7 +24661,9 @@ public:
 
                     // South face (-Z) - face index 3
                     BlockType southNeighbor = getNeighborBlockCached(x, y, z, 0, 0, -1);
-                    if (shouldRenderFace(block, southNeighbor)) {
+                    if (caraLiquida(block, southNeighbor, 0)) {
+                        // El borde inferior de la pared: el escalon, no el fondo.
+                        const float yBase = baseLateral(southNeighbor);
                         GLuint texture = texSegura(block, 3);
                         faceBrightness = 0.8f; // N/S faces
                         const float lightFactor = faceLightFactor(x, y, z, 0, 0, -1);
@@ -23695,11 +24677,11 @@ public:
                         auto& cols = colorsByTexture[texture];
                         auto& uvCoords = uvsByTexture[texture];
 
-                        verts.push_back(wx + 1); verts.push_back(wy); verts.push_back(wz);
+                        verts.push_back(wx + 1); verts.push_back(yBase); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx); verts.push_back(wy); verts.push_back(wz);
+                        verts.push_back(wx); verts.push_back(yBase); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
@@ -23716,7 +24698,9 @@ public:
 
                     // East face (+X) - face index 4
                     BlockType eastNeighbor = getNeighborBlockCached(x, y, z, 1, 0, 0);
-                    if (shouldRenderFace(block, eastNeighbor)) {
+                    if (caraLiquida(block, eastNeighbor, 0)) {
+                        // El borde inferior de la pared: el escalon, no el fondo.
+                        const float yBase = baseLateral(eastNeighbor);
                         GLuint texture = texSegura(block, 4);
                         faceBrightness = 0.6f; // E/W faces = más oscuro
                         const float lightFactor = faceLightFactor(x, y, z, 1, 0, 0);
@@ -23730,11 +24714,11 @@ public:
                         auto& cols = colorsByTexture[texture];
                         auto& uvCoords = uvsByTexture[texture];
 
-                        verts.push_back(wx + 1); verts.push_back(wy); verts.push_back(wz + 1);
+                        verts.push_back(wx + 1); verts.push_back(yBase); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx + 1); verts.push_back(wy); verts.push_back(wz);
+                        verts.push_back(wx + 1); verts.push_back(yBase); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
@@ -23751,7 +24735,9 @@ public:
 
                     // West face (-X) - face index 5
                     BlockType westNeighbor = getNeighborBlockCached(x, y, z, -1, 0, 0);
-                    if (shouldRenderFace(block, westNeighbor)) {
+                    if (caraLiquida(block, westNeighbor, 0)) {
+                        // El borde inferior de la pared: el escalon, no el fondo.
+                        const float yBase = baseLateral(westNeighbor);
                         GLuint texture = texSegura(block, 5);
                         faceBrightness = 0.6f; // E/W faces = más oscuro
                         const float lightFactor = faceLightFactor(x, y, z, -1, 0, 0);
@@ -23765,11 +24751,11 @@ public:
                         auto& cols = colorsByTexture[texture];
                         auto& uvCoords = uvsByTexture[texture];
 
-                        verts.push_back(wx); verts.push_back(wy); verts.push_back(wz);
+                        verts.push_back(wx); verts.push_back(yBase); verts.push_back(wz);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(0 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
-                        verts.push_back(wx); verts.push_back(wy); verts.push_back(wz + 1);
+                        verts.push_back(wx); verts.push_back(yBase); verts.push_back(wz + 1);
                         cols.push_back(r); cols.push_back(g); cols.push_back(b); cols.push_back(alpha);
                         uvCoords.push_back(1 + uvAnimOffset); uvCoords.push_back(0 + uvAnimOffset);
 
@@ -24305,12 +25291,27 @@ public:
                             //
                             // Solo la cara superior y solo si esta despejada:
                             // un bloque tapado por otro no florece.
-                            if (dir == 0 && b == BLOCK_GRASS &&
-                                nb == BLOCK_AIR) {
+                            //
+                            // ⭐ Y TAMBIEN EN LOS COSTADOS.
+                            //
+                            // Antes solo se floria la cara de arriba, porque
+                            // era la unica variante que habia. Con la textura
+                            // de costado florido, un bloque que florece lo
+                            // hace entero: si no, el cambio se ve como un
+                            // corte justo en la arista superior.
+                            //
+                            // La condicion de la cara superior sigue exigiendo
+                            // que este DESPEJADA (un bloque tapado no
+                            // florece), pero los costados no: un talud de
+                            // pasto florido se ve de lado aunque tenga algo
+                            // encima.
+                            if (b == BLOCK_GRASS &&
+                                (dir == 0 ? (nb == BLOCK_AIR) : (dir >= 2))) {
                                 const int wxf = chunk->position.x * CHUNK_SIZE + bx;
                                 const int wzf = chunk->position.z * CHUNK_SIZE + bz;
                                 const GLuint flores =
-                                    g_textureManager->getTexturaPastoFlores(wxf, by, wzf);
+                                    g_textureManager->getTexturaPastoFlores(
+                                        wxf, by, wzf, dir);
                                 if (flores != 0) cell.tex = flores;
                             }
 
@@ -24681,6 +25682,43 @@ public:
                                         [](const Render::BatchCPU& b) {
                                             return b.capa >= 0;
                                         });
+
+        // ====================================================================
+        // ⭐ DIAGNOSTICO: ¿QUE IMPIDE FUNDIR?
+        // ====================================================================
+        // MEDIDO en el bench: 465 batches para 48 chunks, o sea ~10 por chunk.
+        // Si se estuviera fundiendo serian 3 (macizo, recortado y agua), asi
+        // que el camino rapido NO se esta usando -- y con el, la mejora grande
+        // de dibujar un chunk entero de una vez.
+        //
+        // La condicion es un `all_of`, asi que basta UNA textura sin capa para
+        // tumbar el chunk entero. Saber CUAL es la diferencia entre arreglarlo
+        // y adivinar: se cuenta cuantos batches se quedan fuera y se anota la
+        // primera textura culpable, que es la que hay que meter en el array.
+        //
+        // Va detras de un contador global y sale en el log de STREAM: no
+        // cuesta nada cuando todo funde (el bucle no se recorre) y es lo unico
+        // que convierte "va lento" en "esta textura es la que falta".
+        if (!fundir && !mallaCPU.batches.empty() &&
+            g_textureManager && g_textureManager->arrayDisponible()) {
+            for (const Render::BatchCPU& b : mallaCPU.batches) {
+                if (b.capa < 0) {
+                    ++g_nBatchSinCapa;
+                    if (g_texSinCapa == 0) {
+                        g_texSinCapa = (GLuint)b.textura;
+                        // ⭐ Y SU NOMBRE, que es lo unico accionable: un
+                        // numero de handle no dice que arreglar.
+                        if (g_textureManager) {
+                            std::cout << "[FUNDIR] sin capa: handle "
+                                      << g_texSinCapa << " = '"
+                                      << g_textureManager->nombreDe((GLuint)b.textura)
+                                      << "'" << std::endl;
+                        }
+                    }
+                }
+            }
+            ++g_nChunkSinFundir;
+        }
 
         // Al fundir se ordena por grupo para que cada rango salga contiguo.
         if (fundir) {
@@ -27441,6 +28479,9 @@ public:
                               << " media=" << (g_nEsperaJugador ? g_msEsperaJugador / g_nEsperaJugador : 0.0) << "ms"
                               << " peor=" << g_msPeorEsperaJugador << "ms porTex=" << g_nEsperaPorTextura << " descUrg=" << g_nDescarteUrgente
                               << " desfasadas=" << g_nMallaDesfasada
+                              << " sinFundir=" << g_nChunkSinFundir
+                              << " batchSinCapa=" << g_nBatchSinCapa
+                              << " texCulpable=" << g_texSinCapa
                               << " pendientes=" << deuda
                               << " follaje=" << g_diagRemalladoFollaje.load();
                 }
@@ -40548,6 +41589,48 @@ int main() {
         return -1;
     }
 
+    // ========================================================================
+    // ⭐ EL ICONO DE LA VENTANA: EL BLOQUE DE PASTO
+    // ========================================================================
+    // Sin esto la ventana sale con el icono generico de Windows, que es lo que
+    // se veia en la barra de tareas.
+    //
+    // El PNG lo genera `tools/generar_icono.py` proyectando las texturas
+    // REALES del pasto sobre un cubo isometrico. Se genera y no se dibuja a
+    // mano a proposito: asi el icono ES el bloque, y si manana cambia la
+    // textura del pasto basta con volver a correr el script. Es el mismo
+    // criterio que ya sigue el icono del pecari en el inventario.
+    //
+    // ⚠️ Se pasa por getGameRootPath() y no por una ruta relativa: `saves/`
+    // ya dio ese problema (ver PENDIENTES 3.2) y lanzar el juego desde otra
+    // carpeta dejaria la ventana sin icono en silencio.
+    //
+    // Que falle no es motivo para no arrancar: si el PNG no esta, Windows
+    // pone el suyo y el juego sigue igual de jugable.
+    {
+        const std::string rutaIcono = gamePath("resourcepacks/Textures/UI/icono.png");
+        int iw = 0, ih = 0, icanales = 0;
+        // ⚠️ SIN VOLTEAR. El resto del motor carga con
+        // stbi_set_flip_vertically_on_load(true) porque OpenGL tiene el origen
+        // abajo, pero GLFW espera el icono con el origen ARRIBA, como el PNG.
+        // Dejarlo volteado ponia el bloque del reves en la barra de tareas.
+        stbi_set_flip_vertically_on_load(false);
+        unsigned char* pix = stbi_load(rutaIcono.c_str(), &iw, &ih,
+                                       &icanales, STBI_rgb_alpha);
+        if (pix) {
+            GLFWimage img;
+            img.width  = iw;
+            img.height = ih;
+            img.pixels = pix;
+            glfwSetWindowIcon(window, 1, &img);
+            stbi_image_free(pix);
+            std::cout << "[ICONO] " << iw << "x" << ih << std::endl;
+        } else {
+            std::cout << "[ICONO] no se encontro " << rutaIcono
+                      << " (la ventana usara el icono del sistema)" << std::endl;
+        }
+    }
+
     glfwMakeContextCurrent(window);
 
     // ========================================================================
@@ -43174,7 +44257,7 @@ int main() {
             //
             //   MAGUEY (la penca y la punta). Estas SI entraban en item3D,
             //   pero su canto salia de las cuatro tiras del borde -- y el
-            //   borde de "Maguey.png" esta VACIO por los lados: 0 de 16
+            //   borde de "Penca de Maguey.png" esta VACIO por los lados: 0 de 16
             //   pixeles opacos en la columna izquierda y 0 de 16 en la
             //   derecha (arriba y abajo si tienen 14 de 16). Con el alpha
             //   test a 0.5, las tiras este y oeste se descartaban ENTERAS y
@@ -43214,7 +44297,7 @@ int main() {
                 // el quiote. Todas son hojas o espinas: laminas con forma
                 // propia, nunca cubos.
                 case BLOCK_IXTLE_HOJA:
-                    siluetaPNG = "Textures/Blocks/Maguey.png"; break;
+                    siluetaPNG = "Textures/Blocks/Penca de Maguey.png"; break;
                 case BLOCK_IXTLE_PUNTA:
                 case BLOCK_MAGUEY_PUNTA:
                     siluetaPNG = "Textures/Blocks/Puntas de Maguey.png"; break;

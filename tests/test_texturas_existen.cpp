@@ -151,10 +151,19 @@ TEST_CASE("Texturas: las del pasto y la tierra estan") {
     const std::string dir = raiz + "resourcepacks/Textures/Blocks/";
     const char* DEL_SUELO[] = {
         // Pasto: cara de arriba, costado y sus variantes floridas.
-        "Bloque de pasto up.png",
-        "Bloque de pasto up 1v.png",
+        //
+        // ⚠️ LAS VARIANTES SE LLAMAN "v1", NO "1v". Antes esta lista pedia
+        // "Bloque de pasto 1v.png" y "Bloque de pasto up 1v.png", que se
+        // renombraron al sustituir el pasto por la version en alta
+        // resolucion. Los nombres de aqui son los que pide getBlockTexture,
+        // y por eso tienen que ir con la MISMA grafia: Windows abre el
+        // archivo sin distinguir mayusculas, pero este test compara cadenas,
+        // asi que un renombrado de capitalizacion lo rompe sin romper el
+        // juego -- y entonces deja de avisar de lo que existe para avisar.
+        "Bloque de Pasto UP.png",
         "Bloque de pasto.png",
-        "Bloque de pasto 1v.png",
+        "Bloque de Pasto Up v1.png",
+        "Bloque de Pasto v1.png",
 
         // La hierba corta. Es un SPRITE EN CRUZ, asi que ademas necesita
         // canal alfa -- ver el test de abajo.
@@ -166,7 +175,7 @@ TEST_CASE("Texturas: las del pasto y la tierra estan") {
         // segundo en CINCO sitios y ese archivo nunca existio. La tierra
         // llevaba todo este tiempo sin textura, sin dar un solo error.
         "Bloque de Tierra.png",
-        "Tierra arcillosa.png",
+        "Tierra Arcillosa.png",
         "Tierra negra fertil.png",
     };
 

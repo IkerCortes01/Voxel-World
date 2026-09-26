@@ -114,6 +114,28 @@ enum Familia : int {
     // lo que ya esta guardado en disco.
     FAM_AGAVE_AZUL,
 
+    // El AGAVE ABISAII. Roseta masiva de hojas anchas y arqueadas, sembrada
+    // en los afloramientos de roca de las faldas de montana.
+    //
+    // Familia propia por las MISMAS DOS RAZONES que el tequilana, y conviene
+    // comprobarlas en vez de heredarlas:
+    //
+    //   1. NO CABE en el tequilana. Alli los 16 bits llegan hasta el bit 14
+    //      (FLORECIDO) y solo queda el 15 libre; esta especie necesita al
+    //      menos un campo de etapa propio. Y subir BITS_ESTADO correria los
+    //      IDs de TODAS las familias, que es lo que corrompe saves.
+    //
+    //   2. ES OTRA PLANTA. El abisaii tiene la hoja ANCHA y ARQUEADA --se
+    //      vence por su propio peso-- frente a la hoja rigida y erecta del
+    //      tequilana. Compartir estado obligaria a preguntar "de que especie
+    //      eres" en cada calculo del mesher, que es justo lo que este
+    //      archivo evita.
+    //
+    // ⚠️ VA AL FINAL, despues de FAM_AGAVE_AZUL. Insertarla en medio correria
+    // los IDs de las familias siguientes y los mundos guardados leerian otra
+    // planta en su sitio.
+    FAM_AGAVE_ABISAII,
+
     FAM_COUNT
 };
 
@@ -1039,6 +1061,192 @@ namespace AgaveAzul {
 } // namespace AgaveAzul
 
 // ============================================================================
+// FAMILIA: AGAVE ABISAII
+// ============================================================================
+// Roseta MASIVA de hoja ancha y arqueada. Es la tercera especie de agave del
+// motor, y se distingue de las otras dos por la silueta:
+//
+//   PULQUERO    hoja larga y estrecha, se arquea al final   (1:1, ancho=alto)
+//   TEQUILANA   hoja rigida y erecta, como una espada       (1:1.5)
+//   ABISAII     hoja ANCHA que se vence por su peso         (1:1.6, la mas baja)
+//
+// LA ESCALA, QUE ES LO QUE MAS SE EQUIVOCA AQUI:
+//
+//   En este motor 1 bloque = 0.60 m (ver PecariModelo3D.h, LADO_BLOQUE_M).
+//   Una roseta de 3x3 celdas son 1.8 m de diametro, NO 3 m. Para las rosetas
+//   grandes de esta especie hacen falta ~4 celdas de diametro, que es lo que
+//   dan los radios de abajo (RADIO 1.15 -> diametro 2.3 celdas -> 1.4 m) sin
+//   pasarse del tope que obliga el borde de chunk.
+//
+// ⚠️ TOPE DE RADIO 1.45, igual que en las otras dos. Pasar de 1.5 haria que
+// la planta cruzara el borde del CHUNK (16 bloques), donde el recorte del
+// dibujado SI corta: se veria aparecer y desaparecer al girar la camara.
+namespace AgaveAbisaii {
+
+    // ------------------------------------------------------------------------
+    // REPARTO DE LOS 16 BITS
+    // ------------------------------------------------------------------------
+    // Estado limpio. Esta especie no tiene quiote implementado (la fase de
+    // floracion se deja para mas adelante), asi que sobra sitio: se dejan los
+    // campos anchos a proposito para no repetir el apuro del maguey.
+
+    // Edad de la roseta. Cinco etapas, como las otras dos especies, para que
+    // el ritmo de crecimiento se sienta igual aunque la planta sea otra.
+    constexpr Campo ETAPA    = { 0, 3 };   // 0..7 (se usan 0..4)
+
+    // Giro: ocho orientaciones. Con hojas anchas y radiales, cuatro giros se
+    // notan repetidos de inmediato.
+    constexpr Campo GIRO     = { 3, 3 };   // 0..7
+
+    // En que altura de la planta esta esta celda. La de abajo (0) es la que
+    // MANDA y la unica que dibuja; las de arriba solo reservan el hueco.
+    constexpr Campo SEGMENTO = { 6, 3 };   // 0..7
+
+    // Quedan libres los bits 9..15 para lo que venga (quiote, floracion).
+
+    // --- Etapas ---
+    enum Etapa : uint16_t {
+        HIJUELO = 0,   // el retoño
+        JOVEN   = 1,
+        MEDIA   = 2,
+        HECHA   = 3,
+        MADURA  = 4    // la roseta masiva en su punto
+    };
+
+    // --- Construir ---
+    inline BlockType crear(uint16_t etapa, uint16_t giro, uint16_t segmento = 0) {
+        uint16_t e = 0;
+        e = escribir(e, ETAPA,    etapa);
+        e = escribir(e, GIRO,     giro);
+        e = escribir(e, SEGMENTO, segmento);
+        return hacer(FAM_AGAVE_ABISAII, e);
+    }
+
+    inline BlockType nuevo(uint16_t etapa, uint16_t giro) {
+        return crear(etapa, giro, 0);
+    }
+
+    // La misma planta, pero el trozo que va en la altura `s`.
+    inline BlockType conSegmento(BlockType t, uint16_t s) {
+        return hacer(FAM_AGAVE_ABISAII, escribir(estadoDe(t), SEGMENTO, s));
+    }
+
+    // --- Leer ---
+    inline uint16_t etapaDe(BlockType t)    { return leer(estadoDe(t), ETAPA); }
+    inline uint16_t giroDe(BlockType t)     { return leer(estadoDe(t), GIRO); }
+    inline uint16_t segmentoDe(BlockType t) { return leer(estadoDe(t), SEGMENTO); }
+
+    inline bool esAgaveAbisaii(BlockType t) {
+        return esCompuesto(t) && familiaDe(t) == FAM_AGAVE_ABISAII;
+    }
+
+    // ¿Es la celda de abajo? Es la que MANDA: la que lleva el estado bueno y
+    // la UNICA que dibuja la planta entera (ver la regla multicelda).
+    inline bool esBase(BlockType t) { return segmentoDe(t) == 0; }
+
+    // ------------------------------------------------------------------------
+    // MEDIDAS DE LA ROSETA
+    // ------------------------------------------------------------------------
+
+    // Cuantas celdas de alto ocupa. Mas baja que el tequilana a igual edad:
+    // esta especie crece a lo ANCHO, no a lo alto.
+    inline int celdasDeEtapa(uint16_t etapa) {
+        switch (etapa) {
+            case HIJUELO: return 1;
+            case JOVEN:   return 1;
+            case MEDIA:   return 2;
+            default:      return 2;
+        }
+    }
+
+    // Altura visible de la roseta, en bloques.
+    inline float alturaReal(uint16_t etapa) {
+        switch (etapa) {
+            case HIJUELO: return 0.40f;
+            case JOVEN:   return 0.75f;
+            case MEDIA:   return 1.15f;
+            case HECHA:   return 1.45f;
+            default:      return 1.60f;
+        }
+    }
+
+    // Radio de la roseta. Factor 0.80 (el tequilana usa 0.75): esta especie
+    // es aun mas ancha en proporcion a su alto -- 1:1.6 frente a 1:1.5.
+    //
+    // ⚠️ El tope 1.45 es el borde de chunk, no una decision estetica.
+    inline float radioDeEtapa(uint16_t etapa) {
+        const float r = alturaReal(etapa) * 0.80f;
+        return (r > 1.45f) ? 1.45f : r;
+    }
+
+    // Donde nace la hoja, en fraccion del radio: dentro del corazon, para que
+    // no quede un anillo de aire entre el cuerpo y las hojas.
+    constexpr float ARRANQUE = 0.28f;
+
+    // Cuantas hojas tiene. Menos que el tequilana a igual etapa porque la
+    // hoja es MUCHO mas ancha: con las mismas 32 la roseta se cierra en un
+    // bulto macizo y se pierde la luz entre hoja y hoja.
+    inline int hojasDeEtapa(uint16_t etapa) {
+        switch (etapa) {
+            case HIJUELO: return 7;
+            case JOVEN:   return 11;
+            case MEDIA:   return 15;
+            case HECHA:   return 19;
+            default:      return 24;
+        }
+    }
+
+    // Grosor de la hoja. Carnosa, como todas las suculentas del motor.
+    //
+    // ⚠️ ESTE ES EL FACTOR, NO EL GROSOR EN PIXELES. El grosor real de 4/16
+    // sale de multiplicar GRUESO_BASE por esto en el mesher; aqui solo se
+    // dice cuanto engorda con la edad.
+    inline float engrosado(uint16_t etapa) {
+        switch (etapa) {
+            case HIJUELO: return 0.70f;
+            case JOVEN:   return 0.95f;
+            case MEDIA:   return 1.25f;
+            case HECHA:   return 1.50f;
+            default:      return 1.75f;
+        }
+    }
+
+    // ⭐ LO QUE LA DISTINGUE: LA HOJA SE ARQUEA.
+    //
+    // El tequilana es rigido (caida 0.05-0.10). Esta especie tiene la hoja
+    // ancha y pesada, asi que se VENCE: sube, llega a su punto alto y cae.
+    // Es el rasgo que se reconoce de lejos, asi que el factor es grande.
+    inline float caidaDeEtapa(uint16_t etapa) {
+        switch (etapa) {
+            case HIJUELO: return 0.10f;   // el retoño aun no pesa
+            case JOVEN:   return 0.18f;
+            case MEDIA:   return 0.30f;
+            case HECHA:   return 0.40f;
+            default:      return 0.48f;   // la madura se vence del todo
+        }
+    }
+
+    // Dientes del borde. Los tiene, pero menos marcados que el tequilana.
+    inline int dientesDeEtapa(uint16_t etapa) {
+        switch (etapa) {
+            case HIJUELO: return 2;
+            case JOVEN:   return 3;
+            case MEDIA:   return 4;
+            default:      return 5;
+        }
+    }
+
+    // --- Crecer ---
+    inline BlockType crecida(BlockType t) {
+        const uint16_t e = etapaDe(t);
+        if (e >= MADURA) return t;
+        return hacer(FAM_AGAVE_ABISAII, escribir(estadoDe(t), ETAPA,
+                                                 (uint16_t)(e + 1)));
+    }
+
+} // namespace AgaveAbisaii
+
+// ============================================================================
 // FAMILIA: AGUA CON VOLUMEN
 // ============================================================================
 // El agua deja de ser "hay agua o no hay agua" y pasa a tener CUANTA hay.
@@ -1288,6 +1496,10 @@ inline int componentesDe(BlockType t) {
             // una sola pieza: no hay nada que se seleccione aparte.
             return (AgaveAzul::faseDe(t) == AgaveAzul::ROSETA) ? 2 : 1;
         }
+        case FAM_AGAVE_ABISAII:
+            // Cuerpo + puntas, igual que la roseta del tequilana: la espina
+            // terminal de cada hoja es lo que se selecciona aparte.
+            return 2;
         default:
             return 1;
     }
@@ -1324,11 +1536,12 @@ inline bool componenteRompible(BlockType t, int i) {
 // Nunca "ID desconocido -> bloque por defecto -> cubo visible".
 inline bool familiaTieneModelo(Familia f) {
     switch (f) {
-        case FAM_MAGUEY:     return true;
-        case FAM_BIZNAGA:    return true;
-        case FAM_AGUA:       return true;
-        case FAM_AGAVE_AZUL: return true;
-        default:             return false;   // reservada, aun sin geometria
+        case FAM_MAGUEY:        return true;
+        case FAM_BIZNAGA:       return true;
+        case FAM_AGUA:          return true;
+        case FAM_AGAVE_AZUL:    return true;
+        case FAM_AGAVE_ABISAII: return true;
+        default:                return false;   // reservada, aun sin geometria
     }
 }
 

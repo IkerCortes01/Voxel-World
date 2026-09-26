@@ -1,0 +1,19 @@
+// ============================================================================
+// RECURSOS DE WINDOWS: EL ICONO DEL EJECUTABLE
+// ============================================================================
+// Esto es lo que hace que VoxelWorld.exe se vea con el bloque de pasto en el
+// Explorador, en el escritorio y al fijarlo a la barra de tareas.
+//
+// Es DISTINTO del icono de la ventana (glfwSetWindowIcon, en main.cpp):
+//   - Este vive dentro del .exe y lo pinta Windows sin ejecutar nada.
+//   - El de GLFW lo pone el juego al arrancar, y solo afecta a la ventana.
+// Hacen falta los dos, y los dos salen del mismo PNG.
+//
+// El .ico lo genera `tools/generar_icono.py` con todas las medidas que pide
+// Windows (16 a 256): si solo hubiera una, el Explorador la reescalaria y a
+// 16x16 el cubo se veria como una mancha.
+//
+// ⚠️ EL ID 1 NO ES ARBITRARIO. Windows usa el icono de MENOR ID numerico como
+// icono del programa, asi que si algun dia se anaden mas, este tiene que
+// seguir siendo el mas bajo.
+1 ICON "VoxelWorld.ico"

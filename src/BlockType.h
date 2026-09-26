@@ -631,7 +631,28 @@ enum BlockType {
     //
     // Va al final del enum, como todo lo nuevo: insertar en medio correria los
     // IDs y los mundos guardados leerian otro bloque.
-    BLOCK_HUEVO_PECARI              // 188 Huevo de spawn del pecari de collar
+    BLOCK_HUEVO_PECARI,             // 188 Huevo de spawn del pecari de collar
+
+    // --- EL AGAVE ABISAII ---
+    //
+    // Como el tequilana, la planta en si es un BLOQUE COMPUESTO (ver
+    // FAM_AGAVE_ABISAII en BloqueCompuesto.h): su etapa, giro y segmento
+    // viajan dentro del ID y no gastan entradas de este enum.
+    //
+    // Estas dos SI son entradas reales porque son ETIQUETAS DE TEXTURA:
+    // `texSegura()` trabaja con BlockType, asi que cada imagen que el mesher
+    // pueda pedir necesita su nombre aqui.
+    //
+    //   PENCA  la hoja ancha y arqueada (el cuerpo de la roseta)
+    //   PUNTA  la espina terminal y los dientes del borde
+    //
+    // ⚠️ Son DOS TEXTURAS DISTINTAS, no dos tramos de UV de la misma. Con el
+    // texture array cada una es una CAPA, y la capa viaja en un byte del
+    // vertice. Repartir una sola imagen por UV no vale aqui: el greedy
+    // meshing tesela con GL_REPEAT y un sub-rectangulo se saldria de su
+    // casilla (ver PENDIENTES.md, cuarta vuelta de rendimiento).
+    BLOCK_AGAVE_ABISAII_PENCA,      // 189 Hoja ancha y arqueada
+    BLOCK_AGAVE_ABISAII_PUNTA       // 190 Espina terminal y dientes del borde
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -1886,7 +1907,11 @@ inline bool esRocaParaPico(BlockType t) {
     // pico si nadie se acuerda de excluirla.
     if (t == BLOCK_MAGUEY_PUNTA || t == BLOCK_MAGUEY_HUECO ||
         t == BLOCK_AGUAMIEL || t == BLOCK_NOPAL_SECO ||
-        t == BLOCK_ESPINAS_NOPAL)
+        t == BLOCK_ESPINAS_NOPAL ||
+        // El abisaii, por lo mismo: sus dos piezas son hoja carnosa y espina,
+        // no roca. Se excluyen AQUI y no en otro sitio para que la lista de
+        // "esto es planta" siga siendo una sola.
+        t == BLOCK_AGAVE_ABISAII_PENCA || t == BLOCK_AGAVE_ABISAII_PUNTA)
         return false;
 
     // Las herramientas, los tazones y los items sueltos no son bloques del
@@ -1940,7 +1965,7 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // ve hasta que alguien recarga un mundo. Por eso hay un test que ata este
 // valor al ultimo del enum (test_agave_azul.cpp), para que la proxima vez que
 // se olvide falle el build de tests en vez de salir a produccion.
-constexpr int BLOCK_TYPE_MAX = BLOCK_HUEVO_PECARI;
+constexpr int BLOCK_TYPE_MAX = BLOCK_AGAVE_ABISAII_PUNTA;
 
 // ============================================================================
 //  CARAS OCULTAS Y VISION DEL INTERIOR

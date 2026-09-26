@@ -223,7 +223,7 @@ TEST_CASE("Maguey: el borde lateral de la textura esta VACIO") {
     //
     // El camino viejo (item3D) levantaba el canto con cuatro tiras pegadas al
     // BORDE del cuadro: la tira oeste muestrea la columna u=0 y la este la
-    // columna u=1. En "Maguey.png" esas dos columnas son 100% transparentes,
+    // columna u=1. En "Penca de Maguey.png" esas dos columnas son 100% transparentes,
     // asi que el alpha test (GL_GREATER 0.5) descartaba las dos tiras ENTERAS
     // y la penca quedaba abierta por los costados.
     //
@@ -235,7 +235,7 @@ TEST_CASE("Maguey: el borde lateral de la textura esta VACIO") {
     const std::string raiz = raizProyecto();
     REQUIRE_FALSE(raiz.empty());
 
-    const std::string ruta = raiz + "resourcepacks/Textures/Blocks/Maguey.png";
+    const std::string ruta = raiz + "resourcepacks/Textures/Blocks/Penca de Maguey.png";
     REQUIRE(existe(ruta));
 
     // Se lee el PNG a pelo con stb_image, igual que hace SiluetaItem.

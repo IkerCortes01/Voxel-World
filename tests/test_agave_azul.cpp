@@ -591,12 +591,16 @@ TEST_CASE("BLOCK_TYPE_MAX cubre hasta el ultimo bloque del enum") {
     //
     // Atarlo aqui convierte "se me olvido actualizar el tope" en un test rojo
     // en vez de en un bloque sin textura que aparece semanas despues.
-    // Se actualiza cada vez que el enum crece: hoy el ultimo es el HUEVO DE
-    // SPAWN DEL PECARI. Lo que importa no es el nombre concreto sino la
+    // Se actualiza cada vez que el enum crece: hoy el ultimo es la PUNTA DEL
+    // AGAVE ABISAII. Lo que importa no es el nombre concreto sino la
     // propiedad de abajo -- que ningun bloque quede por encima del tope.
-    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_HUEVO_PECARI);
+    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_AGAVE_ABISAII_PUNTA);
 
-    // Y el propio huevo, que es el ultimo en entrar.
+    // Y las dos piezas del abisaii, las ultimas en entrar.
+    CHECK((int)BLOCK_AGAVE_ABISAII_PENCA <= (int)BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_AGAVE_ABISAII_PUNTA <= (int)BLOCK_TYPE_MAX);
+
+    // El huevo del pecari, que era el ultimo antes, sigue dentro.
     CHECK((int)BLOCK_HUEVO_PECARI <= (int)BLOCK_TYPE_MAX);
 
     // Y la propiedad de fondo, que es la que de verdad importa: NINGUN bloque

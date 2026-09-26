@@ -67,6 +67,23 @@ set(SOURCES
     src/Profiler.cpp
 )
 
+# ============================================================================
+# EL ICONO DEL EJECUTABLE (solo Windows)
+# ============================================================================
+# VoxelWorld.rc incrusta VoxelWorld.ico dentro del .exe, que es lo que hace
+# que el juego se vea con el bloque de pasto en el Explorador y en la barra de
+# tareas -- sin tener que arrancarlo.
+#
+# El icono de la VENTANA es otra cosa y se pone en tiempo de ejecucion con
+# glfwSetWindowIcon (ver main.cpp). Hacen falta los dos.
+#
+# Los dos archivos los genera `tools/generar_icono.py` a partir de las
+# texturas reales del pasto. Si no existen, el build sigue: se omite el
+# recurso y el .exe se queda con el icono por defecto.
+if(WIN32 AND EXISTS "${PROJECT_SOURCE_DIR}/VoxelWorld.rc")
+    list(APPEND SOURCES VoxelWorld.rc)
+endif()
+
 # Executable (WIN32 elimina la ventana de consola en Windows)
 add_executable(VoxelWorld WIN32 ${SOURCES})
 

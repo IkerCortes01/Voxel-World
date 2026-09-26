@@ -238,12 +238,30 @@ TEST_CASE("Tinte: el ocotal mixto queda ENTRE los dos puros") {
 // QUE SE TINE Y QUE NO
 // ----------------------------------------------------------------------------
 
+// ⚠️ EL TINTE ESTA APAGADO AHORA MISMO (TINTE_BIOMA_ACTIVO = false), y estos
+// dos casos son los unicos que dependen de que este encendido.
+//
+// Se dejan escritos y atados al interruptor en vez de borrarlos: describen la
+// regla que el sistema tiene que cumplir cuando se reactive, y borrarlos
+// significaria volver a escribirlos entonces -- o peor, no acordarse.
+//
+// Con el tinte apagado comprueban lo contrario: que NADA se tine. Esa tambien
+// es una propiedad que hay que vigilar, porque una cara que se colara seguiria
+// multiplicando color con el sistema supuestamente desactivado.
+
 TEST_CASE("Tinte: la cara de ABAJO del pasto es tierra y NO se tine") {
     // ⭐ EL ERROR QUE ESTO EVITA.
     //
     // Un bloque de pasto tiene tierra debajo. Tenirla de verde la pondria del
     // color de la hierba, que es justo el fallo que el tinte viene a arreglar
     // -- solo que al reves.
+    if (!Render::TINTE_BIOMA_ACTIVO) {
+        // Apagado: ninguna cara se tine, tampoco la de arriba.
+        for (int cara = 0; cara < 6; ++cara)
+            CHECK(caraSeTine(BLOCK_GRASS, cara) == false);
+        return;
+    }
+
     CHECK(caraSeTine(BLOCK_GRASS, 0) == true);    // arriba: hierba
     CHECK(caraSeTine(BLOCK_GRASS, 1) == false);   // abajo: TIERRA
     for (int cara = 2; cara < 6; ++cara)
@@ -252,8 +270,9 @@ TEST_CASE("Tinte: la cara de ABAJO del pasto es tierra y NO se tine") {
 
 TEST_CASE("Tinte: la hierba alta se tine entera") {
     // Es un sprite en cruz y es toda ella herbacea.
+    const bool esperado = Render::TINTE_BIOMA_ACTIVO;
     for (int cara = 0; cara < 6; ++cara)
-        CHECK(caraSeTine(BLOCK_TALLGRASS, cara) == true);
+        CHECK(caraSeTine(BLOCK_TALLGRASS, cara) == esperado);
 }
 
 TEST_CASE("Tinte: lo que no es hierba NO se tine") {

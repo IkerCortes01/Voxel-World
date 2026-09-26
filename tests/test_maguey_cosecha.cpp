@@ -158,7 +158,7 @@ TEST_CASE("Cosecha del maguey: la cantidad sigue al tamaño real de la planta") 
 
 TEST_CASE("Cosecha del maguey: la penca es un item con textura") {
     // Se entrega BLOCK_IXTLE_HOJA, que es la penca del maguey y ya existe como
-    // bloque con textura propia (Maguey.png).
+    // bloque con textura propia (Penca de Maguey.png).
     //
     // Tiene que estar por debajo de BLOCK_TYPE_MAX porque prewarmItemTextures
     // recorre justo ese rango para registrar los iconos: por encima del tope,

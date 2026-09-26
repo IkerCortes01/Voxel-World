@@ -61,6 +61,45 @@
 
 namespace Render {
 
+// ============================================================================
+// ⭐ INTERRUPTOR DEL TINTE DE BIOMA
+// ============================================================================
+// Se apago un rato por un bug visible --el pasto se veia azul-- y se volvio a
+// encender al encontrar la causa REAL, que no era este sistema.
+//
+// ----------------------------------------------------------------------------
+// LA CAUSA ERA `channels`, NO EL TINTE. Conviene que quede escrito.
+// ----------------------------------------------------------------------------
+// `loadTexture` pide las imagenes con STBI_rgb_alpha, que convierte SIEMPRE a
+// RGBA, pero `channels` devuelve los canales del ARCHIVO, no los del buffer.
+// Un PNG sin transparencia daba channels = 3 sobre un buffer de 4 bytes por
+// pixel, y entonces glTexImage2D leia de 3 en 3 sobre datos de 4: cada pixel
+// se desplazaba un byte mas que el anterior y el canal que se colaba era el
+// alfa, que vale 255 -- blanco. De ahi el lavado a blanco azulado.
+//
+// Lo que lo destapo fueron las texturas nuevas en alta resolucion, exportadas
+// SIN alfa. Las de 16x16 de siempre si llevan transparencia, asi que el numero
+// coincidia por casualidad y el fallo llevaba anos escondido.
+//
+// Lo que se comprobo aqui antes de descartar el tinte, y sigue siendo cierto:
+//   - Las texturas de pasto NO son azules: el azul es su canal mas bajo.
+//   - La tabla de abajo NO es azul: son verdes oliva y pajizos.
+//   - La luz solar es blanca (getLightColor da 1,1,1 sin antorcha).
+// Un tinte verde sobre una textura verde no puede dar pasto azul.
+//
+// ----------------------------------------------------------------------------
+// EL INTERRUPTOR SE QUEDA
+// ----------------------------------------------------------------------------
+// Poner esto en `false` apaga el sistema entero sin tocar nada mas: la tabla,
+// la mezcla de fronteras y la clave del greedy siguen compiladas y probadas.
+// Es util para aislar el tinte de cualquier otro problema de color en un A/B,
+// que es justo para lo que sirvio.
+//
+// ⚠️ Con esto en false, `caraSeTine()` devuelve SIEMPRE false y el mesher
+// escribe tinte 255,255,255 -- la identidad al multiplicar. Es exactamente el
+// comportamiento anterior a que existiera el tinte.
+inline constexpr bool TINTE_BIOMA_ACTIVO = true;
+
 struct TinteRGB {
     float r, g, b;
 };
@@ -172,6 +211,16 @@ inline TinteRGB tintePasto(TerrainGen::BiomeType b) {
 // La cara de ABAJO de un bloque de pasto es tierra, y la lleva el propio
 // mesher: se tine por (bloque, cara), no por bloque a secas.
 inline bool caraSeTine(BlockType b, int cara) {
+    // ⭐ EL INTERRUPTOR, EN EL UNICO SITIO QUE HACE FALTA.
+    //
+    // Toda cara teñida pasa por aqui: el mesher pregunta y, si la respuesta es
+    // false, escribe 255,255,255 -- que multiplicado es la identidad. Apagarlo
+    // aqui apaga el sistema entero sin tocar el mesher ni dejar ramas muertas.
+    //
+    // Y no cuesta nada en tiempo de ejecucion: la constante es constexpr, asi
+    // que el compilador se lleva por delante el switch completo.
+    if (!TINTE_BIOMA_ACTIVO) return false;
+
     switch (b) {
         case BLOCK_GRASS:
             // Arriba y los cuatro lados; abajo es tierra pura.

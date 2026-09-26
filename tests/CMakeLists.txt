@@ -33,6 +33,7 @@ add_executable(voxel_tests
     test_agua_flujo.cpp
     test_agua_escenario.cpp
     test_agave_azul.cpp
+    test_agave_abisaii.cpp
     test_caras_ocultas.cpp
     test_maguey_conexion.cpp
     test_maguey_cosecha.cpp

@@ -27,7 +27,11 @@ TEST_CASE("Barro: existe y entra en el rango que se valida") {
     // hacerlo a proposito: cada bloque nuevo va al final, asi que esa
     // afirmacion caduca sola. Lo que de verdad importa es que quepa.)
     CHECK((int)BLOCK_PEDAZO_BARRO <= BLOCK_TYPE_MAX);
-    CHECK((int)BLOCK_PEDAZO_BARRO > (int)BLOCK_PYRITE_ORE);
+    // El barro se anadio DESPUES que los guijarros del suelo. Antes esto se
+    // comparaba contra BLOCK_PYRITE_ORE, que era el ultimo bloque de su zona;
+    // la pirita se retiro con el resto de los minerales de veta, asi que la
+    // referencia pasa a ser el ultimo guijarro, que sigue vivo.
+    CHECK((int)BLOCK_PEDAZO_BARRO > (int)BLOCK_PEDAZO_NIEVE);
 }
 
 TEST_CASE("Barro: es un ITEM, no un bloque del terreno") {

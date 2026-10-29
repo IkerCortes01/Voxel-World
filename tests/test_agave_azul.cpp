@@ -594,9 +594,52 @@ TEST_CASE("BLOCK_TYPE_MAX cubre hasta el ultimo bloque del enum") {
     // Se actualiza cada vez que el enum crece: hoy el ultimo es la PUNTA DEL
     // AGAVE ABISAII. Lo que importa no es el nombre concreto sino la
     // propiedad de abajo -- que ningun bloque quede por encima del tope.
-    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_AGAVE_ABISAII_PUNTA);
+    // Hoy el ultimo son los TABLONES DE PSEUDOSTROBUS, la cuarta pieza del
+    // ultimo de los cuatro pinos mexicanos que entraron al enum.
+    // Hoy el ultimo es el septimo nivel del TECHO APOYADO, la variante del
+    // techo de hojas que crece desde el suelo.
+    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_TECHO_SUELO_L7);
 
-    // Y las dos piezas del abisaii, las ultimas en entrar.
+    // Y las dos orientaciones del techo caben bajo el tope: si alguna se
+    // saliera, no recibiria icono de item y los IDs leidos de disco la darian
+    // por invalida.
+    CHECK((int)BLOCK_TECHO_SUELO    <= (int)BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_TECHO_SUELO_L1 <= (int)BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_TECHO_SUELO_L7 <= (int)BLOCK_TYPE_MAX);
+    // Entraron al FINAL: no movieron nada de lo que ya estaba.
+    CHECK((int)BLOCK_TECHO_SUELO > (int)BLOCK_PLANKS_PSEUDOSTROBUS);
+
+    // El techo y sus siete niveles.
+    CHECK((int)BLOCK_TECHO_HOJAS    <= (int)BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_TECHO_HOJAS_L1 <= (int)BLOCK_TYPE_MAX);
+    CHECK((int)BLOCK_TECHO_HOJAS_L7 <= (int)BLOCK_TYPE_MAX);
+
+    // ⭐ Y LAS DIECISEIS PIEZAS DE LOS CUATRO PINOS NUEVOS.
+    //
+    // Es justo el caso que este test vigila: si alguna quedara por encima del
+    // tope, no recibiria icono de item y ademas los IDs leidos de disco la
+    // darian por invalida. Se comprueban las cuatro piezas de cada especie
+    // --corteza, corte, acicula y tablones-- no solo la ultima.
+    const BlockType PINOS_NUEVOS[] = {
+        BLOCK_WOOD_PATULA,   BLOCK_WOOD_PATULA_DENTRO,
+        BLOCK_LEAVES_PATULA, BLOCK_PLANKS_PATULA,
+        BLOCK_WOOD_PINONERO,   BLOCK_WOOD_PINONERO_DENTRO,
+        BLOCK_LEAVES_PINONERO, BLOCK_PLANKS_PINONERO,
+        BLOCK_WOOD_ALTURAS,    BLOCK_WOOD_ALTURAS_DENTRO,
+        BLOCK_LEAVES_ALTURAS,  BLOCK_PLANKS_ALTURAS,
+        BLOCK_WOOD_PSEUDOSTROBUS,   BLOCK_WOOD_PSEUDOSTROBUS_DENTRO,
+        BLOCK_LEAVES_PSEUDOSTROBUS, BLOCK_PLANKS_PSEUDOSTROBUS,
+    };
+    for (BlockType b : PINOS_NUEVOS) {
+        INFO("pieza ", (int)b);
+        CHECK((int)b <= (int)BLOCK_TYPE_MAX);
+    }
+
+    // Y que anadirlos NO movio lo que ya estaba: entraron al FINAL del enum,
+    // que es la regla que protege los mundos guardados.
+    CHECK((int)BLOCK_WOOD_PATULA > (int)BLOCK_TECHO_HOJAS_L7);
+
+    // Y las dos piezas del abisaii, que ya estaban.
     CHECK((int)BLOCK_AGAVE_ABISAII_PENCA <= (int)BLOCK_TYPE_MAX);
     CHECK((int)BLOCK_AGAVE_ABISAII_PUNTA <= (int)BLOCK_TYPE_MAX);
 

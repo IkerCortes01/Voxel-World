@@ -137,17 +137,27 @@ TEST_CASE("Perfil: el presupuesto de mallado crece con el nivel") {
         < perfilPara(NivelMaquina::ALTO,   8).presupuestoMalladoMs);
 }
 
-TEST_CASE("Perfil: todos los niveles apuntan a 120 FPS o mas") {
-    // Lo que se pidio: fluidez por defecto. Ningun nivel se conforma con 60.
+TEST_CASE("Perfil: todos los niveles apuntan a 200 FPS") {
+    // Lo que se pidio: que el ciclo de streaming corra 200 veces por segundo.
+    //
+    // `fpsObjetivo` es lo que lo gobierna: `updateChunks` se llama una vez por
+    // frame, asi que el objetivo de FPS ES la frecuencia de actualizacion de
+    // chunks. Por eso se fija igual en los cuatro niveles -- la maquina floja
+    // compensa con menos distancia de render, no revisando el mundo menos veces.
+    //
+    // Se comprueba la igualdad y no un ">=": si alguien baja uno de los cuatro,
+    // el streaming de esa maquina pasa a ir mas lento y el test tiene que
+    // decirlo. Un ">=" dejaria pasar justo el cambio que hay que vigilar.
     for (int i = 0; i <= 3; ++i) {
         const Perfil p = perfilPara((NivelMaquina)i, 8);
         INFO("nivel ", nombreNivel((NivelMaquina)i));
-        CHECK(p.fpsObjetivo >= 120);
+        CHECK(p.fpsObjetivo == 200);
     }
 
-    // Y las maquinas justas apuntan MAS alto en FPS, porque compensan con
-    // menos distancia: es el intercambio "fluidez primero".
-    CHECK(perfilPara(NivelMaquina::MINIMO, 8).fpsObjetivo >= 150);
+    // El valor por defecto de la struct tambien: un Perfil sin detectar (GPU
+    // desconocida, o construido a mano) no debe quedarse con una frecuencia
+    // menor que la que se acaba de fijar.
+    CHECK(Perfil{}.fpsObjetivo == 200);
 }
 
 // ============================================================================

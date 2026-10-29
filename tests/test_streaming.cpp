@@ -328,6 +328,43 @@ TEST_CASE("Presupuesto: una GPU lenta NO ahoga el streaming") {
     CHECK(p.subidaMs     > 1.0f);
 }
 
+TEST_CASE("Presupuesto: con objetivo 200 FPS el presupuesto todavia puede subir") {
+    // ⭐ EL TEST QUE FIJA EL ARREGLO DE LOS UMBRALES PROPORCIONALES.
+    //
+    // Al subir fpsObjetivo a 200 (para que el ciclo de chunks corra 200 veces
+    // por segundo) el presupuesto se quedaba clavado en el suelo PARA SIEMPRE.
+    //
+    // La causa era un umbral absoluto: subir exigia `holgura > 2.0 ms`, pero a
+    // 200 FPS el presupuesto de CPU entero son 2,5 ms. Hacia falta gastar menos
+    // de 0,5 ms en fisica + chunks + render para que el regulador concediera
+    // algo -- inalcanzable en la practica.
+    //
+    // Medido en la HD 4000 antes del arreglo:
+    //     cpu = 2,15-2,62 ms  contra presupuestoCpu = 2,50 ms
+    //     presup(ms) gen=0.5 malla=0.5 subida=1   <- el suelo, en 5 de 6 medidas
+    //
+    // Con umbrales proporcionales el regulador vuelve a tener recorrido en los
+    // dos sentidos sea cual sea el objetivo.
+    const float objetivo200 = 5.0f;    // 200 FPS -> 2,5 ms de CPU
+
+    // Una CPU de verdad holgada para este objetivo (0,8 de 2,5 ms).
+    Presupuesto p;
+    for (int i = 0; i < 100; ++i) p = ajustarPresupuesto(p, 0.8f, objetivo200);
+
+    Presupuesto suelo;   // los minimos que impone ajustarPresupuesto
+    suelo.generacionMs = 0.5f; suelo.malladoMs = 0.5f; suelo.subidaMs = 1.0f;
+
+    INFO("gen=", p.generacionMs, " malla=", p.malladoMs, " subida=", p.subidaMs);
+    CHECK(p.generacionMs > suelo.generacionMs);
+    CHECK(p.malladoMs    > suelo.malladoMs);
+    CHECK(p.subidaMs     > suelo.subidaMs);
+
+    // Y la otra mitad del contrato: con la CPU desbordada sigue recortando.
+    Presupuesto q;
+    for (int i = 0; i < 100; ++i) q = ajustarPresupuesto(q, 20.0f, objetivo200);
+    CHECK(q.malladoMs < p.malladoMs);
+}
+
 TEST_CASE("Presupuesto: nunca llega a cero") {
     // Si el presupuesto pudiera anularse, el streaming se pararia del todo y
     // el jugador se quedaria sin mundo -- peor que un frame irregular. Se

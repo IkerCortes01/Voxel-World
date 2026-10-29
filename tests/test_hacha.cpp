@@ -47,7 +47,7 @@ TEST_CASE("Hacha: lo que no es organico no le gasta vida") {
     CHECK(desgasteHacha(BLOCK_GRAVEL) == 0);
     CHECK(desgasteHacha(BLOCK_STONE) == 0);
     CHECK(desgasteHacha(BLOCK_COBBLESTONE) == 0);
-    CHECK(desgasteHacha(BLOCK_COAL_ORE) == 0);
+    CHECK(desgasteHacha(BLOCK_LIMESTONE) == 0);  // era BLOCK_COAL_ORE, retirado
 }
 
 TEST_CASE("Hacha: esOrganicoParaHacha reconoce la capa parcial de un organico") {
@@ -118,7 +118,6 @@ TEST_CASE("Pico: la roca le gasta vida, lo organico no") {
     CHECK(desgastePico(BLOCK_COBBLESTONE) == 2);
     CHECK(desgastePico(BLOCK_LIMESTONE) == 2);
     CHECK(desgastePico(BLOCK_GRAVEL) == 2);
-    CHECK(desgastePico(BLOCK_COAL_ORE) == 2);
     CHECK(desgastePico(BLOCK_DIRT) == 2);
 
     // Lo organico es del hacha: el pico no lo reconoce como suyo.
@@ -238,19 +237,35 @@ TEST_CASE("Barra: indice fuera de rango no revienta") {
 // LA MADERA YA NO TIENE NIVELES
 // ============================================================================
 
-TEST_CASE("Niveles: los troncos y tablones no admiten capas parciales") {
-    // Los tres troncos
+TEST_CASE("Niveles: los TRONCOS no admiten capas, los TABLONES si") {
+    // ⭐ LA REGLA SE AFINO, Y CONVIENE SABER POR QUE.
+    //
+    // Antes ni troncos ni tablones tenian niveles, con un solo argumento para
+    // los seis: "un tronco es un tronco entero, no una loncha de 3 px".
+    //
+    // Ese argumento vale para el TRONCO --su veta y su forma se pierden al
+    // partirlo-- pero NO para el TABLON: un tablon ES una tabla, material de
+    // construccion plano, que es justo lo que uno quiere poner en capas.
+    //
+    // Y sin niveles daba un bug visible: entre una capa de 3 px y un tablon de
+    // 16 quedaban 13 px de aire, porque el apilado los trataba como cubos y no
+    // se fundian con la capa de debajo. Separacion visible Y fisica.
+    //
+    // Los tres troncos: siguen enteros.
     CHECK_FALSE(admiteNiveles(BLOCK_WOOD));
     CHECK_FALSE(admiteNiveles(BLOCK_WOOD_ENCINO));
     CHECK_FALSE(admiteNiveles(BLOCK_WOOD_OYAMEL));
-    // Los tres tablones
-    CHECK_FALSE(admiteNiveles(BLOCK_PLANKS));
-    CHECK_FALSE(admiteNiveles(BLOCK_PLANKS_ENCINO));
-    CHECK_FALSE(admiteNiveles(BLOCK_PLANKS_OYAMEL));
+    // Los tres tablones: ahora SI se parten en capas.
+    CHECK(admiteNiveles(BLOCK_PLANKS));
+    CHECK(admiteNiveles(BLOCK_PLANKS_ENCINO));
+    CHECK(admiteNiveles(BLOCK_PLANKS_OYAMEL));
 
-    // conNivel sobre madera devuelve el bloque entero, no una capa.
+    // conNivel sobre un TRONCO devuelve el bloque entero, no una capa.
     CHECK(conNivel(BLOCK_WOOD, 3) == BLOCK_WOOD);
-    CHECK(conNivel(BLOCK_PLANKS, 1) == BLOCK_PLANKS);
+    // Sobre un TABLON devuelve su capa de verdad.
+    CHECK(conNivel(BLOCK_PLANKS, 1) == BLOCK_PLANKS_L1);
+    CHECK(nivelDe(conNivel(BLOCK_PLANKS, 3)) == 3);
+    CHECK(bloqueBaseDe(conNivel(BLOCK_PLANKS, 3)) == BLOCK_PLANKS);
 
     // La madera NO puede ser la capa de ABAJO de una celda mixta: esa capa se
     // mide por niveles, y la madera no los tiene.

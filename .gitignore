@@ -53,6 +53,11 @@ external/glfw/docs/html/
 # Configuracion local de Claude Code (especifica de cada maquina)
 .claude/settings.local.json
 
+# Originales de textura en alta resolucion (~244 MB). El juego no los carga:
+# usa las versiones de Blocks/ e Items/. Versionarlos haria que cada clon
+# descargase un cuarto de giga de PNG que nadie lee en tiempo de ejecucion.
+resourcepacks/Textures/_hd_original/
+
 # Los ZIP que genera tools/empaquetar.bat. Son un derivado del propio
 # repositorio: versionarlos seria guardar el proyecto dentro del proyecto.
 dist/

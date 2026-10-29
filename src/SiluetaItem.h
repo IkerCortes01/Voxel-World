@@ -66,8 +66,21 @@ struct Modelo {
 // stbi_set_flip_vertically_on_load(true), asi que se guarda el valor, se pone
 // a false y se restaura: si no, la silueta saldria del reves respecto a las
 // UV que usa el dibujado.
+// ⭐⭐ EL UMBRAL TIENE QUE COINCIDIR CON EL DEL ALPHA TEST DEL DIBUJADO.
+//
+// Es 26 (0.1 * 255) porque es lo que usa `glAlphaFunc(GL_GREATER, 0.1f)` al
+// pintar el item, y los dos tienen que estar de acuerdo sobre QUE ES OPACO:
+//
+//   umbral MAS ALTO aqui  -> el canto nace por dentro del dibujo visible y
+//                            queda un reborde de textura sin cerrar
+//   umbral MAS BAJO aqui  -> el canto sobresale por fuera de lo que se ve
+//
+// Estaba en 128 mientras el dibujado recortaba a 128 tambien, asi que
+// coincidian. Al bajar el alpha test a 0.1 --para que los pixeles del borde
+// suavizado y los semitransparentes del interior dejaran de salir como
+// agujeros-- este tenia que bajar con el.
 inline bool leerAlpha(const char* ruta, std::vector<unsigned char>& opaco,
-                      int& w, int& h, unsigned char umbral = 128) {
+                      int& w, int& h, unsigned char umbral = 26) {
     if (!ruta) return false;
     int canales = 0;
     stbi_set_flip_vertically_on_load(false);

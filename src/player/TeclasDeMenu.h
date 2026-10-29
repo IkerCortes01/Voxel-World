@@ -57,4 +57,26 @@ inline bool teclaParaElPersonaje(bool pulsada, bool inventario, bool pausa) {
     return pulsada && teclasDelPersonajeActivas(inventario, pausa);
 }
 
+// ============================================================================
+// QUE HACE ESC
+// ============================================================================
+// PEDIDO: "si presionas esc y estas en inventario, aun asi puedas cerrarlo;
+// o sea, con E y con ESC".
+//
+// Los menus se apilan: ESC cierra el de ARRIBA y nada mas. Con el inventario
+// abierto, lo de arriba es el inventario, asi que ESC lo cierra y vuelve al
+// juego -- igual que E. Antes pausaba con el inventario abierto detras, y al
+// salir de la pausa el jugador seguia dentro del inventario.
+enum class AccionEsc {
+    CERRAR_INVENTARIO,   // inventario abierto: se cierra, como con E
+    PAUSAR,              // jugando: abre el menu de pausa
+    MENU_DE_PAUSA,       // ya en pausa: sube de submenu o reanuda
+};
+
+inline AccionEsc accionDeEsc(bool inventario, bool pausa) {
+    if (pausa)      return AccionEsc::MENU_DE_PAUSA;
+    if (inventario) return AccionEsc::CERRAR_INVENTARIO;
+    return AccionEsc::PAUSAR;
+}
+
 } // namespace PlayerSys

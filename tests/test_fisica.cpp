@@ -46,7 +46,10 @@ TEST_CASE("Fisica: SIN AIRE todos los cuerpos caen igual") {
     const float aPiedra = aceleracionCaida(BLOCK_STONE, 0.0f);
     const float aMadera = aceleracionCaida(BLOCK_WOOD, 0.0f);
     const float aHojas  = aceleracionCaida(BLOCK_LEAVES, 0.0f);
-    const float aOro    = aceleracionCaida(BLOCK_GOLD_ORE, 0.0f);
+    // Antes se usaba el mineral de oro (el bloque mas "pesado" del juego).
+    // Retirado; la piedra labrada sirve igual: lo que se comprueba es que la
+    // aceleracion NO depende del material.
+    const float aOro    = aceleracionCaida(BLOCK_COBBLESTONE, 0.0f);
 
     CHECK(aPiedra == doctest::Approx(aMadera));
     CHECK(aMadera == doctest::Approx(aHojas));

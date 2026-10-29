@@ -414,7 +414,22 @@ TEST_CASE("Cactus: el largo y el ancho salen de la textura, no de una constante"
     // Se comprueba que las texturas existen y son cuadradas: si una no lo
     // fuera, el modelo la estiraria al cuadro y dejaria de medir lo que mide.
     const char* PNGS[] = {
-        "resourcepacks/Textures/Items/Penca de Nopal de Castilla.png",
+        // ⚠️ LA PENCA SUELTA ES LA DE Items/, Y SE LLAMA "suelto".
+        //
+        // Son dos imagenes distintas y es facil confundirlas:
+        //   Blocks/Penca de Nopal de Castilla.png    la penca EN LA MATA
+        //   Items/Penca ... suelto.png               la penca YA CORTADA
+        //
+        // Este test va del ITEM tirado en el suelo, asi que le toca la segunda.
+        // El nombre viejo (`Items/Penca de Nopal de Castilla.png`) desaparecio
+        // al reorganizarse el resourcepack: la de la planta se movio a Blocks/
+        // y la del item gano el sufijo "suelto".
+        //
+        // ⚠️ NO vale apuntar a la de Blocks/: esa es 1024x1536 --no cuadrada--
+        // y el CHECK(w == h) de abajo fallaria con razon. La de la mata se
+        // dibuja sobre geometria propia que respeta su proporcion; el item
+        // suelto se dibuja en un cuadro, y por eso SI tiene que ser cuadrado.
+        "resourcepacks/Textures/Items/Penca de Nopal de Castilla suelto.png",
         "resourcepacks/Textures/Items/Espinas de Nopal de castilla.png",
         "resourcepacks/Textures/Items/Tuna verde crecida.png",
         "resourcepacks/Textures/Items/Baba de nopal.png",
@@ -426,6 +441,16 @@ TEST_CASE("Cactus: el largo y el ancho salen de la textura, no de una constante"
         REQUIRE(existe(completa));
         unsigned char* datos = stbi_load(completa.c_str(), &w, &h, &canales, 4);
         REQUIRE(datos != nullptr);
+        // ⚠️ CUADRADA, Y NO ES UN CAPRICHO DEL TEST.
+        //
+        // `SiluetaItem::construir` mapea X e Y a [-1,1] POR SEPARADO
+        // (ver `px()` y `py()`): una textura de 256x171 se estira hasta el
+        // cuadro y el item sale ACHATADO. No hay correccion de proporcion en
+        // ningun punto del camino.
+        //
+        // Si este CHECK falla tras cambiar una textura, el arreglo es
+        // RECORTAR O RELLENAR el PNG hasta dejarlo cuadrado -- no relajar el
+        // test, que es lo unico que avisa de la deformacion.
         CHECK(w == h);          // cuadrada: el modelo no la deforma
         CHECK(w > 0);
         stbi_image_free(datos);

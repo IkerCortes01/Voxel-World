@@ -190,3 +190,145 @@ TEST_CASE("Inventory: clear vacia todos los slots y resetea la seleccion") {
     }
     CHECK(inv.selectedSlot == 0);
 }
+
+// ============================================================================
+// RECOGER SE ACUMULA EN LO QUE YA LLEVAS
+// ============================================================================
+// Lo que se pidio: al recoger un item suelto, si ese mismo item ya esta en el
+// inventario la cuenta SUBE (n -> n+1, n+5, lo que se recoja) en vez de
+// ocupar otra casilla. Vale para bloques, items y todo lo apilable.
+//
+// Los dos bugs que esto fija tenian perdida visible para el jugador: uno
+// partia el material en montones sueltos y el otro lo hacia DESAPARECER.
+// ============================================================================
+
+TEST_CASE("Recoger: un hueco anterior NO le roba el item al monton") {
+    // ⭐ EL BUG. `canStack()` dice que si a un slot VACIO, y el bucle iba de
+    // izquierda a derecha, asi que el hueco del medio se llevaba la piedra y
+    // quedaban DOS montones de piedra separados.
+    Inventory inv;
+    inv.slots[0].blockType = BLOCK_STONE;  inv.slots[0].count = 3;
+    // slots[1] queda vacio a proposito: es la trampa.
+    inv.slots[2].blockType = BLOCK_DIRT;   inv.slots[2].count = 5;
+
+    inv.addItem(BLOCK_STONE, 1);
+
+    CHECK(inv.slots[0].count == 4);        // se sumo al monton: 3 -> 4
+    CHECK(inv.slots[1].isEmpty());         // el hueco sigue vacio
+    CHECK(inv.slots[2].count == 5);        // la tierra, intacta
+}
+
+TEST_CASE("Recoger: n pasa a n+1 sin importar donde este el monton") {
+    // El monton puede estar en cualquier casilla, incluso detras de varios
+    // huecos. Se busca por TIPO, no por posicion.
+    Inventory inv;
+    inv.slots[9].blockType = BLOCK_SAND;  inv.slots[9].count = 1;
+
+    inv.addItem(BLOCK_SAND, 1);
+    CHECK(inv.slots[9].count == 2);        // 1 -> 2
+
+    inv.addItem(BLOCK_SAND, 1);
+    CHECK(inv.slots[9].count == 3);        // 2 -> 3
+
+    // Y de golpe tambien: n -> n+X
+    inv.addItem(BLOCK_SAND, 20);
+    CHECK(inv.slots[9].count == 23);
+
+    // Sin haber tocado ninguna otra casilla.
+    CHECK(inv.slots[0].isEmpty());
+}
+
+TEST_CASE("Recoger: funciona igual con cualquier tipo de item o bloque") {
+    // "asi con todos los items, bloques etc": no hay lista de excepciones,
+    // la regla es por tipo.
+    const BlockType COSAS[] = {
+        BLOCK_STONE, BLOCK_DIRT, BLOCK_SAND, BLOCK_GRAVEL,
+        BLOCK_STICK, BLOCK_PEDAZO_PIEDRA, BLOCK_PLANKS, BLOCK_HILO_IXTLE
+    };
+    for (BlockType t : COSAS) {
+        Inventory inv;
+        inv.addItem(t, 1);
+        inv.addItem(t, 1);
+        inv.addItem(t, 1);
+        INFO("tipo ", (int)t);
+        CHECK(inv.slots[0].blockType == t);
+        CHECK(inv.slots[0].count == 3);    // los tres en la misma casilla
+        CHECK(inv.slots[1].isEmpty());
+    }
+}
+
+TEST_CASE("Recoger: al pasar del tope no se pierde ni una unidad") {
+    // ⭐ EL SEGUNDO BUG. `add()` recortaba a MAX_STACK_SIZE en silencio:
+    // recoger 5 sobre un monton de 185 daba 187 y se evaporaban 3.
+    Inventory inv;
+    inv.slots[0].blockType = BLOCK_STONE;
+    inv.slots[0].count = MAX_STACK_SIZE - 2;    // 185
+
+    inv.addItem(BLOCK_STONE, 5);
+
+    // 185 + 5 = 190: el monton se llena y los 3 que sobran siguen existiendo.
+    int totalPiedra = 0;
+    for (int i = 0; i < inv.total(); i++)
+        if (inv.slots[(size_t)i].blockType == BLOCK_STONE)
+            totalPiedra += inv.slots[(size_t)i].count;
+
+    CHECK(totalPiedra == MAX_STACK_SIZE + 3);
+    CHECK(inv.slots[0].count == MAX_STACK_SIZE);
+}
+
+TEST_CASE("Recoger: una cantidad enorme se reparte en varios montones") {
+    Inventory inv;
+    inv.addItem(BLOCK_DIRT, MAX_STACK_SIZE * 2 + 50);
+
+    int total = 0;
+    for (int i = 0; i < inv.total(); i++)
+        if (inv.slots[(size_t)i].blockType == BLOCK_DIRT)
+            total += inv.slots[(size_t)i].count;
+
+    CHECK(total == MAX_STACK_SIZE * 2 + 50);   // no se perdio nada
+}
+
+TEST_CASE("Recoger: los montones existentes se rellenan antes de abrir sitio") {
+    // Si quedaron dos montones del mismo material a medias, recoger los
+    // rellena en orden en vez de abrir un tercero. Es lo que mantiene el
+    // inventario compacto con el uso.
+    Inventory inv;
+    inv.slots[0].blockType = BLOCK_GRAVEL;  inv.slots[0].count = MAX_STACK_SIZE - 1;
+    inv.slots[1].blockType = BLOCK_GRAVEL;  inv.slots[1].count = 10;
+    const int casillasAntes = inv.total();
+
+    inv.addItem(BLOCK_GRAVEL, 6);
+
+    CHECK(inv.slots[0].count == MAX_STACK_SIZE);  // se completo el primero
+    CHECK(inv.slots[1].count == 15);              // y el resto al segundo
+    CHECK(inv.total() == casillasAntes);          // sin abrir casillas nuevas
+}
+
+TEST_CASE("Recoger: el stack infinito del creativo no se toca") {
+    // Un slot infinito es un centinela, no una cuenta: sumarle lo destruiria
+    // y el bloque dejaria de ser inagotable.
+    Inventory inv;
+    inv.slots[0].blockType = BLOCK_STONE;
+    inv.slots[0].count = INFINITE_COUNT;
+
+    inv.addItem(BLOCK_STONE, 5);
+
+    CHECK(inv.slots[0].count == INFINITE_COUNT);  // intacto
+    // Los 5 recogidos van a otra casilla, no se pierden.
+    CHECK(inv.slots[1].blockType == BLOCK_STONE);
+    CHECK(inv.slots[1].count == 5);
+}
+
+TEST_CASE("Recoger: cero o negativo no hace nada") {
+    Inventory inv;
+    inv.addItem(BLOCK_STONE, 10);
+    const int casillas = inv.total();
+
+    inv.addItem(BLOCK_STONE, 0);
+    CHECK(inv.slots[0].count == 10);
+    CHECK(inv.total() == casillas);     // no abrio casilla fantasma
+
+    inv.addItem(BLOCK_STONE, -5);
+    CHECK(inv.slots[0].count == 10);
+    CHECK(inv.total() == casillas);
+}

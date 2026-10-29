@@ -119,18 +119,12 @@ TEST_CASE("Derrumbe: el terreno corriente se queda donde esta") {
     }
 }
 
-TEST_CASE("Derrumbe: los minerales tampoco caen") {
-    // Van incrustados en la roca: si cayeran, minar una veta abriria un
-    // socavon en la montaña.
-    const BlockType VETAS[] = {
-        BLOCK_COAL_ORE, BLOCK_SILVER_ORE, BLOCK_GOLD_ORE,
-        BLOCK_DIAMOND_ORE, BLOCK_SCRAP_METAL, BLOCK_PYRITE_ORE
-    };
-    for (BlockType t : VETAS) {
-        INFO("mineral ", (int)t);
-        CHECK_FALSE(puedeCaer(t));
-    }
-}
+// El caso "los minerales tampoco caen" vivia aqui. Los siete bloques de veta
+// se retiraron del juego, asi que no hay mineral que pueda caerse: el caso se
+// queda sin sujeto y se retira con ellos.
+//
+// Lo que cubria de verdad -- que la roca no se desmorona al picarla -- lo
+// sigue comprobando el caso de TERRENO justo encima, que incluye la piedra.
 
 TEST_CASE("Derrumbe: las capas parciales de terreno tampoco caen") {
     // Una loncha de tierra es tierra. Si la capa cayera y el bloque entero

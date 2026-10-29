@@ -16,6 +16,9 @@
 //  - add() devuelve void y RECORTA al tope: los items que exceden
 //    MAX_STACK_SIZE se descartan (el llamador decide qué dar por añadido con
 //    canStack() antes de llamar).
+//    ⚠️ Eso vale para add() SOBRE UN SLOT. addItem(), que es por donde entra
+//    todo lo que el jugador recoge, NO pierde nada: acumula en los montones
+//    del mismo tipo, reparte el sobrante y abre casillas si hace falta.
 
 // Tamaño máximo de pila por slot. Fuente única de verdad: antes el 100
 // estaba repetido en canStack(), add() y en el handler de clicks del
@@ -189,18 +192,91 @@ struct Inventory {
         scroll = 0;
     }
 
+    // ========================================================================
+    // RECOGER ALGO: PRIMERO SE ACUMULA, DESPUES SE OCUPA SITIO
+    // ========================================================================
+    // Lo que se espera de un inventario: si ya llevas 3 piedras y recoges
+    // otra, pasas a 4 -- no aparece un "1" en otra casilla.
+    //
+    // ⚠️ DOS BUGS QUE ESTO CORRIGE, los dos con perdida visible para el
+    // jugador:
+    //
+    //   1. EL HUECO GANABA AL MONTON. El bucle preguntaba `canStack()`, y
+    //      `canStack()` dice que SI a un slot VACIO (mira su `isEmpty()`).
+    //      Como se recorre de izquierda a derecha, cualquier hueco anterior
+    //      al stack se llevaba el item: con un inventario como
+    //
+    //          [piedra x3] [vacio] [tierra x5]
+    //
+    //      tirar una piedra y recogerla la metia en el hueco del medio y te
+    //      dejaba DOS montones de piedra separados. Ahora se busca primero
+    //      un monton del mismo tipo con sitio, y solo si no hay ninguno se
+    //      usa un hueco.
+    //
+    //   2. LO QUE PASABA DEL TOPE SE EVAPORABA. `add()` RECORTA a
+    //      MAX_STACK_SIZE sin avisar, asi que recoger 5 sobre un monton de
+    //      185 daba 187 y se perdian 3 unidades. Ahora el sobrante sigue
+    //      repartiendose por los demas montones y, si hace falta, abre
+    //      casillas nuevas -- no se pierde ni una unidad.
+    //
+    // Devuelve siempre true: el inventario crece, asi que nunca esta lleno.
+    // Se conserva el bool porque hay llamadas que lo comprueban.
     bool addItem(BlockType type, int amount = 1) {
-        // Intentar stackear en un slot que ya tenga de eso
-        for (int i = 0; i < total(); i++) {
-            if (slots[(size_t)i].canStack(type)) {
-                slots[(size_t)i].add(type, amount);
-                return true;
-            }
+        if (amount <= 0) return true;
+
+        int porColocar = amount;
+
+        // --- PASO 1: acumular en los montones que YA son de este tipo ---
+        //
+        // Se recorren todos, no solo el primero: si el inventario quedo con
+        // varios montones del mismo material (por una partida anterior, o
+        // porque uno se lleno), se rellenan en orden antes de ocupar sitio
+        // nuevo. Es lo que mantiene el inventario compacto con el uso.
+        for (int i = 0; i < total() && porColocar > 0; i++) {
+            InventorySlot& s = slots[(size_t)i];
+
+            // Ojo al orden: `isEmpty()` primero. Un hueco no es un monton de
+            // este tipo, y en este paso solo se acumula.
+            if (s.isEmpty()) continue;
+            if (s.blockType != type) continue;
+            if (isInfiniteStack(s.count)) continue;   // el creativo no se toca
+            if (s.count >= MAX_STACK_SIZE) continue;  // ya lleno
+
+            const int cabe = MAX_STACK_SIZE - s.count;
+            const int pone = (porColocar < cabe) ? porColocar : cabe;
+            s.count += pone;
+            porColocar -= pone;
         }
-        // No cabe en lo que hay: se abre una casilla nueva. Aquí es donde el
-        // inventario deja de tener fondo -- nunca devuelve "lleno".
-        slots.push_back(InventorySlot());
-        slots.back().add(type, amount);
+
+        // --- PASO 2: lo que sobre, a los huecos que ya existan ---
+        for (int i = 0; i < total() && porColocar > 0; i++) {
+            InventorySlot& s = slots[(size_t)i];
+            if (!s.isEmpty()) continue;
+
+            const int pone = (porColocar < MAX_STACK_SIZE) ? porColocar
+                                                           : MAX_STACK_SIZE;
+            s.blockType  = type;
+            s.count      = pone;
+            s.vidaMedios = 0;
+            porColocar -= pone;
+        }
+
+        // --- PASO 3: y si aun queda, el inventario crece ---
+        //
+        // Aqui es donde el inventario deja de tener fondo: nunca devuelve
+        // "lleno". El bucle reparte en montones de MAX_STACK_SIZE, asi que
+        // recoger una cantidad enorme de golpe abre las casillas que hagan
+        // falta en vez de tirar el resto.
+        while (porColocar > 0) {
+            const int pone = (porColocar < MAX_STACK_SIZE) ? porColocar
+                                                           : MAX_STACK_SIZE;
+            slots.push_back(InventorySlot());
+            slots.back().blockType  = type;
+            slots.back().count      = pone;
+            slots.back().vidaMedios = 0;
+            porColocar -= pone;
+        }
+
         return true;
     }
 

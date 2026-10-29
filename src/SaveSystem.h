@@ -40,8 +40,16 @@ namespace SaveSystem {
 // Version 3: IDs de bloque REORDENADOS (agrupados por familia). Los mundos v1/v2
 //            se traducen al cargar con BlockCompat::fromLegacy(); sin eso, un
 //            mundo viejo aparecería con unos bloques cambiados por otros.
-constexpr int SAVE_VERSION = 3;                    // Current save format version
+// Version 4: las CELDAS MIXTAS codifican tambien la ALTURA del relleno.
+//            Antes el relleno llegaba siempre al techo, asi que una mixta era
+//            por fuerza 8 octavos; ahora puede estar a medio llenar con los
+//            dos materiales a la vista. El ID cambia de forma, de modo que un
+//            mixto guardado con v3 se traduce al cargar con
+//            BlockCompat::mixtoAlturaRelleno(). Sin eso, cada celda mixta de
+//            un mundo viejo se leeria como otro par de materiales.
+constexpr int SAVE_VERSION = 4;                    // Current save format version
 constexpr int SAVE_VERSION_LEGACY_IDS = 2;         // <= esta version usa IDs viejos
+constexpr int SAVE_VERSION_MIXTO_SIN_ALTURA = 3;   // <= esta usa el mixto viejo
 constexpr int REGION_SIZE = 32;                    // 32x32 chunks per region file
 constexpr int CHUNK_HEADER_SIZE = 8;               // Chunk header: 4 bytes offset + 4 bytes size
 constexpr int SECTOR_SIZE = 4096;                  // 4KB sectors (standard disk block)

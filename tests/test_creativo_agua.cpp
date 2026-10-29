@@ -50,7 +50,9 @@ TEST_CASE("Creativo: los bloques normales se rompen al instante") {
         BLOCK_WOOD, BLOCK_WOOD_ENCINO, BLOCK_WOOD_OCOTE,
         BLOCK_LEAVES, BLOCK_LEAVES_OCOTE,
         BLOCK_PLANKS, BLOCK_COBBLESTONE, BLOCK_LIMESTONE,
-        BLOCK_COAL_ORE, BLOCK_GOLD_ORE, BLOCK_DIAMOND_ORE,
+        // Aqui iban tres minerales de veta (carbon, oro y diamante), los
+        // bloques mas duros del juego en supervivencia. Retirados.
+        BLOCK_CLAY_DIRT, BLOCK_CLAY_SAND, BLOCK_BEDROCK,
         BLOCK_TALLGRASS, BLOCK_SNOW, BLOCK_CLAY,
     };
     for (BlockType b : MUESTRA) {
@@ -64,7 +66,8 @@ TEST_CASE("Creativo: hasta lo mas duro cae al instante") {
     // punta del maguey exige hacha de pedernal). En creativo, no.
     CHECK(tiempoCreativo(BLOCK_MAGUEY_PUNTA) < 0.1f);
     CHECK(tiempoCreativo(BLOCK_WOOD_OCOTE_DENTRO) < 0.1f);
-    CHECK(tiempoCreativo(BLOCK_SCRAP_METAL) < 0.1f);
+    // Era BLOCK_SCRAP_METAL, retirado con el resto de los minerales.
+    CHECK(tiempoCreativo(BLOCK_BEDROCK) < 0.1f);
 
     // Y tambien un bloque compuesto (maguey adulto), que en survival pide
     // hacha buena.

@@ -85,3 +85,33 @@ TEST_CASE("Teclas: el filtro es el MISMO para SHIFT y para CTRL") {
         CHECK(shift == ctrl);
     }
 }
+
+// ============================================================================
+// ESC CIERRA EL INVENTARIO, COMO E
+// ============================================================================
+// PEDIDO: "si presionas esc y estas en inventario, aun asi puedas cerrarlo;
+// o sea, con E y con ESC".
+
+TEST_CASE("ESC: con el inventario abierto, lo cierra") {
+    // ⭐ EL PEDIDO. Antes pausaba con el inventario abierto detras.
+    CHECK(accionDeEsc(/*inventario=*/true, /*pausa=*/false)
+          == AccionEsc::CERRAR_INVENTARIO);
+}
+
+TEST_CASE("ESC: jugando sin menus, pausa como siempre") {
+    CHECK(accionDeEsc(false, false) == AccionEsc::PAUSAR);
+}
+
+TEST_CASE("ESC: ya en pausa, sigue manejando el menu de pausa") {
+    // Con la pausa delante, lo de arriba es la pausa: ESC es suyo, haya o no
+    // inventario debajo (no deberia, pero si se solapan manda la pausa).
+    CHECK(accionDeEsc(false, true) == AccionEsc::MENU_DE_PAUSA);
+    CHECK(accionDeEsc(true,  true) == AccionEsc::MENU_DE_PAUSA);
+}
+
+TEST_CASE("ESC: cerrar el inventario NO pausa de paso") {
+    // Una pulsacion, un menu: tras cerrar el inventario el jugador esta
+    // jugando, no en pausa. Para pausar, otra pulsacion de ESC.
+    CHECK(accionDeEsc(true, false) != AccionEsc::PAUSAR);
+    CHECK(accionDeEsc(false, false) == AccionEsc::PAUSAR);
+}

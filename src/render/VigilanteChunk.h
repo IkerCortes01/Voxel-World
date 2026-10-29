@@ -308,21 +308,45 @@ inline Presupuesto ajustarPresupuesto(const Presupuesto& actual,
     const float presupuestoCpu = msObjetivo * 0.5f;
     const float holgura = presupuestoCpu - msCpuSuavizado;
 
-    if (holgura < -1.0f) {
+    // ⭐ LOS UMBRALES SON UNA FRACCION DEL PRESUPUESTO, NO MILISEGUNDOS FIJOS.
+    //
+    // BUG QUE ESTO CORRIGE: con el objetivo en 200 FPS el presupuesto se
+    // quedaba clavado en el suelo para siempre.
+    //
+    // Antes los dos umbrales eran constantes absolutas (-1.0 y +2.0 ms),
+    // calibradas cuando el objetivo eran 120-150 FPS. El de subida es el que
+    // rompe: pedir `holgura > 2.0` significa "que sobren 2 ms de CPU", y a 200
+    // FPS el presupuesto de CPU ENTERO son 2,5 ms. O sea que para subir habria
+    // que gastar menos de 0,5 ms en fisica + chunks + render -- inalcanzable.
+    //
+    // Medido en la HD 4000 tras subir el objetivo a 200:
+    //     cpu = 2,15-2,62 ms   contra presupuestoCpu = 2,50 ms
+    //     presup(ms) gen=0.5 malla=0.5 subida=1   <- el suelo, en 5 de 6 medidas
+    //
+    // El presupuesto solo podia bajar. Con la banda proporcional, los mismos
+    // umbrales valen para cualquier objetivo: a 150 FPS dan -1,1 y +1,7 ms
+    // (practicamente los de antes, asi que no se altera lo ya calibrado) y a
+    // 200 dan -0,8 y +1,25, que si son alcanzables.
+    //
+    // La asimetria se conserva: se recorta antes de lo que se sube.
+    const float umbralRecorte = -presupuestoCpu * 0.32f;
+    const float umbralSubida  =  presupuestoCpu * 0.50f;
+
+    if (holgura < umbralRecorte) {
         // Vamos claramente por encima del objetivo: recortar de golpe.
         p.generacionMs *= 0.6f;
         p.malladoMs    *= 0.6f;
         p.subidaMs     *= 0.7f;   // menos agresivo: sin subida no hay nada visible
         p.descargaMs   *= 0.6f;
-    } else if (holgura > 2.0f) {
+    } else if (holgura > umbralSubida) {
         // Sobra tiempo de sobra: subir poco a poco.
         p.generacionMs += 0.25f;
         p.malladoMs    += 0.25f;
         p.subidaMs     += 0.20f;
         p.descargaMs   += 0.10f;
     }
-    // Entre -1 y +2 ms: banda muerta. Sin ella el presupuesto oscilaria cada
-    // frame y el ritmo de carga seria visiblemente irregular.
+    // Entre los dos umbrales: banda muerta. Sin ella el presupuesto oscilaria
+    // cada frame y el ritmo de carga seria visiblemente irregular.
 
     if (p.generacionMs < MIN_GEN)    p.generacionMs = MIN_GEN;
     if (p.generacionMs > MAX_GEN)    p.generacionMs = MAX_GEN;

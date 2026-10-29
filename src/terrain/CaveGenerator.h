@@ -53,6 +53,8 @@ private:
     int seedNivel()   const { return seed + 2303929; }
     // Reparte las bocas naturales por el mundo (ver IsCaveEntrance).
     int seedBoca()    const { return seed + 2417683; }
+    // Cota del agua subterranea por zona (ver NivelLagoEn).
+    int seedLago()    const { return seed + 2531439; }
 
 public:
     // Altura maxima a la que pueden aparecer cuevas (bajo la superficie).
@@ -102,6 +104,61 @@ public:
     // de verdad) y muy por debajo de la hondura tipica de una galeria (10-20
     // segun la medicion de IsCaveEntrance), asi que no vacia el subsuelo.
     static constexpr int LOSA_LECHO = 8;
+
+    // ========================================================================
+    // ⭐ LAGOS SUBTERRANEOS: EL AGUA QUE SE QUEDA EN EL FONDO
+    // ========================================================================
+    // Lo que le faltaba a estas cuevas para parecer cuevas: agua.
+    //
+    // El sistema ya modelaba los PISOS como rastro de antiguos niveles
+    // freaticos (ver la banda coseno de IsCave), pero luego el subsuelo salia
+    // enteramente seco -- que es justo lo contrario de lo que produce ese
+    // proceso. En un karst real el nivel freatico no se fue: bajo, y en las
+    // partes hondas de los pisos inferiores el agua sigue ahi. Eso es un
+    // cenote, y en Quintana Roo es la norma, no la excepcion.
+    //
+    // COMO SE DECIDE LA COTA. Un campo 2D de muy baja frecuencia da la altura
+    // del agua en cada zona del mundo. No es un plano global: ondula, asi que
+    // una galeria puede estar seca y la de al lado tener un lago al fondo.
+    //
+    // POR QUE UNA COTA Y NO "rellenar cavidades cerradas". Detectar cavidades
+    // cerradas exige un flood fill 3D sobre el chunk y sus vecinos, que es
+    // precisamente lo que este generador NO puede hacer: cada columna se
+    // genera por separado y sin mirar a las demas (es lo que lo hace
+    // determinista y paralelizable). Una cota por zona da el mismo resultado
+    // visible -- agua acumulada en las partes bajas -- con una evaluacion de
+    // ruido 2D y cero dependencias entre columnas.
+    //
+    // LIMITE SUPERIOR. El lago nunca sube por encima de NIVEL_LAGO_MAX: por
+    // encima de esa cota el agua tendria demasiadas probabilidades de asomar
+    // por una boca de cueva y derramarse por la ladera.
+    static constexpr int NIVEL_LAGO_MIN = 12;
+    static constexpr int NIVEL_LAGO_MAX = 34;
+
+    // Altura del agua subterranea en esta zona del mundo, en bloques.
+    //
+    // Es funcion pura de (semilla, x, z): dos columnas vecinas dan cotas
+    // parecidas --el campo es de baja frecuencia-- asi que la lamina de un
+    // lago sale plana y continua en vez de dentada.
+    int NivelLagoEn(float x, float z) const {
+        // 0.0016 -> zonas de varios cientos de bloques. Mas alto y los lagos
+        // se cortarian dentro de la misma caverna; mas bajo y todo el mundo
+        // compartiria una unica cota, que es el plano global que se evita.
+        const float n = Noise::simplex3D(seedLago(), x * 0.0016f, 0.0f,
+                                         z * 0.0016f);
+        // simplex da [-1,1]; se lleva al rango de cotas.
+        const float t = (n + 1.0f) * 0.5f;
+        return NIVEL_LAGO_MIN +
+               (int)(t * (float)(NIVEL_LAGO_MAX - NIVEL_LAGO_MIN));
+    }
+
+    // ¿Esta celda de cueva esta anegada por el lago subterraneo de su zona?
+    //
+    // Solo se pregunta por celdas que YA son cueva: esto no abre hueco, solo
+    // decide si el hueco lleva agua.
+    bool HayLagoSubterraneo(float x, int y, float z) const {
+        return y <= NivelLagoEn(x, z);
+    }
 
     explicit CaveGenerator(int s) : seed(s) {}
 

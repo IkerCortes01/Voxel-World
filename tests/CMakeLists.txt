@@ -24,7 +24,11 @@ add_executable(voxel_tests
     test_compuesto.cpp
     test_maguey_organico.cpp
     test_derrumbe.cpp
+    test_arena_granular.cpp
+    test_fusion_materiales.cpp
+    test_cueva_submarina.cpp
     test_apilado.cpp
+    test_subida_apilado.cpp
     test_texturas_existen.cpp
     test_soporte_pared.cpp
     test_aterrizaje.cpp
@@ -69,10 +73,31 @@ add_executable(voxel_tests
     test_apilado_niveles.cpp
     test_cuerpo_jugador.cpp
     test_hojas_sueltas.cpp
-    test_cristales.cpp
+    # test_cristales.cpp se retiro con los bloques de mineral: sus 10 casos
+    # comprobaban que cada veta luciera el habito cristalino de su especie
+    # (pirita cubica, oro dendritico, diamante octaedrico...) y la "ley" que
+    # decidia cuanto soltaba al picarla. Sin minerales no hay nada que probar.
+    # La geometria de los cristales sigue en src/CristalMineral.h, sin uso.
     test_dormir.cpp
     test_luz_costura.cpp
     test_rio_cueva.cpp
+    test_nopal_sin_tallo.cpp
+    test_agua_oclusion.cpp
+    test_nopal_mata.cpp
+    test_techo_hojas.cpp
+    test_luz_sin_emision.cpp
+    test_nombre_item.cpp
+    test_entero_sobre_capa.cpp
+    test_tablones_niveles.cpp
+    test_alineacion_bloques.cpp
+    test_techo_pilar.cpp
+    test_raiz_palos.cpp
+    test_machacar_piedra.cpp
+    test_pinos_mexicanos.cpp
+    test_nopal_solo_pencas.cpp
+    test_niveles_naturales.cpp
+    test_geometria_voxel.cpp
+    test_culling_volumen.cpp
 
     # ⚠️ ESTOS SIETE LLEVABAN TIEMPO FUERA DEL BUILD SIN QUE NADIE LO SUPIERA.
     #

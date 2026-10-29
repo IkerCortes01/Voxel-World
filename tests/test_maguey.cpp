@@ -87,7 +87,8 @@ TEST_CASE("Pico de pedernal: es un pico y rompe la misma roca") {
 
     // La roca le gasta vida igual que al de piedra.
     CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_STONE) == 2);
-    CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_COAL_ORE) == 2);
+    // Era BLOCK_COAL_ORE; los minerales de veta se retiraron del juego.
+    CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_COBBLESTONE) == 2);
     // Y lo organico no: eso es del hacha.
     CHECK(desgasteHerramienta(BLOCK_PICO_PEDERNAL, BLOCK_WOOD) == 0);
     // Ni la punta del maguey, que es solo del hacha de pedernal.

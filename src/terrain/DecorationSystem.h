@@ -49,7 +49,12 @@ enum TreeType : uint8_t {
     TREE_ENCINO,     // Encino: copa ancha y redondeada
     TREE_OYAMEL,     // Oyamel: conifera alta y conica
     TREE_OCOTE,      // Ocote (Pinus montezumae): fuste largo, copa redondeada
-    TREE_OCOTE_CHINO // Ocote chino (Pinus leiophylla): copa mas tupida
+    TREE_OCOTE_CHINO,// Ocote chino (Pinus leiophylla): copa mas tupida
+    // --- Los cuatro pinos mexicanos nuevos ---
+    TREE_PATULA,     // Pinus patula: alto y esbelto, acicula pendula
+    TREE_PINONERO,   // Pinus cembroides: pequeño, de zona seca
+    TREE_ALTURAS,    // Pinus hartwegii: achaparrado, limite arboreo
+    TREE_PSEUDOSTROBUS // Pinus pseudostrobus: fuste recto y limpio
 };
 
 class DecorationSystem {
@@ -197,19 +202,35 @@ public:
                 // montezumae y el leiophylla crecen mezclados. El tramo del
                 // ocote se reparte entre los dos, asi que la cantidad total de
                 // pino no cambia -- lo que cambia es que ahora hay dos.
-                if (r < 0.54f) return TREE_OYAMEL;
-                if (r < 0.63f) return TREE_OCOTE;
-                if (r < 0.72f) return TREE_OCOTE_CHINO;
-                if (r < 0.83f) return TREE_ENCINO;
-                if (r < 0.90f) return TREE_OAK;
+                //
+                // ⭐ Y CON ELLOS EL PATULA Y EL PSEUDOSTROBUS, que son los
+                // otros dos pinos de esta misma franja: los bosques de
+                // pino-encino del centro de Mexico son mezcla de varias
+                // especies de Pinus, no de una sola. El tramo del pino se
+                // reparte entre los cuatro, asi que la cantidad TOTAL de pino
+                // no cambia -- lo que cambia es que ahora hay cuatro.
+                if (r < 0.46f) return TREE_OYAMEL;
+                if (r < 0.54f) return TREE_OCOTE;
+                if (r < 0.62f) return TREE_OCOTE_CHINO;
+                if (r < 0.69f) return TREE_PATULA;
+                if (r < 0.75f) return TREE_PSEUDOSTROBUS;
+                if (r < 0.85f) return TREE_ENCINO;
+                if (r < 0.91f) return TREE_OAK;
                 if (r < 0.96f) return TREE_BIRCH;
                 return TREE_SMALL_OAK;
 
             case BIOME_PLAINS:
                 // En llanura el ocote es raro: es arbol de ladera y altura.
-                if (r < 0.58f) return TREE_OYAMEL;
-                if (r < 0.65f) return TREE_OCOTE;
-                if (r < 0.82f) return TREE_SMALL_OAK;
+                //
+                // El PIÑONERO si encaja en llanura: es arbol de zona abierta
+                // y seca, de porte pequeño, y en el Altiplano crece
+                // precisamente en terreno llano y arido. Se lleva un tramo
+                // pequeño, como corresponde a un arbol que salpica el paisaje
+                // sin formar masa.
+                if (r < 0.56f) return TREE_OYAMEL;
+                if (r < 0.63f) return TREE_OCOTE;
+                if (r < 0.70f) return TREE_PINONERO;
+                if (r < 0.84f) return TREE_SMALL_OAK;
                 if (r < 0.93f) return TREE_OAK;
                 return TREE_ENCINO;
 
@@ -241,8 +262,17 @@ public:
                 // Pinus leiophylla manda. Es de cota media y algo mas seca, asi
                 // que aqui el acompanante es el ENCINO y no el oyamel: son los
                 // bosques de pino-encino de media montana.
-                if (r < 0.75f) return TREE_OCOTE_CHINO;
-                if (r < 0.87f) return TREE_OCOTE;
+                //
+                // ⭐ Y AQUI ENTRA EL PIÑONERO.
+                //
+                // Pinus cembroides es el pino de la zona SECA: matorral arido
+                // y ladera caliza. De los biomas que generan arboles, este es
+                // el mas seco --pino-encino de media montana-- asi que es su
+                // sitio natural. En el desierto no puede estar: ese bioma
+                // tiene treeDensity 0 a proposito y no genera ni un arbol.
+                if (r < 0.70f) return TREE_OCOTE_CHINO;
+                if (r < 0.80f) return TREE_OCOTE;
+                if (r < 0.88f) return TREE_PINONERO;
                 if (r < 0.95f) return TREE_ENCINO;
                 return TREE_OAK;
 
@@ -266,10 +296,23 @@ public:
                 //
                 // El chino sube menos que el blanco: Pinus leiophylla es de
                 // cota media, asi que aqui se lleva la parte pequena.
-                if (r < 0.62f) return TREE_OYAMEL;
-                if (r < 0.81f) return TREE_OCOTE;
-                if (r < 0.88f) return TREE_OCOTE_CHINO;
-                if (r < 0.95f) return TREE_MOUNTAIN;
+                //
+                // ⭐ EL PINO DE LAS ALTURAS TIENE AQUI SU SITIO, Y ES GRANDE.
+                //
+                // Pinus hartwegii es el arbol que crece MAS ALTO del mundo:
+                // forma el limite arboreo de los volcanes mexicanos, por
+                // encima de los 4.000 m, donde ya no sube nada mas. Si hay un
+                // bioma donde debe ser abundante es este -- en la montana
+                // mexicana de verdad es la masa dominante de la cota alta.
+                //
+                // Se le da una quinta parte larga, a costa del tramo del
+                // oyamel y del ocote: los tres comparten la cota alta.
+                if (r < 0.44f) return TREE_OYAMEL;
+                if (r < 0.66f) return TREE_ALTURAS;
+                if (r < 0.80f) return TREE_OCOTE;
+                if (r < 0.86f) return TREE_OCOTE_CHINO;
+                if (r < 0.91f) return TREE_PSEUDOSTROBUS;
+                if (r < 0.96f) return TREE_MOUNTAIN;
                 return TREE_PINE;
 
             default:
@@ -344,84 +387,22 @@ public:
     }
 
     // ========================================================================
-    // MINERALES (ETAPA 13: facilmente extensible)
+    // MINERALES: RETIRADOS DEL JUEGO
     // ========================================================================
-    // Definicion declarativa de una veta mineral.
-    struct OreDefinition {
-        Blocks::Id block;
-        int     minY;
-        int     maxY;
-        float   frequency;  // escala del ruido: mayor = vetas mas pequenas
-        float   threshold;  // mayor = mas raro
-    };
-
-    // TABLA DE MINERALES: anadir una fila basta para tener un mineral nuevo.
+    // Aqui vivia GetOre() y su tabla de siete vetas (carbon, pirita, desecho,
+    // hierro, oro, plata y diamante), que decidia por ruido 3D que voxeles de
+    // roca profunda se convertian en mineral.
     //
-    // ⚠️ EL ORDEN IMPORTA. El bucle de abajo recorre la tabla DE ATRAS HACIA
-    // ADELANTE y se queda con el primero que acierte, de modo que lo que esta
-    // al FINAL gana cuando dos vetas se solapan. Por eso los comunes van
-    // arriba y los raros abajo: sin eso, una veta de carbon (que ahora es
-    // enorme) se tragaria el diamante que hubiera dentro.
-    static constexpr int ORE_COUNT = 7;
-
-    // Devuelve el bloque de mineral que corresponde a este voxel, o
-    // Blocks::AIR (0) si es piedra normal.
+    // Los bloques de mineral se eliminaron, asi que la funcion entera se va con
+    // ellos: ChunkGenerator ya no la llama y el subsuelo se genera como roca
+    // limpia. Los IDs siguen reservados en el enum y los mundos guardados
+    // convierten sus minerales en piedra al cargar
+    // (BlockCompat::mineralAPiedra).
     //
-    // Se usa ruido 3D en vez de "vetas" procedurales explicitas porque el
-    // ruido produce grupos conectados de forma natural y es O(1) por voxel,
-    // sin necesidad de estado ni de generar la veta completa de golpe.
-    Blocks::Id GetOre(int worldX, int y, int worldZ) const {
-        static const OreDefinition ORES[ORE_COUNT] = {
-            //  bloque                minY maxY  freq     thr
-            //
-            // ⭐ LOS TRES DE ARRIBA SON SUPER COMUNES.
-            //
-            // El umbral (thr) es lo que manda: cuanto MAS BAJO, mas voxeles
-            // pasan el corte y mas grande es la veta. Bajar de 0.62 a 0.38
-            // no hace "un poco mas" de carbon, multiplica la superficie de
-            // roca que se convierte en mineral -- cavando en cualquier
-            // direccion se topa uno con ellos constantemente.
-            //
-            // Ademas cubren casi todo el rango vertical, asi que no hay que
-            // bajar a una profundidad concreta para encontrarlos.
-            { Blocks::COAL_ORE,         8, 118, 0.070f, 0.38f },
-            { Blocks::PYRITE_ORE,       6, 100, 0.076f, 0.40f },
-            { Blocks::SCRAP_METAL,     10, 115, 0.082f, 0.42f },
+    // Lo que SI sigue vivo son los guijarros sueltos del suelo (pedernal,
+    // cobre, goethita, hematite, limonita): son items que se recogen
+    // agachandose, no bloques de veta, y no pasaban por aqui.
 
-            // Y estos siguen siendo un hallazgo: umbral alto y franja
-            // estrecha. Si fueran igual de comunes, encontrar diamante
-            // dejaria de significar nada.
-            { Blocks::IRON_ORE,        10,  70, 0.085f, 0.70f },
-            { Blocks::GOLD_ORE,         5,  35, 0.100f, 0.80f },
-            { Blocks::SILVER_ORE,       5,  45, 0.098f, 0.79f },
-            { Blocks::DIAMOND_ORE,      3,  18, 0.115f, 0.86f }
-        };
-
-        // ⭐ SE RECORRE DE ABAJO ARRIBA: GANA EL MAS RARO.
-        //
-        // La tabla va de comun a raro, y este bucle la lee al reves, asi que
-        // el PRIMERO en probarse es el diamante y el ultimo el carbon. El
-        // primero que acierta se lleva el voxel.
-        //
-        // Esto importa mucho mas ahora que los comunes son enormes: con el
-        // orden al reves, la veta de carbon -- que ocupa casi el 5% de toda
-        // la roca -- se tragaba la pirita, el desecho Y el diamante que
-        // hubiera dentro. Medido: pirita 0,00% y ni un diamante en 80x80
-        // columnas.
-        for (int i = ORE_COUNT - 1; i >= 0; --i) {
-            const OreDefinition& ore = ORES[i];
-            if (y < ore.minY || y > ore.maxY) continue;
-
-            const float n = Noise::fbm3D(seedOre() + i * 3167,
-                                         (float)worldX * ore.frequency,
-                                         (float)y      * ore.frequency,
-                                         (float)worldZ * ore.frequency, 2);
-            if (n > ore.threshold) {
-                return ore.block;
-            }
-        }
-        return Blocks::AIR;
-    }
 };
 
 } // namespace TerrainGen

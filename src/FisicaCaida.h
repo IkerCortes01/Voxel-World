@@ -2,6 +2,7 @@
 
 #include "BlockType.h"
 #include <cmath>
+#include <unordered_set>
 #include <vector>
 
 // ============================================================================
@@ -210,17 +211,19 @@ inline float densidadDe(BlockType t) {
         case BLOCK_SNOW:
         case BLOCK_PEDAZO_NIEVE:      return Densidad::NIEVE;
 
-        // --- Minerales en veta ---
-        // Un bloque de mineral es roca CON mineral dentro, no mineral puro:
-        // se toma la media entre la roca que lo envuelve y la ley del
-        // mineral, que es lo que da una densidad creible.
-        case BLOCK_COAL_ORE:          return Densidad::CARBON;
-        case BLOCK_PYRITE_ORE:        return (Densidad::GRANITO + Densidad::PIRITA) * 0.5f;
-        case BLOCK_IRON_ORE:          return (Densidad::GRANITO + Densidad::HIERRO) * 0.5f;
-        case BLOCK_GOLD_ORE:          return (Densidad::GRANITO + Densidad::ORO) * 0.5f;
-        case BLOCK_SILVER_ORE:        return (Densidad::GRANITO + Densidad::PLATA) * 0.5f;
-        case BLOCK_DIAMOND_ORE:       return (Densidad::GRANITO + Densidad::DIAMANTE) * 0.5f;
-        case BLOCK_SCRAP_METAL:       return Densidad::HIERRO * 0.6f;  // chatarra: con huecos
+        // --- Minerales en veta: RETIRADOS ---
+        // Aqui habia siete densidades, una por mineral de veta, calculadas como
+        // la media entre la roca que lo envolvia y la ley del mineral. Los
+        // bloques ya no existen (ver BlockCompat::mineralAPiedra), asi que un ID
+        // reservado que llegue aqui cae por el `default` -- y eso es lo correcto,
+        // porque al cargar se convierte en piedra antes de que nada le pregunte
+        // cuanto pesa.
+        //
+        // Las constantes CARBON, ORO, PLATA, DIAMANTE y PIRITA de Densidad:: se
+        // quedan en la tabla de arriba pero ya no las consume nadie. Son datos
+        // fisicos medidos, no codigo: cuestan cero en tiempo de ejecucion y son
+        // justo lo que haria falta el dia que el carbon o el zinc tengan una
+        // forma de obtenerse (hoy son items sin fuente, ver getBlockDrops).
 
         // --- Guijarros: el material puro, en pequeno ---
         case BLOCK_PEDAZO_PIEDRA:     return Densidad::GRANITO;
@@ -574,15 +577,10 @@ inline bool esTerrenoNatural(BlockType t) {
         case BLOCK_LIMESTONE:
         case BLOCK_COBBLESTONE:
         case BLOCK_BEDROCK:
-        // --- Minerales en veta: van incrustados en la roca. Si cayeran,
-        //     minar una veta abriria un socavon en la montaña.
-        case BLOCK_COAL_ORE:
-        case BLOCK_SILVER_ORE:
-        case BLOCK_GOLD_ORE:
-        case BLOCK_DIAMOND_ORE:
-        case BLOCK_SCRAP_METAL:
-        case BLOCK_IRON_ORE:
-        case BLOCK_PYRITE_ORE:
+        // Los minerales en veta estaban aqui (incrustados en la roca: si
+        // cayeran, minar una veta abriria un socavon). Retirados; sus IDs
+        // reservados ya no llegan a esta funcion porque se convierten en piedra
+        // al cargar el chunk, y la piedra ya esta en la lista de arriba.
             return true;
         default:
             return false;
@@ -720,6 +718,57 @@ inline bool aplastablePorArbol(BlockType t) {
 //
 // Las plantas SI caen: se pidio expresamente. Eso significa que al talar el
 // tronco de un arbol, la copa se le viene encima al jugador.
+// ============================================================================
+// ⭐ LO GRANULAR: CAE POR COLUMNA, NO POR ESTRUCTURA
+// ============================================================================
+// La arena SIEMPRE cae si le quitas el bloque de abajo, sea natural o puesta
+// por el jugador. Es lo que hace la arena de Minecraft, y lo que se pidio.
+//
+// ----------------------------------------------------------------------------
+// POR QUE NO VALE METERLA EN puedeCaer()
+// ----------------------------------------------------------------------------
+// Son DOS SISTEMAS DISTINTOS, y confundirlos reintroduce un bug ya sufrido.
+//
+//   puedeCaer()  alimenta el FLOOD FILL de estructuras (desprenderEstructura):
+//                mira si un conjunto de bloques esta apoyado en algo, y si no
+//                lo esta, lo desprende ENTERO. Sirve para un arbol talado o un
+//                puente sin pilares.
+//
+//   esGranular() es caida POR COLUMNA: esta celda mira UNICAMENTE la de abajo.
+//                Sin fill, sin vecinos, sin conjunto.
+//
+// Si la arena entrara en puedeCaer(), el fill se metería en el terreno y se
+// comería la duna entera hacia los lados y hacia abajo -- que es exactamente
+// el bug de los parches de piedra que documenta el comentario de mas abajo, y
+// el motivo de que esTerrenoNatural() exista. Por eso la arena sigue siendo
+// terreno natural para el fill (no lo arrastra) y a la vez es granular para la
+// gravedad de columna.
+//
+// ----------------------------------------------------------------------------
+// QUE ENTRA AQUI
+// ----------------------------------------------------------------------------
+// Solo lo que de verdad es un arido suelto sin cohesion. La tierra y la grava
+// NO entran: en este motor la tierra sostiene taludes (hay laderas de tierra
+// por todo el mundo generado) y meterlas aqui haria que el relieve se
+// desmoronara solo en cuanto el jugador picara un bloque al pie de una loma.
+//
+// La arena de arcilla (BLOCK_CLAY_SAND) si entra: es arena con arcilla, sigue
+// siendo arido suelto.
+inline bool esGranular(BlockType t) {
+    // Una capa parcial de arena sigue siendo arena; en una celda mixta manda
+    // el relleno, que es la parte de arriba -- la que se vendria abajo.
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    if (esMixto(t))        t = mixtoRelleno(t);
+
+    switch (t) {
+        case BLOCK_SAND:
+        case BLOCK_CLAY_SAND:
+            return true;
+        default:
+            return false;
+    }
+}
+
 inline bool puedeCaer(BlockType t) {
     if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
     if (t == BLOCK_BEDROCK) return false;
@@ -780,5 +829,98 @@ inline bool puedeCaer(BlockType t) {
     if (esGuijarro(t)) return false;
 
     return true;
+}
+
+// ============================================================================
+// ⭐⭐ EL TECHO DE HOJAS SE SOSTIENE POR LOS LADOS, Y CONECTADO
+// ============================================================================
+// PEDIDO: "si lo colocas en techo con bloques a los lados de paredes, ahi se
+// mantendra y podra conectar a otros bloques de techo de hojas, pero si no hay
+// un soporte, caera como un bloque con gravedad normal".
+//
+// Un techo es lo contrario de una columna: no se apoya en lo de abajo, se
+// AGARRA de las paredes y vuela sobre el hueco. Por eso no le vale ninguna de
+// las dos reglas que ya habia:
+//
+//   - "sin suelo debajo, cae"  (bloques sueltos): solo permitiria techos de
+//     una casilla encima de algo.
+//   - desprenderEstructura (arboles): solo cuenta el apoyo POR DEBAJO, asi
+//     que un techo pegado a una pared de roca lo daba por suelto.
+//
+// La regla propia: se recorren los techos CONECTADOS (por las seis caras) y
+// el grupo entero se sostiene si ALGUNO de ellos toca, por un lado o por
+// debajo, algo que lo sujete -- una pared, un poste, el suelo. Si ninguno lo
+// toca, el grupo esta en el aire y cae.
+//
+// Por arriba no sujeta: un techo pegado solo al envés de un saliente no tiene
+// paredes, y el pedido habla de paredes a los lados.
+//
+// Es una plantilla sobre dos funciones para poder probarla sin el motor:
+//
+//     get(x, y, z)  -> BlockType   que hay en esa celda
+//     sujeta(tipo)  -> bool        si ese bloque (que no es techo) lo agarra
+//
+// `grupo` sale con las celdas de techo recorridas: si la funcion devuelve
+// false, son exactamente las que tienen que caer.
+
+struct CeldaTecho { int x, y, z; };
+
+// Mas alla de esto el techo se deja donde esta: recorrer un tejado de miles
+// de bloques congelaria el frame. Mismo criterio que MAX_BLOQUES_PIEZA.
+constexpr int MAX_BLOQUES_TECHO = 512;
+
+template <class Get, class Sujeta>
+bool techoSostenidoCon(Get get, Sujeta sujeta, int x, int y, int z,
+                       std::vector<CeldaTecho>& grupo) {
+    grupo.clear();
+    if (!esTechoDeHojas(get(x, y, z))) return true;   // no es techo: no aplica
+
+    std::unordered_set<long long> vistos;
+    std::vector<CeldaTecho> pila;
+
+    // Misma clave empaquetada que desprenderEstructura: 21 bits por eje.
+    auto clave = [](int cx, int cy, int cz) -> long long {
+        return ((long long)(cx + 1048576) << 42) |
+               ((long long)(cy + 1048576) << 21) |
+               ((long long)(cz + 1048576));
+    };
+
+    pila.push_back({ x, y, z });
+    vistos.insert(clave(x, y, z));
+
+    static const int CARAS[6][3] = {
+        { 1,0,0}, {-1,0,0}, {0,0,1}, {0,0,-1}, {0,-1,0}, {0,1,0}
+    };
+
+    while (!pila.empty()) {
+        const CeldaTecho p = pila.back();
+        pila.pop_back();
+        grupo.push_back(p);
+
+        if ((int)grupo.size() > MAX_BLOQUES_TECHO) return true;
+
+        for (int i = 0; i < 6; ++i) {
+            const int nx = p.x + CARAS[i][0];
+            const int ny = p.y + CARAS[i][1];
+            const int nz = p.z + CARAS[i][2];
+            const bool porArriba = (CARAS[i][1] > 0);
+
+            if (ny < 0) return true;              // el fondo del mundo sujeta
+
+            const BlockType v = get(nx, ny, nz);
+
+            // Otro techo: es parte del mismo tejado, se sigue por ahi.
+            if (esTechoDeHojas(v)) {
+                const long long k = clave(nx, ny, nz);
+                if (vistos.insert(k).second) pila.push_back({ nx, ny, nz });
+                continue;
+            }
+
+            // Una pared al lado o algo firme debajo: el tejado entero aguanta.
+            if (!porArriba && sujeta(v)) return true;
+        }
+    }
+
+    return false;
 }
 } // namespace Fisica

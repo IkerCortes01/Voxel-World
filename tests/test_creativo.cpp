@@ -41,8 +41,23 @@ TEST_CASE("Creativo: caben todos los bloques, no solo 45") {
     const int n = llenarComoElCreativo(inv);
 
     // Con el limite viejo esto era 45 y se perdian mas de 70 objetos.
+    //
+    // ⚠️ LA CIFRA EXACTA ES UN CENSO, NO UN INVARIANTE.
+    //
+    // Decia `>= 113`, y ese 113 contaba tambien las 21 lonchas de TABLON, que
+    // en aquel momento se colaban en el menu por error: habian salido de
+    // `tablaNiveles`, asi que `esNivelParcial` decia NO sobre ellas y el filtro
+    // de arriba no las saltaba (es el mismo bug de "42 casillas con textura de
+    // piedra" que documenta esNivelDeMaderaHuerfano).
+    //
+    // Al devolver los tablones a la tabla --para que se junten con las capas--
+    // esas 21 vuelven a ser niveles de verdad y el filtro las salta, como debe.
+    // El menu BAJA a ~97 y eso es lo CORRECTO: son 21 entradas basura menos.
+    //
+    // Lo que de verdad hay que vigilar es que el creativo NO vuelva a cortarse
+    // en 45, que es el bug que este test existe para cazar.
     CHECK(n > Inventory::SLOTS);
-    CHECK(n >= 113);
+    CHECK(n >= 90);
     CHECK(inv.total() >= n);
 }
 

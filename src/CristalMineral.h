@@ -88,58 +88,39 @@ struct Especie {
     float  brillo;      // multiplicador de color: los metales relucen
 };
 
-// La tabla. Un mineral nuevo es una fila mas.
+// ============================================================================
+// ⚠️ NINGUN BLOQUE LLEVA YA CRISTALES: LOS MINERALES SE RETIRARON
+// ============================================================================
+// Los siete bloques de mineral de veta se eliminaron del juego. Con ellos se
+// fue lo UNICO que este archivo sabia decorar, asi que tieneCristales()
+// devuelve false para todo y el mesher no llega a pedir una especie nunca.
+//
+// El resto del archivo -- los habitos cristalinos, la geometria de cada forma
+// y el reparto por cara expuesta -- se conserva INTACTO a proposito: es
+// mineralogia, no depende de que bloques existan, y volver a encender los
+// cristales el dia que haya un bloque que los luzca es devolver la tabla de
+// abajo a la vida. Borrarlo obligaria a rehacer ese trabajo desde cero.
+//
+// La tabla que habia aqui asignaba a cada mineral su habito real:
+//
+//     carbon    MASA      (organico, no cristaliza)
+//     pirita    CUBO      (el cubico por excelencia)
+//     desecho   MASA      (fragmentos angulosos)
+//     hierro    LAMINA    (rosetas de hematites)
+//     oro       DENDRITA  (nativo, en hilos ramificados)
+//     plata     DENDRITA  (igual que el oro)
+//     diamante  OCTAEDRO  (dos piramides por la base)
+//
+// Queda escrita aqui para que no se pierda el dato al recuperarla.
 inline Especie EspecieDe(BlockType t) {
-    switch (t) {
-        // El CARBON no cristaliza: es materia organica comprimida. Masa baja
-        // e irregular, sin punta.
-        case BLOCK_COAL_ORE:
-            return { Habito::MASA,     0.16f, 0.30f, 3, 0.85f };
-
-        // La PIRITA es EL cristal cubico por excelencia. Pocos y grandes,
-        // porque sus cubos crecen bien formados y separados.
-        case BLOCK_PYRITE_ORE:
-            return { Habito::CUBO,     0.26f, 0.17f, 2, 1.25f };
-
-        // Chatarra: fragmentos angulosos sin ley ninguna.
-        case BLOCK_SCRAP_METAL:
-            return { Habito::MASA,     0.18f, 0.24f, 4, 1.00f };
-
-        // El HIERRO en laminas, como las rosetas de hematites.
-        case BLOCK_IRON_ORE:
-            return { Habito::LAMINA,   0.28f, 0.22f, 3, 1.10f };
-
-        // ORO y PLATA nativos: dendriticos, en hilos finos y ramificados.
-        // Muchos y delgados, que es como se ven de verdad.
-        case BLOCK_GOLD_ORE:
-            return { Habito::DENDRITA, 0.30f, 0.09f, 5, 1.45f };
-        case BLOCK_SILVER_ORE:
-            return { Habito::DENDRITA, 0.28f, 0.08f, 5, 1.35f };
-
-        // El DIAMANTE: octaedros. Pocos, pequeños y muy brillantes -- es lo
-        // que hace que encontrarlos se note.
-        case BLOCK_DIAMOND_ORE:
-            return { Habito::OCTAEDRO, 0.22f, 0.13f, 2, 1.60f };
-
-        default:
-            return { Habito::PRISMA,   0.20f, 0.15f, 3, 1.00f };
-    }
+    (void)t;
+    return { Habito::PRISMA,   0.20f, 0.15f, 3, 1.00f };
 }
 
-// ¿Este bloque lleva cristales?
+// ¿Este bloque lleva cristales? Hoy, ninguno: ver la nota de arriba.
 inline bool tieneCristales(BlockType t) {
-    switch (t) {
-        case BLOCK_COAL_ORE:
-        case BLOCK_PYRITE_ORE:
-        case BLOCK_SCRAP_METAL:
-        case BLOCK_IRON_ORE:
-        case BLOCK_GOLD_ORE:
-        case BLOCK_SILVER_ORE:
-        case BLOCK_DIAMOND_ORE:
-            return true;
-        default:
-            return false;
-    }
+    (void)t;
+    return false;
 }
 
 // ----------------------------------------------------------------------------

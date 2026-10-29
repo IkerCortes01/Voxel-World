@@ -102,7 +102,30 @@ struct Perfil {
 
     // FPS a los que apunta el regulador. Por debajo baja calidad, por encima
     // la sube.
-    int fpsObjetivo = 120;
+    //
+    // ⭐ EL OBJETIVO ES 200 EN TODOS LOS NIVELES, Y ESO TIENE DOS CARAS.
+    //
+    // Este numero hace DOS cosas a la vez, y conviene no confundirlas:
+    //
+    //   1. Marca cada cuanto corre el ciclo de streaming. `updateChunks` se
+    //      llama una vez por frame, asi que apuntar a 200 FPS es pedir que los
+    //      chunks se revisen 200 veces por segundo.
+    //
+    //   2. Reparte el presupuesto de CPU. `ajustarPresupuesto` concede a la
+    //      CPU la mitad del frame objetivo: a 200 FPS son 5 ms de frame y
+    //      2,5 ms para la CPU, frente a los 3,3 ms que daba el objetivo de 150.
+    //
+    // O sea que subir el objetivo APRIETA el presupuesto por frame. No es un
+    // problema: lo que importa para cargar mundo es el trabajo por SEGUNDO, y
+    // ese sube -- 200 frames de 2,5 ms son 500 ms/s de CPU para streaming,
+    // frente a los 495 de 150x3,3. Queda igual o mejor, y ademas se revisa mas
+    // a menudo, que es lo que hace que el terreno aparezca antes.
+    //
+    // ⚠️ El objetivo NO garantiza el framerate: si la GPU no da para 200, el
+    // regulador recorta y se queda donde pueda. En una HD 4000 el frame lo
+    // domina la GPU (`swap`), y recortar el streaming no la acelera -- por eso
+    // `ajustarPresupuesto` mide contra el tiempo de CPU y no contra el frame.
+    int fpsObjetivo = 200;
 
     // Efectos que se pueden apagar en las maquinas justas. Cada uno cuesta
     // medido, no supuesto (ver las notas de cada asignacion).
@@ -250,7 +273,7 @@ inline Perfil perfilPara(NivelMaquina nivel, unsigned nucleos) {
             // 118 FPS estables, y de 4 a 3 quita otro 44% de caras.
             p.distanciaRender      = 3;
             p.presupuestoMalladoMs = 1.5f;
-            p.fpsObjetivo          = 150;
+            p.fpsObjetivo          = 200;
             p.nieblaPorPixel       = false;
             // El refresco del follaje remalla chunks enteros al andar: medido
             // entre 4 y 16 ms por pasada. En la maquina mas justa no compensa.
@@ -260,7 +283,7 @@ inline Perfil perfilPara(NivelMaquina nivel, unsigned nucleos) {
         case NivelMaquina::BAJO:
             p.distanciaRender      = 4;
             p.presupuestoMalladoMs = 2.0f;
-            p.fpsObjetivo          = 150;
+            p.fpsObjetivo          = 200;
             p.nieblaPorPixel       = false;
             p.follajeAnimado       = true;
             break;
@@ -268,7 +291,7 @@ inline Perfil perfilPara(NivelMaquina nivel, unsigned nucleos) {
         case NivelMaquina::MEDIO:
             p.distanciaRender      = 6;
             p.presupuestoMalladoMs = 3.0f;
-            p.fpsObjetivo          = 144;
+            p.fpsObjetivo          = 200;
             p.nieblaPorPixel       = false;
             p.follajeAnimado       = true;
             break;

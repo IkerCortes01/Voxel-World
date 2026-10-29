@@ -72,14 +72,9 @@ namespace Blocks {
     constexpr Id LAVA         = (Id)BLOCK_LAVA;
     constexpr Id CLAY         = (Id)BLOCK_CLAY;
 
-    // Minerales
-    constexpr Id COAL_ORE     = (Id)BLOCK_COAL_ORE;
-    constexpr Id DIAMOND_ORE  = (Id)BLOCK_DIAMOND_ORE;
-    constexpr Id IRON_ORE     = (Id)BLOCK_IRON_ORE;
-    constexpr Id GOLD_ORE     = (Id)BLOCK_GOLD_ORE;
-    constexpr Id SILVER_ORE   = (Id)BLOCK_SILVER_ORE;
-    constexpr Id SCRAP_METAL  = (Id)BLOCK_SCRAP_METAL;
-    constexpr Id PYRITE_ORE   = (Id)BLOCK_PYRITE_ORE;
+    // Minerales: RETIRADOS. Los siete bloques de veta se eliminaron del juego
+    // junto con GetOre() (ver DecorationSystem.h), asi que estos alias ya no
+    // tienen a que apuntar y nadie los pide.
 
     // Bloques nuevos
     constexpr Id LIMESTONE    = (Id)BLOCK_LIMESTONE;

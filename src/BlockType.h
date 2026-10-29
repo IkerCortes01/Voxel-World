@@ -39,9 +39,16 @@ enum BlockType {
 
     BLOCK_WATER,            // 7  Agua
 
-    // --- Minerales comunes ---
-    BLOCK_COAL_ORE,         // 8  Mineral de carbón
-    BLOCK_SCRAP_METAL,      // 9  Desecho de metales
+    // --- Minerales comunes: RETIRADOS del juego ---
+    // Los bloques de mineral se eliminaron (ver "MINERALES RETIRADOS" al final
+    // de este archivo). Sus IDs NO se borran: cada uno era una posicion en el
+    // enum, y quitarla correria en uno todos los bloques de detras -- que es
+    // exactamente lo que obligo a escribir BlockCompat.h la vez anterior.
+    //
+    // El hueco se queda reservado y sin uso. Un mundo guardado que traiga uno
+    // de estos IDs lo convierte en piedra al cargar (BlockCompat::mineralAPiedra).
+    BLOCK_RESERVADO_MINERAL_08,  // 8  (era BLOCK_COAL_ORE)
+    BLOCK_RESERVADO_MINERAL_09,  // 9  (era BLOCK_SCRAP_METAL)
 
     // --- Sedimentos ---
     BLOCK_SAND,             // 10 Arena
@@ -60,9 +67,9 @@ enum BlockType {
     BLOCK_PLANKS_ENCINO,    // 18 Tablones de encino
     BLOCK_PLANKS_OYAMEL,    // 19 Tablones de oyamel
 
-    // --- Minerales raros ---
-    BLOCK_SILVER_ORE,       // 20 Mineral de plata
-    BLOCK_DIAMOND_ORE,      // 21 Mineral de diamante
+    // --- Minerales raros: RETIRADOS (huecos reservados, ver arriba) ---
+    BLOCK_RESERVADO_MINERAL_20,  // 20 (era BLOCK_SILVER_ORE)
+    BLOCK_RESERVADO_MINERAL_21,  // 21 (era BLOCK_DIAMOND_ORE)
 
     BLOCK_COBBLESTONE,      // 22 Piedra labrada
     BLOCK_LAVA,             // 23 Lava
@@ -70,7 +77,7 @@ enum BlockType {
 
     // --- Bloques nuevos ---
     BLOCK_LIMESTONE,        // 25 Piedra caliza
-    BLOCK_GOLD_ORE,         // 26 Mineral de oro
+    BLOCK_RESERVADO_MINERAL_26,  // 26 (era BLOCK_GOLD_ORE, retirado)
     BLOCK_CLAY_DIRT,        // 27 Tierra arcillosa
     BLOCK_CLAY_SAND,        // 28 Arena arcillosa
 
@@ -93,8 +100,26 @@ enum BlockType {
     BLOCK_NOPAL_BASE_T_ARCILLA,  // 32 Tallo en tierra arcillosa (poco comun)
     BLOCK_NOPAL_BASE_A_ARCILLA,  // 33 Tallo en arena arcillosa (poco comun)
 
-    BLOCK_NOPAL_TALLO,           // 34 Tallo de nopal (bloque COMPLETO)
-    BLOCK_NOPAL_CLADODIO,        // 35 Cladodio: sprite 3D atravesable
+    // ⭐ EL TALLO: RETIRADO, PERO SU SITIO SE QUEDA.
+    //
+    // Era un bloque COMPLETO que hacia de tronco central del nopal, con las
+    // pencas brotando de sus costados. Se retiro porque dibujaba un arbolito
+    // y no un nopal: una Opuntia ficus-indica no tiene fuste de madera, su
+    // cuerpo entero son pencas encadenadas desde el suelo (lo que en un
+    // ejemplar viejo parece tronco es la penca basal lignificada, que aqui la
+    // representa el bloque de base). Hoy el eje de la planta es una columna de
+    // BLOCK_NOPAL_CLADODIO -- ver `generarNopal` en main.cpp.
+    //
+    // ⚠️ LA FILA NO SE PUEDE BORRAR. Es el ID 34, en medio del enum: quitarlo
+    // correria en -1 los ~156 que van detras, y todos los mundos guardados
+    // leerian otro bloque (una penca pasaria a leerse como el fruto). Es la
+    // misma regla que ya se aplico a los cinco minerales de veta.
+    //
+    // Se queda fuera de la generacion y fuera del inventario creativo (ver
+    // `esBloqueRetirado`), asi que en la practica no existe para el jugador;
+    // los mundos que ya lo tengan lo siguen dibujando y rompiendo igual.
+    BLOCK_NOPAL_TALLO,           // 34 RETIRADO (era el tronco del nopal)
+    BLOCK_NOPAL_CLADODIO,        // 35 Cladodio/penca: sprite 3D atravesable
 
     // El FRUTO (la tuna). Cambia de textura cuando esta pegado a un
     // cladodio, conservando la misma forma: es el mismo bloque, solo se
@@ -472,8 +497,9 @@ enum BlockType {
     // Nieve suelta: solo en las montanas nevadas.
     BLOCK_PEDAZO_NIEVE,      // 163 Punado de nieve
 
-    // La PIRITA: el "oro de los tontos". Va en veta, como el carbon.
-    BLOCK_PYRITE_ORE,        // 164 Mineral de pirita
+    // La PIRITA iba en veta, como el carbon: RETIRADA con el resto de los
+    // minerales de veta. El hueco se reserva (ver "MINERALES RETIRADOS").
+    BLOCK_RESERVADO_MINERAL_164,  // 164 (era BLOCK_PYRITE_ORE)
 
     // ========================================================================
     // EL BARRO
@@ -652,7 +678,127 @@ enum BlockType {
     // meshing tesela con GL_REPEAT y un sub-rectangulo se saldria de su
     // casilla (ver PENDIENTES.md, cuarta vuelta de rendimiento).
     BLOCK_AGAVE_ABISAII_PENCA,      // 189 Hoja ancha y arqueada
-    BLOCK_AGAVE_ABISAII_PUNTA       // 190 Espina terminal y dientes del borde
+    BLOCK_AGAVE_ABISAII_PUNTA,      // 190 Espina terminal y dientes del borde
+
+    // ========================================================================
+    // TECHO DE HOJAS
+    // ========================================================================
+    // Un entramado de ramas con follaje encima: lo que se pone sobre una
+    // enramada para dar sombra. Se craftea con hojas y palos en diagonal.
+    //
+    // Es una LAMINA de un solo nivel (3 px), no un cubo: un techo tiene
+    // espesor de techo. Se pueden poner varios y la lamina crece, igual que
+    // cualquier otro bloque con niveles.
+    //
+    // ⚠️ VA AL FINAL DEL ENUM. Insertarlo en medio correria los IDs de todo
+    // lo que va detras y los mundos guardados leerian otro bloque.
+    BLOCK_TECHO_HOJAS,              // 191 Entramado de ramas y follaje
+
+    // Sus SIETE niveles (3, 4, 5, 6, 8, 10 y 13 px). Van seguidos y en orden:
+    // `tablaNiveles` solo guarda el PRIMERO y deduce el resto por el rango
+    // [primero, primero+7), asi que el orden no es decorativo.
+    //
+    // Colocado, el techo nace en su nivel 1 --una lamina de 3 px, que es el
+    // espesor de un techo-- y crece al seguir poniendo del mismo material.
+    BLOCK_TECHO_HOJAS_L1,           // 192
+    BLOCK_TECHO_HOJAS_L2,           // 193
+    BLOCK_TECHO_HOJAS_L3,           // 194
+    BLOCK_TECHO_HOJAS_L4,           // 195
+    BLOCK_TECHO_HOJAS_L5,           // 196
+    BLOCK_TECHO_HOJAS_L6,           // 197
+    BLOCK_TECHO_HOJAS_L7,           // 198
+
+    // ========================================================================
+    // CUATRO PINOS MEXICANOS MAS
+    // ========================================================================
+    // Con estos el motor pasa de dos pinos a seis, y todos son especies de
+    // los bosques de pino-encino del centro de Mexico. Cada uno lleva las
+    // CUATRO piezas del patron que ya siguen encino, oyamel y los ocotes:
+    //
+    //     TRONCO   la corteza, que es lo que se ve en pie
+    //     DENTRO   el corte con los anillos, al talarlo
+    //     HOJAS    la acicula
+    //     TABLONES lo que sale de labrar la madera
+    //
+    // Son cuatro texturas distintas y `texSegura()` trabaja con BlockType, de
+    // modo que cada imagen que el mesher pueda pedir necesita su nombre aqui.
+    //
+    // ⚠️ VAN AL FINAL DEL ENUM. Insertar en medio correria los IDs de todo lo
+    // que va detras y los mundos guardados leerian otro bloque. Es la misma
+    // regla que siguieron el ocote, el agave abisaii y el techo de hojas.
+    //
+    // NO llevan entrada de RAMA propia: las cuatro usan el ramaje dentro del
+    // follaje de su pariente mas cercano (ver generarOcote), que es lo que ya
+    // hacen los dos ocotes desde que la rama y las aciculas comparten voxel.
+
+    // --- PINO PATULA (Pinus patula) ---
+    // El "pino llorón": acicula muy larga, fina y COLGANTE, corteza rojiza
+    // que se desprende en placas papiraceas en la parte alta del fuste.
+    BLOCK_WOOD_PATULA,              // 199 Tronco: corteza rojiza escamosa
+    BLOCK_WOOD_PATULA_DENTRO,       // 200 El corte, con sus anillos
+    BLOCK_LEAVES_PATULA,            // 201 Aciculas largas y pendulas
+    BLOCK_PLANKS_PATULA,            // 202 Tablones de pino patula
+
+    // --- PINO PIÑONERO MEXICANO (Pinus cembroides) ---
+    // El pino del piñon. Es el MAS PEQUEÑO de los seis y el unico de zona
+    // seca: vive en el matorral y la ladera arida, no en el bosque humedo.
+    BLOCK_WOOD_PINONERO,            // 203 Tronco: corteza gris agrietada
+    BLOCK_WOOD_PINONERO_DENTRO,     // 204 El corte, con sus anillos
+    BLOCK_LEAVES_PINONERO,          // 205 Aciculas cortas y rigidas
+    BLOCK_PLANKS_PINONERO,          // 206 Tablones de pino piñonero
+
+    // --- PINO DE LAS ALTURAS (Pinus hartwegii) ---
+    // El arbol que crece MAS ALTO del mundo: forma el limite arboreo de los
+    // volcanes mexicanos, por encima de los 4.000 m. Porte bajo y achaparrado
+    // por el viento y el frio.
+    BLOCK_WOOD_ALTURAS,             // 207 Tronco: corteza gruesa y oscura
+    BLOCK_WOOD_ALTURAS_DENTRO,      // 208 El corte, con sus anillos
+    BLOCK_LEAVES_ALTURAS,           // 209 Aciculas en penacho denso
+    BLOCK_PLANKS_ALTURAS,           // 210 Tablones de pino de las alturas
+
+    // --- PINO PSEUDOSTROBUS (Pinus pseudostrobus) ---
+    // El pino liso. Fuste recto y muy limpio, de los mas apreciados como
+    // madera. Acicula larga y colgante, como la del patula.
+    BLOCK_WOOD_PSEUDOSTROBUS,       // 211 Tronco: corteza lisa pardo grisacea
+    BLOCK_WOOD_PSEUDOSTROBUS_DENTRO,// 212 El corte, con sus anillos
+    BLOCK_LEAVES_PSEUDOSTROBUS,     // 213 Aciculas largas y colgantes
+    BLOCK_PLANKS_PSEUDOSTROBUS,     // 214 Tablones de pseudostrobus
+
+    // ========================================================================
+    // ⭐⭐ EL TECHO DE HOJAS, EN SU VERSION APOYADA
+    // ========================================================================
+    // PEDIDO: "que puedas colocar y apilar mas niveles de techo de hojas
+    // tanto arriba como abajo; si el jugador esta abajo del nivel, colocara
+    // bloques bajo el nivel, y si esta arriba se apilan sobre el nivel".
+    //
+    // EL PROBLEMA. El techo de hojas CUELGA de la cara de arriba de su celda
+    // --es lo que lo distingue de una alfombra-- y esa orientacion esta
+    // cableada en el ID: `BLOCK_TECHO_HOJAS` siempre se dibuja de 16-h a 16.
+    // Asi no hay forma de tener los dos sentidos a la vez.
+    //
+    // LA SOLUCION. Una familia HERMANA que se apoya en el suelo, como
+    // cualquier otro nivel. El material es el mismo --misma textura, misma
+    // receta, mismos drops-- y lo unico que cambia es de donde crece:
+    //
+    //     TECHO_HOJAS        cuelga del techo   (el jugador esta DEBAJO)
+    //     TECHO_HOJAS_SUELO  se apoya en el suelo (el jugador esta ENCIMA)
+    //
+    // Cual de las dos se coloca lo decide la posicion del jugador respecto a
+    // la celda, que es justo lo que se pidio.
+    //
+    // ⚠️ AL FINAL DEL ENUM, como todo lo nuevo: insertar en medio correria
+    // los IDs y los mundos guardados leerian otro bloque.
+    BLOCK_TECHO_SUELO,              // 215 Techo de hojas apoyado en el suelo
+
+    // Sus siete niveles, contiguos y en orden (misma regla que los demas:
+    // `tablaNiveles` guarda solo el primero y deduce el resto por el rango).
+    BLOCK_TECHO_SUELO_L1,           // 216
+    BLOCK_TECHO_SUELO_L2,           // 217
+    BLOCK_TECHO_SUELO_L3,           // 218
+    BLOCK_TECHO_SUELO_L4,           // 219
+    BLOCK_TECHO_SUELO_L5,           // 220
+    BLOCK_TECHO_SUELO_L6,           // 221
+    BLOCK_TECHO_SUELO_L7            // 222
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -731,16 +877,62 @@ inline BlockType versionSeca(BlockType t) {
 
 // Cuántas familias con niveles hay (ver tablaNiveles()). Se comprueba con un
 // static_assert más abajo para que no se quede desfasado.
-constexpr int FAMILIAS_CON_NIVEL = 22;
+// ⚠️ SUBIDO DE 22 A 24 al entrar el techo de hojas en `tablaRelleno`.
+//
+// Es el ANCHO del hueco que cada familia ocupa dentro del ID mixto, asi que
+// cambiarlo cambia la codificacion -- igual que la altura del relleno. Los
+// mundos guardados se traducen al cargar (ver BlockCompat), que es la misma
+// via que ya se uso para ese cambio.
+//
+// Se deja margen (24 para 23 usadas) para que la proxima familia no obligue a
+// otra migracion: ampliar este numero es barato en IDs (el rango llega a
+// 100.000) y caro en compatibilidad.
+constexpr int FAMILIAS_CON_NIVEL = 24;
 
 // Primer ID del rango calculado. Va MUY por encima del enum para que jamás
 // pise un bloque real, presente o futuro.
 constexpr int BLOCK_MIXTO_BASE = 1000;
 
-// Un ID mixto codifica: (indiceBase * 7 + (nivel-1)) * FAMILIAS + indiceRelleno
+// ============================================================================
+// ⭐⭐ UNA CELDA MIXTA YA NO ESTA SIEMPRE LLENA
+// ============================================================================
+// ANTES el relleno no tenia altura propia: iba de la capa de abajo AL TECHO,
+// asi que una mixta solo podia representar 8 octavos EXACTOS.
+//
+// Eso causaba el bug reportado: al apilar arena sobre pasto, mientras el total
+// no llegaba a 8 no se podia guardar "3 de pasto + 2 de arena" -- solo cabia
+// "5 de algo"-- asi que la fusion devolvia 5 de PASTO. El jugador veia su
+// pasto estirarse nivel a nivel y la arena no aparecia hasta completar el
+// bloque, que es exactamente el sintoma descrito.
+//
+// AHORA el relleno lleva SU PROPIO NIVEL (1..7) dentro del ID. Con eso una
+// celda puede guardar dos materiales a cualquier altura:
+//
+//     3 de pasto abajo  +  2 de arena encima  =  5 octavos, los dos visibles
+//
+// ⚠️ LAS DOS CAPAS VAN PEGADAS Y NO HAY AIRE DENTRO. El relleno empieza
+// EXACTAMENTE donde acaba la capa de abajo (ver alturaBaseMixto) y la celda
+// termina donde acaba el relleno. Lo que queda por encima no es "aire dentro
+// del bloque": es el hueco de la celda, igual que sobre cualquier nivel
+// parcial.
+//
+// COSTE EN IDs: se multiplica por 7 (las alturas del relleno). Pasa de 3.388
+// IDs a 23.716, y el rango libre llega hasta 100.000
+// (BLOQUE_COMPUESTO_BASE_ID), asi que cabe de sobra. Lo vigila un
+// static_assert mas abajo.
+constexpr int NIVELES_RELLENO = 7;
+
+// Un ID mixto codifica:
+//   ((indiceBase * 7 + (nivelBase-1)) * FAMILIAS + indiceRelleno)
+//       * NIVELES_RELLENO + (nivelRelleno-1)
 constexpr int MIXTO_POR_BASE = 7 * FAMILIAS_CON_NIVEL;
 constexpr int BLOCK_MIXTO_FIN =
-    BLOCK_MIXTO_BASE + FAMILIAS_CON_NIVEL * MIXTO_POR_BASE;
+    BLOCK_MIXTO_BASE + FAMILIAS_CON_NIVEL * MIXTO_POR_BASE * NIVELES_RELLENO;
+
+// El rango mixto NO puede alcanzar al de los bloques compuestos: si lo
+// hiciera, una celda mixta se leeria como un maguey y al reves.
+static_assert(BLOCK_MIXTO_FIN < 100000,
+              "El rango de celdas mixtas pisa a los bloques compuestos");
 
 // ¿Es una celda mixta (capa + relleno de otro material)?
 inline bool esMixto(BlockType t) {
@@ -909,11 +1101,89 @@ inline const FamiliaNivel* tablaNiveles(int& n) {
         //
         // ⭐ La madera SÍ puede ser RELLENO de una celda mixta aunque no
         // tenga niveles propios: ver tablaRelleno() justo debajo.
-        { BLOCK_COAL_ORE,       BLOCK_COAL_L1    },
-        { BLOCK_SILVER_ORE,     BLOCK_SILVER_L1  },
-        { BLOCK_GOLD_ORE,       BLOCK_GOLD_L1    },
-        { BLOCK_DIAMOND_ORE,    BLOCK_DIAMOND_L1 },
-        { BLOCK_SCRAP_METAL,    BLOCK_SCRAP_L1   },
+        // ⭐ LOS CINCO MINERALES: RETIRADOS, PERO SU SITIO SE QUEDA.
+        //
+        // Aqui habia carbon, plata, oro, diamante y desecho. Los bloques ya no
+        // existen, pero estas cinco FILAS no se pueden borrar: el indice de
+        // esta tabla viaja DENTRO del ID de cada celda mixta guardada
+        // (base*7*FAMILIAS + relleno). Quitar una fila corre en uno todas las
+        // de detras, y una capa de tierra con arena encima pasaria a leerse
+        // como otra cosa en todos los mundos ya guardados.
+        //
+        // ⚠️ EL CENTINELA CONSERVA SU RANGO DE NIVELES, Y NO ES OPCIONAL.
+        //
+        // La tentacion es poner {BLOCK_AIR, BLOCK_AIR} y quedarse tranquilo.
+        // Eso ROMPE EL MOTOR ENTERO, y conviene dejar escrito por que:
+        // `bloqueBaseDe()` y `nivelDe()` no buscan por `entero`, buscan por el
+        // RANGO [primero, primero+7). Con `primero` = BLOCK_AIR = 0, ese rango
+        // es [0,7) -- o sea pasto, tierra, piedra, los troncos y el agua. La
+        // primera fila centinela se tragaba la consulta y toda capa parcial
+        // del juego respondia "soy aire de nivel 1". Medido: 62 casos rotos en
+        // trece ficheros, incluida la fusion de materiales y las celdas
+        // mixtas.
+        //
+        // Se conserva entonces `primero` (su rango de IDs sigue existiendo en
+        // el enum y no se puede reutilizar) y solo se anula `entero`, que es
+        // por donde preguntan indiceFamilia() y primerNivelDe(). Asi la fila
+        // ocupa su posicion, sus lonchas viejas se siguen resolviendo, y no se
+        // puede fabricar una celda mixta nueva con ella.
+        { BLOCK_AIR,            BLOCK_COAL_L1    },  // 11 (era carbon)
+        { BLOCK_AIR,            BLOCK_SILVER_L1  },  // 12 (era plata)
+        { BLOCK_AIR,            BLOCK_GOLD_L1    },  // 13 (era oro)
+        { BLOCK_AIR,            BLOCK_DIAMOND_L1 },  // 14 (era diamante)
+        { BLOCK_AIR,            BLOCK_SCRAP_L1   },  // 15 (era desecho)
+
+        // ⭐⭐ TECHO DE HOJAS -- VA AL FINAL, EN EL INDICE 16.
+        //
+        // ⚠️ NO puede ir en medio, y el intento de ponerlo arriba fallo el
+        // test "Mixta: las 16 familias con niveles conservan su indice".
+        //
+        // El INDICE de esta tabla viaja DENTRO del ID de cada celda mixta ya
+        // guardada (base*7*FAMILIAS + relleno), y las posiciones 0..15 tienen
+        // que coincidir una a una con `tablaRelleno`. Insertar aqui en medio
+        // corria los cinco centinelas de los minerales y, con ellos, la madera
+        // de las posiciones 16-21: una capa de tierra con un tronco encima
+        // pasaria a leerse como otra cosa en TODOS los mundos existentes.
+        //
+        // Al final es seguro: ocupa el primer hueco libre por detras de lo que
+        // ya hay, sin mover nada. Quedan 5 huecos de los 22 reservados.
+        { BLOCK_TECHO_HOJAS,    BLOCK_TECHO_HOJAS_L1 },
+
+        // ⭐⭐ LOS TABLONES VUELVEN A TENER NIVELES (indices 17, 18 y 19).
+        //
+        // BUG REPORTADO: entre un tablon y un nivel queda una separacion de
+        // aire, visible y fisica.
+        //
+        // LA CAUSA: los tablones salieron de esta tabla junto con los troncos,
+        // y el argumento de entonces --"un tronco es un tronco entero, no una
+        // loncha de 3 px"-- vale para el TRONCO pero no para el TABLON. Un
+        // tablon ES una tabla: material de construccion plano, que es
+        // justamente lo que uno quiere poder poner en capas.
+        //
+        // Sin fila aqui, `esNivelParcial()` decia NO sobre ellos y TODO el
+        // sistema de apilado los trataba como cubos: no se fundian con la capa
+        // de debajo, se quedaban encima, y entre los 3 px de la capa y los 16
+        // del tablon quedaban 13 px de aire. Esa es la separacion reportada --
+        // y era fisica ademas de visible, porque la colision sale de la misma
+        // altura.
+        //
+        // ⚠️ LOS TRONCOS SIGUEN FUERA, a proposito: su veta y su forma se
+        // pierden al partirlos, y ese razonamiento no ha cambiado.
+        //
+        // Van AL FINAL, detras del techo. Sus 21 IDs de nivel ya existian en
+        // el enum (reservados al sacarlos de la tabla), asi que esto no mueve
+        // ni un ID: solo los vuelve a dar de alta.
+        { BLOCK_PLANKS,         BLOCK_PLANKS_L1  },
+        { BLOCK_PLANKS_ENCINO,  BLOCK_PLANKE_L1  },
+        { BLOCK_PLANKS_OYAMEL,  BLOCK_PLANKO_L1  },
+
+        // ⭐ EL TECHO APOYADO (indice 20). La version hermana del techo que
+        // cuelga: mismo material, pero crece desde el SUELO de su celda.
+        //
+        // Necesita sus propios niveles porque la altura es lo que se apila, y
+        // el ID de nivel es lo que la guarda. Al final de la tabla, como todo
+        // lo nuevo: el indice viaja dentro de cada celda mixta ya guardada.
+        { BLOCK_TECHO_SUELO,    BLOCK_TECHO_SUELO_L1 },
     };
     n = (int)(sizeof(TABLA) / sizeof(TABLA[0]));
     return TABLA;
@@ -948,11 +1218,33 @@ inline const BlockType* tablaRelleno(int& n) {
         BLOCK_GRASS,      BLOCK_DIRT,       BLOCK_STONE,     BLOCK_SAND,
         BLOCK_GRAVEL,     BLOCK_SNOW,       BLOCK_CLAY_DIRT, BLOCK_CLAY_SAND,
         BLOCK_COBBLESTONE, BLOCK_CLAY,      BLOCK_LIMESTONE,
-        BLOCK_COAL_ORE,   BLOCK_SILVER_ORE, BLOCK_GOLD_ORE,
-        BLOCK_DIAMOND_ORE, BLOCK_SCRAP_METAL,
+        // ⭐ POSICIONES 11-15: LOS MINERALES RETIRADOS.
+        //
+        // Eran carbon, plata, oro, diamante y desecho. NO se borran, se
+        // rellenan con BLOCK_AIR -- y el motivo esta justo debajo: la madera
+        // ocupa las posiciones 16-21. Borrar estas cinco la correria a la
+        // 11-16, y cada celda mixta con relleno de tronco ya guardada pasaria
+        // a leerse como relleno de otra cosa.
+        //
+        // indiceRelleno() no puede devolver estos indices (rechaza BLOCK_AIR),
+        // asi que son inalcanzables para las celdas nuevas.
+        BLOCK_AIR,        BLOCK_AIR,        BLOCK_AIR,
+        BLOCK_AIR,        BLOCK_AIR,
         // --- Los 6 huecos reservados: la madera, que no tiene niveles ---
         BLOCK_WOOD,       BLOCK_WOOD_ENCINO, BLOCK_WOOD_OYAMEL,
         BLOCK_PLANKS,     BLOCK_PLANKS_ENCINO, BLOCK_PLANKS_OYAMEL,
+        // ⭐ EL TECHO DE HOJAS, EN LA POSICION 22.
+        //
+        // Se pidio que "los techos de hojas puedan tener eso encima y se
+        // puedan colocar en el suelo o combinado con niveles". Para ser el
+        // material de ARRIBA de una celda mixta hay que estar en esta tabla:
+        // sin entrada aqui, `indiceRelleno` devuelve -1 y `mixto()` rechaza
+        // la pareja.
+        //
+        // ⚠️ AL FINAL, NUNCA EN MEDIO. El indice viaja dentro del ID de cada
+        // celda mixta ya guardada: insertarlo antes correria la madera y los
+        // mundos existentes leerian otro relleno.
+        BLOCK_TECHO_HOJAS,
     };
     n = (int)(sizeof(TABLA) / sizeof(TABLA[0]));
     return TABLA;
@@ -962,6 +1254,10 @@ inline const BlockType* tablaRelleno(int& n) {
 // admite niveles (plantas, agua, lava, guijarros...).
 inline BlockType primerNivelDe(BlockType completo) {
     int n = 0; const FamiliaNivel* T = tablaNiveles(n);
+    // El aire no tiene niveles, y ademas es el centinela de los minerales
+    // retirados: sin esta guarda devolveria el BLOCK_AIR de la fila 11, que
+    // por casualidad es el valor correcto, pero por el motivo equivocado.
+    if (completo == BLOCK_AIR) return BLOCK_AIR;
     for (int i = 0; i < n; ++i)
         if (T[i].entero == completo) return T[i].primero;
     return BLOCK_AIR;
@@ -997,6 +1293,32 @@ inline BlockType bloqueBaseDe(BlockType t) {
     return t;
 }
 
+// ============================================================================
+// ⭐ EL TECHO DE HOJAS, EN SUS DOS ORIENTACIONES
+// ============================================================================
+// El mismo material con dos formas de crecer:
+//
+//     BLOCK_TECHO_HOJAS   cuelga de la cara de ARRIBA de su celda
+//     BLOCK_TECHO_SUELO   se apoya en el SUELO, como cualquier otro nivel
+//
+// Cual se coloca lo decide donde este el jugador respecto a la celda: desde
+// abajo cuelga (es un techo sobre su cabeza), desde arriba se apoya (es una
+// capa a sus pies).
+//
+// Estos predicados existen para que el resto del motor no tenga que repetir
+// la comparacion de los dos IDs. Es la leccion que ya dejaron el ocote y las
+// hojas: una lista de especies repetida por diez sitios acaba desincronizada.
+
+// ¿Es techo de hojas, de cualquier orientacion y nivel?
+inline bool esTechoDeHojas(BlockType t) {
+    const BlockType b = bloqueBaseDe(t);
+    return b == BLOCK_TECHO_HOJAS || b == BLOCK_TECHO_SUELO;
+}
+
+// ¿Es de los que CUELGAN? Solo esta variante se dibuja de 16-h a 16.
+inline bool esTechoColgante(BlockType t) {
+    return bloqueBaseDe(t) == BLOCK_TECHO_HOJAS;
+}
 // El ID que corresponde a un bloque y un nivel. Nivel 8 -> el bloque entero.
 //
 // Acepta que le pasen un nivel parcial como "completo": se normaliza a su
@@ -1014,6 +1336,46 @@ inline BlockType conNivel(BlockType completo, int nivel) {
 // ¿Este bloque admite niveles?
 inline bool admiteNiveles(BlockType t) {
     return primerNivelDe(bloqueBaseDe(t)) != BLOCK_AIR;
+}
+
+// ============================================================================
+// ⭐ ¿SE COLOCA ENTERO, AUNQUE ADMITA NIVELES?
+// ============================================================================
+// La regla general del juego es que un bloque con niveles se coloca como CAPA
+// (nivel 1) y crece clic a clic. Hay dos excepciones que van ENTERAS:
+//
+//   - la piedra labrada: el material de construccion, con el que se levantan
+//     muros. Ocho clics por bloque harian inviable construir.
+//   - el techo de hojas: se pidio que fuera "un bloque completo".
+//
+// Antes cada rama de placeBlock repetia la excepcion a mano, y en una se
+// quedo fuera el techo: apuntando a la tapa de un bloque nacia como lamina.
+// Ahora todas preguntan aqui.
+//
+// ⭐ LOS TABLONES TAMBIEN. PEDIDO: "que los tablones de todas las maderas
+// sean bloques completos". Solo pino, encino y oyamel tienen niveles (los
+// otros cinco nunca los tuvieron y ya iban enteros); a esos tres se les
+// conservan los IDs de nivel para los mundos guardados, pero al colocarlos
+// nacen enteros.
+
+// ¿Es un tablon, de cualquiera de las ocho maderas?
+inline bool esTablon(BlockType t) {
+    switch (bloqueBaseDe(t)) {
+        case BLOCK_PLANKS:        case BLOCK_PLANKS_ENCINO:
+        case BLOCK_PLANKS_OYAMEL: case BLOCK_PLANKS_OCOTE:
+        case BLOCK_PLANKS_PATULA: case BLOCK_PLANKS_PINONERO:
+        case BLOCK_PLANKS_ALTURAS: case BLOCK_PLANKS_PSEUDOSTROBUS:
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline bool seColocaEntero(BlockType t) {
+    if (!admiteNiveles(t)) return false;     // sin niveles: no hay eleccion
+    if (esNivelParcial(t)) return false;     // ya es una capa concreta
+    const BlockType b = bloqueBaseDe(t);
+    return b == BLOCK_COBBLESTONE || esTechoDeHojas(b) || esTablon(b);
 }
 
 // ============================================================================
@@ -1050,12 +1412,71 @@ inline bool esNivelDeMaderaHuerfano(BlockType t) {
     // Los seis rangos, en el orden en que estan declarados en el enum. Se
     // comprueban contra los IDs de sus extremos, no contra numeros escritos a
     // mano: si el enum se reordena, esto sigue apuntando a lo correcto.
-    return (id >= (int)BLOCK_PLANKS_L1 && id <= (int)BLOCK_PLANKS_L7) ||
-           (id >= (int)BLOCK_PLANKE_L1 && id <= (int)BLOCK_PLANKE_L7) ||
-           (id >= (int)BLOCK_PLANKO_L1 && id <= (int)BLOCK_PLANKO_L7) ||
-           (id >= (int)BLOCK_WOOD_L1   && id <= (int)BLOCK_WOOD_L7)   ||
+    // ⚠️ LOS TABLONES YA NO SON HUERFANOS.
+    //
+    // Volvieron a `tablaNiveles` para que se junten con las capas (ver la nota
+    // alli). Sus 21 IDs ya no son bloques muertos: son niveles de verdad, con
+    // textura y comportamiento. Dejarlos aqui los sacaria del creativo y haria
+    // que `esNivelParcial` y esta funcion se contradijeran.
+    //
+    // Los TRONCOS siguen huerfanos: esos no volvieron a la tabla.
+    return (id >= (int)BLOCK_WOOD_L1   && id <= (int)BLOCK_WOOD_L7)   ||
            (id >= (int)BLOCK_WOODE_L1  && id <= (int)BLOCK_WOODE_L7)  ||
            (id >= (int)BLOCK_WOODO_L1  && id <= (int)BLOCK_WOODO_L7);
+}
+
+// ============================================================================
+// LOS HUECOS QUE DEJARON LOS MINERALES DE VETA
+// ============================================================================
+// Al retirarse los siete bloques de mineral, sus posiciones en el enum se
+// conservaron como reservadas: borrarlas habria corrido en uno los IDs de todo
+// lo que va detras y los mundos guardados leerian otro bloque.
+//
+// Pero un hueco reservado NO es un bloque. No se genera, no tiene textura y no
+// se puede picar. Si entra en el bucle del inventario creativo sale como un
+// cubo de piedra -- el mismo sintoma que las lonchas de madera de aqui arriba,
+// y por la misma razon: getBlockTexture no tiene entrada para ellos y su
+// `default:` devuelve Piedra.png.
+//
+// BLOCK_IRON_ORE no entra en esta lista porque vive DESPUES de
+// BLOCK_LAST_PLACEABLE, asi que el bucle del creativo no llega hasta el.
+inline bool esHuecoDeMineralRetirado(BlockType t) {
+    switch ((int)t) {
+        case BLOCK_RESERVADO_MINERAL_08:   // era carbon
+        case BLOCK_RESERVADO_MINERAL_09:   // era desecho de metales
+        case BLOCK_RESERVADO_MINERAL_20:   // era plata
+        case BLOCK_RESERVADO_MINERAL_21:   // era diamante
+        case BLOCK_RESERVADO_MINERAL_26:   // era oro
+        case BLOCK_RESERVADO_MINERAL_164:  // era pirita
+            return true;
+        default:
+            return false;
+    }
+}
+
+// ============================================================================
+// BLOQUES RETIRADOS QUE SIGUEN TENIENDO TEXTURA Y NOMBRE
+// ============================================================================
+// No es lo mismo que `esHuecoDeMineralRetirado`, y por eso es otra funcion.
+//
+// Un hueco de mineral no es un bloque: no se genera, no tiene textura propia y
+// cae en el `default:` de getBlockTexture. Los de aqui SI son bloques hechos y
+// derechos -- tienen textura, forma, tiempo de rotura y drop -- y siguen
+// dibujandose en los mundos que ya los tengan. Lo unico que se les quita es
+// poder aparecer: no se generan y no se pueden coger en creativo.
+//
+// La distincion importa porque el filtro del inventario ya salta los huecos por
+// "no son bloques"; estos hay que saltarlos por "ya no se usan", que es una
+// razon distinta y puede cambiar por separado.
+inline bool esBloqueRetirado(BlockType t) {
+    switch ((int)t) {
+        // El tronco del nopal. Ver la nota en su entrada del enum: la planta
+        // pasa a ser pencas encadenadas, sin fuste.
+        case BLOCK_NOPAL_TALLO:
+            return true;
+        default:
+            return false;
+    }
 }
 
 // ============================================================================
@@ -1069,6 +1490,11 @@ inline bool esNivelDeMaderaHuerfano(BlockType t) {
 inline int indiceFamilia(BlockType entero) {
     int n = 0; const FamiliaNivel* T = tablaNiveles(n);
     entero = bloqueBaseDe(entero);
+    // ⚠️ EL AIRE NO ES UNA FAMILIA, y desde que los minerales se retiraron hay
+    // cinco centinelas BLOCK_AIR ocupando su sitio en la tabla. Sin esta
+    // guarda, preguntar por el aire devolveria el indice del primer centinela
+    // y se podria fabricar una celda mixta "de aire con relleno".
+    if (entero == BLOCK_AIR) return -1;
     for (int i = 0; i < n; ++i) if (T[i].entero == entero) return i;
     return -1;
 }
@@ -1079,6 +1505,9 @@ inline int indiceFamilia(BlockType entero) {
 inline int indiceRelleno(BlockType entero) {
     int n = 0; const BlockType* T = tablaRelleno(n);
     entero = bloqueBaseDe(entero);
+    // Misma guarda que indiceFamilia: los centinelas de los minerales
+    // retirados son BLOCK_AIR y no deben poder casarse con nada.
+    if (entero == BLOCK_AIR) return -1;
     for (int i = 0; i < n; ++i) if (T[i] == entero) return i;
     return -1;
 }
@@ -1100,37 +1529,108 @@ inline bool familiasCaben() {
 
 // El ID de "capa de `base` a nivel `nivel`, y de ahí a 16 px, `relleno`".
 // Devuelve BLOCK_AIR si la pareja no se puede representar.
-inline BlockType mixto(BlockType base, int nivel, BlockType relleno) {
-    // La capa de ABAJO necesita niveles (su altura es la del nivel); el
-    // material de ARRIBA no, porque siempre llega hasta el techo. Por eso
-    // cada uno usa su propia tabla: es lo que permite que un tronco rellene
-    // una celda sin tener que partirse en lonchas.
+// `nivelRelleno` es la ALTURA del material de arriba, en octavos (1..7).
+//
+// Por defecto 0 = "hasta el techo", que es como se comportaba antes: con eso
+// las llamadas que solo quieren llenar la celda no cambian, y el valor se
+// deriva de lo que queda libre (8 - nivel).
+inline BlockType mixto(BlockType base, int nivel, BlockType relleno,
+                       int nivelRelleno = 0) {
+    // La capa de ABAJO necesita niveles (su altura es la del nivel). El
+    // material de ARRIBA ahora tambien lleva la suya, para que una celda
+    // pueda estar a medio llenar con dos materiales a la vista.
     const int ib = indiceFamilia(base);
     const int ir = indiceRelleno(relleno);
     if (ib < 0 || ir < 0) return BLOCK_AIR;      // no se puede representar
     if (nivel < 1 || nivel > 7) return BLOCK_AIR; // 8 es la celda llena
+
+    // 0 significa "lo que quepa hasta el techo": el comportamiento de antes.
+    int nr = (nivelRelleno <= 0) ? (8 - nivel) : nivelRelleno;
+
+    // Las dos capas tienen que caber en la celda. Si no, se recorta: es mejor
+    // perder un octavo que producir un ID fuera de rango.
+    if (nr < 1) nr = 1;
+    if (nivel + nr > 8) nr = 8 - nivel;
+
     return (BlockType)(BLOCK_MIXTO_BASE +
-                       (ib * 7 + (nivel - 1)) * FAMILIAS_CON_NIVEL + ir);
+                       ((ib * 7 + (nivel - 1)) * FAMILIAS_CON_NIVEL + ir)
+                           * NIVELES_RELLENO + (nr - 1));
 }
 
-// Las tres partes de una celda mixta.
+// Las CUATRO partes de una celda mixta: material de abajo, su nivel, material
+// de arriba y SU nivel.
+//
+// Se decodifica deshaciendo la aritmetica de `mixto()`, de dentro hacia
+// fuera: primero el nivel del relleno (el factor mas interno), luego el
+// relleno, luego el nivel de la base y por ultimo la base.
 inline BlockType mixtoBase(BlockType t) {
     if (!esMixto(t)) return t;
     int n = 0; const FamiliaNivel* T = tablaNiveles(n);
-    const int k = ((int)t - BLOCK_MIXTO_BASE) / FAMILIAS_CON_NIVEL;
+    const int sinNR = ((int)t - BLOCK_MIXTO_BASE) / NIVELES_RELLENO;
+    const int k = sinNR / FAMILIAS_CON_NIVEL;
     const int ib = k / 7;
     return (ib >= 0 && ib < n) ? T[ib].entero : BLOCK_AIR;
 }
 inline int mixtoNivel(BlockType t) {
     if (!esMixto(t)) return 8;
-    const int k = ((int)t - BLOCK_MIXTO_BASE) / FAMILIAS_CON_NIVEL;
+    const int sinNR = ((int)t - BLOCK_MIXTO_BASE) / NIVELES_RELLENO;
+    const int k = sinNR / FAMILIAS_CON_NIVEL;
     return (k % 7) + 1;
 }
 inline BlockType mixtoRelleno(BlockType t) {
     if (!esMixto(t)) return BLOCK_AIR;
     int n = 0; const BlockType* T = tablaRelleno(n);
-    const int ir = ((int)t - BLOCK_MIXTO_BASE) % FAMILIAS_CON_NIVEL;
+    const int sinNR = ((int)t - BLOCK_MIXTO_BASE) / NIVELES_RELLENO;
+    const int ir = sinNR % FAMILIAS_CON_NIVEL;
     return (ir >= 0 && ir < n) ? T[ir] : BLOCK_AIR;
+}
+
+// ⭐ LA ALTURA DEL MATERIAL DE ARRIBA, en octavos (1..7).
+//
+// Es lo que permite que una celda mixta este a MEDIO LLENAR con los dos
+// materiales a la vista, en vez de que el de arriba se estire hasta el techo.
+inline int mixtoNivelRelleno(BlockType t) {
+    if (!esMixto(t)) return 0;
+    return (((int)t - BLOCK_MIXTO_BASE) % NIVELES_RELLENO) + 1;
+}
+
+// Cuantos octavos ocupa en total una celda mixta: las dos capas juntas.
+// Puede ser menos de 8, que es justo la novedad.
+inline int mixtoOctavosTotales(BlockType t) {
+    if (!esMixto(t)) return 8;
+    return mixtoNivel(t) + mixtoNivelRelleno(t);
+}
+
+// ============================================================================
+// ⭐ ¿CUANTO MATERIAL HAY EN ESTA CELDA, EN OCTAVOS?
+// ============================================================================
+// La pregunta que hay que hacer para decidir si cabe algo mas. Antes el
+// codigo preguntaba por el TIPO de bloque ("¿es un nivel parcial?", "¿es una
+// mixta?") y eso dejo de valer cuando una mixta pudo estar a medio llenar:
+// una celda de "3 de tierra + 2 de arena" no es un nivel parcial, pero tiene
+// tres octavos libres.
+//
+// Tener la cuenta en un solo sitio evita que cada guarda la reinvente -- que
+// es justo como aparecieron los bugs de "se cree que esta lleno".
+inline int octavosOcupados(BlockType t) {
+    if (t == BLOCK_AIR) return 0;
+    if (esMixto(t)) return mixtoOctavosTotales(t);
+    if (esNivelParcial(t)) return nivelDe(t);
+    return 8;                     // bloque entero
+}
+
+// ¿Esta celda esta LLENA de verdad? Es la unica forma correcta de preguntar
+// "¿ya no cabe nada mas aqui?".
+inline bool celdaLlena(BlockType t) {
+    return octavosOcupados(t) >= 8;
+}
+
+// ¿Admite esta celda que se le anada material? Lo contrario de la anterior,
+// pero exigiendo ademas que sea un material apilable (no aire, no planta).
+inline bool celdaAdmiteMas(BlockType t) {
+    if (t == BLOCK_AIR) return true;
+    if (!esMixto(t) && !esNivelParcial(t) && !admiteNiveles(t)) return false;
+    return octavosOcupados(t) < 8;
 }
 
 // Altura en bloques (0..1) que ocupa este bloque. Es su colision EXACTA.
@@ -1138,7 +1638,19 @@ inline BlockType mixtoRelleno(BlockType t) {
 // Una celda mixta está LLENA: la capa de abajo más el relleno llegan hasta
 // arriba, así que se anda por encima como por un bloque entero.
 inline float alturaDe(BlockType t) {
-    if (esMixto(t)) return 1.0f;
+    // ⭐ UNA MIXTA YA NO ESTA SIEMPRE LLENA.
+    //
+    // Su altura es la de las DOS capas juntas, que puede ser menos de 8
+    // octavos. Antes se devolvia 1.0 fijo porque el relleno llegaba siempre
+    // al techo; ahora lleva su propia altura.
+    //
+    // Esto es la COLISION exacta del bloque, asi que de aqui depende que el
+    // jugador se suba a la altura correcta y no flote ni se hunda.
+    if (esMixto(t)) {
+        const int oct = mixtoOctavosTotales(t);
+        if (oct >= 8) return 1.0f;
+        return (float)alturaNivelPx(oct) / 16.0f;
+    }
     return (float)alturaNivelPx(nivelDe(t)) / 16.0f;
 }
 
@@ -1177,7 +1689,20 @@ inline float alturaDe(BlockType t) {
 enum class ResultadoFusion {
     NO_FUSIONA,        // no son fusionables: el que cae se queda encima
     SOLO_EL_QUE_CAE,   // el destino desaparece (agua desplazada)
-    FUSIONADOS         // se juntan: ver `nivelResultante` y `sobrante`
+    FUSIONADOS,        // se juntan: ver `nivelResultante` y `sobrante`
+
+    // ⭐ EL DESTINO ESTA LLENO: TODO SUBE, PERO NO SE PIERDE NADA.
+    //
+    // Una celda ya llena --un cubo entero o una mixta de dos materiales-- no
+    // admite un octavo mas. Antes eso devolvia NO_FUSIONA, y el llamante
+    // dejaba el bloque "encima" sin mas: ahi se cortaba la cadena de apilado
+    // y aparecian las barreras.
+    //
+    // Ahora se dice explicitamente "aqui no cabe, subelo entero": `sobrante`
+    // lleva lo que cae CON SU NIVEL Y SU MATERIAL INTACTOS, para que vuelva a
+    // fusionarse en la celda de encima. Asi la columna sigue creciendo pase
+    // lo que pase, que es lo que hace el apilado de verdad ilimitado.
+    SUBE_ENTERO
 };
 
 struct Fusion {
@@ -1200,9 +1725,40 @@ inline bool esAguaParaFusion(BlockType t) {
 inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
     Fusion f;
 
-    // Solo se fusiona lo que TIENE niveles. Un bloque entero que cae sobre
-    // otro entero no tiene nada que sumar: son dos celdas llenas.
-    if (!esNivelParcial(queCae)) return f;
+    // ========================================================================
+    // ⭐⭐ UN BLOQUE ENTERO TAMBIEN SE JUNTA CON UN DESNIVEL
+    // ========================================================================
+    // PEDIDO: "que los bloques enteros puedan juntarse con cualquier nivel o
+    // desnivel de bloques sin problemas".
+    //
+    // ANTES: esta funcion solo admitia NIVELES PARCIALES como lo que cae. Un
+    // bloque ENTERO devolvia NO_FUSIONA y se quedaba encima, de modo que entre
+    // la capa de 3 px y el cubo de 16 quedaban 13 px de aire a la vista. El
+    // jugador veia su bloque FLOTANDO sobre la capa.
+    //
+    // Y no habia forma de arreglarlo desde fuera: una celda no puede estar a
+    // media altura, asi que "bajar el cubo" no es una opcion.
+    //
+    // AHORA un bloque entero cuenta como OCHO OCTAVOS y entra en la misma
+    // aritmetica que todo lo demas. Como el destino ya tiene algo, el total
+    // pasa de 8 y la cuenta se resuelve sola por el camino que ya existia:
+    //
+    //     capa de tierra 3/8  +  piedra entera 8/8  =  11/8
+    //       -> la celda de abajo queda LLENA (mixta tierra+piedra)
+    //       -> y los 3/8 que sobran SUBEN como piedra a la celda de encima
+    //
+    // Ni un octavo se pierde ni se inventa, que es el invariante que ya
+    // vigilan los tests del apilado.
+    //
+    // ⚠️ DOS ENTEROS SIGUEN SIN FUSIONARSE. 8 + 8 = 16 son exactamente dos
+    // celdas llenas: no hay nada que repartir y el resultado seria el mismo
+    // que apilarlos. Se devuelve NO_FUSIONA para que el llamante siga el
+    // camino barato de siempre y no pague una cuenta inutil.
+    const bool caeEntero = !esNivelParcial(queCae) && admiteNiveles(queCae);
+
+    // Lo que no admite niveles (plantas, guijarros, items) no entra en esta
+    // aritmetica: no tiene octavos que repartir.
+    if (!esNivelParcial(queCae) && !caeEntero) return f;
 
     // --- EL AGUA SE DESPLAZA, NO SE SUMA ---
     // El sólido ocupa la celda y el agua se va. El llamante es quien la
@@ -1213,37 +1769,276 @@ inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
         return f;
     }
 
-    // El destino tiene que ser también un nivel parcial. Sobre una celda
-    // llena no hay nada que fundir: el que cae se queda encima, entero.
-    if (!esNivelParcial(enDestino)) return f;
+    // ========================================================================
+    // ⭐⭐ EL DESTINO ESTA LLENO: NO SE CORTA, SE SUBE
+    // ========================================================================
+    // PEDIDO: "que todos los niveles y tipos de niveles de 1-8 puedan
+    // combinarse sin limite y no creen barreras".
+    //
+    // AQUI ESTABAN LAS BARRERAS. Esta guarda devolvia NO_FUSIONA para todo
+    // destino que no fuera un nivel parcial, o sea:
+    //
+    //   - una celda MIXTA (ya tiene sus dos materiales y esta llena)
+    //   - un bloque ENTERO (ocho octavos, sin hueco)
+    //
+    // Y NO_FUSIONA significa "el que cae se queda encima sin tocar nada": la
+    // cadena de apilado se cortaba ahi. Apilando sobre una celda que acababa
+    // de quedar mixta, el siguiente bloque ya no se fundia con nada y la
+    // columna dejaba de comportarse como el resto -- esa es la barrera que se
+    // ve al construir.
+    //
+    // La aritmetica de abajo nunca fue el limite: funciona con cualquier par
+    // de materiales y cualquier combinacion de 1 a 8. El limite era esta
+    // puerta de entrada.
+    //
+    // AHORA se responde lo correcto: "aqui no cabe, subelo ENTERO". El
+    // material sube con su nivel intacto a la celda de encima y alli vuelve a
+    // pasar por esta misma funcion, que lo fundira con lo que haya. La
+    // columna crece sin tope y sin perder ni un octavo -- el unico limite es
+    // la altura del mundo, como debe ser.
+    //
+    // ⚠️ Esto incluye el caso ENTERO SOBRE ENTERO, que antes tenia su propia
+    // guarda: 8 + 8 son dos celdas llenas, y "subir entero" es exactamente el
+    // resultado correcto.
+    // ⚠️⚠️ "LLENO" SE MIDE EN OCTAVOS, NO POR EL TIPO DE BLOQUE.
+    //
+    // BUG QUE ESTO CORRIGE: EL HUECO DE AIRE DENTRO DE LA COLUMNA.
+    //
+    // Antes la condicion era solo `!esNivelParcial(enDestino)`, y una CELDA
+    // MIXTA no es un nivel parcial -- asi que entraba aqui siempre. Pero
+    // desde que el relleno tiene altura propia, una mixta puede estar a MEDIO
+    // LLENAR: "3 de madera + 2 de tierra" son 5 octavos con 3 libres arriba.
+    //
+    // Al subir el material a la celda de encima, este nacia en el suelo de
+    // ESA celda -- 3 octavos mas arriba del borde real-- y entre las dos
+    // capas quedaba una franja de aire a la vista. Es justo lo que se ve en
+    // la captura: madera abajo, hueco, y madera flotando encima.
+    //
+    // La pregunta correcta no es "¿es un nivel parcial?" sino "¿QUEDA SITIO?".
+    // Si quedan octavos libres, se rellenan primero; solo cuando la celda
+    // esta de verdad a 8 se sube lo que sobra.
+    const int octavosDestino =
+        esMixto(enDestino)       ? mixtoOctavosTotales(enDestino)
+      : esNivelParcial(enDestino) ? nivelDe(enDestino)
+                                  : 8;    // bloque entero
+
+    if (octavosDestino >= 8) {
+        f.tipo      = ResultadoFusion::SUBE_ENTERO;
+        f.resultado = enDestino;   // lo de abajo no se toca
+        f.sobrante  = queCae;      // y lo que cae sube tal cual
+        return f;
+    }
+
+    // ========================================================================
+    // ⭐ UNA MIXTA A MEDIO LLENAR: SE LE ANADE AL RELLENO
+    // ========================================================================
+    // Queda sitio en la celda, asi que lo que cae entra AQUI en vez de subir.
+    // No puede quedar aire dentro de la columna.
+    //
+    // La celda ya tiene sus dos materiales (base y relleno), y el formato no
+    // admite un tercero. Lo que cae se suma al RELLENO, que es la capa de
+    // arriba y la que toca: es el mismo criterio que usa la rama de materiales
+    // distintos --conservar el material de abajo-- aplicado un piso mas
+    // arriba.
+    //
+    // Lo que no quepa sube, y alli vuelve a fusionarse con lo que haya.
+    if (esMixto(enDestino)) {
+        const int libre = 8 - octavosDestino;
+        const int nCaeM = esNivelParcial(queCae) ? nivelDe(queCae) : 8;
+        const int entra = (nCaeM < libre) ? nCaeM : libre;
+        const int sobra = nCaeM - entra;
+
+        const BlockType nueva = mixto(mixtoBase(enDestino),
+                                      mixtoNivel(enDestino),
+                                      mixtoRelleno(enDestino),
+                                      mixtoNivelRelleno(enDestino) + entra);
+
+        f.tipo      = ResultadoFusion::FUSIONADOS;
+        f.resultado = (nueva != BLOCK_AIR) ? nueva : enDestino;
+        f.sobrante  = (sobra <= 0) ? BLOCK_AIR
+                    : (sobra >= 8) ? bloqueBaseDe(queCae)
+                                   : conNivel(bloqueBaseDe(queCae), sobra);
+        return f;
+    }
 
     const int nCae     = nivelDe(queCae);
     const int nDestino = nivelDe(enDestino);
     const int total    = nCae + nDestino;
 
-    // ⭐ EL MATERIAL RESULTANTE ES EL DE ABAJO.
-    //
-    // Es el que ya estaba en la celda; el que cae se le añade encima. Que la
-    // textura sea la de abajo es lo que se pidió ("aun sus texturas son
-    // iguales, solo se juntan"): no se inventa un material mezclado.
-    const BlockType material = bloqueBaseDe(enDestino);
+    const BlockType matAbajo  = bloqueBaseDe(enDestino);
+    const BlockType matArriba = bloqueBaseDe(queCae);
 
     f.tipo = ResultadoFusion::FUSIONADOS;
 
-    if (total <= 7) {
-        // Cabe entero en la misma celda.
-        f.resultado = conNivel(material, total);
-        f.sobrante  = BLOCK_AIR;
-    } else if (total == 8) {
-        // Justo una celda llena.
-        f.resultado = bloqueBaseDe(material);
-        f.sobrante  = BLOCK_AIR;
-    } else {
-        // Se llena la celda y lo que sobra sube a la de arriba, conservando
-        // el material del que CAÍA (es el que se queda arriba del todo).
-        f.resultado = bloqueBaseDe(material);
-        f.sobrante  = conNivel(bloqueBaseDe(queCae), total - 8);
+    // ========================================================================
+    // ⭐ MISMO MATERIAL: SE SUMAN LAS ALTURAS
+    // ========================================================================
+    // Es el caso simple y el unico que existia antes. Dos capas de tierra son
+    // una capa de tierra mas alta: no hay dos materiales que conservar.
+    // ⭐ LAS DOS ORIENTACIONES DEL TECHO SON EL MISMO MATERIAL.
+    //
+    // `BLOCK_TECHO_HOJAS` (cuelga) y `BLOCK_TECHO_SUELO` (se apoya) son la
+    // misma hoja: lo unico que cambia es de donde crece dentro de la celda.
+    // Sin esta equivalencia, apilar uno sobre otro formaria una celda MIXTA
+    // de "techo + techo" -- dos capas del mismo material con una frontera
+    // visible en medio, que es justo el bug que se quiere evitar.
+    //
+    // Se conserva la orientacion de la capa de ABAJO, que es la que estaba
+    // primero: si empezaste colgando, sigue colgando al engordar.
+    const bool mismoMaterial =
+        (matAbajo == matArriba) ||
+        (esTechoDeHojas(matAbajo) && esTechoDeHojas(matArriba));
+
+    if (mismoMaterial) {
+        if (total <= 7) {
+            f.resultado = conNivel(matAbajo, total);
+            f.sobrante  = BLOCK_AIR;
+        } else if (total == 8) {
+            f.resultado = bloqueBaseDe(matAbajo);   // celda llena
+            f.sobrante  = BLOCK_AIR;
+        } else {
+            f.resultado = bloqueBaseDe(matAbajo);
+            f.sobrante  = conNivel(matAbajo, total - 8);
+        }
+        return f;
     }
+
+    // ========================================================================
+    // ⭐ MATERIALES DISTINTOS: CELDA MIXTA, Y LO QUE NO CABE SUBE
+    // ========================================================================
+    // ESTO ES LO QUE SE PIDIO: que al juntar niveles de tipos distintos cada
+    // uno conserve SU material y SU altura, en vez de que el de arriba se
+    // convierta en el de abajo.
+    //
+    // Antes esta funcion hacia `material = bloqueBaseDe(enDestino)` para los
+    // dos casos, asi que arena cayendo sobre tierra daba... mas tierra. El
+    // material que caia se perdia, y con el la razon de haberlo tirado ahi.
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE EL QUE CAE VA ARRIBA
+    // ------------------------------------------------------------------------
+    // Porque es lo que hace la gravedad: lo que llega despues se posa ENCIMA
+    // de lo que ya estaba. La celda mixta guarda exactamente eso -- una capa
+    // de abajo con su nivel, y un relleno encima.
+    //
+    // ------------------------------------------------------------------------
+    // EL DESBORDE ES LO QUE HACE EL APILADO INFINITO
+    // ------------------------------------------------------------------------
+    // Una celda solo guarda DOS materiales. Con tres o mas, la solucion no es
+    // agrandar la celda --eso cambiaria el formato de guardado y romperia los
+    // mundos existentes-- sino dejar que la columna crezca: lo que no cabe
+    // sube a la celda de encima CON SU MATERIAL INTACTO, y alli vuelve a
+    // fusionarse con lo que haya.
+    //
+    // Asi, apilando arena sobre tierra sobre grava sobre nieve, cada celda
+    // acaba con dos materiales y la pila sigue subiendo. No hay limite de
+    // tipos ni de combinaciones: el limite es la altura del mundo.
+    // ------------------------------------------------------------------------
+    // ⚠️ UNA CELDA MIXTA ESTA SIEMPRE LLENA. ESO MANDA SOBRE TODO LO DEMAS.
+    // ------------------------------------------------------------------------
+    // El relleno de una celda mixta va de la capa de abajo AL TECHO: no tiene
+    // nivel propio (ver `mixto`, que ni siquiera lo recibe). Asi que una mixta
+    // solo puede representar exactamente 8 octavos.
+    //
+    // Consecuencia, y es la trampa de todo esto: si el total es MENOR que 8 y
+    // se forma una mixta igualmente, el relleno se estira hasta arriba y
+    // aparece material de la nada. Tierra(4) + arena(3) = 7 se convertiria en
+    // una celda de 8. Lo caza el test "ni un octavo se pierde ni se inventa",
+    // y fue exactamente el fallo de la primera version de esta funcion.
+    //
+    // Por eso hay tres casos y no dos:
+    //
+    //   total <  8   la mixta NO vale. Sube el nivel de la capa de abajo.
+    //   total == 8   encaje perfecto: mixta con los dos materiales.
+    //   total >  8   mixta llena aqui, y lo que sobra sube con SU material.
+    if (total < 8) {
+        // ====================================================================
+        // ⭐⭐ NO LLENAN LA CELDA: SE SUMAN AQUI, PEGADOS AL SUELO
+        // ====================================================================
+        // BUG QUE ESTO CORRIGE: EL NIVEL QUE FLOTABA.
+        //
+        // La version anterior dejaba los dos materiales SEPARADOS --la capa de
+        // abajo intacta y la nueva subiendo a la celda de encima-- para que
+        // cada uno conservara su identidad:
+        //
+        //     3 de tierra + 2 de arena  ->  abajo 3 tierra
+        //                                   arriba 2 arena
+        //
+        // El volumen se conservaba, pero el resultado EN PANTALLA estaba mal:
+        // los niveles de una celda se dibujan desde SU PROPIO SUELO, asi que
+        // esos 2 de arena no se apoyaban sobre los 3 de tierra -- nacian en el
+        // suelo de la celda de arriba, 16 px mas alto. Entre los dos quedaban
+        // 13 px de aire y la arena se veia FLOTANDO.
+        //
+        // LA REGLA CORRECTA, y la que se pidio: se suman las alturas en la
+        // MISMA celda y el resultado conserva el material de ABAJO, que es el
+        // que estaba primero.
+        //
+        //     3 de tierra + 2 de arena  ->  5 de TIERRA, pegado al suelo
+        //
+        // POR QUE NO SE PUEDE CONSERVAR LA ARENA. Una celda MIXTA es la unica
+        // forma de guardar dos materiales en un voxel, y esta SIEMPRE LLENA:
+        // su relleno va de la capa de abajo al techo, sin nivel propio (ver
+        // `mixto`, que ni siquiera lo recibe). Formar una mixta con total 5
+        // estiraria la arena hasta arriba e inventaria 3 octavos de la nada --
+        // justo lo que caza el test "ni un octavo se pierde ni se inventa".
+        //
+        // Asi que de las tres salidas posibles --flotar, inventar material, o
+        // perder la identidad del de arriba-- esta es la unica que no rompe
+        // nada visible ni el invariante. El coste es que la arena se vea como
+        // tierra; a cambio NADA FLOTA NUNCA, que es lo que se pidio.
+        //
+        // ⭐⭐ ACTUALIZADO: AHORA SI SE CONSERVAN LOS DOS MATERIALES.
+        //
+        // Lo de arriba describe por que antes habia que elegir entre flotar,
+        // inventar material o perder la identidad del de encima: una celda
+        // mixta solo sabia representar 8 octavos exactos.
+        //
+        // Ya no. El relleno lleva SU PROPIA ALTURA dentro del ID (ver
+        // NIVELES_RELLENO), asi que una celda puede guardar "3 de pasto + 2
+        // de arena = 5" con los dos materiales a la vista y pegados entre si.
+        //
+        // Eso cierra el bug que quedaba: apilar arena sobre pasto ya NO se ve
+        // como pasto estirandose hasta el octavo nivel. La arena aparece
+        // desde el primer clic, encima del pasto, a su altura real.
+        //
+        // Si los dos materiales no se pueden combinar en una mixta (alguno no
+        // esta en las tablas), se cae al comportamiento anterior: se suman
+        // como el material de abajo. Nunca se deja flotar nada.
+        //
+        // ⚠️ EL MISMO MATERIAL NO ENTRA AQUI: la rama de arriba ya lo sumo.
+        // Esto es solo para materiales DISTINTOS.
+        const BlockType mezclaParcial =
+            mixto(matAbajo, nDestino, matArriba, nCae);
+        f.resultado = (mezclaParcial != BLOCK_AIR)
+                        ? mezclaParcial
+                        : conNivel(matAbajo, total);
+        f.sobrante  = BLOCK_AIR;      // nada sube: todo cabe en esta celda
+        return f;
+    }
+
+    if (total == 8) {
+        // Encaje perfecto: los dos materiales caben tal cual y la celda queda
+        // llena. Este es el caso bonito -- abajo su nivel, arriba el resto.
+        const BlockType mezcla = mixto(matAbajo, nDestino, matArriba);
+        f.resultado = (mezcla != BLOCK_AIR) ? mezcla : bloqueBaseDe(matAbajo);
+        f.sobrante  = BLOCK_AIR;
+        return f;
+    }
+
+    // total > 8: la celda se llena con lo que quepa del que cae, y el resto
+    // sube manteniendo su material.
+    //
+    // `nDestino` es la altura de la capa de abajo, asi que el hueco que queda
+    // es 8 - nDestino. Eso se queda aqui; lo demas sube y vuelve a fusionarse
+    // alli con lo que haya -- que es lo que hace el apilado ilimitado.
+    const int cabe  = 8 - nDestino;          // 1..7, porque nDestino <= 7
+    const int sobra = nCae - cabe;           // > 0 por la condicion de arriba
+
+    const BlockType mezcla = mixto(matAbajo, nDestino, matArriba);
+    f.resultado = (mezcla != BLOCK_AIR) ? mezcla : bloqueBaseDe(matAbajo);
+    f.sobrante  = (sobra >= 8) ? bloqueBaseDe(matArriba)
+                               : conNivel(matArriba, sobra);
     return f;
 }
 
@@ -1609,6 +2404,28 @@ inline bool esCactusSuelto(BlockType t) {
     }
 }
 
+// ============================================================================
+// ⭐ ¿ES UNA PENCA DE NOPAL, EN CUALQUIERA DE SUS ESTADOS?
+// ============================================================================
+// Las CINCO son la MISMA pieza en distintos momentos de su vida: el cladodio
+// que se corta de la planta, y lo que queda tras lavarlo, secarlo, desbabarlo
+// o cortarlo en tiras. Ninguna de esas operaciones lo parte en trozos: sigue
+// siendo una penca entera.
+//
+// Por eso se agrupan, y por eso tienen que ir JUNTAS en todo lo que decide su
+// TAMANO y su GROSOR al dibujarse. Si una se quedara fuera, lavar una penca la
+// encogeria a la mitad delante del jugador -- un cambio de estado no puede
+// cambiar lo que mide el objeto.
+//
+// ⚠️ NO ES LO MISMO QUE `esCactusSuelto`. Aquel incluye ademas la baba, las
+// espinas y las tunas, que son piezas PEQUENAS: comparten el grosor carnoso
+// pero no el tamano de una hoja.
+inline bool esPencaDeNopal(BlockType t) {
+    return t == BLOCK_NOPAL_CLADODIO || t == BLOCK_NOPAL_MOJADO ||
+           t == BLOCK_NOPAL_SECO     || t == BLOCK_NOPAL_SIN_BABA ||
+           t == BLOCK_NOPAL_TIRAS;
+}
+
 // ¿Es un hacha, de la clase que sea? Las dos cortan lo mismo; la de pedernal
 // aguanta más y además puede con la punta del maguey.
 inline bool esHacha(BlockType t) {
@@ -1792,7 +2609,13 @@ inline bool esHojaDeArbol(BlockType t) {
            t == BLOCK_LEAVES_OYAMEL || t == BLOCK_LEAVES_OCOTE ||
            t == BLOCK_LEAVES_OCOTE_CHINO ||
            t == BLOCK_LEAVES_OCOTE_CHINO_RAMA ||
-           t == BLOCK_LEAVES_OCOTE_RAMA;
+           t == BLOCK_LEAVES_OCOTE_RAMA ||
+           // Los cuatro pinos nuevos. Entran aqui y no en una lista aparte
+           // porque este predicado es justamente el sitio unico del que habla
+           // el comentario de arriba: soporte, hacha, densidad y mesher
+           // preguntan todos por aqui.
+           t == BLOCK_LEAVES_PATULA || t == BLOCK_LEAVES_PINONERO ||
+           t == BLOCK_LEAVES_ALTURAS || t == BLOCK_LEAVES_PSEUDOSTROBUS;
 }
 
 // El tronco, incluido el corazon del ocote (que es el mismo tronco visto por
@@ -1803,7 +2626,15 @@ inline bool esTroncoDeArbol(BlockType t) {
     return t == BLOCK_WOOD || t == BLOCK_WOOD_ENCINO ||
            t == BLOCK_WOOD_OYAMEL || t == BLOCK_WOOD_OCOTE ||
            t == BLOCK_WOOD_OCOTE_DENTRO ||
-           t == BLOCK_WOOD_OCOTE_CHINO || t == BLOCK_WOOD_OCOTE_CHINO_DENTRO;
+           t == BLOCK_WOOD_OCOTE_CHINO || t == BLOCK_WOOD_OCOTE_CHINO_DENTRO ||
+           // Los cuatro pinos nuevos, cada uno con su corteza y su corte.
+           // El corte (…_DENTRO) cuenta como tronco porque ES el mismo
+           // tronco visto por dentro: sostiene la copa igual.
+           t == BLOCK_WOOD_PATULA   || t == BLOCK_WOOD_PATULA_DENTRO ||
+           t == BLOCK_WOOD_PINONERO || t == BLOCK_WOOD_PINONERO_DENTRO ||
+           t == BLOCK_WOOD_ALTURAS  || t == BLOCK_WOOD_ALTURAS_DENTRO ||
+           t == BLOCK_WOOD_PSEUDOSTROBUS ||
+           t == BLOCK_WOOD_PSEUDOSTROBUS_DENTRO;
 }
 
 // Esta es la lista que manda en las DOS cosas del hacha: cuánta vida gasta el
@@ -1965,7 +2796,7 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // ve hasta que alguien recarga un mundo. Por eso hay un test que ata este
 // valor al ultimo del enum (test_agave_azul.cpp), para que la proxima vez que
 // se olvide falle el build de tests en vez de salir a produccion.
-constexpr int BLOCK_TYPE_MAX = BLOCK_AGAVE_ABISAII_PUNTA;
+constexpr int BLOCK_TYPE_MAX = BLOCK_TECHO_SUELO_L7;
 
 // ============================================================================
 //  CARAS OCULTAS Y VISION DEL INTERIOR

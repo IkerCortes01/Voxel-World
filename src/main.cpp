@@ -122,6 +122,8 @@ using namespace VoxelWorld::SaveSystem;
 #include "ui/UIRenderer.h"
 #include "ui/ItemIconRenderer.h"
 #include "ui/IconoAnimal3D.h"
+#include "ui/NombreItem.h"
+#include "ui/InventarioLayout.h"
 
 // ============================================================================
 // VBO FUNCTION LOADER
@@ -293,6 +295,7 @@ struct Vec3i {
 // Fisica de caida (densidades reales, gravedad, arrastre del aire).
 // Va aqui arriba porque la lista de bloques cayendo se declara pronto.
 #include "FisicaCaida.h"
+#include "LuzCielo.h"
 // Los cristales que salen de la roca: su forma por especie y la ley del
 // bloque (cuanto mineral da al picarlo).
 #include "CristalMineral.h"
@@ -321,42 +324,23 @@ struct Vec3i {
 #include "WorldName.h"
 
 // ============================================================================
-// SISTEMA DE RAREZA DE MINERALES
+// SISTEMA DE RAREZA DE MINERALES: RETIRADO CON LOS BLOQUES DE VETA
 // ============================================================================
-enum MineralRarity {
-    RARITY_COMMON = 0,      // Común: 25-35% de aparición
-    RARITY_UNCOMMON,        // Poco Común: 10-20% de aparición
-    RARITY_RARE,            // Raro: 1-5% de aparición
-    RARITY_EPIC,            // Épico: 0.5-1% de aparición
-    RARITY_LEGENDARY,       // Legendario: 0.1-0.5% de aparición
-    RARITY_MYTHIC,          // Mítico: 0.01-0.1% de aparición
-    RARITY_SUPREME          // Supremo: 0.001-0.01% de aparición
-};
-
-struct MineralInfo {
-    BlockType type;
-    MineralRarity rarity;
-    float spawnChance;      // Porcentaje de aparición (0.0 - 1.0)
-    int minY;               // Altura mínima de generación
-    int maxY;               // Altura máxima de generación
-    const char* rarityName;
-    const char* description;
-};
-
-// Tabla de información de minerales
-const MineralInfo MINERAL_DATA[] = {
-    // ⭐⭐⭐ Minerales ULTRA COMUNES (100%) - OMNIPRESENTES EN TODO EL MAPA ⭐⭐⭐
-    {BLOCK_COAL_ORE,      RARITY_COMMON,    1.0f,   1, 255, "ULTRA COMUN",  "Carbon - OMNIPRESENTE en TODOS los biomas y alturas"},
-    {BLOCK_SCRAP_METAL,   RARITY_COMMON,    1.0f,   1, 255, "ULTRA COMUN",  "Desecho de Metales - OMNIPRESENTE en todos los biomas"},
-
-    // ⭐⭐⭐ Minerales MUY COMUNES (50-60%) - ABUNDANTES COMO CARBON
-    {BLOCK_IRON_ORE,      RARITY_UNCOMMON,  0.60f,  1, 90,  "MUY COMUN",    "Hierro - Abundante en todas partes"},
-    {BLOCK_GOLD_ORE,      RARITY_UNCOMMON,  0.50f,  1, 50,  "MUY COMUN",    "Oro - Abundante en rios, oceanos y tierra"},
-    {BLOCK_SILVER_ORE,    RARITY_UNCOMMON,  0.55f,  1, 60,  "MUY COMUN",    "Plata - Abundante en rios, oceanos y tierra"},
-
-    // ⭐⭐⭐ Minerales COMUNES (30%) - MUY FACILES DE ENCONTRAR
-    {BLOCK_DIAMOND_ORE,   RARITY_RARE,      0.30f,  1, 40,  "COMUN",        "Diamante - Facil de encontrar en desiertos"}
-};
+// Aqui vivian `enum MineralRarity`, `struct MineralInfo` y la tabla
+// `MINERAL_DATA` con las siete vetas, su probabilidad y su franja de altura.
+//
+// Se borra entera por dos motivos, y el segundo es el importante:
+//
+//   1. Los bloques que describia ya no existen.
+//   2. NADIE la leia. Verificado antes de borrarla: cero referencias a
+//      MINERAL_DATA, MineralInfo, MineralRarity y RARITY_* en todo el arbol.
+//      La generacion de vetas usaba GetOre() en DecorationSystem.h, con sus
+//      propias cifras -- asi que esta tabla llevaba tiempo siendo una segunda
+//      fuente de verdad que no gobernaba nada, del mismo tipo que las dos
+//      tablas de drops que la auditoria ya senyalo.
+//
+// Los guijarros (BLOCK_PEDAZO_*) no pasaban por aqui: se siembran en la
+// decoracion del terreno con su propio reparto por bioma.
 
 void getBlockColor(BlockType type, float& r, float& g, float& b) {
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
@@ -385,6 +369,13 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
                 // sin llegar al azul del tequilana.
                 r = 0.42f; g = 0.54f; b = 0.38f;
                 return;
+            case Compuesto::FAM_NOPAL:
+                // El verde del cladodio de Opuntia: mas vivo y amarillento que
+                // el del agave. Es el mismo que ya usan los IDs del enum
+                // (BLOCK_NOPAL_CLADODIO), y se repite aqui a proposito para que
+                // la mata compuesta y la penca suelta no se vean de dos colores.
+                r = 0.35f; g = 0.62f; b = 0.30f;
+                return;
             default:
                 break;
         }
@@ -409,6 +400,30 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_WOOD_OCOTE_CHINO_DENTRO: r = 0.55f; g = 0.33f; b = 0.19f; break;
         case BLOCK_LEAVES_OCOTE_CHINO:
         case BLOCK_LEAVES_OCOTE_CHINO_RAMA: r = 0.17f; g = 0.40f; b = 0.27f; break;
+        // ⭐ LOS CUATRO PINOS NUEVOS.
+        // Colores de respaldo: solo se ven si falta la textura, pero cada uno
+        // lleva el suyo porque de lo contrario caerian al gris del `default` y
+        // un fallo de carga dejaria cuatro arboles identicos y sin color.
+        // El patula: corteza rojiza papiracea, acicula larga verde claro.
+        case BLOCK_WOOD_PATULA:        r = 0.45f; g = 0.24f; b = 0.15f; break;
+        case BLOCK_WOOD_PATULA_DENTRO: r = 0.76f; g = 0.58f; b = 0.34f; break;
+        case BLOCK_LEAVES_PATULA:      r = 0.22f; g = 0.46f; b = 0.26f; break;
+        case BLOCK_PLANKS_PATULA:      r = 0.74f; g = 0.55f; b = 0.33f; break;
+        // El piñonero: corteza gris agrietada, acicula corta verde azulada.
+        case BLOCK_WOOD_PINONERO:        r = 0.38f; g = 0.33f; b = 0.27f; break;
+        case BLOCK_WOOD_PINONERO_DENTRO: r = 0.78f; g = 0.63f; b = 0.42f; break;
+        case BLOCK_LEAVES_PINONERO:      r = 0.28f; g = 0.44f; b = 0.34f; break;
+        case BLOCK_PLANKS_PINONERO:      r = 0.76f; g = 0.60f; b = 0.40f; break;
+        // El de las alturas: corteza gruesa y oscura, acicula verde intenso.
+        case BLOCK_WOOD_ALTURAS:        r = 0.26f; g = 0.20f; b = 0.15f; break;
+        case BLOCK_WOOD_ALTURAS_DENTRO: r = 0.70f; g = 0.52f; b = 0.30f; break;
+        case BLOCK_LEAVES_ALTURAS:      r = 0.16f; g = 0.38f; b = 0.23f; break;
+        case BLOCK_PLANKS_ALTURAS:      r = 0.68f; g = 0.50f; b = 0.30f; break;
+        // El pseudostrobus: corteza lisa pardo grisacea, acicula colgante.
+        case BLOCK_WOOD_PSEUDOSTROBUS:        r = 0.36f; g = 0.28f; b = 0.21f; break;
+        case BLOCK_WOOD_PSEUDOSTROBUS_DENTRO: r = 0.80f; g = 0.64f; b = 0.40f; break;
+        case BLOCK_LEAVES_PSEUDOSTROBUS:      r = 0.20f; g = 0.42f; b = 0.28f; break;
+        case BLOCK_PLANKS_PSEUDOSTROBUS:      r = 0.78f; g = 0.62f; b = 0.38f; break;
         case BLOCK_SAND:      r = 0.9f; g = 0.85f; b = 0.6f; break;
         case BLOCK_WATER:     r = 0.2f; g = 0.4f; b = 0.8f; break;
         case BLOCK_TALLGRASS: r = 0.4f; g = 0.9f; b = 0.3f; break;
@@ -465,7 +480,6 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_PEDAZO_HEMATITE: r = 0.52f; g = 0.20f; b = 0.16f; break;
         case BLOCK_PEDAZO_LIMONITA: r = 0.72f; g = 0.52f; b = 0.20f; break;
         case BLOCK_PEDAZO_NIEVE:  r = 0.94f; g = 0.96f; b = 0.99f; break;
-        case BLOCK_PYRITE_ORE:    r = 0.85f; g = 0.72f; b = 0.25f; break;
         case BLOCK_IXTLE_HOJA:
         case BLOCK_IXTLE_PUNTA:
         case BLOCK_IXTLE_CON_HIERBA:
@@ -474,12 +488,10 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_TUNA:      r = 0.42f; g = 0.66f; b = 0.30f; break; // Tuna verde
         case BLOCK_TUNA_AMARILLA: r = 0.93f; g = 0.74f; b = 0.19f; break;
         case BLOCK_TUNA_ROJA: r = 0.78f; g = 0.20f; b = 0.20f; break;
-        case BLOCK_COAL_ORE:  r = 0.3f; g = 0.3f; b = 0.3f; break;    // Gris muy oscuro (común)
-        case BLOCK_IRON_ORE:  r = 0.8f; g = 0.7f; b = 0.6f; break;    // Beige rosado (poco común)
-        case BLOCK_GOLD_ORE:  r = 1.0f; g = 0.84f; b = 0.0f; break;   // Dorado brillante (poco común)
-        case BLOCK_SILVER_ORE: r = 0.85f; g = 0.9f; b = 0.95f; break; // Plateado brillante (poco común)
-        case BLOCK_DIAMOND_ORE: r = 0.4f; g = 0.8f; b = 0.9f; break;  // Azul cian brillante (raro)
-        case BLOCK_SCRAP_METAL: r = 0.6f; g = 0.5f; b = 0.4f; break;  // Metal oxidado (común)
+        // Los seis colores de las vetas (carbon, hierro, oro, plata, diamante y
+        // desecho) estaban aqui. Retirados con sus bloques: un ID reservado que
+        // llegase a esta funcion cae por el default, y de todas formas no llega
+        // -- al cargar el chunk ya es piedra.
         case BLOCK_LAVA:      r = 1.0f; g = 0.4f; b = 0.0f; break;    // Naranja brillante (lava)
         case BLOCK_DIRT_POWDER: r = 0.7f; g = 0.5f; b = 0.3f; break;  // Polvo de tierra - marrón claro
         case BLOCK_STICK:     r = 0.6f; g = 0.4f; b = 0.2f; break;    // Palo - marrón
@@ -597,12 +609,9 @@ bool esSueloParaNopal(BlockType type) {
         case BLOCK_COBBLESTONE:
         case BLOCK_LIMESTONE:
         case BLOCK_BEDROCK:
-        case BLOCK_COAL_ORE:
-        case BLOCK_IRON_ORE:
-        case BLOCK_GOLD_ORE:
-        case BLOCK_SILVER_ORE:
-        case BLOCK_DIAMOND_ORE:
-        case BLOCK_SCRAP_METAL:
+        // Los seis minerales de veta estaban listados aqui uno por uno. Ya no
+        // hace falta: retirados, y lo que ocupaba su sitio en el terreno de los
+        // mundos guardados es BLOCK_STONE, que es el primer caso de esta lista.
         // Tampoco en lo que no es suelo.
         case BLOCK_AIR:
         case BLOCK_WATER:
@@ -689,6 +698,42 @@ struct NopalForma {
 
     // Progreso de la caida: 0 = de pie, 1 = tumbada del todo, -1 = quieta.
     float cayendo;
+
+    // ========================================================================
+    // VARIACION DE SILUETA: CADA PENCA CON SU PROPIA FORMA
+    // ========================================================================
+    // Antes el perfil obovado era una tabla `static const` en el mesher,
+    // IDENTICA en las 609 plantas del mundo. La silueta era botanicamente
+    // correcta pero clonada: una nopalera se veia como el mismo recorte
+    // repetido, que a distancia se lee como un patron y rompe el realismo
+    // justo donde mas se nota, en el conjunto.
+    //
+    // En la planta real la variacion es grande y esta MEDIDA: largo 37.13 cm
+    // con desviacion estandar 5.23, ancho 16.64 con DE 2.89 (n=108,
+    // Ramirez-Castano et al. 2023). O sea un +-14% en largo y +-17% en ancho
+    // de un cladodio a otro, sin contar que unos son mas obovados y otros casi
+    // elipticos.
+    //
+    // Estos tres numeros salen del hash de la posicion, asi que son estables
+    // (no bailan al recargar el chunk) pero distintos en cada penca.
+
+    // Escala del ancho maximo, ~0.83..1.17 (la DE medida del ancho).
+    float escalaAncho;
+
+    // Donde cae el punto MAS ANCHO a lo largo de la penca, 0..1 desde la base.
+    // Medido 0.58-0.60; aqui se reparte 0.50..0.68 para que convivan pencas
+    // claramente obovadas (punto alto) con otras casi elipticas (punto medio).
+    float alturaMaxAncho;
+
+    // Cuanto se cierra el cuello de insercion, ~0.18..0.34 del ancho maximo
+    // (medido 20-30%). Es el rasgo que mas distingue una penca de un cubo.
+    float cuello;
+
+    // Angulo de giro real en el plano, en radianes. Distinto de `giro`: ese es
+    // un rumbo de 8 pasos que solo desplazaba las rodajas; este ROTA de verdad
+    // las cuatro esquinas de cada rodaja, asi que la penca puede quedar
+    // cruzada a 23 grados y no solo a 0 o 45.
+    float anguloY;
 };
 
 // Texturas que pueden dibujarse giradas. Se llena en la precarga y solo se
@@ -961,6 +1006,71 @@ struct PastoTapado {
 };
 std::vector<PastoTapado> g_pastoTapado;
 
+// ============================================================================
+// ⭐ NIVELES APILADOS POR EL JUGADOR
+// ============================================================================
+// EL BUG QUE ESTO CORRIGE: picar el suelo intacto daba material GRATIS.
+//
+// La regla "un nivel suelta tantos items como octavos tiene" se escribio
+// para el APILADO: pones tierra tres veces, queda una capa de nivel 3, la
+// picas y recuperas tus 3 tierras. El material se conserva y apilar no es ni
+// un exploit ni una perdida.
+//
+// Pero los niveles NO son solo del jugador. El generador los usa en TODA la
+// superficie del mundo: la altura del terreno no se redondea a bloques
+// enteros, y la parte decimal se convierte en el nivel de la capa de arriba
+// (ver "EL NIVEL SALE DE LA ALTURA REAL DEL TERRENO"). Una loma que sube 2,4
+// bloques son dos bloques enteros y una capa de nivel 4.
+//
+// Resultado: picar una loma natural de nivel 7 daba SIETE bloques de tierra
+// de un solo golpe, sin haber puesto nada. Y como casi toda la superficie
+// del mundo tiene nivel parcial, era material infinito a ras de suelo.
+//
+// LA REGLA CORRECTA es la que se pidio: la multiplicacion se aplica SOLO a
+// lo que el jugador apilo. Un nivel natural suelta UN item, como cualquier
+// otro bloque del terreno.
+//
+// POR QUE UN SET Y NO UN CAMPO EN EL BLOQUE: el nivel viaja dentro del ID
+// del bloque y no quedan bits libres; anadir uno cambiaria el formato de
+// guardado y rompria los mundos existentes. Un registro aparte no toca el
+// formato.
+//
+// POR QUE SE PURGA AL CONSUMIRLO: es la leccion de `lavaLevels` (ver
+// PENDIENTES.md, "un std::map por coordenada que nadie purga, asi que crece
+// toda la sesion"). Aqui la entrada se BORRA en cuanto se rompe la celda, y
+// ademas hay un tope: si alguien apila medio mundo, se deja de registrar en
+// vez de comerse la memoria. Perder el registro degrada al comportamiento
+// natural (1 item), que es el lado seguro del fallo.
+struct CeldaApilada {
+    int x, y, z;
+    bool operator<(const CeldaApilada& o) const {
+        if (x != o.x) return x < o.x;
+        if (y != o.y) return y < o.y;
+        return z < o.z;
+    }
+};
+std::set<CeldaApilada> g_nivelesDelJugador;
+
+// Tope de seguridad. 200.000 entradas son ~5 MB: muy por encima de lo que
+// apila una partida normal y aun asi acotado.
+constexpr size_t MAX_NIVELES_JUGADOR = 200000;
+
+// Apunta que esta celda la apilo el jugador. La llaman las rutas de colocado
+// que suben el nivel de una celda.
+inline void marcarNivelDelJugador(int x, int y, int z) {
+    if (g_nivelesDelJugador.size() >= MAX_NIVELES_JUGADOR) return;
+    g_nivelesDelJugador.insert({x, y, z});
+}
+
+// ¿Esta capa la puso el jugador? Consulta y OLVIDA: quien pregunta es la
+// rotura, y una vez rota la celda la entrada ya no vale para nada.
+inline bool consumirNivelDelJugador(int x, int y, int z) {
+    auto it = g_nivelesDelJugador.find({x, y, z});
+    if (it == g_nivelesDelJugador.end()) return false;
+    g_nivelesDelJugador.erase(it);
+    return true;
+}
+
 // --- Recarga manual de chunks (tecla R) ---
 // El mallado va repartido en varios frames, así que el resultado no se puede
 // mirar en el mismo frame en que se pulsa R: se apunta aquí y se revisa unos
@@ -1119,6 +1229,47 @@ std::vector<Fisica::PiezaCayendo> g_piezasCayendo;
 // queda quieto hasta que haya sitio.
 constexpr size_t MAX_BLOQUES_CAYENDO = 512;
 constexpr size_t MAX_PIEZAS_CAYENDO  = 32;
+
+// ============================================================================
+// ⭐ LA ARENA CAE SIEMPRE: LA COLA DE REVISION GRANULAR
+// ============================================================================
+// Celdas que hay que mirar para ver si su contenido es arido suelto y se ha
+// quedado sin suelo. La llena `apuntarGranular` y la vacia
+// `actualizarGranulares`, una vez por frame.
+//
+// POR QUE UNA COLA Y NO RESOLVERLO EN EL ACTO, dentro de setBlock:
+//
+//   1. UNA COLUMNA ES UNA CASCADA. Al caer el grano de abajo, el de encima se
+//      queda sin suelo, y asi sucesivamente. Resolverlo dentro de setBlock
+//      seria recursion de profundidad indefinida (una duna son decenas de
+//      bloques) dentro de la ruta critica de colocar un bloque.
+//
+//   2. CADA CAIDA ES UN setBlock. Y setBlock invalida la malla del chunk. Sin
+//      cola, romper un bloque bajo una duna remallaria el chunk una vez por
+//      cada grano y en el mismo frame.
+//
+//   3. SE PUEDE PRESUPUESTAR. La cola se atiende con un tope por frame, asi
+//      que una duna grande se desmorona a lo largo de varios frames en vez de
+//      hundir uno.
+//
+// Es el mismo patron que ya usan `g_sueltasPendientes` y `g_pastoTapado`.
+//
+// ⚠️ SE COMPRUEBA AL VACIARLA, NO AL LLENARLA. Se apunta la celda sin mirar
+// que hay en ella: entre el apunte y el proceso pueden pasar cosas (el jugador
+// tapa el hueco, otro grano ocupa la celda), asi que la unica lectura que vale
+// es la del momento de procesar.
+struct RevisionGranular { int x, y, z; };
+std::vector<RevisionGranular> g_granularesPendientes;
+
+// Tope de la cola. Una duna entera desmoronandose cabe de sobra; mas alla de
+// esto se descarta lo nuevo, y el vigilante de abajo lo recupera porque cada
+// grano que cae vuelve a apuntar a su vecino de arriba.
+constexpr size_t MAX_GRANULARES_PENDIENTES = 4096;
+
+// Cuantas celdas se resuelven por frame. Una duna de 16x16 son 256 columnas;
+// a 256 por frame el desmoronamiento se ve fluido sin que el frame lo note
+// (cada una es leer un bloque y, como mucho, dos setBlock).
+constexpr int MAX_GRANULARES_POR_FRAME = 256;
 
 // ============================================================================
 // ⭐ LO QUE SE DESPRENDE SE CONVIERTE EN ITEMS, NO EN UNA PIEZA QUE CAE
@@ -1476,7 +1627,34 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         // queda fina en X; si al norte o sur, fina en Z.
         f.orientacion = (paredXm || paredXp) ? 2 : 0;
     } else {
-        f.orientacion = (int)(h % (unsigned)NOPAL_ORIENTACIONES);
+        // ====================================================================
+        // ⭐ LA PENCA QUE BROTA HACIA ARRIBA SE QUEDA DE PIE
+        // ====================================================================
+        // Aqui caen las pencas que NO encadenan por ningun eje: tipicamente la
+        // que acaba de brotar del arco superior de otra (toca a su padre solo
+        // por la cara de abajo, que no cuenta como cadena).
+        //
+        // Antes esto era `h % 6`: SEIS orientaciones a cara o cruz, de las
+        // cuales dos son tumbadas. O sea que un tercio de los brotes nuevos
+        // salian ACOSTADOS en pleno aire, a media altura de la planta, sin
+        // nada que los sostuviera. Es el rasgo que hacia que una nopalera se
+        // viera como un monton de laminas tiradas en distintos angulos en vez
+        // de una planta.
+        //
+        // La botanica no deja eso al azar: un cladodio nuevo crece en el plano
+        // vertical, erguido, porque busca luz. Lo unico que varia de verdad es
+        // HACIA DONDE mira su cara ancha -- y eso ya lo decide el `giro` de
+        // mas abajo, que usa el vecindario real.
+        //
+        // Asi que aqui solo queda elegir en que eje es fina, y se hace con el
+        // hash para que dos pencas contiguas no salgan clonadas:
+        //
+        //     0/1 -> losa vertical fina en Z      2/3 -> losa vertical fina en X
+        //
+        // Nunca 4 ni 5 (las tumbadas): una penca solo se acuesta si esta
+        // TIRADA (la rama `pencaCaida` de arriba, que manda sobre todo) o si
+        // corona una columna (`enY`), no por casualidad del hash.
+        f.orientacion = (h & 2u) ? (2 + (int)(h & 1u)) : (int)(h & 1u);
     }
 
     // ========================================================================
@@ -1515,9 +1693,33 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         const int ejeEO = pE - pO;    // >0 mira al este,  <0 al oeste
 
         if (ejeNS == 0 && ejeEO == 0) {
-            // Sin vecinos que manden: rumbo por posicion, para que dos pencas
-            // sueltas contiguas no salgan calcadas.
-            f.giro = (int)((h >> 5) % 8u);
+            // ================================================================
+            // ⭐ LA PENCA SUELTA MIRA AL NORTE
+            // ================================================================
+            // PEDIDO: "que el item de nopal este mirando el norte".
+            //
+            // Antes el rumbo salia de un hash de la posicion
+            // (`(h >> 5) % 8`), asi que una penca tirada en el suelo apuntaba
+            // a una de las ocho direcciones segun la casilla donde cayera. El
+            // motivo original era evitar que dos pencas contiguas salieran
+            // calcadas -- que tiene sentido para la VEGETACION GENERADA, donde
+            // la repeticion se nota.
+            //
+            // Pero una penca SUELTA no es vegetacion generada: es un objeto
+            // que el jugador tiro o coloco, y ahi la regularidad es una
+            // virtud. Un item que apunta a un lado distinto en cada casilla se
+            // lee como un fallo, no como variedad.
+            //
+            // El norte (giro 0) es el rumbo de referencia del motor: es el +Z,
+            // el mismo que usa la tabla de las ocho direcciones documentada
+            // arriba. Elegirlo hace que todas las pencas del suelo queden
+            // alineadas entre si.
+            //
+            // ⚠️ ESTO SOLO AFECTA AL CASO SIN VECINOS. Una penca que forma
+            // parte de una mata sigue orientandose por donde continua la
+            // planta (la rama `else`), que es lo que suelda la nopalera y no
+            // se toca.
+            f.giro = 0;   // 0 = norte
         } else {
             // Se traduce el par (NS, EO) al rumbo de 8 direcciones. Cuando los
             // dos ejes tienen peso parecido sale una DIAGONAL; cuando uno
@@ -1896,6 +2098,55 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     if (f.patron >= NOPAL_PATRONES) f.patron = NOPAL_PATRONES - 1;
 
     f.forma = f.patron * NOPAL_ORIENTACIONES + f.orientacion;
+
+    // ========================================================================
+    // LA SILUETA PROPIA DE ESTA PENCA
+    // ========================================================================
+    // Tres numeros sacados del hash de la posicion. Se usan BITS DISTINTOS de
+    // `h` para cada uno: compartirlos los correlacionaria y las pencas anchas
+    // saldrian siempre tambien las de cuello mas cerrado, que es un patron
+    // visible. Es la misma precaucion que el generador de terreno toma con sus
+    // seeds derivados (ver ClimateGenerator).
+    {
+        // Ancho: 0.83..1.17 (la DE medida del ancho, +-17%).
+        const unsigned a = (h >> 7) % 35u;
+        f.escalaAncho = 0.83f + (float)a * 0.01f;
+
+        // Punto mas ancho: 0.50..0.68 del largo desde la base. Por encima de
+        // 0.58 la penca se lee claramente obovada; hacia 0.50 queda eliptica.
+        const unsigned b = (h >> 13) % 19u;
+        f.alturaMaxAncho = 0.50f + (float)b * 0.01f;
+
+        // Cuello de insercion: 0.18..0.34 del ancho maximo (medido 20-30%).
+        const unsigned c = (h >> 19) % 17u;
+        f.cuello = 0.18f + (float)c * 0.01f;
+
+        // ====================================================================
+        // EL ANGULO DE VERDAD, NO UN RUMBO DE OCHO PASOS
+        // ====================================================================
+        // `giro` daba 8 rumbos y el mesher los conseguia DESPLAZANDO cada
+        // rodaja en el eje perpendicular: el conjunto subia torcido pero cada
+        // rodaja seguia siendo una caja alineada con los ejes del mundo. A 45
+        // grados eso no es una penca cruzada, es una escalera de cajas.
+        //
+        // Aqui el angulo es continuo y el mesher ROTA las cuatro esquinas de
+        // cada rodaja. Dos consecuencias:
+        //
+        //   - Los rumbos intermedios se ven de verdad (una penca a 23 grados).
+        //   - Dos pencas contiguas ya no salen paralelas, que era lo que hacia
+        //     que una mata se leyera como una reja.
+        //
+        // Se ancla al rumbo de 8 para no pelearse con el: el rumbo sigue
+        // decidiendo HACIA DONDE mira la penca (eso lo dicta la vecindad, y es
+        // lo que mantiene la mata coherente), y el angulo anade el desvio fino
+        // de +-22 grados alrededor de el. Asi la planta sigue fluyendo y
+        // ademas ninguna pieza queda clavada en la rejilla.
+        const float rumbo = (float)f.giro * 0.7853982f;      // giro * 45 grados
+        const unsigned d = (h >> 23) % 45u;                  // 0..44
+        const float desvio = ((float)d - 22.0f) * 0.0174533f; // +-22 grados
+        f.anguloY = rumbo + desvio;
+    }
+
     return f;
 }
 
@@ -2279,7 +2530,27 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     // eso. De ahi sale lo que se pidio: si encima se pone otro bloque, se
     // apoya en la cara de arriba REAL y no flota, porque lo que se ve y lo
     // que se toca son lo mismo.
-    if (esNivelParcial(type)) {
+    // ⭐⭐ Y LAS CELDAS MIXTAS A MEDIO LLENAR ENTRAN POR AQUI TAMBIEN.
+    //
+    // BUG QUE ESTO CORRIGE: "las hitboxes de los niveles se convierten en la
+    // hitbox de bloque completo".
+    //
+    // La condicion era solo `esNivelParcial(type)`, y una celda MIXTA no es
+    // un nivel parcial: es su propia categoria. Asi que al combinar dos
+    // materiales --3 de tierra + 2 de arena = 5 octavos-- la celda se escapaba
+    // de esta rama y caia al caso por defecto, que da la caja del CUBO
+    // ENTERO.
+    //
+    // El resultado era el reportado: lo que se VE son 5 octavos, pero lo que
+    // se TOCA es un bloque completo. El jugador se sube a una altura que no
+    // existe, el raycast marca aire y lo que se pone encima flota.
+    //
+    // Con `alturaDe` ya devolviendo la altura real de una mixta (las dos
+    // capas sumadas), basta con dejarlas entrar: la caja sale correcta sola.
+    //
+    // ⚠️ Una mixta LLENA sigue midiendo 1.0, asi que pasa por aqui y obtiene
+    // exactamente la caja de siempre. No se rompe nada de lo que ya andaba.
+    if (esNivelParcial(type) || esMixto(type)) {
         // ⭐ LA CAJA SE CALCULA CON LOS TRES EJES DEL NIVEL
         //
         // Antes solo el ALTO seguia al nivel; el ancho y el grosor se
@@ -2303,8 +2574,34 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         const float altoNivel = alturaDe(type);
 
         minX = 0.0f;  maxX = 1.0f;
-        minY = 0.0f;  maxY = altoNivel;
         minZ = 0.0f;  maxZ = 1.0f;
+
+        // ⭐ EL TECHO DE HOJAS CUELGA DEL TECHO DE SU CELDA
+        //
+        // Su geometria se dibuja pegada ARRIBA (ver el mesher, "EL TECHO DE
+        // HOJAS CUELGA, NO SE APOYA"), asi que su caja tiene que ir al mismo
+        // sitio. Si se dejara abajo, el jugador chocaria contra aire a ras de
+        // suelo y atravesaria la lamina que si se ve.
+        //
+        // Esta funcion la usan la COLISION y el RESALTADO al apuntar, de modo
+        // que con esto las tres cosas --lo que se ve, lo que frena y lo que se
+        // puede picar-- vuelven a coincidir.
+        // ⚠️ SOLO CUELGA SI OCUPA LA CELDA EN EXCLUSIVA.
+        //
+        // BUG QUE ESTO CORRIGE: colocar niveles sobre un techo de hojas daba
+        // un salto visual. El techo SUELTO cuelga (va de 16-h a 16), pero en
+        // cuanto comparte celda con otro material el mesher lo dibuja
+        // APOYADO, como cualquier relleno. Si la caja siguiera colgandolo,
+        // la mixta se veria abajo y frenaria arriba.
+        //
+        // La condicion tiene que ser la MISMA que usa el mesher (ver "EL
+        // TECHO DE HOJAS CUELGA, NO SE APOYA", que esta dentro de la rama
+        // `!esMixto(block)`): cuelga solo cuando esta solo.
+        if (!esMixto(type) && esTechoColgante(type)) {
+            minY = 1.0f - altoNivel;  maxY = 1.0f;
+        } else {
+            minY = 0.0f;              maxY = altoNivel;
+        }
         return true;
     }
 
@@ -2905,8 +3202,17 @@ bool isBlockOpaque(BlockType type) {
     // Un nivel parcial deja hueco por arriba, asi que no puede tapar la cara
     // del bloque de al lado: si lo hiciera, se verian agujeros.
     if (esNivelParcial(type)) return false;
-    // Una celda MIXTA si llena el voxel entero: tapa como un bloque normal.
-    if (esMixto(type)) return true;
+    // ⭐ UNA CELDA MIXTA SOLO TAPA SI DE VERDAD ESTA LLENA.
+    //
+    // Antes se devolvia `true` sin mirar, porque el relleno llegaba siempre
+    // al techo y una mixta era por definicion un voxel completo. Ya no: el
+    // relleno lleva su propia altura, asi que "3 de pasto + 2 de arena" es
+    // una mixta de 5 octavos con hueco por arriba.
+    //
+    // Si una mixta a medio llenar dijera que es opaca, taparia la cara del
+    // bloque de al lado y se verian AGUJEROS -- el mismo motivo por el que un
+    // nivel parcial tampoco tapa (la linea de aqui arriba).
+    if (esMixto(type)) return mixtoOctavosTotales(type) >= 8;
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
     if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
@@ -2958,6 +3264,101 @@ inline bool esBloqueMacizoOpaco(BlockType type) {
     if (isRama(type)) return false;
     if (esGuijarro(type)) return false;       // bulto pequeño en el suelo
     if (esNivelParcial(type)) return false;
+    return true;
+}
+
+// ============================================================================
+// ⭐⭐ ¿ESTE BLOQUE LLENA SU VOXEL DE CARA A UN LIQUIDO?
+// ============================================================================
+// Es la pregunta que decide, entre un bloque y el agua que lo toca, CUAL DE LOS
+// DOS dibuja la cara que los separa. La respuesta correcta es siempre "el
+// solido, y solo el solido": su textura es la buena, no es transparente, y es
+// el que define el contorno que el jugador ve. El agua no dibuja nada contra
+// el, porque su cara quedaria enterrada dentro de la roca.
+//
+// ----------------------------------------------------------------------------
+// POR QUE NO SIRVE isBlockOpaque()
+// ----------------------------------------------------------------------------
+// Porque pregunta otra cosa. `isBlockOpaque` responde "¿deja pasar la luz?", y
+// aqui lo que importa es "¿OCUPA EL VOLUMEN?". Son distintas, y la diferencia
+// es justo la lista de bloques que producian el bug:
+//
+//   CRISTAL         se ve a traves, pero llena su cubo: tapa el agua entera.
+//   CELDA MIXTA     isBlockOpaque ya la da por opaca, y aqui tambien: esta
+//                   llena por definicion (dos capas de suelo a techo).
+//   NIVEL LLENO     un nivel de 8/8 es un cubo macizo. `esNivelParcial` solo
+//                   aparta los de 1..7, que es lo correcto: esos SI dejan
+//                   hueco por arriba y el agua tiene que dibujarse ahi.
+//   HOJAS, HIERBA   no llenan nada: el agua se ve entre ellas. Fuera.
+//
+// ----------------------------------------------------------------------------
+// ANTE LA DUDA, FALSE
+// ----------------------------------------------------------------------------
+// Decir "no llena" de mas emite una cara de agua que quizas no se ve: coste de
+// pixel y nada mas. Decir "llena" de mas SUPRIME una cara que si se veia, y eso
+// deja un agujero por el que se ve el interior del mundo -- que es exactamente
+// el sintoma que esto arregla.
+inline bool llenaSuVoxelFrenteALiquido(BlockType type) {
+    // El aire y los liquidos no tapan a nadie. El agua contra agua tiene su
+    // propia regla por altura (deberiaDibujarCaraAgua), y la lava contra agua
+    // se comporta como liquido: ninguno de los dos manda sobre el otro aqui.
+    if (type == BLOCK_AIR) return false;
+    if (esAguaCualquiera(type)) return false;
+    if (type == BLOCK_LAVA) return false;
+
+    // Los sprites en cruz (hierba alta, flores) no ocupan el voxel: el agua se
+    // ve por los lados.
+    if (isCrossSprite(type)) return false;
+
+    // Las hojas dejan ver entre ellas.
+    if (esHojaDeArbol(type)) return false;
+
+    // Los NIVELES PARCIALES (1..7 octavos) dejan hueco por arriba, asi que el
+    // agua que los toca si tiene que dibujarse. Un nivel LLENO no es parcial y
+    // por tanto no entra aqui: cae al `return true` y tapa, como debe.
+    if (esNivelParcial(type)) return false;
+
+    // ⭐⭐ LAS CELDAS MIXTAS YA NO ESTAN LLENAS POR DEFINICION.
+    //
+    // BUG QUE ESTO CORRIGE: "al colocar bloques completos a los 4 lados de
+    // niveles combinados, desaparecen las texturas de las caras que miran a
+    // los niveles".
+    //
+    // Antes esto devolvia `true` sin mirar, porque el relleno llegaba siempre
+    // al techo. Desde que lleva altura propia, "3 de tierra + 2 de arena" es
+    // una mixta de 5 octavos con tres LIBRES por arriba.
+    //
+    // Y esta funcion es la que decide el face culling: si una mixta a medio
+    // llenar dice "yo tapo", el bloque entero de al lado deja de emitir la
+    // cara que da hacia ella. Pero la mixta es mas BAJA, asi que por esos
+    // tres octavos se ve el interior del bloque -- o el cielo. Eso es lo que
+    // se ve como caras que desaparecen.
+    //
+    // La cuenta de verdad la da `octavosOcupados`, la misma que usan la
+    // fusion, las guardas de colocacion y la hitbox. Con esto las cuatro
+    // dicen lo mismo.
+    if (esMixto(type)) return mixtoOctavosTotales(type) >= 8;
+
+    // Un COMPUESTO es una planta con huecos entre sus partes (maguey, biznaga,
+    // agave): por ahi se ve el agua. La unica excepcion ya la aparto el
+    // `esAguaCualquiera` de arriba.
+    if (Compuesto::esCompuesto(type)) return false;
+
+    // Formas propias que no llenan su cubo: el cuenco del maguey capado, la
+    // lamina de aguamiel hundida en el, el cono de la punta, el nopal y sus
+    // derivados, las raices, las ramas y los guijarros.
+    if (type == BLOCK_MAGUEY_HUECO || type == BLOCK_AGUAMIEL ||
+        type == BLOCK_MAGUEY_PUNTA) return false;
+    if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
+        type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
+        type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
+        esTuna(type)) return false;
+    if (esRaiz(type)) return false;
+    if (isRama(type)) return false;
+    if (esGuijarro(type)) return false;
+
+    // Lo que queda es terreno y bloques de construccion: piedra, tierra,
+    // arena, troncos, tablones, cristal... todos llenan su cubo.
     return true;
 }
 
@@ -3047,7 +3448,12 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_LEAVES_OCOTE_RAMA:
         // Las del chino, y su celda con rama dentro: sigue siendo follaje.
         case BLOCK_LEAVES_OCOTE_CHINO:
-        case BLOCK_LEAVES_OCOTE_CHINO_RAMA: return 0.2f;
+        case BLOCK_LEAVES_OCOTE_CHINO_RAMA:
+        // Las de los cuatro pinos nuevos: hoja es hoja.
+        case BLOCK_LEAVES_PATULA:
+        case BLOCK_LEAVES_PINONERO:
+        case BLOCK_LEAVES_ALTURAS:
+        case BLOCK_LEAVES_PSEUDOSTROBUS: return 0.2f;
         case BLOCK_WOOD:      return 2.0f;   // Madera - medio (ver nota abajo)
         case BLOCK_WOOD_ENCINO:   return 2.0f;
         case BLOCK_WOOD_OYAMEL:   return 2.0f;
@@ -3056,16 +3462,30 @@ float getBlockBreakTime(BlockType type) {
         // El ocote chino: misma madera de pino, misma dureza.
         case BLOCK_WOOD_OCOTE_CHINO:
         case BLOCK_WOOD_OCOTE_CHINO_DENTRO: return 2.0f;
+        // ⭐ LOS CUATRO PINOS NUEVOS: misma madera de pino, misma dureza.
+        // La hoja va con las demas hojas, arriba, en el mismo 0.2f.
+        case BLOCK_WOOD_PATULA:
+        case BLOCK_WOOD_PATULA_DENTRO:
+        case BLOCK_WOOD_PINONERO:
+        case BLOCK_WOOD_PINONERO_DENTRO:
+        case BLOCK_WOOD_ALTURAS:
+        case BLOCK_WOOD_ALTURAS_DENTRO:
+        case BLOCK_WOOD_PSEUDOSTROBUS:
+        case BLOCK_WOOD_PSEUDOSTROBUS_DENTRO: return 2.0f;
         case BLOCK_STONE:     return 1.5f;   // Piedra - medio-lento
         case BLOCK_BEDROCK:   return 999.0f; // Bedrock - irrompible
         case BLOCK_WATER:     return 0.0f;   // Agua - no se puede romper
         case BLOCK_GRAVEL:    return 0.6f;   // Grava - rápido
         case BLOCK_CLAY:      return 0.6f;   // Arcilla - blanda, como la grava
         case BLOCK_ORANGE_FLOWER: return 0.0f;   // Flor naranja - instantáneo
-        case BLOCK_COAL_ORE:  return 3.0f;   // Minerales - lentos
-        case BLOCK_IRON_ORE:  return 3.0f;
-        case BLOCK_GOLD_ORE:  return 3.0f;
-        case BLOCK_DIAMOND_ORE: return 3.0f;
+        // Las durezas de las vetas (3.0f para carbon, hierro, oro y diamante)
+        // estaban aqui. Retiradas con los bloques.
+        //
+        // De paso queda constancia de por que una tabla asi se desincroniza: la
+        // PLATA nunca estuvo en esta lista, asi que caia al `default` y se
+        // rompia como un bloque cualquiera mientras sus cuatro hermanas costaban
+        // 3.0f. Es el argumento de PENDIENTES 1.3 (una tabla BlockInfo[] en vez
+        // de N switches) visto en la practica.
         case BLOCK_SNOW:      return 0.2f;   // Nieve - muy rápido
         case BLOCK_COBBLESTONE: return 2.0f; // Piedra labrada - medio
         case BLOCK_PLANKS:    return 2.0f;   // Tablones - medio
@@ -3075,9 +3495,12 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_LIMESTONE: return 1.6f;   // caliza - mas blanda que la piedra
         case BLOCK_CLAY_DIRT: return 0.65f;  // tierra arcillosa - como la arcilla
         case BLOCK_CLAY_SAND: return 0.55f;  // arena arcillosa - blanda
-        case BLOCK_SCRAP_METAL: return 2.5f; // Metal desecho - medio-lento
         // El horno esta hecho de barro y piedra: cuesta como la piedra
         // labrada, encendido o apagado.
+        // El techo de hojas es ramaje y follaje atado: se desarma rapido,
+        // como las hojas de las que esta hecho.
+        case BLOCK_TECHO_HOJAS:
+        case BLOCK_TECHO_SUELO:      return 0.4f;
         case BLOCK_HORNO:            return 2.0f;
         case BLOCK_HORNO_ENCENDIDO:  return 2.0f;
         // La punta del maguey maduro: dura y fibrosa. El tiempo real lo
@@ -3132,13 +3555,9 @@ inline bool esBloqueDuroASurvival(BlockType type) {
         // --- PASTO (y la tierra que lleva debajo) ---
         case BLOCK_GRASS:
 
-        // --- MINERALES ---
-        case BLOCK_COAL_ORE:
-        case BLOCK_IRON_ORE:
-        case BLOCK_GOLD_ORE:
-        case BLOCK_SILVER_ORE:
-        case BLOCK_DIAMOND_ORE:
-        case BLOCK_SCRAP_METAL:
+        // Los minerales de veta estaban aqui. Retirados; en los mundos
+        // guardados su sitio lo ocupa BLOCK_STONE, que ya encabeza esta lista,
+        // asi que picar donde habia una veta sigue costando lo mismo.
 
         // --- RAICES DE LOS ARBOLES (los cuatro grosores) ---
         case BLOCK_RAIZ_PEQUENA:
@@ -3334,13 +3753,74 @@ bool shouldRenderFace(BlockType currentBlock, BlockType neighborBlock) {
     // (y alli el resultado por altura es inofensivo), pero para el agua la
     // respuesta correcta depende de si la cara mira arriba, abajo o al lado.
     if (esAguaCualquiera(currentBlock)) {
-        if (!esAguaCualquiera(neighborBlock)) return true;
+        if (!esAguaCualquiera(neighborBlock)) {
+            // ⭐ CONTRA UN SOLIDO QUE LLENA SU VOXEL, EL AGUA NO DIBUJA NADA.
+            //
+            // Su cara quedaria DENTRO de la roca. Antes se emitia igual, y era
+            // la mitad del efecto espejo: la cara del solido y la del agua
+            // ocupaban el mismo plano, sin orden definido entre ellas, asi que
+            // segun el angulo de camara ganaba una o la otra. Cuando ganaba el
+            // agua se veia el interior del terreno a traves de ella.
+            //
+            // La cara la dibuja el solido y solo el solido (ver la regla
+            // simetrica unas lineas mas abajo).
+            if (llenaSuVoxelFrenteALiquido(neighborBlock)) return false;
+            return true;
+        }
         return Compuesto::Agua::alturaVisual(currentBlock) !=
                Compuesto::Agua::alturaVisual(neighborBlock);
     }
 
-    // Si el vecino es agua y el bloque actual es sólido, renderizar
-    if (esAguaCualquiera(neighborBlock) && isBlockOpaque(currentBlock)) return true;
+    // ========================================================================
+    // ⭐⭐ EL AGUA NO ES UNA VENTANA: TAPA LO QUE HAY DETRAS
+    // ========================================================================
+    // BUG REPORTADO: "el agua y sus niveles dejan ver otros bloques dentro,
+    // como si fuera un espejo, y hay caras sin textura".
+    //
+    // LA CAUSA, y son DOS defectos que se suman en el mismo sitio.
+    //
+    // ------------------------------------------------------------------------
+    // DEFECTO 1: la cara del bloque tapado por agua NO se emitia
+    // ------------------------------------------------------------------------
+    // Esta linea solo dibujaba la cara contra agua si el bloque era OPACO. Y
+    // `isBlockOpaque` devuelve false para media docena de cosas que si ocupan
+    // su voxel de cara a un liquido: los NIVELES PARCIALES (linea 3035), las
+    // CELDAS MIXTAS pasan pero el maguey hueco, el aguamiel, la punta y
+    // cualquier COMPUESTO no (3056). Todos esos caian al face culling de mas
+    // abajo, donde la regla 3 (`isBlockOpaque(neighborBlock)`) tampoco los
+    // salva porque el agua no es opaca... pero la regla 2
+    // (`!isBlockOpaque(currentBlock) -> true`) si los dejaba pasar.
+    //
+    // Resultado: un lodo de casos donde la cara sumergida se emitia o no segun
+    // por que rama cayera, y donde se emitia la emitian LAS DOS a la vez
+    // (bloque y agua), dos superficies en el mismo plano peleando por el
+    // z-buffer. Eso es el "espejo": segun el angulo gana una o la otra, y
+    // cuando gana el agua se ve el interior del terreno.
+    //
+    // ------------------------------------------------------------------------
+    // DEFECTO 2: el agua tapada por un solido tampoco se recortaba
+    // ------------------------------------------------------------------------
+    // El bloque de arriba (`esAguaCualquiera(currentBlock)`) devuelve `true`
+    // contra CUALQUIER cosa que no sea agua -- incluida la piedra que la tapa
+    // por completo. Una celda de agua enterrada emitia sus seis caras contra
+    // roca maciza: geometria invisible que ademas se colaba por las rendijas
+    // del z-fighting y pintaba agua DENTRO de la piedra.
+    //
+    // ------------------------------------------------------------------------
+    // LA REGLA CORRECTA, y es simetrica
+    // ------------------------------------------------------------------------
+    // Entre un solido que llena su voxel y un liquido, la cara la dibuja UNO
+    // SOLO de los dos: el SOLIDO. Es el que tiene textura buena, el que no es
+    // transparente y el que define el contorno que el jugador ve. El agua no
+    // dibuja nada contra el, porque su cara quedaria enterrada dentro de la
+    // roca.
+    //
+    // `llenaSuVoxelFrenteALiquido` es la pregunta correcta, y NO es
+    // `isBlockOpaque`: lo que importa aqui no es si deja pasar la luz, sino si
+    // OCUPA EL VOLUMEN. Una celda mixta, un nivel lleno o un bloque de cristal
+    // tapan el agua igual de bien aunque se vea a traves de ellos.
+    if (esAguaCualquiera(neighborBlock) && llenaSuVoxelFrenteALiquido(currentBlock))
+        return true;
 
     // ⭐ LAS CARAS TAPADAS NO SE DIBUJAN (face culling)
     //
@@ -3359,8 +3839,74 @@ bool shouldRenderFace(BlockType currentBlock, BlockType neighborBlock) {
     //   3. Si mi VECINO es opaco, me tapa: fuera.
     //   4. En cualquier otro caso, se dibuja.
     if (currentBlock == neighborBlock) return false;
-    if (!isBlockOpaque(currentBlock)) return true;
-    if (isBlockOpaque(neighborBlock)) return false;
+
+    // ========================================================================
+    // ⭐ LA CARA ENTRE DOS HOJAS NO SE VE NUNCA, AUNQUE SEAN DE ESPECIES
+    //    DISTINTAS
+    // ========================================================================
+    // MEDIDO: 733.000 caras con 46 chunks a la vista, o sea ~16.000 por chunk
+    // cuando el terreno solo justifica 2.000-4.000. El frame estaba dominado
+    // por `swap` (12 ms de 16): puro coste de pixel.
+    //
+    // De donde salia el exceso: la regla 1 tapa la cara entre dos hojas del
+    // MISMO id, y la regla 2 deja pasar TODAS las demas porque una hoja no es
+    // opaca. El interior de una copa esta lleno de fronteras entre ids
+    // distintos que son follaje igual:
+    //
+    //     LEAVES_OCOTE  <->  LEAVES_OCOTE_RAMA          (la rama por dentro)
+    //     LEAVES_OCOTE_CHINO <-> LEAVES_OCOTE_CHINO_RAMA
+    //     y cualquier frontera entre dos especies con las copas tocandose
+    //
+    // Cada una de esas fronteras emitia DOS caras (una por lado) enterradas
+    // dentro de la masa de follaje, donde no se ve nada: el ocote es la
+    // especie que mas sufre, porque su copa son mechones de acicula y celdas
+    // de hoja-con-rama alternadas.
+    //
+    // ⚠️ POR QUE NO BASTABA CON HACER LAS HOJAS OPACAS. Porque entonces
+    // taparian tambien las caras del TRONCO y del cielo detras de la copa, y
+    // una copa se veria como un cubo macizo. La hoja tiene que seguir siendo
+    // transparente para todo lo demas -- solo deja de dibujar la cara que da
+    // contra OTRA HOJA, que es la unica que es imposible de ver.
+    //
+    // Es la misma logica que la regla 1, solo que la identidad se compara por
+    // FAMILIA (esHojaDeArbol) en vez de por id exacto.
+    if (esHojaDeArbol(currentBlock) && esHojaDeArbol(neighborBlock))
+        return false;
+
+    // ========================================================================
+    // ⭐⭐ DOS BLOQUES QUE LLENAN SU VOXEL NO NECESITAN LA CARA ENTRE ELLOS
+    // ========================================================================
+    // Las reglas 2 y 3 preguntan por `isBlockOpaque`, que responde "¿deja pasar
+    // la luz?". Para decidir si una cara SE VE, la pregunta correcta es otra:
+    // "¿hay algo macizo pegado al otro lado?".
+    //
+    // La diferencia no es teorica. Estos llenan su celda de suelo a techo pero
+    // NO son `isBlockOpaque`:
+    //
+    //   CELDA MIXTA    dos capas de material, llena por definicion
+    //   NIVEL LLENO    un 8/8 es un cubo; solo los 1..7 dejan hueco
+    //   CRISTAL        se ve a traves, pero ocupa el voxel entero
+    //
+    // Con la regla vieja, la frontera entre dos de ellos --o entre uno de ellos
+    // y un bloque normal-- emitia LAS DOS caras, enterradas una contra otra. No
+    // se ven nunca (no hay hueco por donde mirar) pero se mallan, se suben a la
+    // GPU y se sombrean.
+    //
+    // `llenaSuVoxelFrenteALiquido` ya responde exactamente eso --"¿ocupa el
+    // volumen?"-- y se escribio para el agua. Aqui sirve igual: si mi vecino
+    // llena su celda, me tapa, sea opaco o no.
+    //
+    // ⚠️ LO QUE NO CAMBIA, Y ES LO QUE PROTEGE EL RESTO DEL JUEGO.
+    //
+    // La funcion devuelve FALSE para todo lo que no llena su voxel: hojas,
+    // hierba, flores, niveles parciales, plantas compuestas, nopal, raices,
+    // ramas y guijarros. Para ellos la cara se sigue emitiendo igual que antes,
+    // asi que no se cierra ni una copa ni se tapa un maguey.
+    //
+    // Y la regla 2 se mantiene por delante: si YO no lleno mi voxel, mi cara se
+    // ve pase lo que pase (es el borde de una planta contra lo que sea).
+    if (!llenaSuVoxelFrenteALiquido(currentBlock)) return true;
+    if (llenaSuVoxelFrenteALiquido(neighborBlock)) return false;
     return true;
 }
 
@@ -3635,11 +4181,10 @@ public:
         std::string soundName = "footstep_grass"; // Default
 
         // Piedra y minerales
+        // (Los seis minerales de veta se listaban aqui: retirados. Su sitio en
+        // los mundos guardados es BLOCK_STONE, que ya suena a piedra.)
         if (blockType == BLOCK_STONE || blockType == BLOCK_COBBLESTONE ||
-            blockType == BLOCK_LIMESTONE ||
-            blockType == BLOCK_COAL_ORE || blockType == BLOCK_IRON_ORE ||
-            blockType == BLOCK_GOLD_ORE || blockType == BLOCK_SILVER_ORE ||
-            blockType == BLOCK_DIAMOND_ORE || blockType == BLOCK_SCRAP_METAL || blockType == BLOCK_BRICKS) {
+            blockType == BLOCK_LIMESTONE || blockType == BLOCK_BRICKS) {
             soundName = "footstep_stone";
         }
         // Madera
@@ -3682,12 +4227,8 @@ public:
         if (blockType == BLOCK_STONE || blockType == BLOCK_COBBLESTONE || blockType == BLOCK_BEDROCK || blockType == BLOCK_BRICKS) {
             soundName = "break_stone";
         }
-        // Minerales (sonido especial)
-        else if (blockType == BLOCK_COAL_ORE || blockType == BLOCK_IRON_ORE ||
-                 blockType == BLOCK_GOLD_ORE || blockType == BLOCK_SILVER_ORE ||
-                 blockType == BLOCK_DIAMOND_ORE || blockType == BLOCK_SCRAP_METAL) {
-            soundName = "break_ore";
-        }
+        // Los minerales de veta tenian aqui su propio sonido ("break_ore").
+        // Se retiraron del juego, asi que ya no hay bloque que lo dispare.
         // Madera
         else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS ||
                  blockType == BLOCK_WOOD_ENCINO || blockType == BLOCK_WOOD_OYAMEL ||
@@ -6199,6 +6740,13 @@ public:
 
     // Cargar todas las texturas de bloques
     void loadAllBlockTextures() {
+        // ⭐ CRONOMETRO DEL ARRANQUE.
+        //
+        // Sin medir no se puede optimizar: la primera sospecha fue el disco y
+        // resulto ser la DESCOMPRESION de los PNG. Este par de lineas deja el
+        // dato en el log de cada partida, asi que una regresion futura se ve
+        // sola en vez de descubrirse por "va lento".
+        const auto t0Tex = std::chrono::steady_clock::now();
         std::cout << "=== Cargando texturas de bloques ===" << std::endl;
 
         // Texturas básicas
@@ -6226,14 +6774,14 @@ public:
         // ---- ESPECIES NUEVAS ----
         loadTexture("Troco de Encino Corteza.png");
         loadTexture("Tronco de Encino por dentro.png");
-        loadTexture("Hojas de Encino.png");
+        loadTexture("Hojas de encino.png");
         loadTexture("Tronco de Oyame Corteza.png");
-        loadTexture("Tronco de Oyame por dentro.png");
+        loadTexture("Tronco de oyame por dentro.png");
         loadTexture("Hojas de Oyame.png");
         // El ocote (Pinus montezumae): corteza en placas, corte resinoso y
         // las aciculas largas de cinco en cinco.
-        loadTexture("Pinus montezumae tronco.png");
-        loadTexture("Pinus montezumae tronco por dentro.png");
+        loadTexture("Tronco de Pinus montezumae corteza.png");
+        loadTexture("tronco de Ocote Blanco por dentro.png");
         loadTexture("Pinus montezumae hojas.png");
         // El ocote CHINO (Pinus leiophylla): corteza rojiza, corte cerrado y
         // aciculas finas.
@@ -6244,7 +6792,72 @@ public:
         loadTexture("Tronco de Ocote chino corteza.png");
         loadTexture("tronco de Ocote chino por dentro.png");
         loadTexture("Hojas de ocote chino.png");
-        loadTexture("Madera de Ocote chino.png");
+        // ⚠️ Los tablones de ocote chino NO se precargan: no existe el bloque.
+        //
+        // El ocote chino tiene tronco y hojas, pero no llego a tener tablones
+        // propios (no hay BLOCK_PLANKS_OCOTE_CHINO en el enum). Aqui se
+        // precargaba "Madera de Ocote chino.png", que no la pedia ningun
+        // `case` de getBlockTexture: una textura cargada en VRAM para nadie.
+        //
+        // La imagen nueva en alta ("Tablones de Madera de Ocote Chino.png")
+        // esta en resourcepacks/ lista para el dia que se anada el bloque;
+        // precargarla hoy seria repetir el mismo gasto inutil.
+
+        // ====================================================================
+        // LOS CUATRO PINOS NUEVOS
+        // ====================================================================
+        // Cada uno con sus cuatro piezas: corteza, corte con anillos, acicula
+        // y tablones. Se precargan aqui, con el resto del arbolado, para que
+        // el mesher nunca tenga que tocar disco durante el render.
+        //
+        // PATULA (Pinus patula) -- el pino llorón.
+        loadTexture("Tronco de Pino patula.png");
+        loadTexture("Tronco de Pino patula por dentro.png");
+        loadTexture("Tablones de Madera de Pino patula.png");
+        // ⚠️ SUS HOJAS SON LAS DEL PSEUDOSTROBUS, A PROPOSITO.
+        //
+        // No existe "Hojas de Pino patula.png" en resourcepacks/. Las dos
+        // especies son pinos de acicula larga y PENDULA del mismo subgenero,
+        // asi que es la sustituta mas defendible de las que hay en disco --
+        // mucho mas que la del pino comun, que es corta y erecta.
+        //
+        // El dia que exista la textura propia, esto es cambiar una linea en
+        // getBlockTexture: el bloque BLOCK_LEAVES_PATULA ya es suyo.
+
+        // PIÑONERO MEXICANO (Pinus cembroides) -- el del piñon.
+        //
+        // ⚠️ SIN "Ñ" EN EL NOMBRE DEL ARCHIVO, Y NO ES POR ESTILO.
+        //
+        // Los archivos llegaron como "Pino piñonero mexicano.png". En disco
+        // esa ñ son dos bytes UTF-8 (C3 B1), pero MSVC compila el literal de
+        // la cadena a la pagina de codigos del sistema, asi que el nombre que
+        // pide el codigo y el que hay en disco dejan de coincidir: fopen
+        // falla, getTexture devuelve 0, y el mesher lee ese 0 como "textura
+        // aun no cargada" -- marca el chunk para reintentar y lo remalla 60
+        // veces por segundo, para siempre (ver PENDIENTES.md, "Rebuild
+        // infinito si falta una textura").
+        //
+        // Se detecto porque test_texturas_existen paso de 4 fallos a 5.
+        //
+        // Por eso los archivos se renombraron a "pinonero" y NINGUNA otra
+        // textura del proyecto lleva tildes ni ñ: es la convencion que ya
+        // seguian las ~200 anteriores, solo que no estaba escrita.
+        loadTexture("Tronco de Pino pinonero mexicano.png");
+        loadTexture("Tronco de Pino pinonero mexicano por dentro.png");
+        loadTexture("Hojas de Pino pinonero mexicano.png");
+        loadTexture("Tablones de Madera de Pino pinonero mexicano.png");
+
+        // DE LAS ALTURAS (Pinus hartwegii) -- el limite arboreo.
+        loadTexture("Tronco de Pino de las alturas.png");
+        loadTexture("Tronco de Pino de las alturas por dentro.png");
+        loadTexture("Hojas de Pino de las alturas.png");
+        loadTexture("Tablones de Madera de Pino de las alturas.png");
+
+        // PSEUDOSTROBUS (Pinus pseudostrobus) -- el pino liso.
+        loadTexture("Tronco de Pseudostrobus.png");
+        loadTexture("Tronco de Pseudostrobus por dentro.png");
+        loadTexture("Hojas de Pseudostrobus.png");
+        loadTexture("Tablones de madera de Pino de pseudostrobus.png");
 
         // Texturas de pasto (múltiples)
         // Sol y luna del ciclo de dia y noche.
@@ -6277,15 +6890,34 @@ public:
         loadTexture("nieve.png");              // BLOCK_SNOW
         loadTexture("Piedra Labrada.png");     // BLOCK_COBBLESTONE (textura mejorada)
         loadTexture("Tablones de Madera de Pino.png");   // BLOCK_PLANKS
-        loadTexture("Tablones de Madera Encino.png");    // BLOCK_PLANKS_ENCINO
+        loadTexture("Tablones de Madera de Encino.png");    // BLOCK_PLANKS_ENCINO
         loadTexture("Tablones de Madera de Oyame.png");  // BLOCK_PLANKS_OYAMEL
-        loadTexture("ocote blanco en tablones de madera.png");  // BLOCK_PLANKS_OCOTE
+        loadTexture("Tablones de Madera de Ocote Blanco.png");  // BLOCK_PLANKS_OCOTE
         loadTexture("Piedra caliza.png");                // BLOCK_LIMESTONE
         // Nopal de Castilla (la base tiene una variante por tipo de suelo)
         loadTexture("Tallo de Nopal de Castilla.png");
-        loadTexture("Cladodio de Nopal de Castilla.png");
+        loadTexture("Techo de Hojas.png");
+        // ⭐ "Cladodio" y "penca" son LA MISMA PIEZA, y el archivo se llama ya
+        // por su nombre comun: `Cladodio de Nopal de Castilla.png` paso a
+        // llamarse `Penca de Nopal de Castilla.png`. El codigo seguia pidiendo
+        // el nombre viejo, asi que la textura no se encontraba -- y al pasar el
+        // cuerpo de la planta a ser pencas, eso dejaba el nopal entero sin
+        // textura, no solo un brote.
+        //
+        // Son DOS archivos distintos, y el sufijo es lo que los separa:
+        // `Blocks/Penca de Nopal de Castilla.png` es la penca de la PLANTA
+        // (la que forma el cuerpo del nopal), y
+        // `Items/Penca de Nopal de Castilla suelto.png` es la penca cortada
+        // que el jugador lleva en la mano. El "suelto" no es decorativo:
+        // antes los dos archivos se llamaban igual y solo los distinguia la
+        // carpeta, que es un sitio muy facil de equivocarse.
+        loadTexture("Penca de Nopal de Castilla.png");
+        loadTexture("../Items/Penca de Nopal de Castilla suelto.png");
+        // La marca de union (la cicatriz por donde una penca nace de otra) hoy
+        // NO esta en disco. Se sigue pidiendo a proposito: el sitio que la usa
+        // (ver "LA MARCA DE UNION") ya degrada a la penca lisa cuando vale 0,
+        // asi que basta con volver a poner el archivo para recuperarla.
         loadTexture("Penca Nopal de Castilla conectado al  Cladodio.png");
-        loadTexture("../Items/Penca de Nopal de Castilla.png");
 
         // ⭐ Los que se dibujan como BLOQUE usando su textura de item.
         //
@@ -6301,41 +6933,48 @@ public:
         loadTexture("../Entitys/Player/corazon del jugador.png");
         // "a la mitad" y "vacio" aun no estan en el resourcepack; se cargaran
         // solas en cuanto existan (getTexture las pide bajo demanda).
-        loadTexture("Tallo de Nopal de Castilla en pasto.png");
-        loadTexture("Tallo de nopal de Castilla en tierra.png");
-        loadTexture("Tallo de Nopal de castilla en arena.png");
-        loadTexture("Tallo de Nopal de Castilla en tierra arcillosa.png");
+        // ⚠️ LOS NOMBRES, EXACTOS: esta lista y getBlockTexture tienen que pedir
+        // LA MISMA CADENA. El mapa de texturas compara byte a byte, asi que
+        // "en pasto" aqui y "en Pasto" alli son dos entradas distintas: la
+        // precarga no sirve de nada y el mesher recibe 0 (geometria blanca).
+        //
+        // Las de TIERRA y TIERRA ARCILLOSA no se piden: no estan en el
+        // resourcepack. getBlockTexture las resuelve al tallo generico, que si
+        // existe. Pedirlas aqui solo llenaba el log de errores.
+        loadTexture("Tallo de Nopal de Castilla en Pasto.png");
+        loadTexture("Tallo de Nopal de Castilla.png");
+        loadTexture("Tallo de Nopal de Castilla en arena.png");
         loadTexture("Tallo de Nopal de Castilla en arena arcillosa.png");
         loadTexture("Tierra Arcillosa.png");             // BLOCK_CLAY_DIRT
-        loadTexture("Arena arcillosa.png");              // BLOCK_CLAY_SAND
-        loadTexture("Mineral de Oro.png");               // BLOCK_GOLD_ORE
-        loadTexture("Mineral de Plata.png");             // BLOCK_SILVER_ORE
+        loadTexture("Arena Arcillosa.png");              // BLOCK_CLAY_SAND
         // Los ITEMS (polvo de tierra, palo, hoz, carbón, zinc, cobre) NO se
         // precargan aquí: sus PNG viven en Textures/Items/, no en Blocks/, así
         // que estas llamadas fallaban siempre y sólo ensuciaban el log. Quien
         // los carga —desde la carpeta correcta— es getItemTexture().
 
-        // Minerales - Sistema de Rareza
-        // COMUNES
-        loadTexture("Mineral de Carbon.png");   // BLOCK_COAL_ORE (común)
-        loadTexture("Desecho de metales.png");  // BLOCK_SCRAP_METAL (común)
-        loadTexture("Pirita.png");              // BLOCK_PYRITE_ORE (muy común)
+        // ⭐ LAS TEXTURAS DE LAS VETAS: RETIRADAS, Y ESO LIBERA CAPAS.
+        //
+        // Aqui se cargaban ocho PNG de mineral de veta (oro, plata, carbon,
+        // desecho, pirita, diamante y dos veces Piedra.png como sustituto
+        // temporal del hierro). No es solo codigo que sobra: cada loadTexture
+        // ocupa una CAPA del GL_TEXTURE_2D_ARRAY, que es un recurso contado
+        // (MAX_CAPAS), asi que retirarlas devuelve seis capas al presupuesto.
+        //
+        // Los PNG siguen en el resourcepack. No se borran: no estorban, pesan
+        // poco, y son justo lo que haria falta si los minerales vuelven algun
+        // dia en otra forma.
         // La biznaga: costados acanalados y tapa con la roseta de espinas.
         loadTexture("Biznaga.png");
         loadTexture("Biznaga up y down.png");
         // Los tres hierros de superficie y la nieve suelta: se usan como
         // guijarros, pero la textura es de bloque (llena el cuadro entero).
-        loadTexture("Goethita.png");
-        loadTexture("Hematite.png");
-        loadTexture("Limonita.png");
-
-        // POCO COMUNES
-        loadTexture("Piedra.png");              // BLOCK_IRON_ORE (temporal - usar piedra)
-        loadTexture("Piedra.png");              // BLOCK_GOLD_ORE (temporal - usar piedra)
-        loadTexture("Piedra.png");              // BLOCK_SILVER_ORE (temporal - usar piedra)
-
-        // RAROS
-        loadTexture("Mineral de Diamante.png"); // BLOCK_DIAMOND_ORE (raro)
+        // ⚠️ Los nombres tienen que ser LOS MISMOS que pide getBlockTexture:
+        // si aqui se precarga uno y alla se pide otro, la textura se carga
+        // igualmente pero en pleno mesher y desde un hilo de trabajo, que es
+        // justo lo que la precarga existe para evitar.
+        loadTexture("Magnetita.png");
+        loadTexture("Hematita.png");
+        loadTexture("Siderita.png");
 
         std::cout << "=== " << textures.size() << " texturas cargadas ===" << std::endl;
 
@@ -6346,6 +6985,16 @@ public:
         // El horno: la cara apagada y sus partes (lados y tapa)
         loadTexture("Horno preispanico.png");
         loadTexture("partes del horno.png");
+        // Las SIETE del horno de barro. Se precargan porque el horno se mira de
+        // cerca y una textura que llegue tarde deja la cara en blanco hasta el
+        // siguiente remallado (ver la nota de texSegura).
+        loadTexture("Horno de Barro.png");
+        loadTexture("Horno de Barro por arriba.png");
+        loadTexture("Horno de Barro por abajo.png");
+        loadTexture("Horno de Barro por lados.png");
+        loadTexture("Horno de barro en pasto.png");
+        loadTexture("Horno de Barro por abajo con pasto.png");
+        loadTexture("Horno de Barro por lados en pasto.png");
 
         // Cargar el fuego del horno (tira de 4 cuadros)
         loadHornoAnimation();
@@ -6362,6 +7011,12 @@ public:
         // La precarga EXHAUSTIVA va aparte, en precargarTodasLasCaras(): tiene
         // que llamar a getBlockTexture, que se define mas abajo en esta misma
         // clase. Se invoca justo despues de esta funcion.
+
+        const auto t1Tex = std::chrono::steady_clock::now();
+        const long long msTex = std::chrono::duration_cast<
+            std::chrono::milliseconds>(t1Tex - t0Tex).count();
+        std::cout << "[ARRANQUE] texturas de bloque: " << msTex << " ms ("
+                  << textures.size() << " imagenes)" << std::endl;
     }
 
     // ========================================================================
@@ -7132,9 +7787,9 @@ public:
                 case A::PINA:
                     return getTexture("Maguei por dentro.png");
                 case A::QUIOTE_F:
-                    return getTexture("Maguey de Tequilana azul.png");
+                    return getTexture("Maguey de Tequilana azulado.png");
                 default:
-                    return getTexture("Maguey de Tequilana azul.png");
+                    return getTexture("Maguey de Tequilana azulado.png");
             }
         }
 
@@ -7145,6 +7800,14 @@ public:
         // enum es razonable pero para una PLANTA no: se dibujaria como roca y
         // parece terreno corrupto, no un fallo de textura.
         if (Compuesto::esCompuesto(type)) {
+            // El NOPAL tiene su propia penca. Sin esta rama caia en la red de
+            // seguridad de abajo y la mata entera se dibujaba con la textura
+            // del maguey: verde, si, pero de otra planta.
+            // La MATA compuesta es volumen igual que el cladodio suelto, asi
+            // que le toca la misma piel teselable. Ver la nota larga en
+            // BLOCK_NOPAL_CLADODIO.
+            if (Compuesto::familiaDe(type) == Compuesto::FAM_NOPAL)
+                return getTexture("Tallo de Nopal de Castilla.png");
             return getTexture("Penca de Maguey.png");
         }
 
@@ -7181,7 +7844,7 @@ public:
             // La penca suelta, ya cortada, usa la misma imagen: es la misma
             // hoja azul plateada, solo que en la mano en vez de en la planta.
             case BLOCK_PENCA_AGAVE_AZUL:
-                return getTexture("Maguey de Tequilana azul.png");
+                return getTexture("Maguey de Tequilana azulado.png");
             case BLOCK_AGAVE_AZUL_PUNTA:
                 return getTexture("punta de Maguey de Tequilana azul.png");
 
@@ -7201,9 +7864,9 @@ public:
             case BLOCK_AGAVE_AZUL_PINA:
                 return getTexture("Maguei por dentro.png");
             case BLOCK_AGAVE_AZUL_QUIOTE:
-                return getTexture("Maguey de Tequilana azul.png");
+                return getTexture("Maguey de Tequilana azulado.png");
             case BLOCK_AGAVE_AZUL_FLOR:
-                return getTexture("Hojas de Encino.png");
+                return getTexture("Hojas de encino.png");
 
             // ⭐ LAS DOS PIEZAS DEL AGAVE ABISAII
             //
@@ -7216,18 +7879,47 @@ public:
             case BLOCK_AGAVE_ABISAII_PUNTA:
                 return getTexture("Agave abisaii punta.png");
 
-            case BLOCK_NOPAL_SECO:
-                return getTexture("../Items/Penca de Nopal de Castilla seco sin espinas.png");
+            // ⭐ TECHO DE HOJAS: entramado de ramas con follaje.
+            // Teselable y 100% opaca, asi que no necesita recorte por alfa.
+            // Las DOS orientaciones comparten textura: es el mismo material,
+            // solo cambia de donde crece dentro de la celda.
+            case BLOCK_TECHO_HOJAS:
+            case BLOCK_TECHO_SUELO:
+                return getTexture("Techo de Hojas.png");
 
+            case BLOCK_NOPAL_SECO:
+                return getTexture("../Items/Penca de Nopal de castilla suelto seco.png");
+
+            // ================================================================
+            // ⭐ EL HORNO DE BARRO: UNA TEXTURA POR CARA
+            // ================================================================
+            // El resourcepack trae SIETE imagenes dedicadas al horno --arriba,
+            // abajo, costados, boca-- y el motor no pedia ninguna: usaba dos
+            // genericas ("partes del horno" para cinco caras y "Horno
+            // preispanico" para la boca), asi que la tapa y el suelo se veian
+            // con la misma imagen que los lados.
+            //
+            // Aqui se conectan las que YA ESTAN EN DISCO. Cada cara recibe la
+            // suya, que es para lo que se dibujaron:
+            //
+            //   cara 0  arriba     la boca de carga, vista cenital
+            //   cara 1  abajo      la base que toca el suelo
+            //   cara 2  frente     donde va el fuego cuando esta encendido
+            //   3..5    costados   el barro liso
             case BLOCK_HORNO:
-                if (face == 0 || face == 1) return getTexture("partes del horno.png");
-                if (face == 2) return getTexture("Horno preispanico.png");
-                return getTexture("partes del horno.png");
+                if (face == 0) return getTexture("Horno de Barro por arriba.png");
+                if (face == 1) return getTexture("Horno de Barro por abajo.png");
+                if (face == 2) return getTexture("Horno de Barro.png");
+                return getTexture("Horno de Barro por lados.png");
 
             case BLOCK_HORNO_ENCENDIDO:
-                if (face == 0 || face == 1) return getTexture("partes del horno.png");
+                // Mismo reparto, salvo la BOCA: ahi va el cuadro de la
+                // animacion del fuego que toque ahora. Es lo que hace que se
+                // vea arder, y por eso no se cachea.
+                if (face == 0) return getTexture("Horno de Barro por arriba.png");
+                if (face == 1) return getTexture("Horno de Barro por abajo.png");
                 if (face == 2) return getCurrentHornoFrame();
-                return getTexture("partes del horno.png");
+                return getTexture("Horno de Barro por lados.png");
 
             case BLOCK_GRASS:
                 if (face == 0) return getTexture("Bloque de Pasto UP.png"); // Top
@@ -7253,11 +7945,11 @@ public:
                 else return getTexture("Troco de Encino Corteza.png");
 
             case BLOCK_WOOD_OYAMEL:
-                if (face == 0 || face == 1) return getTexture("Tronco de Oyame por dentro.png");
+                if (face == 0 || face == 1) return getTexture("Tronco de oyame por dentro.png");
                 else return getTexture("Tronco de Oyame Corteza.png");
 
             case BLOCK_LEAVES_ENCINO:
-                return getTexture("Hojas de Encino.png");
+                return getTexture("Hojas de encino.png");
 
             case BLOCK_LEAVES_OYAMEL:
                 return getTexture("Hojas de Oyame.png");
@@ -7275,13 +7967,13 @@ public:
             // troncos se lea como un arbol y no como un poste.
             case BLOCK_WOOD_OCOTE:
                 if (face == 0 || face == 1)
-                    return getTexture("Pinus montezumae tronco por dentro.png");
+                    return getTexture("tronco de Ocote Blanco por dentro.png");
                 else
-                    return getTexture("Pinus montezumae tronco.png");
+                    return getTexture("Tronco de Pinus montezumae corteza.png");
 
             case BLOCK_WOOD_OCOTE_DENTRO:
                 // El corte visto por todas sus caras: la madera resinosa.
-                return getTexture("Pinus montezumae tronco por dentro.png");
+                return getTexture("tronco de Ocote Blanco por dentro.png");
 
             // ================================================================
             // ⭐ LAS ACICULAS DEL OCOTE BLANCO: DOS TEXTURAS, UNA POR CARA
@@ -7356,6 +8048,95 @@ public:
             case BLOCK_LEAVES_OCOTE_CHINO_RAMA:
                 return getTexture("Hojas de ocote chino.png");
 
+            // ================================================================
+            // ⭐ LOS CUATRO PINOS NUEVOS
+            // ================================================================
+            // Todos siguen la MISMA regla que los dos ocotes:
+            //
+            //   caras 0 y 1 (arriba y abajo)  el corte, con sus anillos
+            //   los cuatro lados              la corteza
+            //
+            // Es lo que hace que una columna de troncos se lea como un arbol
+            // y no como un poste: al talar uno se ve el corte, y en pie se ve
+            // la corteza.
+            //
+            // El bloque …_DENTRO devuelve el corte por las SEIS caras: es la
+            // madera ya labrada, el tocon que queda al talar.
+
+            // --- PINO PATULA (Pinus patula) ---
+            case BLOCK_WOOD_PATULA:
+                if (face == 0 || face == 1)
+                    return getTexture("Tronco de Pino patula por dentro.png");
+                else
+                    return getTexture("Tronco de Pino patula.png");
+
+            case BLOCK_WOOD_PATULA_DENTRO:
+                return getTexture("Tronco de Pino patula por dentro.png");
+
+            // ⚠️ LA ACICULA DEL PATULA ES LA DEL PSEUDOSTROBUS, A PROPOSITO.
+            //
+            // No hay "Hojas de Pino patula.png" en disco. Las dos especies
+            // son pinos de acicula LARGA Y COLGANTE del mismo subgenero, asi
+            // que comparten imagen hasta que exista la propia. Pedir un
+            // archivo que no esta devolveria 0, y el mesher lee ese 0 como
+            // "textura aun no cargada": marcaria el chunk para reintentar y lo
+            // remallaria 60 veces por segundo, para siempre.
+            //
+            // Cambiarlo el dia que exista la textura es esta linea y nada mas.
+            case BLOCK_LEAVES_PATULA:
+                return getTexture("Hojas de Pseudostrobus.png");
+
+            case BLOCK_PLANKS_PATULA:
+                return getTexture("Tablones de Madera de Pino patula.png");
+
+            // --- PIÑONERO MEXICANO (Pinus cembroides) ---
+            case BLOCK_WOOD_PINONERO:
+                if (face == 0 || face == 1)
+                    return getTexture("Tronco de Pino pinonero mexicano por dentro.png");
+                else
+                    return getTexture("Tronco de Pino pinonero mexicano.png");
+
+            case BLOCK_WOOD_PINONERO_DENTRO:
+                return getTexture("Tronco de Pino pinonero mexicano por dentro.png");
+
+            case BLOCK_LEAVES_PINONERO:
+                return getTexture("Hojas de Pino pinonero mexicano.png");
+
+            case BLOCK_PLANKS_PINONERO:
+                return getTexture("Tablones de Madera de Pino pinonero mexicano.png");
+
+            // --- PINO DE LAS ALTURAS (Pinus hartwegii) ---
+            case BLOCK_WOOD_ALTURAS:
+                if (face == 0 || face == 1)
+                    return getTexture("Tronco de Pino de las alturas por dentro.png");
+                else
+                    return getTexture("Tronco de Pino de las alturas.png");
+
+            case BLOCK_WOOD_ALTURAS_DENTRO:
+                return getTexture("Tronco de Pino de las alturas por dentro.png");
+
+            case BLOCK_LEAVES_ALTURAS:
+                return getTexture("Hojas de Pino de las alturas.png");
+
+            case BLOCK_PLANKS_ALTURAS:
+                return getTexture("Tablones de Madera de Pino de las alturas.png");
+
+            // --- PSEUDOSTROBUS (Pinus pseudostrobus) ---
+            case BLOCK_WOOD_PSEUDOSTROBUS:
+                if (face == 0 || face == 1)
+                    return getTexture("Tronco de Pseudostrobus por dentro.png");
+                else
+                    return getTexture("Tronco de Pseudostrobus.png");
+
+            case BLOCK_WOOD_PSEUDOSTROBUS_DENTRO:
+                return getTexture("Tronco de Pseudostrobus por dentro.png");
+
+            case BLOCK_LEAVES_PSEUDOSTROBUS:
+                return getTexture("Hojas de Pseudostrobus.png");
+
+            case BLOCK_PLANKS_PSEUDOSTROBUS:
+                return getTexture("Tablones de madera de Pino de pseudostrobus.png");
+
             case BLOCK_LEAVES:
                 return getTexture("Hojas de Pino.png");
 
@@ -7388,25 +8169,39 @@ public:
 
             // Nombres tal cual estan en disco: uno lleva "de" y el otro no.
             case BLOCK_PLANKS_ENCINO:
-                return getTexture("Tablones de Madera Encino.png");
+                return getTexture("Tablones de Madera de Encino.png");
 
             case BLOCK_PLANKS_OYAMEL:
                 return getTexture("Tablones de Madera de Oyame.png");
 
             case BLOCK_PLANKS_OCOTE:
-                return getTexture("ocote blanco en tablones de madera.png");
+                return getTexture("Tablones de Madera de Ocote Blanco.png");
 
             // --- NOPAL DE CASTILLA ---
             // Las BASES son bloques COMPLETOS y su textura ya lleva el
             // terreno incrustado, por eso hay una por tipo de suelo.
+            // ⚠️ LOS NOMBRES VAN EXACTOS, MAYUSCULAS INCLUIDAS.
+            //
+            // `getTexture` busca en un std::map<std::string, GLuint>: la
+            // comparacion es BYTE A BYTE, asi que "en pasto" y "en Pasto" son
+            // dos claves distintas. Windows no distingue mayusculas al abrir el
+            // archivo, pero el fallo ocurre ANTES, en el mapa.
+            //
+            // Tres de estas cinco pedian el nombre con la caja equivocada
+            // ("en pasto", "de nopal", "de castilla") y devolvian 0 -- geometria
+            // sin textura, o sea BLANCA.
             case BLOCK_NOPAL_BASE_PASTO:
-                return getTexture("Tallo de Nopal de Castilla en pasto.png");
+                return getTexture("Tallo de Nopal de Castilla en Pasto.png");
             case BLOCK_NOPAL_BASE_TIERRA:
-                return getTexture("Tallo de nopal de Castilla en tierra.png");
+                // No hay textura propia de tierra en disco: se usa el tallo
+                // generico, que es el mismo cladodio sin suelo incrustado.
+                // Mejor el tallo correcto que un hueco blanco.
+                return getTexture("Tallo de Nopal de Castilla.png");
             case BLOCK_NOPAL_BASE_ARENA:
-                return getTexture("Tallo de Nopal de castilla en arena.png");
+                return getTexture("Tallo de Nopal de Castilla en arena.png");
             case BLOCK_NOPAL_BASE_T_ARCILLA:
-                return getTexture("Tallo de Nopal de Castilla en tierra arcillosa.png");
+                // Tampoco existe la de tierra arcillosa: cae al generico.
+                return getTexture("Tallo de Nopal de Castilla.png");
             case BLOCK_NOPAL_BASE_A_ARCILLA:
                 return getTexture("Tallo de Nopal de Castilla en arena arcillosa.png");
 
@@ -7421,7 +8216,33 @@ public:
             case BLOCK_NOPAL_CLADODIO_Z2:
             case BLOCK_NOPAL_CLADODIO_Z3:
             case BLOCK_NOPAL_CLADODIO_DIAG:
-                return getTexture("Cladodio de Nopal de Castilla.png");
+                // ============================================================
+                // ⭐⭐ EL BLOQUE COLOCADO USA LA PIEL DEL CACTUS, NO EL RECORTE
+                // ============================================================
+                // PEDIDO: que la penca colocada en el suelo tenga la textura de
+                // piel de nopal (`Tallo de Nopal de Castilla.png`) y que el
+                // ITEM siga teniendo su dibujo recortado.
+                //
+                // POR QUE SON DOS TEXTURAS DISTINTAS, y no es un capricho:
+                //
+                //   `Penca de Nopal de Castilla.png`   es la FOTO de una penca
+                //   entera sobre fondo transparente. Sirve para un item --que
+                //   se dibuja como una silueta plana-- pero puesta sobre un
+                //   bloque 3D es un desastre: su contorno difuminado (~8.700 px
+                //   de rampa de alfa) lo corta el alpha test en seco y deja el
+                //   borde deshilachado con agujeros. Ademas su dibujo tiene UN
+                //   SOLO centro, asi que al repetirlo por las seis caras de la
+                //   pieza se ve la misma penca estampada seis veces.
+                //
+                //   `Tallo de Nopal de Castilla.png`   es piel de cactus
+                //   TESELABLE: 256x256, 100% opaca, sin un pixel transparente.
+                //   Es lo que necesita un volumen -- se repite por las caras sin
+                //   costura, no hay nada que recortar y por tanto no puede
+                //   haber agujeros ni borde dentado.
+                //
+                // Es la misma distincion que ya hace el motor con los troncos:
+                // la corteza es teselable, y el item de madera tiene su dibujo.
+                return getTexture("Tallo de Nopal de Castilla.png");
 
             // --- RAMAS: cada especie usa la textura de SU tronco ---
             case BLOCK_RAMA_PINO:
@@ -7431,7 +8252,7 @@ public:
             case BLOCK_RAMA_OYAMEL:
                 return getTexture("Tronco de Oyame Corteza.png");
             case BLOCK_RAMA_OCOTE:
-                return getTexture("Pinus montezumae tronco.png");
+                return getTexture("Tronco de Pinus montezumae corteza.png");
 
             // --- RAICES: corteza de encino ---
             // Es la mas oscura y neutra de las tres, y una raiz bajo tierra
@@ -7448,14 +8269,28 @@ public:
             // tuna es el fruto que le crece encima y tiene su propia textura
             // (ver getTexturaTuna). Cuando la penca toca un cladodio, el
             // mesher cambia SOLO esa cara por la version "conectado".
+            // ⭐⭐ LA PENCA COLOCADA EN EL SUELO USA LA PIEL, NO EL RECORTE.
+            //
+            // BUG REPORTADO: la penca suelta puesta en el suelo sale con la
+            // textura rota y agujeros.
+            //
+            // `BLOCK_NOPAL_FRUTO` es la penca que el jugador COLOCA: un bloque
+            // con volumen, igual que el cladodio de la mata. Pedia el PNG del
+            // ITEM --una foto recortada con fondo transparente y ~8.700 px de
+            // borde difuminado-- y el alpha test cortaba esa rampa en seco:
+            // contorno dentado y huecos por los que se ve el fondo.
+            //
+            // Con la piel teselable (256x256, 100% opaca) no hay nada que
+            // recortar, asi que no puede haber agujeros. Es la misma textura
+            // que ya usan el cladodio y la mata compuesta -- las tres son la
+            // misma pieza fisica y ahora se ven iguales.
             case BLOCK_NOPAL_FRUTO:
-                return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/Penca de Nopal de Castilla.png"));
+                return getTexture("Tallo de Nopal de Castilla.png");
 
             // Nopal ya lavado y desespinado.
             case BLOCK_NOPAL_MOJADO:
                 return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/Nopal mojado sin espinas.png"));
+                    "resourcepacks/Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"));
 
             // Nopal cortado en tiras: se puede colocar, y en agua se desbaba.
             case BLOCK_NOPAL_TIRAS:
@@ -7465,7 +8300,7 @@ public:
             // Lo que sale del desbabado.
             case BLOCK_NOPAL_SIN_BABA:
                 return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/Penca de Nopal sin baba mojado.png"));
+                    "resourcepacks/Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"));
             case BLOCK_NOPAL_BABA:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Baba de nopal.png"));
@@ -7511,18 +8346,26 @@ public:
             // cara del canto muestra material y el guijarro se ve macizo tal
             // cual. Es el mismo motivo por el que el pedazo de piedra usa
             // "Piedra.png" y no el icono del item.
+            // ⭐ LAS TRES IMAGENES NUEVAS, EN ALTA.
+            //
+            // Los tres cantos de hierro pasan de los marcadores de 16x16
+            // (~600 bytes) a las texturas de verdad. El ID del bloque NO
+            // cambia -- se cambia la imagen que usa, no la especie -- asi que
+            // los mundos guardados siguen leyendose igual.
+            //
+            // El emparejamiento sigue a la mineralogia: la hematita es la que
+            // ya se llamaba asi; la magnetita (negra, magnetica) toma el sitio
+            // de la goethita y la siderita (carbonato, pardo claro) el de la
+            // limonita, que son los dos cantos mas parecidos a cada una.
             case BLOCK_PEDAZO_GOETHITA:
-                return getTexture("Goethita.png");
+                return getTexture("Magnetita.png");
             case BLOCK_PEDAZO_HEMATITE:
-                return getTexture("Hematite.png");
+                return getTexture("Hematita.png");
             case BLOCK_PEDAZO_LIMONITA:
-                return getTexture("Limonita.png");
+                return getTexture("Siderita.png");
             case BLOCK_PEDAZO_NIEVE:
                 return getTexture("nieve.png");
 
-            // La PIRITA en veta: bloque macizo normal, como el carbon.
-            case BLOCK_PYRITE_ORE:
-                return getTexture("Pirita.png");
 
             // ================================================================
             // ⭐ LOS QUE CAIAN AL FALLBACK DE PIEDRA
@@ -7617,7 +8460,7 @@ public:
                 return getTexture("Tierra Arcillosa.png");
 
             case BLOCK_CLAY_SAND:
-                return getTexture("Arena arcillosa.png");
+                return getTexture("Arena Arcillosa.png");
 
             // ⭐ ITEMS: sus PNG viven en Textures/Items/, NO en Blocks/.
             // Estas rutas apuntaban a Blocks/ y los archivos ya no estan ahi,
@@ -7639,26 +8482,10 @@ public:
             case BLOCK_RAW_COPPER:
                 return loadTextureFromPath(gamePath("resourcepacks/Textures/Items/cobre crudo.png"));
 
-            // Minerales - Sistema de Rareza
-            case BLOCK_COAL_ORE:
-                return getTexture("Mineral de Carbon.png");
-
-            case BLOCK_IRON_ORE:
-                return getTexture("Piedra.png"); // sin implementar
-
-            // Oro y plata ya tienen su PNG propio: hasta ahora usaban la
-            // textura de la piedra como marcador temporal y no se distinguian.
-            case BLOCK_GOLD_ORE:
-                return getTexture("Mineral de Oro.png");
-
-            case BLOCK_SILVER_ORE:
-                return getTexture("Mineral de Plata.png");
-
-            case BLOCK_DIAMOND_ORE:
-                return getTexture("Mineral de Diamante.png");
-
-            case BLOCK_SCRAP_METAL:
-                return getTexture("Desecho de metales.png");
+            // Los siete minerales de veta tenian aqui su textura (carbon,
+            // pirita, oro, plata, diamante, desecho y el hierro sin
+            // implementar). Retirados del juego: sus PNG siguen en
+            // resourcepacks/ pero ya no los pide nadie.
 
             case BLOCK_LAVA:
                 return getTexture("Lava.gif");
@@ -7951,7 +8778,7 @@ public:
     GLuint getTexturaHoja(BlockType tipo, int wx, int wy, int wz) {
         const char* base;
         switch (tipo) {
-            case BLOCK_LEAVES_ENCINO: base = "Hojas de Encino.png"; break;
+            case BLOCK_LEAVES_ENCINO: base = "Hojas de encino.png"; break;
             case BLOCK_LEAVES_OYAMEL: base = "Hojas de Oyame.png";  break;
             case BLOCK_LEAVES_OCOTE:  base = "Pinus montezumae hojas.png"; break;
             default:                  base = "Hojas de Pino.png";   break;
@@ -8846,13 +9673,32 @@ struct Chunk {
 
         // --- Pasada 1: vertical, solo en las columnas de la caja ---
         //
-        // Empieza con luz 18 porque y1 esta por encima del techo real de la
-        // zona: ahi arriba es cielo despejado por construccion. Las celdas por
-        // encima de y1 no se tocan -- ya valen 18 y seguiran valiendo 18, que
-        // es precisamente lo que permite no recorrerlas.
+        // ⭐⭐ LA COLUMNA NO EMPIEZA SIEMPRE A PLENO SOL.
+        //
+        // BUG QUE ESTO CORRIGE: "de noche o en oscuridad total coloco bloques
+        // y se genera iluminacion rara". Esto empezaba cada columna con luz
+        // 18 en y1, dando por hecho que y1 estaba sobre el techo de la zona.
+        // Pero y1 se recorta a `cy + R`: colocando BAJO un tejado, en una
+        // cueva o al pie de una montana, y1 cae DENTRO de lo tapado. Una celda
+        // de aire a oscuras recibia cielo pleno, y el flood-fill lo derramaba
+        // hacia abajo: un parche de luz encendido en mitad de la oscuridad
+        // cada vez que se colocaba o rompia algo.
+        //
+        // La luz que entra por arriba en y1 es la que llega desde el cielo
+        // atravesando lo que hay ENCIMA de y1 (ver LuzCielo.h): 0 si hay algo
+        // opaco, 18 menos la atenuacion de cada capa de follaje si no.
+        //
+        // Por encima de techoZona todo es aire (ver arriba), asi que si y1 ya
+        // esta sobre el techo no se recorre nada y la columna empieza en 18,
+        // como antes.
+        const int yTechoLuz = (techoZona < CHUNK_HEIGHT - 1) ? techoZona
+                                                             : CHUNK_HEIGHT - 1;
         for (int x = x0; x <= x1; ++x)
             for (int z = z0; z <= z1; ++z) {
-                int luz = 18;
+                int luz = luzQueEntraPorArriba(
+                    [&](int y) { return lightCost(getBlock(x, y, z)) == 0; },
+                    [&](int y) { return isFoliage(getBlock(x, y, z)); },
+                    y1 + 1, yTechoLuz, LEAF_ATTENUATION);
                 for (int y = y1; y >= y0; --y) {
                     const BlockType b = getBlock(x, y, z);
                     const uint8_t c = lightCost(b);
@@ -8874,6 +9720,29 @@ struct Chunk {
         auto pack = [](int x, int y, int z) -> uint32_t {
             return ((uint32_t)x << SHIFT_X) | ((uint32_t)z << SHIFT_Z) | (uint32_t)y;
         };
+
+        // ⭐ LA LUZ QUE ENTRA DESDE FUERA DE LA CAJA, POR ARRIBA Y POR ABAJO.
+        //
+        // Las celdas justo encima de y1 y justo debajo de y0 no se recalculan
+        // (su luz no depende del bloque tocado), pero SI alimentan la caja:
+        // la luz que se derramo de lado hasta ellas tiene que poder seguir
+        // bajando o subiendo. Sin esto la caja se quedaba mas oscura de lo
+        // debido en su borde. Se aplica la misma regla del flood-fill: el
+        // coste de entrar en la celda destino.
+        auto entraDesde = [&](int x, int y, int z, int yFuera) {
+            if (yFuera < 0 || yFuera >= CHUNK_HEIGHT) return;
+            const uint8_t paso = COST(x, y, z);
+            if (paso == 0) return;
+            const uint8_t L = lightData[x][yFuera][z].sunlight;
+            if (L <= paso) return;
+            const uint8_t sig = (uint8_t)(L - paso);
+            if (lightData[x][y][z].sunlight < sig) lightData[x][y][z].sunlight = sig;
+        };
+        for (int x = x0; x <= x1; ++x)
+            for (int z = z0; z <= z1; ++z) {
+                entraDesde(x, y1, z, y1 + 1);
+                entraDesde(x, y0, z, y0 - 1);
+            }
 
         for (int x = x0; x <= x1; ++x)
             for (int z = z0; z <= z1; ++z)
@@ -8946,6 +9815,25 @@ struct Chunk {
             yTop -= SUBCHUNK_HEIGHT;
         }
         return yTop;
+    }
+
+    // ⭐ EL SUELO DEL TERRENO: la primera Y que NO es aire, contando de abajo.
+    //
+    // El gemelo de techoTerreno(), y por el mismo motivo: acotar la caja del
+    // chunk a lo que de verdad contiene. Arriba sobran las capas de cielo;
+    // abajo no sobra casi nada (la bedrock empieza en 0), asi que este suele
+    // devolver 0 -- pero no siempre: un chunk que solo contenga la copa de una
+    // montana tiene cientos de capas de aire por debajo.
+    //
+    // Igual de barato: 32 comparaciones sobre la paleta, sin tocar bloques.
+    int sueloTerreno() const {
+        int yBase = 0;
+        while (yBase < CHUNK_HEIGHT) {
+            const PalettedSubChunk& sc = subchunks[yBase / SUBCHUNK_HEIGHT];
+            if (!(sc.isUniform() && sc.getUniformBlock() == BLOCK_AIR)) break;
+            yBase += SUBCHUNK_HEIGHT;
+        }
+        return yBase;
     }
 
     void computeSkylight() {
@@ -9147,13 +10035,6 @@ struct Chunk {
         return lightData[x][y][z].sunlight;
     }
 
-    // Obtener torchlight
-    uint8_t getTorchlight(int x, int y, int z) const {
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || z < 0 || z >= CHUNK_SIZE)
-            return 0;
-        return lightData[x][y][z].torchlight;
-    }
-
     // Obtener color de luz
     void getLightColor(int x, int y, int z, float& r, float& g, float& b) const {
         // ⭐⭐⭐ COLOR DE LUZ FIJO — BLANCO PURO
@@ -9189,17 +10070,13 @@ struct Chunk {
         needsRebuild = true;
     }
 
-    // Establecer torchlight con color RGB
-    void setTorchlight(int x, int y, int z, uint8_t level, uint8_t r, uint8_t g, uint8_t b) {
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || z < 0 || z >= CHUNK_SIZE)
-            return;
-        if (level > 18) level = 18;
-        lightData[x][y][z].torchlight = level;
-        lightData[x][y][z].red = (r > 3) ? 3 : r;
-        lightData[x][y][z].green = (g > 3) ? 3 : g;
-        lightData[x][y][z].blue = (b > 3) ? 3 : b;
-        needsRebuild = true;
-    }
+    // ⭐ NINGUN BLOQUE EMITE LUZ.
+    //
+    // Aqui estaban getTorchlight/setTorchlight. Se quitaron con el sistema de
+    // iluminacion global (ver World): sin un escritor de torchlight no hay
+    // forma de que un bloque ilumine, y el lector (getLightLevel) solo mira
+    // el sunlight. `LightVoxel` conserva sus bits para no cambiar el tamano
+    // de lightData, pero nada los escribe ni los lee.
 
     // Legacy: setLightLevel (ahora usa sunlight)
     void setLightLevel(int x, int y, int z, uint8_t level) {
@@ -9645,6 +10522,46 @@ public:
         }
 
         // ========================================================================
+        // TECHO DE HOJAS
+        // ========================================================================
+        // Dos hojas y dos palos, en diagonal:
+        //
+        //     [hojas] [palo ]
+        //     [palo ] [hojas]
+        //
+        // Es como se arma una enramada de verdad: las ramas hacen la retícula
+        // y el follaje se teje encima para dar sombra. De ahí que hagan falta
+        // las dos cosas y en la misma cantidad.
+        //
+        // Da OCHO: es material de construcción, no una herramienta. Con dos
+        // hojas y dos palos se cubre un buen trozo de techo, que es lo que
+        // hace que valga la pena frente a poner bloques enteros.
+        //
+        // Va SIN FORMA (shapeless) por dos razones:
+        //
+        //   1. Vale CUALQUIER especie de hoja. Un techo se arma con lo que
+        //      haya a mano, no con una sola clase de árbol. Una receta por
+        //      especie sería cuatro recetas idénticas.
+        //   2. Así no hay que acertar la esquina exacta de la rejilla: las
+        //      cuatro piezas en cualquier hueco dan lo mismo.
+        {
+            const BlockType HOJAS[] = {
+                BLOCK_LEAVES,         // pino
+                BLOCK_LEAVES_ENCINO,
+                BLOCK_LEAVES_OYAMEL,
+                BLOCK_LEAVES_OCOTE
+            };
+            for (BlockType h : HOJAS) {
+                CraftingRecipe recipe(BLOCK_TECHO_HOJAS, 8, true);
+                recipe.pattern[0] = h;
+                recipe.pattern[1] = BLOCK_STICK;
+                recipe.pattern[2] = BLOCK_STICK;
+                recipe.pattern[3] = h;
+                recipes.push_back(recipe);
+            }
+        }
+
+        // ========================================================================
         // HACHA DE PIEDRA
         // ========================================================================
         // Un pedazo de piedra y un hilo de ixtle arriba, y un palo debajo:
@@ -9763,6 +10680,77 @@ public:
             recipes.push_back(recipe);
         }
 
+        // ========================================================================
+        // MACHACAR PIEDRA LABRADA: 1 BLOQUE -> 5 PEDAZOS
+        // ========================================================================
+        // El martillo desmenuza el adoquin y lo devuelve a lo que era antes
+        // de labrarse: un monton de cascotes.
+        //
+        // POR QUE CINCO. Un bloque entero son 16x16x16 px de roca y un pedazo
+        // es un puñado: cinco es "un bloque da para un buen rato" sin llegar
+        // a que machacar salga mas a cuenta que recoger del suelo, que es la
+        // via que debe seguir siendo la natural. Tambien deja la cuenta
+        // redonda al reves: las recetas que piden 3 pedazos (el hilo de
+        // ixtle) salen a bloque y medio.
+        //
+        // EL MARTILLO NO SE GASTA, SE DESGASTA. Igual que al afilar pedernal:
+        // `executeCrafting` reconoce las herramientas y les quita UN USO en
+        // vez de tragarselas. Lo que se consume es la piedra labrada.
+        //
+        // SIN FORMA, como las demas recetas de martillo: es un gesto --
+        // golpear algo-- no un montaje con posiciones.
+        //
+        // Los DOS martillos valen, y hace falta una receta por cada uno
+        // porque el emparejado compara el tipo exacto de bloque. Sin la
+        // segunda, el martillo MEJOR no serviria para el trabajo del peor,
+        // que es justo al reves de lo que uno espera.
+        for (BlockType martillo : { BLOCK_MARTILLO_PIEDRA,
+                                    BLOCK_MARTILLO_PEDERNAL }) {
+            CraftingRecipe recipe(BLOCK_PEDAZO_PIEDRA, 5, true);
+            recipe.pattern[0] = martillo;
+            recipe.pattern[1] = BLOCK_COBBLESTONE;
+            recipes.push_back(recipe);
+        }
+
+        // ========================================================================
+        // JUNTAR CASCOTES: 4 PEDAZOS -> 1 PIEDRA LABRADA
+        // ========================================================================
+        // La INVERSA de machacar, que esta justo arriba. Cuatro cascotes
+        // encajados dan de nuevo un adoquin.
+        //
+        // ⚠️ EL CAMBIO NO ES REVERSIBLE, Y ES A PROPOSITO:
+        //
+        //     1 piedra labrada  --martillo-->  5 pedazos
+        //     4 pedazos         --juntar--->   1 piedra labrada
+        //
+        // Machacar da 5 y rehacer cuesta 4, asi que el ciclo completo GANA un
+        // pedazo por vuelta. Eso NO es un bucle de dinero infinito: cada
+        // machacado gasta un uso del martillo (uno de sus 150), asi que el
+        // "beneficio" esta topado por la durabilidad de la herramienta y
+        // acaba costando otro martillo. Lo que se consigue es que desmenuzar
+        // y rehacer no sea una perdida neta, que es lo que haria que nadie
+        // usara ninguna de las dos recetas.
+        //
+        // SIN FORMA, aunque en la imagen de referencia los cuatro vayan en
+        // cuadrado. Una receta CON forma exige coincidencia exacta de
+        // casilla (ver matchesRecipe: no hay desplazamiento del patron), asi
+        // que el cuadrado solo valdria en la esquina superior izquierda y en
+        // ningun otro sitio de la rejilla -- un acertijo gratuito. Shapeless
+        // acepta el cuadrado de la imagen y cualquier otra colocacion de los
+        // cuatro.
+        //
+        // No choca con ninguna receta existente: la del hilo de ixtle usa
+        // TRES pedazos mas una hoja de maguey, asi que el recuento de slots
+        // por tipo nunca coincide con este.
+        {
+            CraftingRecipe recipe(BLOCK_COBBLESTONE, 1, true);
+            recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;
+            recipe.pattern[1] = BLOCK_PEDAZO_PIEDRA;
+            recipe.pattern[2] = BLOCK_PEDAZO_PIEDRA;
+            recipe.pattern[3] = BLOCK_PEDAZO_PIEDRA;
+            recipes.push_back(recipe);
+        }
+
         // ⭐ HACHA DE PEDERNAL AFILADO
         //
         //     .  H  F      H = hilo de ixtle (la atadura)
@@ -9853,6 +10841,55 @@ public:
             recipes.push_back(recipe);
         }
 
+        // ====================================================================
+        // ⭐ LOS CUATRO PINOS NUEVOS: CADA UNO DA SU PROPIO TABLON
+        // ====================================================================
+        // A diferencia de los ocotes, que comparten tablon porque su madera se
+        // vende bajo el mismo nombre, estos CUATRO tienen cada uno su textura
+        // de tablones en disco -- y maderas que de verdad se distinguen en el
+        // aserradero: el pseudostrobus es madera fina de fuste limpio y el
+        // piñonero es un arbolillo retorcido de zona seca.
+        //
+        // Las DOS entradas de cada especie (corteza y corte) dan lo mismo: al
+        // talar quedan los dos IDs y seria raro que uno sirviera y el otro no.
+        // Es la misma regla que siguen los ocotes.
+        //
+        // 6 tablones por tronco, como todas las demas especies.
+        {
+            struct ParMadera { BlockType tronco, dentro, tablon; };
+            const ParMadera MADERAS[] = {
+                { BLOCK_WOOD_PATULA,        BLOCK_WOOD_PATULA_DENTRO,
+                  BLOCK_PLANKS_PATULA },
+                { BLOCK_WOOD_PINONERO,      BLOCK_WOOD_PINONERO_DENTRO,
+                  BLOCK_PLANKS_PINONERO },
+                { BLOCK_WOOD_ALTURAS,       BLOCK_WOOD_ALTURAS_DENTRO,
+                  BLOCK_PLANKS_ALTURAS },
+                { BLOCK_WOOD_PSEUDOSTROBUS, BLOCK_WOOD_PSEUDOSTROBUS_DENTRO,
+                  BLOCK_PLANKS_PSEUDOSTROBUS },
+            };
+            for (const ParMadera& m : MADERAS) {
+                for (BlockType t : { m.tronco, m.dentro }) {
+                    CraftingRecipe recipe(m.tablon, 6, true);
+                    recipe.pattern[0] = t;
+                    recipes.push_back(recipe);
+                }
+                // Y sus tablones dan palos y hoz, igual que los demas: sin
+                // esto la madera nueva no serviria para fabricar nada.
+                {
+                    CraftingRecipe recipe(BLOCK_STICK, 8, false);
+                    recipe.pattern[1] = m.tablon;
+                    recipe.pattern[4] = m.tablon;
+                    recipes.push_back(recipe);
+                }
+                {
+                    CraftingRecipe recipe(BLOCK_HOE, 1, false);
+                    recipe.pattern[0] = m.tablon;
+                    recipe.pattern[3] = m.tablon;
+                    recipes.push_back(recipe);
+                }
+            }
+        }
+
         // 1 Nopal mojado = 4 tiras de nopal.
         //
         // Sin forma: basta con poner el nopal lavado en cualquier casilla,
@@ -9883,6 +10920,37 @@ public:
             CraftingRecipe recipe(BLOCK_HOE, 1, false);
             recipe.pattern[0] = BLOCK_PLANKS;
             recipe.pattern[3] = BLOCK_PLANKS;
+            recipes.push_back(recipe);
+        }
+
+        // ========================================================================
+        // LA RAIZ DA PALOS
+        // ========================================================================
+        // Una raiz, del tamaño que sea, da CUATRO palos.
+        //
+        // Es la via temprana al palo, y por eso importa: hasta ahora el palo
+        // salia solo de TABLONES, y para tener tablones hace falta talar un
+        // arbol, que a su vez pide un hacha, que pide un palo. Las raices
+        // estan a ras de suelo desde el primer minuto, asi que rompen ese
+        // circulo sin regalar nada: siguen costando ir a buscarlas.
+        //
+        // LOS CUATRO TAMAÑOS DAN LO MISMO, y es deliberado. Una raiz de 4 px
+        // y una de 16 se parten en el mismo puñado de varas utiles -- lo que
+        // cambia en la raiz gruesa es el grosor del leño, no cuantos palos
+        // rectos salen de el. Premiar la raiz enorme con mas palos empujaria
+        // a cavar buscando la mas gorda, que no es el juego que se quiere.
+        //
+        // SIN FORMA, por lo mismo que el nopal en tiras: se pone la raiz en
+        // cualquier casilla de la rejilla y listo. No hay que acertar el
+        // hueco, que con una sola pieza seria un acertijo gratuito.
+        //
+        // Una receta por tamaño porque el emparejado compara el bloque
+        // EXACTO, igual que pasa con las hojas de ixtle y con los tablones de
+        // cada especie.
+        for (BlockType raiz : { BLOCK_RAIZ_PEQUENA, BLOCK_RAIZ_MEDIANA,
+                                BLOCK_RAIZ_GRANDE,  BLOCK_RAIZ_ENORME }) {
+            CraftingRecipe recipe(BLOCK_STICK, 4, true);
+            recipe.pattern[0] = raiz;
             recipes.push_back(recipe);
         }
 
@@ -9989,23 +11057,10 @@ public:
             recipes.push_back(recipe);
         }
 
-        // 3 Iron Ore (fila) = 1 Iron Block
-        {
-            CraftingRecipe recipe(BLOCK_IRON_ORE, 1, false);
-            recipe.pattern[3] = BLOCK_IRON_ORE;
-            recipe.pattern[4] = BLOCK_IRON_ORE;
-            recipe.pattern[5] = BLOCK_IRON_ORE;
-            recipes.push_back(recipe);
-        }
-
-        // 3 Gold Ore (fila) = 1 Gold Block
-        {
-            CraftingRecipe recipe(BLOCK_GOLD_ORE, 1, false);
-            recipe.pattern[3] = BLOCK_GOLD_ORE;
-            recipe.pattern[4] = BLOCK_GOLD_ORE;
-            recipe.pattern[5] = BLOCK_GOLD_ORE;
-            recipes.push_back(recipe);
-        }
+        // Aqui habia dos recetas de mineral (3 de hierro = 1 bloque, y lo
+        // mismo con el oro). Los bloques de mineral se retiraron del juego,
+        // asi que la receta no tenia ni ingrediente ni resultado: se va con
+        // ellos.
     }
 
     // Verificar si un grid coincide con una receta
@@ -12438,6 +13493,12 @@ private:
     // mundo apareceria con unos bloques cambiados por otros.
     bool legacyBlockIds = false;
 
+    // ⭐ ¿Y con las CELDAS MIXTAS del formato viejo (el relleno sin altura
+    // propia)? Va aparte de `legacyBlockIds` porque son dos cambios de
+    // version distintos: un mundo v3 tiene los IDs de bloque buenos pero las
+    // mixtas viejas.
+    bool mixtoSinAltura = false;
+
     // ⭐⭐⭐ ADVANCED CHUNK CACHING SYSTEM ⭐⭐⭐
     struct ChunkCacheEntry {
         Chunk* chunk;
@@ -12914,6 +13975,14 @@ public:
                 std::cout << "Mundo en formato antiguo: se traduciran los IDs "
                              "de bloque al cargar." << std::endl;
             }
+
+            mixtoSinAltura = tieneDatos &&
+                (version <= VoxelWorld::SaveSystem::SAVE_VERSION_MIXTO_SIN_ALTURA);
+
+            if (mixtoSinAltura) {
+                std::cout << "Mundo con celdas mixtas antiguas: se traducira "
+                             "la altura del relleno al cargar." << std::endl;
+            }
         }
 
         // ⭐ Initialize AAA Save System
@@ -13004,14 +14073,6 @@ public:
             std::cout << "⭐ Shutting down AAA Save System..." << std::endl;
             saveManager->shutdown();
             saveManager.reset();
-        }
-
-        // Esperar a que termine el hilo de iluminación
-        if (lightingThread != nullptr) {
-            if (lightingThread->joinable()) {
-                lightingThread->join();
-            }
-            delete lightingThread;
         }
 
         // Limpiar chunks activos
@@ -13184,6 +14245,28 @@ public:
                 b = BlockCompat::fromLegacy((uint16_t)b);
             }
         }
+
+        // ⭐ CELDAS MIXTAS DE MUNDOS v3: el relleno gano una altura propia,
+        // asi que su ID cambio de forma. Sin esto, cada mixta guardada se
+        // leeria como otro par de materiales (ver mixtoAlturaRelleno).
+        if (saveManager->getSaveVersion() <= SAVE_VERSION_MIXTO_SIN_ALTURA) {
+            for (auto& b : raw) {
+                b = BlockCompat::mixtoAlturaRelleno(b);
+            }
+        }
+
+        // ⭐ LOS MINERALES RETIRADOS PASAN A PIEDRA.
+        //
+        // Va SIN condicion de version, a diferencia de la migracion de arriba:
+        // aquella corrige una renumeracion de IDs (solo afecta a los mundos
+        // escritos con el orden viejo), esta retira un bloque del juego, y eso
+        // afecta por igual a un mundo de hace meses y a uno guardado ayer.
+        //
+        // Se hace aqui, sobre el volcado crudo y antes de construir la paleta,
+        // para que el chunk no llegue a existir en memoria con minerales
+        // dentro: asi ni el mesher ni la fisica ni el guardado tienen que
+        // saber que los minerales existieron.
+        for (auto& b : raw) b = BlockCompat::mineralAPiedra(b);
 
         // ⭐ CHUNK CON TERRENO CORRUPTO
         // Hubo una version en la que el generador escribia bloques
@@ -13649,6 +14732,10 @@ public:
                         case TerrainGen::TREE_OYAMEL:    tipoArbol = 8; break;
                         case TerrainGen::TREE_OCOTE:     tipoArbol = 9; break;
                         case TerrainGen::TREE_OCOTE_CHINO: tipoArbol = 10; break;
+                        case TerrainGen::TREE_PATULA:      tipoArbol = 11; break;
+                        case TerrainGen::TREE_PINONERO:    tipoArbol = 12; break;
+                        case TerrainGen::TREE_ALTURAS:     tipoArbol = 13; break;
+                        case TerrainGen::TREE_PSEUDOSTROBUS: tipoArbol = 14; break;
                         default: break;
                     }
 
@@ -15874,26 +16961,78 @@ public:
     //
     // Se parametriza en vez de duplicar la funcion: son ~130 lineas de
     // geometria fina, y dos copias se habrian separado al primer retoque.
+    // ⭐ LAS SEIS ESPECIES QUE PASAN POR AQUI.
+    //
+    // Antes era un `bool chino`, que valia mientras hubiera DOS pinos. Con
+    // seis, un bool por especie serian 2^6 combinaciones imposibles de leer,
+    // asi que se nombra la especie y se decide todo a partir de ella.
+    //
+    // Las seis comparten la misma ESTRUCTURA --tronco monopodico, ramas en
+    // pisos y aciculas colgando de cada una-- porque todas son pinos del
+    // mismo grupo. Lo que cambia es el porte y los bloques.
+    enum class EspeciePino {
+        MONTEZUMAE,     // el ocote blanco: el grande, fuste largo
+        LEIOPHYLLA,     // el ocote chino: mas bajo, copa tupida
+        PATULA,         // el pino llorón: alto y esbelto, acicula pendula
+        PINONERO,       // Pinus cembroides: el pequeño de zona seca
+        ALTURAS,        // Pinus hartwegii: achaparrado por el viento
+        PSEUDOSTROBUS   // el pino liso: fuste recto y muy limpio
+    };
+
     void generarOcote(int worldX, int baseY, int worldZ, int altura,
-                      bool chino = false) {
-        // Es un pino grande: mas alto que el oyamel y bastante mas que el pino
-        // comun. Los ejemplares hechos pasan de los 20 m.
+                      EspeciePino especie = EspeciePino::MONTEZUMAE) {
+        // ====================================================================
+        // EL PORTE DE CADA ESPECIE
+        // ====================================================================
+        // Las horquillas salen de la talla real de cada pino, y son lo que
+        // hace que un bosque mixto se lea como tal: si todos midieran igual,
+        // seis especies se verian como una sola con texturas distintas.
         //
-        // El CHINO se queda algo mas bajo: Pinus leiophylla no alcanza el
-        // porte del montezumae.
-        if (chino) {
-            if (altura < 9)  altura = 9;
-            if (altura > 17) altura = 17;
-        } else {
-            if (altura < 11) altura = 11;
-            if (altura > 21) altura = 21;
+        //   MONTEZUMAE  pasa de los 20 m. El mas grande de los seis.
+        //   PSEUDOSTROBUS  casi igual de alto, fuste muy limpio.
+        //   PATULA      alto y esbelto, algo menos corpulento.
+        //   LEIOPHYLLA  no alcanza el porte del montezumae.
+        //   ALTURAS     achaparrado: crece en el limite arboreo, donde el
+        //               viento y el frio no dejan subir.
+        //   PINONERO    el mas pequeño con diferencia: arbol de matorral
+        //               arido, a menudo mas ancho que alto.
+        int minAlt, maxAlt;
+        switch (especie) {
+            case EspeciePino::LEIOPHYLLA:    minAlt =  9; maxAlt = 17; break;
+            case EspeciePino::PATULA:        minAlt = 11; maxAlt = 20; break;
+            case EspeciePino::PINONERO:      minAlt =  5; maxAlt =  9; break;
+            case EspeciePino::ALTURAS:       minAlt =  7; maxAlt = 13; break;
+            case EspeciePino::PSEUDOSTROBUS: minAlt = 11; maxAlt = 21; break;
+            case EspeciePino::MONTEZUMAE:
+            default:                         minAlt = 11; maxAlt = 21; break;
         }
+        if (altura < minAlt) altura = minAlt;
+        if (altura > maxAlt) altura = maxAlt;
 
         // Los bloques de esta especie. Todo lo demas es comun.
-        const BlockType TRONCO = chino ? BLOCK_WOOD_OCOTE_CHINO
-                                       : BLOCK_WOOD_OCOTE;
-        const BlockType HOJA   = chino ? BLOCK_LEAVES_OCOTE_CHINO
-                                       : BLOCK_LEAVES_OCOTE;
+        BlockType TRONCO, HOJA;
+        switch (especie) {
+            case EspeciePino::LEIOPHYLLA:
+                TRONCO = BLOCK_WOOD_OCOTE_CHINO;
+                HOJA   = BLOCK_LEAVES_OCOTE_CHINO;   break;
+            case EspeciePino::PATULA:
+                TRONCO = BLOCK_WOOD_PATULA;
+                HOJA   = BLOCK_LEAVES_PATULA;        break;
+            case EspeciePino::PINONERO:
+                TRONCO = BLOCK_WOOD_PINONERO;
+                HOJA   = BLOCK_LEAVES_PINONERO;      break;
+            case EspeciePino::ALTURAS:
+                TRONCO = BLOCK_WOOD_ALTURAS;
+                HOJA   = BLOCK_LEAVES_ALTURAS;       break;
+            case EspeciePino::PSEUDOSTROBUS:
+                TRONCO = BLOCK_WOOD_PSEUDOSTROBUS;
+                HOJA   = BLOCK_LEAVES_PSEUDOSTROBUS; break;
+            case EspeciePino::MONTEZUMAE:
+            default:
+                TRONCO = BLOCK_WOOD_OCOTE;
+                HOJA   = BLOCK_LEAVES_OCOTE;         break;
+        }
+        const bool chino = (especie == EspeciePino::LEIOPHYLLA);
         // ⭐ AHORA LAS DOS ESPECIES LLEVAN LA RAMA DENTRO DEL FOLLAJE.
         //
         // Antes solo el chino: el ocote blanco usaba BLOCK_RAMA_OCOTE, un
@@ -15909,8 +17048,28 @@ public:
         // ⭐ La rama del chino va DENTRO del follaje, en la misma celda. Por
         // eso su "bloque de rama" es la celda compartida: el mesher dibuja
         // las dos piezas y el jugador ve el ramaje entre las hojas.
-        const BlockType RAMA   = chino ? BLOCK_LEAVES_OCOTE_CHINO_RAMA
-                                       : BLOCK_LEAVES_OCOTE_RAMA;
+        //
+        // ⚠️ LOS CUATRO PINOS NUEVOS USAN SU PROPIA HOJA COMO "RAMA".
+        //
+        // Los dos ocotes tienen un bloque de celda compartida (hoja + rama en
+        // el mismo voxel) y por eso se les ve el ramaje por dentro de la copa.
+        // Los nuevos no lo tienen: anadir cuatro celdas compartidas mas serian
+        // cuatro entradas de enum y cuatro familias en BloqueCompuesto.h para
+        // un detalle que solo se aprecia mirando la copa desde abajo.
+        //
+        // Poniendo su hoja normal, la copa sale maciza en vez de dejar ver el
+        // esqueleto. Se ve bien y la estructura del arbol es la misma; lo
+        // unico que se pierde es ese interior. Si algun dia se quiere, se
+        // anaden los cuatro bloques y se cambia aqui.
+        BlockType RAMA;
+        switch (especie) {
+            case EspeciePino::LEIOPHYLLA:
+                RAMA = BLOCK_LEAVES_OCOTE_CHINO_RAMA; break;
+            case EspeciePino::MONTEZUMAE:
+                RAMA = BLOCK_LEAVES_OCOTE_RAMA;       break;
+            default:
+                RAMA = HOJA;                          break;
+        }
 
         const int topY = baseY + altura - 1;
 
@@ -16319,20 +17478,113 @@ public:
 
         setBlock(worldX, baseY, worldZ, baseParaSuelo(sueloFinal));
 
-        // --- TALLO: 3 a 6 bloques completos ---
-        const int alturaTallo = 3 + rnd(1, 4);
-        int topeTallo = baseY;
-        for (int i = 1; i <= alturaTallo; ++i) {
+        // ====================================================================
+        // EL EJE ES UNA CADENA DE PENCAS, NO UN TRONCO
+        // ====================================================================
+        // Antes aqui se levantaba un BLOCK_NOPAL_TALLO de 3 a 6 bloques
+        // completos y las pencas brotaban de sus costados. Eso dibuja un
+        // arbolito: un fuste macizo y centrado con hojas alrededor.
+        //
+        // Una Opuntia ficus-indica NO tiene eso. Es una cactacea cuyo cuerpo
+        // entero son pencas encadenadas: cada penca nueva brota del BORDE
+        // SUPERIOR de la anterior, desde el suelo. Lo que en un ejemplar viejo
+        // parece un tronco es la penca basal lignificada -- sigue siendo una
+        // penca, no madera, y aqui esa funcion la cumple ya el bloque de base.
+        //
+        // Por eso el eje pasa a ser una COLUMNA DE PENCAS. Cambia la silueta
+        // entera: ya no hay una linea recta y maciza en el centro, sino una
+        // pila que se desvia a un lado y a otro, que es como se apilan de
+        // verdad.
+        //
+        // El eje ya NO es una recta perfecta: cada penca de la cadena puede
+        // desplazarse un bloque respecto a la de abajo, de modo que la planta
+        // serpentea al subir. Una columna perfectamente vertical era el otro
+        // rasgo que la hacia parecer un poste.
+        //
+        // ⚠️ EL DESVIO SON DOS PASOS, NUNCA UNO EN DIAGONAL.
+        //
+        // Correrse de lado Y subir en el mismo paso mueve el bloque en
+        // diagonal, y dos cubos en diagonal NO SE TOCAN POR NINGUNA CARA: la
+        // cadena queda partida, con pencas flotando sueltas. Es exactamente el
+        // fallo que `brotarCladodio` ya documenta para los brotes laterales,
+        // y la primera version de este eje volvio a caer en el (lo cazo
+        // test_nopal_sin_tallo.cpp: el nopal de 236,151 partia en dos).
+        //
+        // Por eso un desvio coloca PRIMERO una penca de enlace a la misma
+        // altura, pegada por el costado, y sube DESPUES desde ella:
+        //
+        //        recto              desvio (dos pasos)
+        //          ▓                    ▓             y+1
+        //          ▓                  ▓▓              y     <- enlace
+        //          ▓                  ▓               y-1
+        //
+        // Tiene un efecto secundario que conviene conocer y que es deseable:
+        // la penca de enlace ENSANCHA la mata a esa altura, que es como se ve
+        // una nopalera de verdad -- no una linea de un bloque de grosor.
+        const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+
+        const int alturaEje = 3 + rnd(1, 4);        // 3..6 pencas de alto
+        int topeTallo = baseY;                       // ultimo nivel con planta
+        int ejeX = worldX, ejeZ = worldZ;            // el eje se desvia al subir
+
+        // ⭐ DONDE ESTA EL EJE EN CADA ALTURA, Y POR QUE HAY QUE GUARDARLO
+        //
+        // Con el tronco recto, los brotes laterales podian salir de
+        // (worldX, y, worldZ) porque el eje estaba SIEMPRE en esa columna.
+        // Ahora el eje serpentea, asi que esa suposicion deja de valer: un
+        // brote lanzado desde la columna original en un piso desviado arranca
+        // EN EL AIRE, separado de la planta, y la regla de "cada bloque toca
+        // al anterior por una cara" se rompe en el primer paso.
+        //
+        // Por eso se anota el eje piso a piso. Es el mismo problema que ya
+        // documenta `brotarCladodio` con los pasos en diagonal, pero un nivel
+        // mas arriba: no basta con que el brote sea continuo, tiene que
+        // arrancar pegado al eje real.
+        //
+        // Se indexa por PISO (0..MAX_EJE-1), no por altura de mundo: son 7
+        // posiciones como maximo, y un array de CHUNK_HEIGHT serian 4 KB de
+        // pila por planta en un worker para usar siete.
+        constexpr int MAX_EJE = 7;                   // 3+4, el tope de alturaEje
+        int ejeXPorPiso[MAX_EJE], ejeZPorPiso[MAX_EJE];
+        for (int i = 0; i < MAX_EJE; ++i) {
+            ejeXPorPiso[i] = worldX; ejeZPorPiso[i] = worldZ;
+        }
+
+        for (int i = 1; i <= alturaEje; ++i) {
             const int y = baseY + i;
             if (y >= CHUNK_HEIGHT - 1) break;
-            if (getBlock(worldX, y, worldZ) != BLOCK_AIR) break;
-            setBlock(worldX, y, worldZ, BLOCK_NOPAL_TALLO);
+
+            // Desvio lateral: 1 de cada 3 pisos se corre un bloque. Se hace en
+            // DOS pasos -- enlace al lado y luego subir -- para que la cadena
+            // nunca avance en diagonal (ver la nota del desvio arriba).
+            int nx = ejeX, nz = ejeZ;
+            if (i > 1 && rnd(i * 613 + 29, 3) == 0) {
+                const int d = rnd(i * 811 + 43, 4);
+                const int lx = ejeX + dirs[d][0];
+                const int lz = ejeZ + dirs[d][1];
+                // El enlace va a la altura del eje ANTERIOR (y-1), pegado a el
+                // por el costado. Solo si cabe: si no, se sigue recto en vez
+                // de cortar la planta por la mitad.
+                if (getBlock(lx, y - 1, lz) == BLOCK_AIR &&
+                    getBlock(lx, y,     lz) == BLOCK_AIR) {
+                    setBlock(lx, y - 1, lz, BLOCK_NOPAL_CLADODIO);
+                    nx = lx; nz = lz;
+                }
+            }
+            if (getBlock(nx, y, nz) != BLOCK_AIR) break;
+
+            setBlock(nx, y, nz, BLOCK_NOPAL_CLADODIO);
+            ejeX = nx; ejeZ = nz;
+            if (i - 1 < MAX_EJE) { ejeXPorPiso[i-1] = nx; ejeZPorPiso[i-1] = nz; }
             topeTallo = y;
         }
 
         // --- CLADODIOS ---
-        const int dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        const int primerBrote = baseY + 1 + alturaTallo / 3;
+        // Los brotes laterales arrancan justo encima de la base: sin tronco
+        // que "subir", la mata empieza a ensancharse desde abajo, que es la
+        // otra mitad de por que una nopalera se ve como un macizo y no como
+        // un arbol.
+        const int primerBrote = baseY + 1;
 
         // Coloca un cladodio si el hueco esta libre. Devuelve si lo puso.
         auto poner = [&](int px, int py, int pz) {
@@ -16489,7 +17741,14 @@ public:
 
                     // Cada brote elige su propia forma: de ahi la variedad.
                     const int forma = rnd(y * 137 + d * 211 + 7, 6);
-                    puestos += brotarCladodio(worldX, y, worldZ, d, forma);
+                    // Desde el EJE REAL de este piso, no desde la columna
+                    // original: el eje serpentea (ver "DONDE ESTA EL EJE").
+                    const int piso = y - baseY - 1;
+                    const int bx = (piso >= 0 && piso < MAX_EJE)
+                                 ? ejeXPorPiso[piso] : worldX;
+                    const int bz = (piso >= 0 && piso < MAX_EJE)
+                                 ? ejeZPorPiso[piso] : worldZ;
+                    puestos += brotarCladodio(bx, y, bz, d, forma);
                 }
             }
         }
@@ -16561,6 +17820,106 @@ public:
             }
         }
 
+        // ====================================================================
+        // PENCAS QUE CRECEN ENTRE LAS OTRAS (RELLENO DE HUECOS)
+        // ====================================================================
+        // Los brotes salen del eje HACIA FUERA, asi que la mata queda con la
+        // estructura de un arbol: ramas que se separan y aire entre ellas. Una
+        // nopalera de verdad no se ve asi -- las pencas nuevas brotan tambien
+        // en los HUECOS que dejan las anteriores, encajandose entre ellas hasta
+        // que el conjunto se ve macizo y no se distinguen las "ramas".
+        //
+        // Es lo que hace la planta real: la brotacion es periferica, y el borde
+        // de una penca que mira a un hueco es tan valido como el que mira al
+        // exterior. Con el tiempo esos huecos se cierran.
+        //
+        // COMO SE DECIDE UN HUECO, Y POR QUE 2 VECINOS Y NO 3.
+        //
+        // Una celda de aire vale si esta arropada por 2 o mas pencas de sus 6
+        // caras. La primera version pedia 3, por miedo a macizar la planta, y
+        // el resultado fue que el relleno no se veia: +2% de pencas, 0.3 huecos
+        // por planta. La razon esta en el reparto real de la mata (medido sobre
+        // 285 plantas, contando los vecinos de cada celda de aire candidata):
+        //
+        //     0 vecinos  133.086      3 vecinos     176
+        //     1 vecino    10.058      4 vecinos      66
+        //     2 vecinos    3.162      5-6 vecinos    32
+        //
+        // Una mata de nopal es HUECA: las celdas con 3 caras ocupadas son el
+        // 5% de las que tienen 2. Pidiendo 3 se descartaban justo los
+        // intersticios que se querian cerrar.
+        //
+        // Con 2 el miedo resulta infundado, y tambien esta medido: la planta
+        // pasa de 16.9 a 21.9 pencas (+30%) y su caja envolvente sigue con un
+        // 76% de aire. Ni una de las 285 plantas queda macizada. Lo que cierra
+        // el relleno son los rincones; el contorno exterior tiene 0 o 1 vecino
+        // y no se toca nunca, que es lo que conserva la silueta.
+        //
+        // ⚠️ SE LEE EN UNA FOTO Y SE ESCRIBE DESPUES. Si se escribiera dentro
+        // del mismo bucle, una penca recien puesta contaria como vecina para la
+        // celda siguiente y el relleno se propagaria en cadena hasta macizar la
+        // planta entera -- el mismo efecto dominó que se queria evitar. Con dos
+        // fases, todas las decisiones se toman sobre el estado inicial.
+        {
+            struct Hueco { int x, y, z; };
+            Hueco pendientes[96];
+            int nPend = 0;
+
+            for (int y = primerBrote; y <= topeTallo + 2 && nPend < 96; ++y) {
+                for (int dx = -4; dx <= 4 && nPend < 96; ++dx) {
+                    for (int dz = -4; dz <= 4 && nPend < 96; ++dz) {
+                        const int cx = worldX + dx, cz = worldZ + dz;
+                        if (getBlock(cx, y, cz) != BLOCK_AIR) continue;
+
+                        int alrededor = 0;
+                        if (esCladodio(getBlock(cx - 1, y, cz))) ++alrededor;
+                        if (esCladodio(getBlock(cx + 1, y, cz))) ++alrededor;
+                        if (esCladodio(getBlock(cx, y, cz - 1))) ++alrededor;
+                        if (esCladodio(getBlock(cx, y, cz + 1))) ++alrededor;
+                        if (esCladodio(getBlock(cx, y - 1, cz))) ++alrededor;
+                        if (esCladodio(getBlock(cx, y + 1, cz))) ++alrededor;
+
+                        // Con 0 o 1 vecino no es un hueco, es el exterior de la
+                        // planta: rellenarlo la hincharia y le comeria la
+                        // silueta.
+                        if (alrededor < 2) continue;
+
+                        // No todos los huecos se cierran: una mata con TODOS
+                        // los rincones rellenos vuelve a ser un bloque. Cuantos
+                        // mas vecinos, mas probable -- un hueco con 5 caras
+                        // ocupadas es casi seguro que se cierra, uno con 2 es
+                        // una posibilidad.
+                        const int prob = 40 + (alrededor - 2) * 18;   // 40..112
+                        if (rnd(cx * 97 + y * 59 + cz * 37, 100) >= prob) continue;
+
+                        pendientes[nPend].x = cx;
+                        pendientes[nPend].y = y;
+                        pendientes[nPend].z = cz;
+                        ++nPend;
+                    }
+                }
+            }
+
+            for (int i = 0; i < nPend; ++i) {
+                const Hueco& hc = pendientes[i];
+                // Se vuelve a comprobar que sigue vacio: dos huecos de la lista
+                // no pueden solaparse, pero el aire pudo ocuparlo otra cosa.
+                if (getBlock(hc.x, hc.y, hc.z) != BLOCK_AIR) continue;
+                setBlock(hc.x, hc.y, hc.z, BLOCK_NOPAL_CLADODIO);
+            }
+
+            // MEDIDO EN EL JUEGO (49 nopales de Mundo 1, con un diagnostico
+            // temporal que se retiro despues): la mata sale de 23.3 pencas de
+            // media (6 a 56), de las cuales 5.2 las pone este relleno (hasta
+            // 14), y ocupa 4.3 x 3.8 bloques en planta por 4.7 de alto.
+            //
+            // Es la cifra que importa para no pasarse: el objetivo de campo son
+            // 10.2 cladodios por planta con un rango de 1 a 18 (INIFAP; FAO), y
+            // aqui se cuentan tambien las pencas de enlace del eje y las del
+            // relleno, que en la planta real no son cladodios aparte sino parte
+            // del volumen de la mata.
+        }
+
         // --- PENCAS DE NOPAL DE CASTILLA ---
         // La penca es una pieza mas de la planta y SIEMPRE va pegada a un
         // cladodio: se coloca en un hueco que tenga cladodio por debajo o al
@@ -16605,7 +17964,33 @@ public:
                             // debajo. caras[]: 0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z
                             if (c == 3) continue;
 
-                            const int prob = (c == 2) ? 34 : 10;
+                            // ================================================
+                            // ⭐ BROTACION PERIFERICA CON SESGO SUPERIOR
+                            // ================================================
+                            // El reparto anterior (34% arriba, 10% en los
+                            // cuatro costados) reparte 40 puntos de
+                            // probabilidad entre los lados contra 34 del arco
+                            // superior: en la practica salian MAS pencas de
+                            // costado que de arriba, y cada una de ellas nace
+                            // en el plano horizontal del padre.
+                            //
+                            // Eso es lo que producia la "reja": un ramillete
+                            // de laminas a la misma cota, abiertas en cruz
+                            // alrededor del eje, en vez de una mata que sube.
+                            //
+                            // El dato de campo dice lo contrario (INIFAP; FAO
+                            // Opuntia para forraje): brota el ~30% de las
+                            // areolas y son las del CONTORNO, "sobre todo el
+                            // arco superior". La penca nueva sale hacia
+                            // ARRIBA-y-afuera, no de costado a la misma
+                            // altura.
+                            //
+                            // Se invierte el reparto: el arco superior pasa a
+                            // dominar claramente (55) y los costados quedan
+                            // como excepcion (7). La suma baja de 74 a 83
+                            // repartida muy distinto -- mas pencas totales,
+                            // pero apiladas en vertical y no en abanico.
+                            const int prob = (c == 2) ? 55 : 7;
                             if (rnd(cx * 31 + y * 17 + cz * 13 + c * 7, 100) >= prob)
                                 continue;
 
@@ -16651,6 +18036,56 @@ public:
                 // Ya NO hay ultimo recurso "coronando el tallo": aquello
                 // colocaba la pieza en el aire sobre la punta, y era
                 // justamente lo que se veia flotando.
+            }
+
+            // ================================================================
+            // ⭐⭐ BARRIDO FINAL: NINGUNA PENCA SE QUEDA HUERFANA
+            // ================================================================
+            // BUG QUE ESTO CORRIGE: pencas flotando en el aire, separadas de la
+            // planta, a veces a varios bloques de ella.
+            //
+            // POR QUE PASA, SI YA SE COMPRUEBA `tocaCladodio` AL COLOCARLAS.
+            // Porque esa comprobacion se hace CONTRA UN MUNDO A MEDIO HACER, y
+            // puede responder que si a algo que despues no existe:
+            //
+            //   1. La regla nº1 del registro de decisiones: durante la
+            //      generacion, LAS LECTURAS FUERA DEL CHUNK DEVUELVEN AIRE (ver
+            //      GenContext). Un nopal que nace cerca del borde lanza sus
+            //      pencas hasta 4 bloques de distancia, y las que caen al otro
+            //      lado de la frontera consultan un cladodio que "no esta"
+            //      aunque el generador acabe de escribirlo -- o al reves.
+            //
+            //   2. El relleno de huecos y el eje escriben en el mismo pase, asi
+            //      que el orden entre dos plantas vecinas decide que ve cada
+            //      una.
+            //
+            // Se arregla donde se puede arreglar: AL FINAL, cuando la planta ya
+            // esta entera y `getBlock` responde por lo que de verdad hay. Toda
+            // penca de esta mata que no toque un cladodio por ninguna de sus
+            // seis caras se retira.
+            //
+            // ⚠️ SE BARRE EL MISMO VOLUMEN QUE SE SEMBRO (±4 en X/Z, hasta
+            // topeTallo+3), no el mundo entero: fuera de ahi hay pencas de
+            // OTRAS plantas, y borrarlas por no ver a su cladodio --que puede
+            // estar en otro chunk-- seria reintroducir el bug por el otro lado.
+            //
+            // Barato: son ~9x9x8 lecturas y solo sobre las celdas que ya son
+            // penca, una vez por planta generada.
+            {
+                int huerfanas = 0;
+                for (int y = primerBrote; y <= topeTallo + 3; ++y) {
+                    if (y < 1 || y >= CHUNK_HEIGHT - 1) continue;
+                    for (int dx = -4; dx <= 4; ++dx) {
+                        for (int dz = -4; dz <= 4; ++dz) {
+                            const int fx = worldX + dx, fz = worldZ + dz;
+                            if (getBlock(fx, y, fz) != BLOCK_NOPAL_FRUTO) continue;
+                            if (tocaCladodio(fx, y, fz)) continue;
+                            setBlock(fx, y, fz, BLOCK_AIR);
+                            ++huerfanas;
+                        }
+                    }
+                }
+                (void)huerfanas;   // util si se quiere instrumentar
             }
         }
 
@@ -16843,11 +18278,47 @@ public:
             // tupida. Su ramaje va DENTRO del follaje (celda compartida), asi
             // que la copa se ve con las ramas asomando entre las aciculas.
             int altura = 10 + (seed % 6);   // 10-15 bloques
-            generarOcote(worldX, baseY, worldZ, altura, /*chino=*/true);
+            generarOcote(worldX, baseY, worldZ, altura,
+                         EspeciePino::LEIOPHYLLA);
             generarRaicesArbol(worldX, baseY, worldZ, altura, 733);
 
             // Mismo motivo que el ocote blanco: generarOcote ya pone sus
             // ramas y sus penachos. No se llama al generador generico.
+        } else if (tipoArbol == 11) {
+            // ⭐ PINO PATULA (Pinus patula) -- el pino llorón
+            //
+            // Alto y esbelto, con la acicula larga y colgante. Es el pino de
+            // las canadas humedas y las laderas de niebla.
+            int altura = 12 + (seed % 8);   // 12-19 bloques
+            generarOcote(worldX, baseY, worldZ, altura, EspeciePino::PATULA);
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 811);
+        } else if (tipoArbol == 12) {
+            // ⭐ PIÑONERO MEXICANO (Pinus cembroides)
+            //
+            // El pequeño del grupo, y el unico de zona SECA: vive en el
+            // matorral arido y la ladera caliza, no en el bosque humedo. A
+            // menudo tan ancho como alto.
+            int altura = 6 + (seed % 4);    // 6-9 bloques
+            generarOcote(worldX, baseY, worldZ, altura, EspeciePino::PINONERO);
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 877);
+        } else if (tipoArbol == 13) {
+            // ⭐ PINO DE LAS ALTURAS (Pinus hartwegii)
+            //
+            // El arbol que crece MAS ALTO del mundo: forma el limite arboreo
+            // de los volcanes mexicanos, por encima de los 4.000 m. Porte
+            // bajo y achaparrado, castigado por el viento y el hielo.
+            int altura = 8 + (seed % 5);    // 8-12 bloques
+            generarOcote(worldX, baseY, worldZ, altura, EspeciePino::ALTURAS);
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 929);
+        } else if (tipoArbol == 14) {
+            // ⭐ PSEUDOSTROBUS (Pinus pseudostrobus) -- el pino liso
+            //
+            // Fuste recto y muy limpio, de los mas apreciados como madera.
+            // Comparte con el patula la acicula larga y pendula.
+            int altura = 12 + (seed % 9);   // 12-20 bloques
+            generarOcote(worldX, baseY, worldZ, altura,
+                         EspeciePino::PSEUDOSTROBUS);
+            generarRaicesArbol(worldX, baseY, worldZ, altura, 983);
         }
     }
 
@@ -18390,7 +19861,45 @@ public:
             // imagen la comparte un bloque macizo, el batch conserva el
             // recorte: como mucho ese batch renuncia al early-Z, que es el
             // lado seguro del error.
-            if (t != 0 && t != ultimaRecortada && !esBloqueMacizoOpaco(b)) {
+            // ================================================================
+            // ⭐⭐ LA PENCA COLOCADA YA NO NECESITA RECORTE
+            // ================================================================
+            // Su textura paso a ser `Tallo de Nopal de Castilla.png`: piel de
+            // cactus teselable, 256x256 y **100% opaca**, sin un solo pixel
+            // transparente.
+            //
+            // Con la textura anterior el recorte era obligatorio (su PNG era
+            // una foto recortada con fondo vacio). Ahora no hay nada que
+            // descartar, y mantener el alpha test solo hace dano:
+            //
+            //   - el test es BINARIO y cortaba el borde difuminado de la foto
+            //     vieja en seco, dejando el contorno dentado con agujeros
+            //   - ademas impide el early-Z de la GPU, que es gratis en un
+            //     bloque opaco
+            //
+            // ⚠️ ESTO SOLO ES SEGURO PORQUE LA TEXTURA ES OPACA. Con una que
+            // tuviera zonas vacias, quitar el recorte las pintaria de NEGRO:
+            // se cambiarian los agujeros por un recuadro. Si algun dia se le
+            // devuelve una textura con alfa, hay que quitar esta excepcion.
+            // ⚠️ SE LISTAN LAS QUE DE VERDAD USAN LA PIEL OPACA, UNA A UNA.
+            //
+            // No vale `esPencaDeNopal()`: ese grupo incluye la MOJADA, la SECA,
+            // la DESBABADA y las TIRAS, que conservan su propio dibujo
+            // recortado (no hay piel teselable para una penca sin espinas). Si
+            // se les quitara el recorte, su fondo transparente se pintaria
+            // NEGRO -- se cambiarian los agujeros por un recuadro.
+            //
+            // Las tres de aqui son las unicas que piden
+            // `Tallo de Nopal de Castilla.png`, que es 100% opaca:
+            //   - el cladodio de la mata (y sus variantes apiladas)
+            //   - la penca que el jugador COLOCA (BLOCK_NOPAL_FRUTO)
+            //   - la mata compuesta (FAM_NOPAL)
+            const bool pielOpaca = esCladodio(b) ||
+                                   b == BLOCK_NOPAL_FRUTO ||
+                                   Compuesto::Nopal::esNopal(b);
+
+            if (t != 0 && t != ultimaRecortada && !esBloqueMacizoOpaco(b) &&
+                !pielOpaca) {
                 texturasRecortadas.insert(t);
                 ultimaRecortada = t;
             }
@@ -18860,36 +20369,17 @@ public:
         // Se calcula una vez por chunk (no por cara) y se captura por valor.
         const float sol = luzSolar();
 
-        // Lo que queda cuando el sol se va del todo. No es negro absoluto:
-        // de noche hay luna y estrellas, y a oscuras totales el jugador no
-        // podria ni moverse. Es un 12% del brillo de pleno dia: se distinguen
-        // las siluetas y poco mas.
-        constexpr float LUZ_DE_LUNA = 0.12f;
-
-        // Curva de luz: LINEAL, con un ambiente minimo.
+        // Curva de luz: LINEAL (sin gamma), con un ambiente minimo, y todo lo
+        // que pasa del minimo es luz del cielo que de noche se apaga. Vive en
+        // LuzCielo.h (brilloDeNivel) porque es la misma para items, bloques
+        // que caen y animales -- ahi esta tambien el bug que corrige: la curva
+        // vieja hacia que un cuarto cerrado brillara de noche mas que la calle.
         //
-        // ⭐ SE QUITA EL GAMMA 1.2
-        //
-        // pow(raw, 1.2) oscurece TODO lo que no sea luz maxima, y bastante:
-        // medido, un 11% a media luz, un 20% con luz 6 y un 26% con luz 4.
-        // Sumado al sombreado por cara -- que ya baja los lados al 60% --
-        // las caras quedaban muy por debajo de lo que les toca y el terreno
-        // se veia apagado.
-        //
-        // Con la curva lineal, la luz que se ve es la que hay: el nivel 18
-        // sigue siendo 1.0 y los intermedios dejan de perder brillo.
+        // ⭐ SIN GAMMA 1.2: pow(raw, 1.2) oscurecia todo lo que no fuera luz
+        // maxima (un 20% con luz 6), y sumado al sombreado por cara el
+        // terreno se veia apagado.
         auto lightToFactor = [sol](uint8_t light) -> float {
-            float raw = (float)light / 18.0f;
-            float f = raw;
-            if (f < 0.15f) f = 0.15f;             // nunca negro puro
-
-            // La fraccion de ESTE bloque que depende del sol es su propia
-            // exposicion al cielo (raw). Se atenua con la hora; el resto
-            // (lo que no ve el cielo) se queda como estaba.
-            const float delCielo = f * raw;
-            const float propia   = f - delCielo;
-
-            return propia + delCielo * (LUZ_DE_LUNA + (1.0f - LUZ_DE_LUNA) * sol);
+            return brilloDeNivel(light, sol);
         };
 
         auto faceLightFactor = [&](int bx, int by, int bz, int dx, int dy, int dz) -> float {
@@ -22338,6 +23828,47 @@ public:
                         esMixto(block) || Compuesto::Agua::esAgua(block)) {
                         GLuint texture = texSegura(block, 0);
 
+                        // ====================================================
+                        // ⭐⭐ SIN TEXTURA NO SE EMITE GEOMETRIA
+                        // ====================================================
+                        // BUG REPORTADO: "en los nopales hay pencas raras
+                        // blancas".
+                        //
+                        // LA CAUSA. `texSegura` devuelve 0 cuando la textura no
+                        // esta cargada todavia (o su PNG no existe), y marca
+                        // `texturasFaltantes` para que el chunk se rehaga. Pero
+                        // ESTA rama seguia adelante y metia los vertices en
+                        // `verticesByTexture[0]`.
+                        //
+                        // Ese batch con textura 0 SI llega a la GPU:
+                        // `desdeMapas` solo descarta los vacios, no los de
+                        // textura nula. Y en el render, `bindOptimized` ignora
+                        // el id 0 (`textureID > 0`), asi que el quad se dibuja
+                        // con LO QUE HUBIERA ATADO ANTES -- o con nada, que en
+                        // la tuberia fija es BLANCO LISO. De ahi las pencas
+                        // blancas: no es un color mal calculado, es geometria
+                        // sin textura.
+                        //
+                        // Por que le toca al nopal mas que a nadie: el
+                        // cladodio pide ADEMAS la textura de union
+                        // ("Penca Nopal de Castilla conectado al  Cladodio.png",
+                        // con dos espacios), que hoy no esta en disco. Esa
+                        // tiene su propio guardia (`texUnion == 0`), pero la
+                        // penca base entra por aqui y no tenia ninguno.
+                        //
+                        // EL ARREGLO es el que la pasada greedy ya hacia bien
+                        // desde siempre (busca `cell.tex == 0` mas abajo): si
+                        // no hay textura, no se emite. El chunk queda marcado y
+                        // se reconstruye cuando la textura este; mientras
+                        // tanto se ve un hueco, que es MUCHO mejor que una
+                        // mancha blanca -- el hueco desaparece solo, la mancha
+                        // se queda hasta reiniciar.
+                        //
+                        // ⚠️ `texturasFaltantes` ya lo marco `texSegura`. No
+                        // hace falta repetirlo aqui, y ponerlo otra vez daria a
+                        // entender que son dos condiciones distintas.
+                        if (texture == 0) continue;
+
                         // ⭐ Esta textura lleva fondo que hay que recortar.
                         //
                         // Se marca en cuanto UN sprite en cruz la usa: si la
@@ -22346,7 +23877,21 @@ public:
                         // como mucho, ese batch renuncia al early-Z; al reves
                         // (no marcarla) apareceria un cuadro negro alrededor
                         // de la planta.
-                        if (isCrossSprite(block) && texture != 0)
+                        // ⚠️ Y HAY QUE EXCLUIRLAS AQUI TAMBIEN.
+                        //
+                        // `isCrossSprite` da por sprite al cladodio y a sus
+                        // estados (lo son: estan en esa lista), asi que sin
+                        // esta guarda este sitio volveria a marcar su textura y
+                        // desharia la exclusion de `texSegura`. Ver alli el
+                        // porque.
+                        // Mismas tres excepciones que en `texSegura`, y por el
+                        // mismo motivo: solo las que usan la piel OPACA pueden
+                        // renunciar al recorte. Las pencas trabajadas (mojada,
+                        // seca, tiras) conservan su dibujo con fondo vacio y
+                        // sin recorte saldrian con un recuadro negro.
+                        if (isCrossSprite(block) && texture != 0 &&
+                            !esCladodio(block) &&
+                            block != BLOCK_NOPAL_FRUTO)
                             texturasRecortadas.insert(texture);
 
                         // NOTA: la marca de union con el cladodio ya NO se
@@ -22805,16 +24350,61 @@ public:
                             float yIni, yFin;
                             if (!esMixto(block)) {
                                 mat  = block;
-                                yIni = 0.0f;
-                                yFin = alturaDe(block);
+                                // ========================================
+                                // ⭐ EL TECHO DE HOJAS CUELGA, NO SE APOYA
+                                // ========================================
+                                // Todos los niveles crecen desde el SUELO de
+                                // su celda. Para un techo eso esta al reves:
+                                // una lamina de 3 px a ras de suelo es una
+                                // ALFOMBRA, y lo que se quiere es un techo.
+                                //
+                                // Asi que esta familia -- y solo esta -- se
+                                // pega a la cara de ARRIBA de la celda: la
+                                // franja va de 16-h a 16 en vez de 0 a h.
+                                //
+                                // Con eso, apuntar al bloque de abajo y
+                                // colocar el techo lo deja a la altura de la
+                                // cabeza, que es donde tiene que estar.
+                                //
+                                // El resto del dibujado ya estaba preparado:
+                                // la geometria sale de yIni/yFin, y la cara
+                                // de ABAJO ya existe (se anadio justamente
+                                // porque de techo se veia el cielo a traves).
+                                // ⭐ SOLO LA VARIANTE COLGANTE.
+                                //
+                                // El techo tiene dos: `BLOCK_TECHO_HOJAS`
+                                // cuelga y `BLOCK_TECHO_SUELO` se apoya. La
+                                // segunda es la que se coloca cuando el
+                                // jugador esta ENCIMA de la celda, y se
+                                // dibuja como cualquier otro nivel.
+                                if (esTechoColgante(block)) {
+                                    yFin = 1.0f;
+                                    yIni = 1.0f - alturaDe(block);
+                                } else {
+                                    yIni = 0.0f;
+                                    yFin = alturaDe(block);
+                                }
                             } else if (capa == 0) {
                                 mat  = conNivel(mixtoBase(block), mixtoNivel(block));
                                 yIni = 0.0f;
                                 yFin = alturaBaseMixto(block);
                             } else {
+                                // ⭐ EL RELLENO YA NO LLEGA SIEMPRE AL TECHO.
+                                //
+                                // Antes `yFin = 1.0f` fijo: el material de
+                                // arriba se estiraba hasta llenar la celda.
+                                // Por eso apilar arena sobre pasto no se veia
+                                // hasta completar el bloque -- no habia forma
+                                // de representar "3 de pasto + 2 de arena".
+                                //
+                                // Ahora el relleno lleva su propia altura en
+                                // el ID, asi que se dibuja donde de verdad
+                                // acaba. Empieza EXACTAMENTE donde termina la
+                                // capa de abajo, de modo que las dos van
+                                // pegadas y no queda aire entre ellas.
                                 mat  = mixtoRelleno(block);
                                 yIni = alturaBaseMixto(block);
-                                yFin = 1.0f;
+                                yFin = alturaDe(block);
                             }
                             const float alto = yFin;
                             const GLuint texN =
@@ -23489,9 +25079,18 @@ public:
                             continue;   // no emitir las caras del cubo
                         }
 
+                        // ⭐ EL NOPAL COMPUESTO ENTRA POR AQUI TAMBIEN.
+                        //
+                        // `esCladodio` solo reconoce los IDs del enum. Un
+                        // bloque de FAM_NOPAL vive en el rango compuesto, asi
+                        // que sin este termino se iria al camino generico del
+                        // cubo y la mata no se dibujaria nunca. Dentro hay una
+                        // rama propia para el (busca "LA MATA: LAS PENCAS
+                        // EXTRA").
                         if (esCladodio(block) ||
                             block == BLOCK_NOPAL_FRUTO ||
                             block == BLOCK_NOPAL_MOJADO ||
+                            Compuesto::Nopal::esNopal(block) ||
                             esTuna(block)) {
                             // ============================================
                             // CLADODIO Y FRUTO: CAJA ADAPTATIVA
@@ -23613,6 +25212,31 @@ public:
                             // Muestreando solo la zona opaca del centro, la
                             // caja queda maciza.
                             float uvZoom = 0.0f;
+
+                            // ================================================
+                            // ⭐ EL CUERPO UTIL DE LA RODAJA, PARA LA UV
+                            // ================================================
+                            // Que trozo del voxel ocupa de verdad la pieza que
+                            // se esta emitiendo, en 0..1. Lo publica la rodaja
+                            // de la penca antes de sus caras, y lo consume
+                            // pushCaraTex para estirar la textura hasta el
+                            // borde del dibujo en vez de recortarla (ver "LA
+                            // TEXTURA SIGUE A LA SILUETA").
+                            //
+                            // `uvCuerpoAncho` en 0 = desactivado: es el valor
+                            // que ve TODO lo que no sea una rodaja de penca, y
+                            // deja el mapeo de siempre intacto.
+                            float uvCuerpoAncho  = 0.0f;
+                            float uvCuerpoX0 = 0.0f, uvCuerpoLargoX = 1.0f;
+                            float uvCuerpoZ0 = 0.0f, uvCuerpoLargoZ = 1.0f;
+
+                            // El eje FINO de la pieza (el del grosor), para que
+                            // la tapa recorra la imagen entera en vez de una
+                            // rendija. Ver "LA TAPA ENSEÑA LA IMAGEN ENTERA".
+                            // `uvTapaEnZ` dice cual de los dos ejes es el fino.
+                            float uvTapaFino0  = 0.0f, uvTapaFinoLg = 0.0f;
+                            bool  uvTapaEnZ    = true;
+
                             // Tinte y transparencia de la cara que se emite.
                             // 1.0 / 1.0 = tal cual; las espinas los bajan para
                             // salir oscuras y semitransparentes.
@@ -23660,12 +25284,120 @@ public:
                                 const bool planoX = constante(PX);   // cara -X/+X
                                 const bool planoY = constante(PY);   // cara -Y/+Y
 
+                                // ============================================
+                                // UV DE UNA CARA GIRADA
+                                // ============================================
+                                // La deteccion de arriba busca el eje CONSTANTE
+                                // para saber cual es la normal. En una cara
+                                // rotada no hay ninguno: ni X ni Z se mantienen,
+                                // asi que `planoX` y `planoY` salen los dos
+                                // false y U/V tomarian X e Y -- la textura se
+                                // comprime segun el angulo, y a 45 grados se ve
+                                // aplastada a la mitad.
+                                //
+                                // Para un costado girado, la U correcta es la
+                                // DISTANCIA RECORRIDA sobre la cara en el plano
+                                // horizontal, no la proyeccion en un eje. Se
+                                // mide desde el primer vertice.
+                                const bool costadoGirado =
+                                    !planoX && !planoY && !constante(PZ);
+
                                 float U[4], V[4];
+                                if (costadoGirado) {
+                                    // Vector del lado en el plano XZ.
+                                    const float lx = PX[1] - PX[0];
+                                    const float lz = PZ[1] - PZ[0];
+                                    const float len = sqrtf(lx*lx + lz*lz);
+                                    const float inv = (len > 1e-6f) ? 1.0f / len : 0.0f;
+                                    for (int i = 0; i < 4; ++i) {
+                                        // Proyeccion de cada vertice sobre el
+                                        // lado: da 0..len a lo ancho de la cara.
+                                        const float d = ((PX[i] - PX[0]) * lx +
+                                                         (PZ[i] - PZ[0]) * lz) * inv;
+                                        U[i] = U0 + (U1 - U0) * d;
+                                        V[i] = U0 + (U1 - U0) * PY[i];
+                                    }
+                                } else {
                                 for (int i = 0; i < 4; ++i) {
                                     // U y V son siempre los dos ejes que SI
                                     // varian en esta cara.
-                                    const float u = planoX ? PZ[i] : PX[i];
-                                    const float v = planoY ? PZ[i] : PY[i];
+                                    float u = planoX ? PZ[i] : PX[i];
+                                    float v = planoY ? PZ[i] : PY[i];
+
+                                    // ========================================
+                                    // ⭐ LA TEXTURA SIGUE A LA SILUETA
+                                    // ========================================
+                                    // Tomar la UV de la posicion DENTRO DEL
+                                    // VOXEL asume que la pieza llena el voxel.
+                                    // La penca no: es un ovalo recortado, y en
+                                    // las rodajas de los extremos llega a medir
+                                    // 12 de 16 px.
+                                    //
+                                    // Con la UV cruda, esa rodaja estrecha
+                                    // muestra solo la BANDA CENTRAL de la
+                                    // imagen (de 0.125 a 0.875) y se come el
+                                    // borde del dibujo. Como cada rodaja tiene
+                                    // un ancho distinto, cada una enseña un
+                                    // trozo distinto: la textura se ve cortada
+                                    // a tiras y desalineada de la forma -- que
+                                    // es justo lo que se pidio arreglar.
+                                    //
+                                    // La penca real tiene su dibujo repartido
+                                    // por TODA la hoja, borde incluido. Asi que
+                                    // la UV se REESCALA al cuerpo util de la
+                                    // pieza: lo que ocupa la rodaja pasa a
+                                    // cubrir la imagen entera. El resultado es
+                                    // que las espinas del contorno caen en el
+                                    // contorno, y el mismo dibujo se estira o
+                                    // encoge con la silueta en vez de asomarse
+                                    // por una ventana movil.
+                                    //
+                                    // `uvCuerpo*` lo publica la rodaja justo
+                                    // antes de emitir sus caras; vale 0..1
+                                    // (sin reescalado) para todo lo que no sea
+                                    // penca, asi que el resto del mesher no se
+                                    // entera.
+                                    if (uvCuerpoAncho > 1e-6f) {
+                                        const float lo = planoX ? uvCuerpoZ0 : uvCuerpoX0;
+                                        const float an = planoX ? uvCuerpoLargoZ
+                                                                : uvCuerpoLargoX;
+                                        if (an > 1e-6f) u = (u - lo) / an;
+
+                                        // ====================================
+                                        // ⭐⭐ LA TAPA ENSEÑA LA IMAGEN ENTERA
+                                        // ====================================
+                                        // PEDIDO: "que toda la imagen este
+                                        // desde arriba completa y no tan
+                                        // pixeleada".
+                                        //
+                                        // En la tapa (planoY) la V se tomaba de
+                                        // Z, y la penca es FINA en Z: apenas 5
+                                        // de 16 px. O sea que la tapa
+                                        // muestreaba una FRANJA de 5 px de la
+                                        // imagen y la repetia a lo ancho --
+                                        // cuatro rayas de color estiradas, que
+                                        // es lo que se veia desde arriba.
+                                        //
+                                        // Ahora la V de la tapa se reescala al
+                                        // grosor real de la pieza, igual que ya
+                                        // se hacia con la U. Asi la cara de
+                                        // arriba recorre la imagen COMPLETA de
+                                        // 0 a 1 en vez de asomarse por una
+                                        // rendija, y el dibujo se lee entero.
+                                        if (planoY && uvTapaFinoLg > 1e-6f) {
+                                            // En la tapa, `v` sale de Z (ver
+                                            // arriba). Si la pieza es ancha en
+                                            // X, el eje fino ES Z y hay que
+                                            // reescalar la V; si es ancha en Z,
+                                            // el fino es X y la que va por el
+                                            // eje fino es la U.
+                                            if (uvTapaEnZ)
+                                                v = (v - uvTapaFino0) / uvTapaFinoLg;
+                                            else
+                                                u = (u - uvTapaFino0) / uvTapaFinoLg;
+                                        }
+                                    }
+
                                     // Del rango 0..1 del bloque al 0..1 de la
                                     // textura, con el margen de medio texel que
                                     // evita que el borde derecho envuelva al
@@ -23673,6 +25405,7 @@ public:
                                     U[i] = U0 + (U1 - U0) * u;
                                     V[i] = U0 + (U1 - U0) * v;
                                 }
+                                }   // fin del camino sin giro
 
                                 // El zoom sigue disponible para las tunas: acerca
                                 // las UV al centro de la imagen.
@@ -23792,7 +25525,13 @@ public:
                             // como un cubo con las esquinas apenas limadas.
                             const bool anchoEnX = (nf.orientacion == 0 ||
                                                    nf.orientacion == 1);
-                            auto pushRodaja = [&](float y0, float y1, float mordisco) {
+                            // `tapaAbajo`/`tapaArriba`: si esta rodaja cierra el
+                            // volumen por ese lado. Solo la primera y la ultima
+                            // las llevan -- ver la nota de "LAS TAPAS, SOLO EN
+                            // LOS EXTREMOS" al final de esta lambda.
+                            auto pushRodaja = [&](float y0, float y1, float mordisco,
+                                                  bool tapaAbajo = true,
+                                                  bool tapaArriba = true) {
                                 // Solo se recorta el lado libre: por donde la
                                 // planta sigue, la caja llega al borde.
                                 const float mX = anchoEnX ? mordisco : 0.0f;
@@ -23851,27 +25590,196 @@ public:
                                 // no se emite nada (evita caras invertidas).
                                 if (rx1 <= rx0 || rz1 <= rz0) return;
 
+                                // ⭐ LA TEXTURA SE ESTIRA AL CUERPO DE ESTA
+                                // RODAJA, no al voxel. Con esto la rodaja
+                                // estrecha de la punta enseña el dibujo
+                                // COMPLETO encogido, en vez de la banda central
+                                // de la imagen -- que es lo que partia la
+                                // textura a tiras entre rodajas.
+                                //
+                                // Se publica solo en el eje ANCHO: el del
+                                // grosor mide 5 px y estirarlo ahi repetiria el
+                                // dibujo a lo largo del canto.
+                                //
+                                // ⚠️ Se restaura al salir de la lambda (ver el
+                                // guard justo antes del return), porque las
+                                // espinas y las caras de union se emiten con la
+                                // misma pushCaraTex y no llevan recorte.
+                                uvCuerpoAncho  = 1.0f;
+                                uvCuerpoX0     = anchoEnX ? rx0 : 0.0f;
+                                uvCuerpoLargoX = anchoEnX ? (rx1 - rx0) : 1.0f;
+                                uvCuerpoZ0     = anchoEnX ? 0.0f : rz0;
+                                uvCuerpoLargoZ = anchoEnX ? 1.0f : (rz1 - rz0);
+
+                                // ⭐ EL EJE FINO, PARA LA TAPA.
+                                //
+                                // Los `uvCuerpo*` de arriba describen el eje
+                                // ANCHO y valen 0..1 en el otro -- justo lo que
+                                // la tapa NO necesita. Ella recorre los DOS
+                                // ejes horizontales, y el fino es el que mide 5
+                                // px: sin sus limites reales, la cara de arriba
+                                // muestrea una rendija de la imagen.
+                                //
+                                // Se publican aparte para no tocar el
+                                // significado de los otros cuatro, que usan los
+                                // costados.
+                                uvTapaFino0  = anchoEnX ? rz0 : rx0;
+                                uvTapaFinoLg = anchoEnX ? (rz1 - rz0) : (rx1 - rx0);
+                                uvTapaEnZ    = anchoEnX;
+                                // ⚠️ SE RESTAURAN LOS DOS, y el segundo importa
+                                // tanto como el primero: las espinas se emiten
+                                // con la misma `pushCaraTex` DESPUES de salir de
+                                // aqui. Si `uvTapaFinoLg` se quedara puesto,
+                                // sus tapas se reescalarian con el grosor de la
+                                // penca y saldrian con la textura estirada.
+                                struct RestaurarUV {
+                                    float& a; float& b;
+                                    ~RestaurarUV() { a = 0.0f; b = 0.0f; }
+                                } restaurarUV{ uvCuerpoAncho, uvTapaFinoLg };
+
+                                // ============================================
+                                // GIRO DE VERDAD: SE ROTAN LAS ESQUINAS
+                                // ============================================
+                                // La rodaja deja de ser una caja alineada con
+                                // los ejes del mundo. Sus cuatro esquinas se
+                                // rotan alrededor del centro del voxel, asi que
+                                // la penca puede quedar cruzada a cualquier
+                                // angulo y no solo a 0 o 45 grados.
+                                //
+                                // Por que importa: el desplazamiento por rodaja
+                                // que habia antes inclinaba el CONJUNTO, pero
+                                // cada pieza seguia siendo un cubo alineado. Una
+                                // mata entera de cubos paralelos se lee como una
+                                // reja por mucho que el conjunto vaya torcido.
+                                //
+                                // ⚠️ SE ROTA DENTRO DEL VOXEL, SIN SALIRSE. La
+                                // colision va celda a celda (ver nopalHitboxCon),
+                                // asi que una esquina que invadiera al vecino se
+                                // veria pero no se podria tocar. Al rotar, la
+                                // diagonal de la rodaja es mas larga que su lado,
+                                // asi que primero se ENCOGE lo justo para que la
+                                // pieza girada siga cabiendo.
+                                //
+                                // ⚠️ EL ENCOGIDO NO ES CODIGO MUERTO, aunque un
+                                // barrido del cladodio normal diga que nunca se
+                                // activa. Medido, el factor `k` que hace falta:
+                                //
+                                //   cladodio de mata 8x7, centrado ... 1.000 (no
+                                //     toca nada: la pieza ya cabe girada)
+                                //   penca suelta 15x13 ............... 0.804 a 41 grados
+                                //   rodaja descentrada (mx=0.75) ..... 0.748 a 41 grados
+                                //   rodaja muy descentrada (mx=0.90) . 0.297 a 41 grados
+                                //
+                                // O sea: se activa en la penca suelta y en las
+                                // rodajas corridas hacia un lado (las que quedan
+                                // asi al soldarse por una cara). Quitarlo deja
+                                // justo esos casos asomando fuera de su celda.
+                                const float cx = 0.5f, cz = 0.5f;
+                                const float ang = nf.anguloY;
+                                const float ca_ = cosf(ang), sa_ = sinf(ang);
+
+                                // Semiejes de la rodaja respecto a su centro.
+                                float hx = (rx1 - rx0) * 0.5f;
+                                float hz = (rz1 - rz0) * 0.5f;
+                                const float mx = (rx0 + rx1) * 0.5f;
+                                const float mz = (rz0 + rz1) * 0.5f;
+
+                                // Media diagonal proyectada tras rotar: es el
+                                // radio que la pieza girada necesita en cada eje.
+                                const float aca = fabsf(ca_), asa = fabsf(sa_);
+                                const float radX = hx * aca + hz * asa;
+                                const float radZ = hx * asa + hz * aca;
+                                // Cuanto hay desde el centro de la rodaja al
+                                // borde util del voxel, por el lado mas corto.
+                                constexpr float EB = 0.0015f;
+                                const float libreX = fminf(mx - EB, (1.0f - EB) - mx);
+                                const float libreZ = fminf(mz - EB, (1.0f - EB) - mz);
+                                // Si la pieza girada no cabe, se encoge en
+                                // bloque (los dos semiejes por igual, para no
+                                // deformar la silueta que acaba de calcularse).
+                                float k = 1.0f;
+                                if (radX > libreX && radX > 1e-6f) k = fminf(k, libreX / radX);
+                                if (radZ > libreZ && radZ > 1e-6f) k = fminf(k, libreZ / radZ);
+                                if (k < 0.15f) k = 0.15f;   // nunca desaparece
+                                hx *= k; hz *= k;
+
+                                // Las cuatro esquinas, ya rotadas. Orden fijo
+                                // (-,-) (+,-) (+,+) (-,+) para que las caras
+                                // laterales salgan con el winding correcto.
+                                const float ex[4] = { -hx, +hx, +hx, -hx };
+                                const float ez[4] = { -hz, -hz, +hz, +hz };
+                                float px[4], pz[4];
+                                for (int q = 0; q < 4; ++q) {
+                                    px[q] = cx + (mx - cx) + ex[q] * ca_ - ez[q] * sa_;
+                                    pz[q] = cz + (mz - cz) + ex[q] * sa_ + ez[q] * ca_;
+                                }
+
                                 // Cada cara consulta SU vecino: la cicatriz de
                                 // union sale solo por el lado que toca a un
                                 // cladodio, el resto lleva la textura normal.
-                                pushCaraTex(texLado(-1,0,0),
-                                         rx0, y0, rz1,  rx0, y0, rz0,
-                                         rx0, y1, rz0,  rx0, y1, rz1);   // -X
-                                pushCaraTex(texLado( 1,0,0),
-                                         rx1, y0, rz0,  rx1, y0, rz1,
-                                         rx1, y1, rz1,  rx1, y1, rz0);   // +X
-                                pushCaraTex(texLado(0,0,-1),
-                                         rx0, y0, rz0,  rx1, y0, rz0,
-                                         rx1, y1, rz0,  rx0, y1, rz0);   // -Z
-                                pushCaraTex(texLado(0,0, 1),
-                                         rx1, y0, rz1,  rx0, y0, rz1,
-                                         rx0, y1, rz1,  rx1, y1, rz1);   // +Z
-                                pushCaraTex(texLado(0, 1,0),
-                                         rx0, y1, rz0,  rx1, y1, rz0,
-                                         rx1, y1, rz1,  rx0, y1, rz1);   // +Y
-                                pushCaraTex(texLado(0,-1,0),
-                                         rx0, y0, rz1,  rx1, y0, rz1,
-                                         rx1, y0, rz0,  rx0, y0, rz0);   // -Y
+                                //
+                                // El vecino que se consulta sigue siendo el del
+                                // eje del mundo mas parecido a esa cara: la
+                                // cicatriz es una pista visual, y girarla con la
+                                // penca la dejaria mirando a un lado donde no hay
+                                // nada. Se elige por el signo del seno/coseno.
+                                const bool giroCasiX = (aca >= asa);
+                                auto vecinoDe = [&](int lado) {
+                                    // lado: 0 = (-,-)->(+,-)  1 = (+,-)->(+,+)
+                                    //       2 = (+,+)->(-,+)  3 = (-,+)->(-,-)
+                                    switch (lado) {
+                                        case 0: return giroCasiX ? texLado(0,0,-1) : texLado( 1,0,0);
+                                        case 1: return giroCasiX ? texLado( 1,0,0) : texLado(0,0, 1);
+                                        case 2: return giroCasiX ? texLado(0,0, 1) : texLado(-1,0,0);
+                                        default:return giroCasiX ? texLado(-1,0,0) : texLado(0,0,-1);
+                                    }
+                                };
+
+                                // Los cuatro costados.
+                                for (int q = 0; q < 4; ++q) {
+                                    const int r = (q + 1) & 3;
+                                    pushCaraTex(vecinoDe(q),
+                                        px[q], y0, pz[q],  px[r], y0, pz[r],
+                                        px[r], y1, pz[r],  px[q], y1, pz[q]);
+                                }
+                                // ========================================
+                                // ⭐⭐ LAS TAPAS, SOLO EN LOS EXTREMOS
+                                // ========================================
+                                // BUG REPORTADO: vista desde arriba, la penca
+                                // colocada se ve "pixeleada" y rota, como un
+                                // amasijo en vez de una hoja limpia.
+                                //
+                                // LA CAUSA: cada rodaja emitia SU PROPIA tapa y
+                                // SU PROPIO fondo. Con 10 rodajas eso son
+                                // VEINTE laminas horizontales apiladas dentro
+                                // de la pieza, una cada 1,6 px de altura.
+                                //
+                                // Ninguna de las 18 interiores se ve nunca
+                                // --quedan tapadas por la rodaja de encima y la
+                                // de abajo-- pero el recorte por alfa las deja
+                                // asomar por los huecos del contorno, y
+                                // mirando desde arriba se ven TODAS a la vez
+                                // superpuestas. De ahi el aspecto picado.
+                                //
+                                // Y ademas peleaban entre si en el z-buffer:
+                                // la tapa de la rodaja i y el fondo de la i+1
+                                // comparten EXACTAMENTE el mismo plano.
+                                //
+                                // Ahora solo se emiten las dos que de verdad
+                                // cierran el volumen: la tapa de la ultima
+                                // rodaja y el fondo de la primera. Las caras de
+                                // los cuatro costados siguen saliendo en todas,
+                                // que es lo que da la curva del perfil.
+                                if (tapaArriba) {
+                                    pushCaraTex(texLado(0, 1,0),
+                                        px[0], y1, pz[0],  px[1], y1, pz[1],
+                                        px[2], y1, pz[2],  px[3], y1, pz[3]);   // +Y
+                                }
+                                if (tapaAbajo) {
+                                    pushCaraTex(texLado(0,-1,0),
+                                        px[3], y0, pz[3],  px[2], y0, pz[2],
+                                        px[1], y0, pz[1],  px[0], y0, pz[0]);   // -Y
+                                }
                             };
 
                             // ============================================
@@ -23905,20 +25813,81 @@ public:
                                 //  - El apice es redondeado y ANCHO, sin
                                 //    escotadura (Reyes-Aguero 2005).
                                 //
-                                // Ocho rodajas en vez de cinco: con pocas, la
-                                // curva se ve como escalones en vez de contorno.
-                                constexpr int RODAJAS = 8;
-                                static const float PERFIL[RODAJAS] = {
-                                    0.25f,   // cuello de insercion (20-30%)
-                                    0.55f,
-                                    0.78f,
-                                    0.92f,
-                                    1.00f,   // punto mas ancho: ~0.58 L
-                                    0.97f,
-                                    0.86f,
-                                    0.66f,   // apice redondeado y ancho
-                                };
+                                // ============================================
+                                // EL PERFIL SE CALCULA, NO SE COPIA DE UNA TABLA
+                                // ============================================
+                                // Antes esto era una tabla `static const` de 8
+                                // valores, IDENTICA en todas las pencas del
+                                // mundo. La curva era correcta pero clonada: una
+                                // nopalera entera con el mismo recorte se lee
+                                // como un patron repetido, y eso es justo lo que
+                                // delata que es procedural.
+                                //
+                                // Ahora la curva se evalua con los tres numeros
+                                // que trae cada penca (ver "LA SILUETA PROPIA DE
+                                // ESTA PENCA"): donde esta su punto mas ancho,
+                                // cuanto se cierra su cuello y cuanto escala su
+                                // ancho. Misma botanica, 10.000 siluetas.
+                                //
+                                // ⭐ 10 RODAJAS, Y EL NUMERO ESTA MEDIDO.
+                                //
+                                // Suben de 8 porque con el punto mas ancho ya
+                                // variable, 8 escalones dejaban ver el salto
+                                // justo donde la curva cambia de sentido. Pero
+                                // no se sube mas, y la razon es que cada rodaja
+                                // son SEIS caras: el coste es lineal y el nopal
+                                // es denso en el desierto.
+                                //
+                                // Error maximo de silueta frente a la curva
+                                // continua, sobre el ancho de 8 px del cladodio:
+                                //
+                                //     6 rodajas  1.34 px   36 caras
+                                //     8 rodajas  1.01 px   48 caras
+                                //    10 rodajas  0.81 px   60 caras   <- aqui
+                                //    12 rodajas  0.67 px   72 caras
+                                //    16 rodajas  0.51 px   96 caras
+                                //
+                                // De 10 a 12 se gana 0.14 px -- menos de un
+                                // pixel de textura, o sea invisible -- y se
+                                // paga un 20% mas de geometria. Por debajo de
+                                // 10 el escalon si se ve. 10 es donde la curva
+                                // de rendimiento decreciente se cruza con el
+                                // limite de lo que el ojo distingue.
+                                constexpr int RODAJAS = 10;
                                 const float alto = (by1 - by0) / (float)RODAJAS;
+
+                                // Ancho relativo (0..1) a la altura `t` (0..1).
+                                // Dos arcos cosenoidales unidos en el punto mas
+                                // ancho: por debajo sube desde el cuello, por
+                                // encima baja hasta el apice. El coseno da las
+                                // tangentes suaves que una parabola no tiene, y
+                                // es lo que hace que el contorno se vea curvo y
+                                // no como dos rectas.
+                                auto anchoRel = [&](float t) {
+                                    const float pico = nf.alturaMaxAncho;
+                                    const float cuello = nf.cuello;
+                                    // Apice: ancho y redondeado, sin escotadura
+                                    // (Reyes-Aguero 2005). No baja tanto como el
+                                    // cuello -- una penca no acaba en punta.
+                                    constexpr float APICE = 0.62f;
+                                    float w;
+                                    if (t <= pico) {
+                                        // Del cuello al maximo.
+                                        const float u = (pico > 1e-4f) ? (t / pico) : 1.0f;
+                                        w = cuello + (1.0f - cuello) *
+                                            (0.5f - 0.5f * cosf(u * 3.14159265f));
+                                    } else {
+                                        // Del maximo al apice.
+                                        const float u = (1.0f - pico > 1e-4f)
+                                                      ? ((t - pico) / (1.0f - pico)) : 1.0f;
+                                        w = APICE + (1.0f - APICE) *
+                                            (0.5f + 0.5f * cosf(u * 3.14159265f));
+                                    }
+                                    w *= nf.escalaAncho;
+                                    if (w > 1.0f) w = 1.0f;
+                                    if (w < 0.08f) w = 0.08f;
+                                    return w;
+                                };
                                 // Cuanto se puede morder como maximo: lo que
                                 // sobra del ancho, dejando siempre un minimo
                                 // para que la rodaja no desaparezca.
@@ -23929,17 +25898,60 @@ public:
                                 for (int i = 0; i < RODAJAS; ++i) {
                                     const float ya = by0 + alto * i;
                                     const float yb = ya + alto;
+                                    // El ancho se evalua en el CENTRO de la
+                                    // rodaja: tomarlo en el borde sesga la
+                                    // silueta media rodaja hacia arriba.
+                                    const float t = ((float)i + 0.5f) / (float)RODAJAS;
                                     // Lo que le falta a esta rodaja para
                                     // alcanzar el ancho maximo, repartido a
                                     // los dos lados.
-                                    float m = (1.0f - PERFIL[i]) * anchoTotal * 0.5f;
+                                    float m = (1.0f - anchoRel(t)) * anchoTotal * 0.5f;
                                     if (m > margenMax) m = margenMax;
                                     if (m < 0.0f) m = 0.0f;
                                     // Si la planta sigue por arriba o por
                                     // abajo, esa union va recta.
                                     if (i == 0 && nf.uneAbajo) m = 0.0f;
                                     if (i == RODAJAS - 1 && nf.uneArriba) m = 0.0f;
-                                    pushRodaja(ya, yb, m);
+
+                                    // ================================
+                                    // ⭐⭐ LAS TAPAS DE LOS EXTREMOS, SIEMPRE
+                                    // ================================
+                                    // BUG REPORTADO: a las pencas naturales les
+                                    // falta textura en un trozo del bloque --
+                                    // se ve un hueco vacio.
+                                    //
+                                    // LA CAUSA, y fue un error mio del cambio
+                                    // anterior: las tapas se suprimian cuando la
+                                    // planta continuaba por ese lado
+                                    // (`!nf.uneArriba` / `!nf.uneAbajo`),
+                                    // dando por hecho que la penca vecina la
+                                    // taparia.
+                                    //
+                                    // No la tapa. Las rodajas se ESTRECHAN hacia
+                                    // las puntas (ver `anchoRel`): la union va a
+                                    // ancho completo en ESTA celda, pero la
+                                    // vecina empieza con el ancho que le toque
+                                    // por su propio perfil -- casi siempre MAS
+                                    // ESTRECHO, porque alli es el cuello de la
+                                    // penca. La corona que sobra queda sin
+                                    // cerrar y se ve el interior hueco.
+                                    //
+                                    // Se emiten SIEMPRE las dos tapas de los
+                                    // extremos. El z-fighting que esto podia
+                                    // causar ya no existe: las 18 tapas
+                                    // interiores --que eran el problema de
+                                    // verdad-- siguen suprimidas, y estas dos
+                                    // caen en el plano de la union, donde como
+                                    // mucho coinciden con la cara de una penca
+                                    // vecina que casi nunca tiene su mismo
+                                    // ancho.
+                                    //
+                                    // Cerrar de mas cuesta dos quads por penca;
+                                    // cerrar de menos deja un agujero. El lado
+                                    // seguro del error esta claro.
+                                    const bool esPrimera = (i == 0);
+                                    const bool esUltima  = (i == RODAJAS - 1);
+                                    pushRodaja(ya, yb, m, esPrimera, esUltima);
                                 }
 
                                 // ========================================
@@ -24028,11 +26040,14 @@ public:
                                     // El ancho de la penca a ESA altura, para
                                     // que la espina salga del borde real y no
                                     // del rectangulo que la envuelve.
+                                    // Se evalua la curva EN LA ALTURA EXACTA de
+                                    // la espina, sin redondear a rodaja: antes
+                                    // habia que buscar el escalon mas cercano
+                                    // en la tabla PERFIL, pero `anchoRel` es
+                                    // continua y acepta cualquier t. La espina
+                                    // sale del borde real y no del escalon.
                                     const float t = (yc - by0) / (by1 - by0);
-                                    int ri = (int)(t * RODAJAS);
-                                    if (ri < 0) ri = 0;
-                                    if (ri >= RODAJAS) ri = RODAJAS - 1;
-                                    float m = (1.0f - PERFIL[ri]) * anchoTotal * 0.5f;
+                                    float m = (1.0f - anchoRel(t)) * anchoTotal * 0.5f;
                                     if (m > margenMax) m = margenMax;
                                     if (m < 0.0f) m = 0.0f;
 
@@ -24158,6 +26173,288 @@ public:
                                                       tx1,ty0,tz0, tx0,ty0,tz0);
                                 }
                                 uvZoom = 0.0f;   // el resto usa la textura entera
+                            }
+
+                            // ====================================================
+                            // ⭐⭐ LA MATA: LAS PENCAS EXTRA DE ESTA MISMA CELDA
+                            // ====================================================
+                            // PEDIDO: "que el nopal permita tener 3 o 4 pencas mas
+                            // en su misma casilla en cualquier direccion --
+                            // encima, abajo, al lado, este, sur, norte, oeste,
+                            // mil formas; y que el tallo se conecte con las pencas
+                            // y haga una especie de rollo, y alrededor crezcan las
+                            // pencas sueltas".
+                            //
+                            // Hasta 7 pencas extra brotan del PERIMETRO de la
+                            // penca base, cada una con su direccion, su giro, su
+                            // inclinacion y su tamano. Nada de eso se guarda: el
+                            // estado del bloque lleva solo las decisiones
+                            // (cuantas, hacia donde las tres primeras, la
+                            // semilla) y la forma sale de un hash de la posicion.
+                            // Ver la nota de FAM_NOPAL en BloqueCompuesto.h.
+                            //
+                            // ⚠️ TODO SE DIBUJA DESDE ESTA CELDA. Es la regla que
+                            // ya siguen el maguey y el agave: una planta que
+                            // ocupa mas de una celda se dibuja entera desde la de
+                            // abajo, porque repartir la geometria y recortar cada
+                            // franja pierde los quads que cruzan la frontera en
+                            // diagonal. Por eso `colocar()` acota el centro a
+                            // [0.12, 0.88]: la penca extra se queda DENTRO de su
+                            // casilla y no invade la del vecino.
+                            if (Compuesto::Nopal::esNopal(block)) {
+                                using namespace Compuesto;
+                                const int nExtra = (int)Nopal::extrasDe(block);
+
+                                // --- EL ROLLO DEL TALLO ---
+                                //
+                                // "que el tallo se conecte con las pencas y haga
+                                // una especie de rollo". El tallo deja de ser una
+                                // columna recta: se dibuja como un prisma corto y
+                                // GIRADO que enlaza con cada penca, de modo que
+                                // el conjunto se lee como un rollo de pencas
+                                // encadenadas y no como un palo con hojas.
+                                //
+                                // Va ANTES que las pencas para que estas queden
+                                // por encima en el orden de dibujo.
+                                if (Nopal::tieneRollo(block) && nExtra > 0) {
+                                    const unsigned hr =
+                                        Nopal::hashPos((int)wx, (int)wy, (int)wz,
+                                                       Nopal::semillaDe(block));
+                                    // Grosor del rollo: crece con el numero de
+                                    // pencas, porque un tallo que sostiene siete
+                                    // pencas es mas grueso que el que sostiene una.
+                                    const float gr = (2.5f + 0.45f * (float)nExtra) / 16.0f;
+                                    const float ar = Nopal::aleatorio01(hr, 11) * 1.5707963f;
+                                    const float ca = cosf(ar), sa = sinf(ar);
+
+                                    // Prisma de 4 caras alrededor del eje vertical,
+                                    // girado `ar`. Las cuatro esquinas se rotan a
+                                    // mano: es un cuadrado torcido, no una caja
+                                    // alineada, y eso es lo que da el aspecto de
+                                    // rollo.
+                                    const float ex[4] = { -gr,  gr,  gr, -gr };
+                                    const float ez[4] = { -gr, -gr,  gr,  gr };
+                                    float px[4], pz[4];
+                                    for (int k = 0; k < 4; ++k) {
+                                        px[k] = 0.5f + ex[k] * ca - ez[k] * sa;
+                                        pz[k] = 0.5f + ex[k] * sa + ez[k] * ca;
+                                    }
+                                    const float ry0 = 0.02f, ry1 = 0.98f;
+                                    for (int k = 0; k < 4; ++k) {
+                                        const int k2 = (k + 1) & 3;
+                                        pushCaraTex(texture,
+                                            px[k],  ry0, pz[k],
+                                            px[k2], ry0, pz[k2],
+                                            px[k2], ry1, pz[k2],
+                                            px[k],  ry1, pz[k]);
+                                    }
+                                }
+
+                                // --- LAS PENCAS SUELTAS ALREDEDOR ---
+                                for (int ip = 0; ip < nExtra; ++ip) {
+                                    const Nopal::Extra ex =
+                                        Nopal::colocar(block, ip,
+                                                       (int)wx, (int)wy, (int)wz);
+
+                                    // Semiejes de esta penca. La extra es mas
+                                    // pequena que la base (ex.escala), y conserva
+                                    // GROSOR REAL: es una pieza carnosa, no una
+                                    // calcomania plana. Es la misma regla que ya
+                                    // obligo a dar 4 px a la penca suelta.
+                                    // ⭐ SEMIEJES DE LA PENCA ENCADENADA.
+                                    //
+                                    // ⚠️ `SEMIEJE_PENCA` TIENE QUE COINCIDIR
+                                    // con el de `Nopal::colocar` en
+                                    // BloqueCompuesto.h: alli se usa para
+                                    // espaciar la cadena (alto = 2*semieje) y
+                                    // aqui para dibujarla. Si los dos se
+                                    // separan, las pencas dejan de tocarse por
+                                    // el borde -- se solapan o se despegan -- y
+                                    // no hay ningun aviso: compila y se ve mal.
+                                    //
+                                    // El valor es pequeno a proposito: con 7
+                                    // pencas encadenadas dentro de UNA celda,
+                                    // cada eslabon solo puede medir una
+                                    // fraccion. Con 0.42 la cadena medía mas de
+                                    // tres celdas y el acotado la aplastaba
+                                    // contra el techo (medido: 85% de las
+                                    // pencas saturaban el limite).
+                                    const float sLargo  =
+                                        Compuesto::Nopal::SEMIEJE * ex.escala;
+                                    const float sAncho  = 0.115f * ex.escala;
+                                    const float sGrueso = 0.045f * ex.escala;
+
+                                    const float ca = cosf(ex.anguloY);
+                                    const float sa = sinf(ex.anguloY);
+
+                                    // Las 8 esquinas de la caja, rotadas en Y y
+                                    // volcadas por `inclina`. El volcado desplaza
+                                    // la tapa de arriba respecto a la de abajo,
+                                    // que es como se vence una penca real.
+                                    //
+                                    // ⭐ EL UV SE RESUELVE SOLO. `pushCaraTex`
+                                    // deduce los dos ejes que varian en cada cara
+                                    // y, para las caras GIRADAS, proyecta la
+                                    // distancia recorrida sobre el lado en vez de
+                                    // la proyeccion en un eje. Por eso una penca
+                                    // a 23 grados no sale con la textura
+                                    // aplastada: ese trabajo ya estaba hecho.
+                                    const float incX = ex.inclina * ca;
+                                    const float incZ = ex.inclina * sa;
+
+                                    // ========================================
+                                    // ⭐⭐ LA PENCA ES UN OVALO, NO UNA CAJA
+                                    // ========================================
+                                    // PEDIDO: "que puedan tener mas figuras las
+                                    // pencas y que la textura este acorde a la
+                                    // forma sin deformarse o tener partes
+                                    // invisibles".
+                                    //
+                                    // Antes eran 8 esquinas: un ladrillo. Un
+                                    // cladodio de Opuntia es un OVALO EN LAGRIMA
+                                    // --estrecho en el cuello por donde nace,
+                                    // ancho en el vientre, redondeado arriba--
+                                    // y eso no se puede insinuar con 4 vertices
+                                    // por tapa.
+                                    //
+                                    // Ahora se construye por RODAJAS: N niveles
+                                    // a lo alto, cada uno con su semiancho. El
+                                    // perfil de anchos es lo que da la figura, y
+                                    // va en una tabla por FORMA -- de ahi salen
+                                    // las "mas figuras" que pediste, sin tocar
+                                    // la geometria.
+                                    //
+                                    // ⭐ POR QUE NO SE DEFORMA LA TEXTURA.
+                                    //
+                                    // Cada rodaja recibe su franja de UV segun su
+                                    // ALTURA REAL dentro de la penca (v = t), no
+                                    // "la textura entera estirada". Asi el pixel
+                                    // sigue siendo cuadrado aunque la rodaja sea
+                                    // estrecha, que es justo lo que evita el
+                                    // aplastamiento.
+                                    //
+                                    // ⭐ POR QUE NO HAY PARTES INVISIBLES.
+                                    //
+                                    // El cinturon de cada rodaja se cierra con
+                                    // sus CUATRO costados y ademas se emiten la
+                                    // tapa de abajo y la de arriba. Antes, con
+                                    // la caja, las tapas existian pero los lados
+                                    // de una penca girada compartian plano con
+                                    // su gemela y el culling se comia uno de los
+                                    // dos.
+                                    constexpr int RODAJAS = 5;
+
+                                    // LAS FIGURAS. Cada fila es el semiancho
+                                    // relativo de las 5 rodajas, de la base a la
+                                    // punta. Son siluetas reales de cladodio:
+                                    //
+                                    //   0 LAGRIMA  el canonico: cuello fino,
+                                    //             vientre ancho, punta redonda.
+                                    //   1 RAQUETA  casi tan ancho arriba como en
+                                    //             el medio: la penca madura.
+                                    //   2 LANCEOLA alargado y estrecho: los
+                                    //             brotes jovenes.
+                                    //   3 ABANICO  se ensancha hacia arriba: las
+                                    //             pencas de borde.
+                                    static const float FIGURAS[4][RODAJAS] = {
+                                        { 0.42f, 0.82f, 1.00f, 0.88f, 0.46f },
+                                        { 0.55f, 0.90f, 1.00f, 0.96f, 0.70f },
+                                        { 0.38f, 0.66f, 0.80f, 0.70f, 0.34f },
+                                        { 0.34f, 0.62f, 0.86f, 1.00f, 0.74f },
+                                    };
+                                    // La figura sale del hash: es estable y
+                                    // distinta en cada penca de la cadena.
+                                    const int figura = (int)(
+                                        Compuesto::Nopal::aleatorio01(
+                                            Compuesto::Nopal::hashPos(
+                                                (int)wx, (int)wy, (int)wz,
+                                                Compuesto::Nopal::semillaDe(block))
+                                            ^ (unsigned)(ip * 0x27D4EB2Du), 7)
+                                        * 4.0f) & 3;
+
+                                    // Un punto del contorno de la rodaja `r`.
+                                    // `lado` 0..3 recorre el perimetro: la penca
+                                    // es fina en Z y ancha en X, asi que el
+                                    // contorno es un rectangulo achatado al que
+                                    // el perfil le da la curva.
+                                    auto vert = [&](int r, int lado,
+                                                    float& ox, float& oy, float& oz) {
+                                        const float t = (float)r / (float)(RODAJAS - 1);
+                                        const float w = FIGURAS[figura][r];
+                                        // -1 o +1 en cada eje segun el lado.
+                                        const float sx = (lado == 0 || lado == 3) ? -1.0f : 1.0f;
+                                        const float sz = (lado < 2) ? -1.0f : 1.0f;
+
+                                        const float lx = sx * sAncho  * w;
+                                        const float lz = sz * sGrueso * w;
+                                        const float ly = (t * 2.0f - 1.0f) * sLargo;
+
+                                        const float rx = lx * ca - lz * sa;
+                                        const float rz = lx * sa + lz * ca;
+                                        // El volcado crece con la altura: la
+                                        // penca se vence poco a poco, no de
+                                        // golpe a media altura como antes.
+                                        ox = ex.cx + rx + incX * t;
+                                        oy = ex.cy + ly;
+                                        oz = ex.cz + rz + incZ * t;
+                                    };
+                                    // --- EL CINTURON: rodaja con rodaja ---
+                                    //
+                                    // Cada par de rodajas consecutivas se cose
+                                    // por sus cuatro costados. De ahi sale la
+                                    // superficie curva: el ancho cambia de una
+                                    // rodaja a la siguiente, asi que el costado
+                                    // no es vertical sino inclinado, y es eso lo
+                                    // que redondea el perfil.
+                                    for (int r = 0; r + 1 < RODAJAS; ++r) {
+                                        for (int lado = 0; lado < 4; ++lado) {
+                                            const int l2 = (lado + 1) & 3;
+                                            float ax,ay,az, bx2,by2,bz2;
+                                            float cx2,cy2,cz2, dx2,dy2,dz2;
+                                            vert(r,     lado, ax,  ay,  az);
+                                            vert(r,     l2,   bx2, by2, bz2);
+                                            vert(r + 1, l2,   cx2, cy2, cz2);
+                                            vert(r + 1, lado, dx2, dy2, dz2);
+                                            pushCaraTex(texture,
+                                                        ax,  ay,  az,
+                                                        bx2, by2, bz2,
+                                                        cx2, cy2, cz2,
+                                                        dx2, dy2, dz2);
+                                        }
+                                    }
+
+                                    // --- LAS DOS TAPAS ---
+                                    //
+                                    // Sin ellas la penca se ve HUECA por los
+                                    // extremos: un tubo abierto. Son el caso de
+                                    // "partes invisibles" mas facil de olvidar,
+                                    // porque solo se notan mirando desde arriba
+                                    // o desde abajo.
+                                    //
+                                    // El winding de la de abajo va al reves que
+                                    // el de la de arriba: las dos miran hacia
+                                    // fuera de la penca, que es lo que espera
+                                    // GL_CULL_FACE(GL_BACK).
+                                    {
+                                        float t0[4][3], t1[4][3];
+                                        for (int lado = 0; lado < 4; ++lado) {
+                                            vert(0, lado,
+                                                 t0[lado][0], t0[lado][1], t0[lado][2]);
+                                            vert(RODAJAS - 1, lado,
+                                                 t1[lado][0], t1[lado][1], t1[lado][2]);
+                                        }
+                                        pushCaraTex(texture,
+                                            t0[0][0],t0[0][1],t0[0][2],
+                                            t0[3][0],t0[3][1],t0[3][2],
+                                            t0[2][0],t0[2][1],t0[2][2],
+                                            t0[1][0],t0[1][1],t0[1][2]);
+                                        pushCaraTex(texture,
+                                            t1[0][0],t1[0][1],t1[0][2],
+                                            t1[1][0],t1[1][1],t1[1][2],
+                                            t1[2][0],t1[2][1],t1[2][2],
+                                            t1[3][0],t1[3][1],t1[3][2]);
+                                    }
+                                }
                             }
 
                         } else if (Acicula::esAciculaOcote(block)) {
@@ -24289,9 +26586,60 @@ public:
                             // literal), subir la densidad en el header habria
                             // dejado el array corto sin que nada avisara.
                             Acicula::Mechon mech[Acicula::MAX_MECHONES];
+
+                            // ================================================
+                            // ⭐ LOD DE ACICULAS: MENOS MECHONES DE LEJOS
+                            // ================================================
+                            // MEDIDO: el follaje de ocote era el 75-85% de las
+                            // caras del mundo. Una celda de acicula emite 14
+                            // mechones x 2 planos cruzados x 2 caras = 56
+                            // quads, frente a los 6 de un cubo normal. Un
+                            // ocote entero son ~6.700 caras.
+                            //
+                            // Los 14 mechones estan justificados DE CERCA, y
+                            // su propio comentario lo dice: "con 6 la copa se
+                            // leia como sprites CONTABLES... con 14 el ojo
+                            // deja de contarlos". Eso es cierto a diez metros.
+                            // A cincuenta, con niebla encima, no se distingue
+                            // un pino de una mancha verde -- y ahi se estan
+                            // pagando 56 quads por celda para nada.
+                            //
+                            // ⚠️ SE RECORTA CON `maxSalida`, NO TOCANDO LA
+                            // TABLA DE LA ESPECIE. Es lo que hace que esto sea
+                            // gratis: MechonesDe reparte los mechones con una
+                            // espiral de Fibonacci sobre la esfera, que se
+                            // redistribuye sola para cualquier n. O sea que
+                            // con 5 mechones la copa sigue siendo radial y
+                            // equilibrada, solo menos tupida -- no se queda un
+                            // lado pelado, que es lo que pasaria recortando
+                            // los ultimos de la lista.
+                            //
+                            // La distancia se mide en horizontal y por celda.
+                            // El jugador viene de g_hojaJugador*, los mismos
+                            // escalares que ya usa el viento de la hoja (ver
+                            // su nota: se leen sin sincronizar a proposito, y
+                            // un frame de desfase aqui solo puede cambiar el
+                            // detalle de una copa lejana).
+                            int topeMech = Acicula::MAX_MECHONES;
+                            {
+                                const float ddx = wx - g_hojaJugadorX;
+                                const float ddz = wz - g_hojaJugadorZ;
+                                const float d2  = ddx * ddx + ddz * ddz;
+
+                                // Los cortes son en bloques al cuadrado para
+                                // no pagar una raiz por celda de follaje.
+                                //   < 32 bloques : copa completa, como antes
+                                //   < 64 bloques : la mitad
+                                //   mas alla     : lo minimo que sigue
+                                //                  leyendose como follaje
+                                if      (d2 < 32.0f * 32.0f) topeMech = Acicula::MAX_MECHONES;
+                                else if (d2 < 64.0f * 64.0f) topeMech = 7;
+                                else                          topeMech = 4;
+                            }
+
                             const int nMech = Acicula::MechonesDe(
                                 block, (int)wx, (int)wy, (int)wz,
-                                mech, Acicula::MAX_MECHONES, maderaAlrededor);
+                                mech, topeMech, maderaAlrededor);
 
                             // Emite un quad plano orientado libremente. Es como
                             // pushQuad pero sin obligar a que sea vertical: un
@@ -28010,8 +30358,43 @@ public:
                 }
             }
 
-            if (frustum.isChunkVisible(chunkWorldX, 0, chunkWorldZ, CHUNK_SIZE,
-                                       (float)CHUNK_HEIGHT)) {
+            // ====================================================================
+            // ⭐ LA CAJA DEL FRUSTUM SE AJUSTA A LO QUE EL CHUNK CONTIENE
+            // ====================================================================
+            // Antes se probaba la columna ENTERA: 16 x 512 x 16. Un chunk de 512
+            // de alto cuyo terreno ocupa 30 bloques sigue siendo, para el test,
+            // una torre que va del fondo del mundo hasta el cielo -- y eso
+            // intersecta el frustum casi siempre, mirase donde mirase el jugador.
+            //
+            // El resultado medido: culled=41 de 102 chunks. La mitad de lo que se
+            // enviaba a la GPU no tenia geometria a la vista, y aun asi pagaba sus
+            // draw calls y su procesado de vertices.
+            //
+            // Con la caja acotada al terreno real (suelo..techo, que la paleta ya
+            // sabe y cuesta 32 comparaciones) el test descarta de verdad: mirando
+            // al horizonte, los chunks que quedan muy por encima o por debajo de
+            // la vista se van.
+            //
+            // ⚠️ SE AMPLIA UN SUBCHUNK POR ARRIBA. Las plantas, las ramas y la
+            // nieve se dibujan en la celda que ocupan, pero el sprite puede
+            // sobresalir de ella; sin el margen, un arbol en el borde superior del
+            // chunk podria recortarse al mirarlo desde abajo. 16 bloques cubren de
+            // sobra cualquier sprite del motor.
+            const int yBase  = chunk->sueloTerreno();
+            const int yTecho = chunk->techoTerreno();
+
+            // Un chunk de puro aire no tiene nada que dibujar: techo == suelo.
+            // Se descarta aqui y ni siquiera llega al test de planos.
+            if (yTecho <= yBase) {
+                chunksCulled++;
+                continue;
+            }
+
+            const float cajaBase = (float)yBase;
+            const float cajaAlto = (float)(yTecho - yBase + SUBCHUNK_HEIGHT);
+
+            if (frustum.isChunkVisible(chunkWorldX, cajaBase, chunkWorldZ,
+                                       CHUNK_SIZE, cajaAlto)) {
                 // Calcular distancia al jugador (squared para evitar sqrt)
                 float dx = chunkWorldX + CHUNK_SIZE/2.0f - playerPos.x;
                 float dz = chunkWorldZ + CHUNK_SIZE/2.0f - playerPos.z;
@@ -28259,9 +30642,68 @@ public:
         tPase1 = std::chrono::steady_clock::now();
 
         // ⭐⭐⭐ PASE 2: RENDERIZAR BLOQUES TRANSPARENTES (agua con blending) ⭐⭐⭐
+        //
+        // ====================================================================
+        // ⭐⭐ POR QUE HAY UNA PASADA DE PROFUNDIDAD ANTES DE MEZCLAR
+        // ====================================================================
+        // BUG REPORTADO: "al mirar un rio, las texturas de otros niveles de
+        // agua del fondo se sobreponen y visualmente esta fatal".
+        //
+        // LA CAUSA, y no es face culling -- eso ya esta bien: es el ORDEN DE
+        // MEZCLA. Con `glDepthMask(GL_FALSE)` el agua lee el z-buffer pero no
+        // lo escribe, asi que NINGUNA cara de agua puede tapar a otra cara de
+        // agua. Todas se mezclan, sin importar cual esta delante.
+        //
+        // El pase ordena los CHUNKS de lejos a cerca, y eso basta mientras cada
+        // chunk aporte una lamina. Pero dentro de un chunk las caras salen en
+        // el orden del mesher (barrido por Y, luego X, luego Z), que no tiene
+        // nada que ver con la distancia a la camara. En un rio eso se ve fatal
+        // porque es justo el caso peor:
+        //
+        //   - un cauce tiene celdas a MUCHOS niveles distintos (1/8, 3/8, 6/8)
+        //   - cada nivel pone su lamina a una altura distinta
+        //   - mirando rio abajo, la camara atraviesa decenas de esas laminas
+        //
+        // Resultado: cada pixel acumula seis o siete mezclas de laminas que
+        // estan detras unas de otras, y el fondo del rio "sube" por encima de
+        // la superficie. Es exactamente lo reportado.
+        //
+        // --------------------------------------------------------------------
+        // LA SOLUCION: PRIMERO LA PROFUNDIDAD, DESPUES EL COLOR
+        // --------------------------------------------------------------------
+        // Se dibuja el agua DOS VECES:
+        //
+        //   PASADA A (esta)   solo profundidad, sin tocar el color. Deja en el
+        //                     z-buffer la cara de agua MAS CERCANA de cada
+        //                     pixel, que es la unica que el jugador ve.
+        //   PASADA B (abajo)  el color, con `GL_EQUAL`: solo pasa el fragmento
+        //                     cuya profundidad coincide con la que dejo A. O
+        //                     sea, se mezcla UNA sola lamina por pixel.
+        //
+        // Con eso el orden dentro del chunk deja de importar: gane quien gane
+        // la carrera del mesher, el z-buffer ya decidio cual es la de delante.
+        //
+        // --------------------------------------------------------------------
+        // POR QUE NO SE ORDENAN LOS QUADS, QUE SERIA LO "CLASICO"
+        // --------------------------------------------------------------------
+        // Porque la geometria vive en un VBO por chunk y el orden de los quads
+        // se fija AL MALLAR, no al dibujar. Ordenar por distancia cada frame
+        // obligaria a reescribir el VBO de cada chunk con agua en cada frame --
+        // varios MB de trafico por frame para resolver lo que el z-buffer
+        // resuelve gratis. La pasada de profundidad cuesta una segunda
+        // recorrida de los batches de agua (que son pocos: 3 rangos por chunk)
+        // y ni un byte de trafico nuevo.
+        //
+        // --------------------------------------------------------------------
+        // LO QUE SE PIERDE, DICHO CLARO
+        // --------------------------------------------------------------------
+        // Ver DOS laminas de agua a la vez (mirar a traves de una cascada y ver
+        // el estanque detras teñido dos veces). Se gana que el agua se vea
+        // solida y bien ordenada, que es lo que se pidio. Para un voxel de
+        // agua opaca al 60% la mezcla doble no aportaba informacion: aportaba
+        // el barro que motivo este reporte.
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_FALSE);  // NO escribir en depth buffer (leer sí, escribir no)
 
         // ⭐ Se devuelve el test de alfa a como estaba al entrar en render().
         //
@@ -28298,7 +30740,14 @@ public:
         //      comprobaciones -- y solo despues se miraba si era del otro pase,
         //      descartando la mayoria. En un chunk tipico casi todos los
         //      batches son opacos.
-        {
+        // ⭐ EL BUCLE DEL AGUA, EN UNA LAMBDA PORQUE SE RECORRE DOS VECES.
+        //
+        // La pasada de profundidad y la de color dibujan EXACTAMENTE la misma
+        // geometria; lo unico que cambia es el estado de OpenGL que las rodea.
+        // Tenerlo en un solo sitio es lo que garantiza que no se separen: si
+        // las dos pasadas dibujaran conjuntos distintos, el `GL_EQUAL` de la
+        // segunda no encontraria su pareja y el agua desapareceria a parches.
+        auto dibujarBatchesAgua = [&](bool soloProfundidad) {
             const bool hayVBO = (glBindBuffer != nullptr);
             const bool conShader = g_progTerreno.valido() && g_textureManager &&
                                    g_textureManager->arrayDisponible();
@@ -28359,12 +30808,26 @@ public:
                         bufferAtado = true;
                     }
 
+                    // En la pasada de profundidad la textura da igual: no se
+                    // escribe color. Se ata igual porque el test de alfa SI
+                    // sigue activo, y es lo que recorta los bordes -- sin la
+                    // textura correcta, la pasada A grabaria profundidad en
+                    // pixeles que la B va a descartar, y ahi quedaria un
+                    // agujero.
                     if (!porCapa) g_textureManager->bindOptimized(batch->texture);
 
                     glDrawArrays(GL_QUADS, batch->primerVertice, batch->vertexCount);
 
-                    facesRendered += batch->vertexCount / 4;
-                    batchesRendered++;
+                    // ⭐ LAS ESTADISTICAS SOLO LAS CUENTA LA PASADA DE COLOR.
+                    //
+                    // Si las contaran las dos, el `[GPU]` del log diria el
+                    // doble de batches y caras de agua de las que hay, y la
+                    // metrica de µs por batch --que es la que guio todo el
+                    // trabajo de rendimiento-- quedaria falseada.
+                    if (!soloProfundidad) {
+                        facesRendered += batch->vertexCount / 4;
+                        batchesRendered++;
+                    }
                 }
             }
 
@@ -28373,7 +30836,50 @@ public:
             glMatrixMode(GL_TEXTURE);
             glPopMatrix();
             glMatrixMode(GL_MODELVIEW);
+        };
+
+        // --- PASADA A: solo profundidad ---
+        //
+        // `glColorMask` apaga la escritura de color: no pinta nada, solo deja
+        // en el z-buffer la cota del agua MAS CERCANA de cada pixel. El depth
+        // mask va ENCENDIDO, que es justo lo contrario del pase de siempre.
+        // ⭐ INTERRUPTOR PARA MEDIR EL A/B, igual que VOXELWORLD_ARRAY.
+        //
+        // `VOXELWORLD_AGUA_PREPASE=0` vuelve al camino de siempre (una sola
+        // pasada, sin profundidad previa). Es como se midio el coste de esta
+        // pasada, y queda para poder repetir la medida.
+        static const bool prepaseAgua = []{
+            const char* v = getenv("VOXELWORLD_AGUA_PREPASE");
+            return !(v && v[0] == '0');
+        }();
+        if (prepaseAgua) {
+            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+            glDepthMask(GL_TRUE);
+            dibujarBatchesAgua(/*soloProfundidad=*/true);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         }
+
+        // --- PASADA B: el color ---
+        //
+        // `GL_EQUAL` deja pasar unicamente el fragmento cuya profundidad
+        // coincide con la que dejo la pasada A: UNA lamina por pixel, la de
+        // delante. Con eso el orden de los quads dentro del chunk deja de
+        // importar, que es la causa del bug.
+        //
+        // El depth mask se apaga: la cota ya esta escrita y reescribirla no
+        // aporta nada.
+        // Sin la pasada A no hay profundidad que igualar: el GL_EQUAL dejaria
+        // fuera casi todos los fragmentos y el agua desapareceria.
+        if (prepaseAgua) glDepthFunc(GL_EQUAL);
+        glDepthMask(GL_FALSE);
+        dibujarBatchesAgua(/*soloProfundidad=*/false);
+
+        // ⚠️ DEVOLVER EL TEST DE PROFUNDIDAD A LO DE SIEMPRE.
+        //
+        // Todo lo que se dibuja despues de render() --el HUD, la mano, los
+        // menus-- da por hecho `GL_LEQUAL`. Dejar `GL_EQUAL` puesto hace que
+        // casi ningun fragmento pase y la pantalla se quede en negro.
+        glDepthFunc(GL_LEQUAL);
 
         // Reparto de esta llamada a render(), en microsegundos.
         {
@@ -28651,6 +31157,15 @@ public:
                 for (auto& b : raw) b = BlockCompat::fromLegacy((uint16_t)b);
             }
 
+            // Las celdas mixtas del formato viejo, por la misma via.
+            if (mixtoSinAltura) {
+                for (auto& b : raw) b = BlockCompat::mixtoAlturaRelleno(b);
+            }
+
+            // Y la retirada de los minerales, que no depende de la version
+            // del mundo (ver la nota en la otra ruta de carga).
+            for (auto& b : raw) b = BlockCompat::mineralAPiedra(b);
+
             chunk->importBlocks(raw.data());
 
             chunk->isGenerated = true;
@@ -28914,14 +31429,17 @@ public:
     }
 
     // ========================================================================
-    // SISTEMA DE ILUMINACIÓN DINÁMICA (0-18 niveles) - CON THREADING
+    // LUZ DEL CIELO EN COORDENADAS DE MUNDO
     // ========================================================================
-
-    std::mutex lightingMutex;
-    std::atomic<bool> lightingInProgress{false};
-    std::thread* lightingThread = nullptr;
-    std::queue<Vec3i> lightingQueue;  // Queue de chunks pendientes de iluminacion
-    std::mutex lightingQueueMutex;  // Proteger la queue
+    // La unica luz del motor es la del cielo, calculada por chunk
+    // (computeSkylight / recalcularLuzLocal). Ningun bloque emite luz.
+    //
+    // Aqui vivia el sistema de iluminacion global antiguo (hilo propio,
+    // torchlight y una tabla de bloques emisores en la que la PIEDRA brillaba
+    // como placeholder). Nadie lo llamaba, pero bastaba descomentar una linea
+    // para que los bloques empezaran a dar luz y para reintroducir una
+    // carrera sobre `chunks` desde otro hilo. Se borro entero
+    // (docs/PENDIENTES.md, 2.2).
 
     unsigned char getLightLevel(int x, int y, int z) {
         if (y < 0 || y >= CHUNK_HEIGHT) return 0;
@@ -28943,554 +31461,6 @@ public:
 
         return chunk->getLightLevel(localX, y, localZ);
     }
-
-    void setLightLevel(int x, int y, int z, unsigned char level) {
-        if (y < 0 || y >= CHUNK_HEIGHT) return;
-
-        Vec3i chunkPos(
-            (int)floor((float)x / CHUNK_SIZE),
-            0,
-            (int)floor((float)z / CHUNK_SIZE)
-        );
-
-        Chunk* chunk = getChunk(chunkPos);
-        if (!chunk) return;
-
-        int localX = x - chunkPos.x * CHUNK_SIZE;
-        int localZ = z - chunkPos.z * CHUNK_SIZE;
-
-        if (localX < 0) localX += CHUNK_SIZE;
-        if (localZ < 0) localZ += CHUNK_SIZE;
-
-        chunk->setLightLevel(localX, y, localZ, level);
-    }
-
-    // ========================================================================
-    // NEXT-GEN LIGHTING - EMISSIVE BLOCKS WITH RGB COLOR
-    // ========================================================================
-
-    struct EmissiveBlock {
-        uint8_t light;  // 0-18
-        uint8_t r, g, b; // 0-3
-    };
-
-    EmissiveBlock getBlockEmission(BlockType block) {
-        EmissiveBlock emission = {0, 0, 0, 0};
-
-        switch (block) {
-            // Futuro: bloques emisores con color
-            case BLOCK_STONE: // Placeholder para GLOWSTONE
-                emission = {15, 3, 3, 2}; // Luz blanca-amarilla
-                break;
-
-            // case BLOCK_TORCH:
-            //     emission = {14, 3, 2, 1}; // Luz naranja
-            //     break;
-
-            // case BLOCK_LAVA:
-            //     emission = {15, 3, 1, 0}; // Luz roja-naranja
-            //     break;
-
-            // case BLOCK_BLUE_CRYSTAL:
-            //     emission = {12, 0, 2, 3}; // Luz azul
-            //     break;
-
-            default:
-                break;
-        }
-
-        return emission;
-    }
-
-    // ========================================================================
-    // SKYLIGHT SYSTEM - Propagación vertical desde el cielo
-    // ========================================================================
-
-    void calculateSkylight() {
-        std::cout << "Calculando skylight (luz solar vertical)..." << std::endl;
-
-        for (auto& pair : chunks) {
-            Chunk* chunk = pair.second;
-            if (!chunk || !chunk->isGenerated) continue;
-
-            // Para cada columna (x, z)
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                for (int z = 0; z < CHUNK_SIZE; z++) {
-                    int worldX = chunk->position.x * CHUNK_SIZE + x;
-                    int worldZ = chunk->position.z * CHUNK_SIZE + z;
-
-                    // Empezar con luz máxima del sol
-                    uint8_t currentLight = 18;
-
-                    // Propagación vertical desde arriba
-                    for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
-                        BlockType block = chunk->getBlock(x, y, z);
-
-                        if (block == BLOCK_AIR || block == BLOCK_WATER) {
-                            // Bloque transparente: mantener luz
-                            chunk->setSunlight(x, y, z, currentLight);
-                        } else {
-                            // Bloque sólido: detener luz solar
-                            chunk->setSunlight(x, y, z, 0);
-                            currentLight = 0; // Debajo de bloques sólidos = oscuro
-                        }
-                    }
-                }
-            }
-        }
-
-        std::cout << "Skylight completado!" << std::endl;
-    }
-
-    // ========================================================================
-    // BFS FLOOD-FILL PROPAGATION - Para sunlight Y torchlight
-    // ========================================================================
-
-    struct LightNode {
-        int x, y, z;
-        uint8_t lightLevel;
-
-        LightNode(int _x, int _y, int _z, uint8_t _light)
-            : x(_x), y(_y), z(_z), lightLevel(_light) {}
-    };
-
-    // Propagar SUNLIGHT horizontalmente (después de skylight vertical)
-    void propagateSunlight() {
-        std::cout << "Propagando sunlight horizontal (OPTIMIZADO)..." << std::endl;
-
-        std::queue<LightNode> lightQueue;
-        std::unordered_set<int64_t> visited;
-
-        auto hashPos = [](int x, int y, int z) -> int64_t {
-            return ((int64_t)x << 32) | ((int64_t)y << 16) | (int64_t)z;
-        };
-
-        for (auto& pair : chunks) {
-            Chunk* chunk = pair.second;
-            if (!chunk || !chunk->isGenerated) continue;
-
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                    for (int z = 0; z < CHUNK_SIZE; z++) {
-                        uint8_t sunlight = chunk->getSunlight(x, y, z);
-                        if (sunlight > 0) {
-                            int worldX = chunk->position.x * CHUNK_SIZE + x;
-                            int worldZ = chunk->position.z * CHUNK_SIZE + z;
-                            int64_t hash = hashPos(worldX, y, worldZ);
-                            lightQueue.push(LightNode(worldX, y, worldZ, sunlight));
-                            visited.insert(hash);
-                        }
-                    }
-                }
-            }
-        }
-
-        int iterations = 0;
-        const int MAX_ITERATIONS = 1000000;
-
-        while (!lightQueue.empty() && iterations < MAX_ITERATIONS) {
-            LightNode node = lightQueue.front();
-            lightQueue.pop();
-
-            if (node.lightLevel <= 1) continue;
-
-            int dx[] = {0, 0, 0, 0, 1, -1};
-            int dy[] = {1, -1, 0, 0, 0, 0};
-            int dz[] = {0, 0, 1, -1, 0, 0};
-
-            for (int i = 0; i < 6; i++) {
-                int nx = node.x + dx[i];
-                int ny = node.y + dy[i];
-                int nz = node.z + dz[i];
-
-                if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
-
-                int64_t hash = hashPos(nx, ny, nz);
-                if (visited.count(hash)) continue;
-
-                BlockType neighborBlock = getBlock(nx, ny, nz);
-                if (neighborBlock != BLOCK_AIR && neighborBlock != BLOCK_WATER) continue;
-
-                uint8_t currentSunlight = getSunlight(nx, ny, nz);
-                uint8_t newLight = node.lightLevel - 1;
-
-                if (newLight > currentSunlight) {
-                    setSunlight(nx, ny, nz, newLight);
-                    lightQueue.push(LightNode(nx, ny, nz, newLight));
-                    visited.insert(hash);
-                }
-            }
-
-            iterations++;
-        }
-
-        std::cout << "Sunlight propagation completada! (" << iterations << " iterations)" << std::endl;
-    }
-
-
-    // Propagar TORCHLIGHT (luz de antorchas y bloques emisores)
-    void propagateTorchlight() {
-        std::cout << "Propagando torchlight (OPTIMIZADO)..." << std::endl;
-
-        std::queue<LightNode> lightQueue;
-        std::unordered_set<int64_t> visited;
-
-        auto hashPos = [](int x, int y, int z) -> int64_t {
-            return ((int64_t)x << 32) | ((int64_t)y << 16) | (int64_t)z;
-        };
-
-        for (auto& pair : chunks) {
-            Chunk* chunk = pair.second;
-            if (!chunk || !chunk->isGenerated) continue;
-
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                    for (int z = 0; z < CHUNK_SIZE; z++) {
-                        BlockType block = chunk->getBlock(x, y, z);
-                        EmissiveBlock emission = getBlockEmission(block);
-
-                        if (emission.light > 0) {
-                            int worldX = chunk->position.x * CHUNK_SIZE + x;
-                            int worldZ = chunk->position.z * CHUNK_SIZE + z;
-
-                            chunk->setTorchlight(x, y, z, emission.light,
-                                               emission.r, emission.g, emission.b);
-
-                            int64_t hash = hashPos(worldX, y, worldZ);
-                            lightQueue.push(LightNode(worldX, y, worldZ, emission.light));
-                            visited.insert(hash);
-                        }
-                    }
-                }
-            }
-        }
-
-        int iterations = 0;
-        const int MAX_ITERATIONS = 500000;
-
-        while (!lightQueue.empty() && iterations < MAX_ITERATIONS) {
-            LightNode node = lightQueue.front();
-            lightQueue.pop();
-
-            if (node.lightLevel <= 1) continue;
-
-            int dx[] = {0, 0, 0, 0, 1, -1};
-            int dy[] = {1, -1, 0, 0, 0, 0};
-            int dz[] = {0, 0, 1, -1, 0, 0};
-
-            for (int i = 0; i < 6; i++) {
-                int nx = node.x + dx[i];
-                int ny = node.y + dy[i];
-                int nz = node.z + dz[i];
-
-                if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
-
-                int64_t hash = hashPos(nx, ny, nz);
-                if (visited.count(hash)) continue;
-
-                BlockType neighborBlock = getBlock(nx, ny, nz);
-                if (neighborBlock != BLOCK_AIR && neighborBlock != BLOCK_WATER) continue;
-
-                uint8_t currentTorchlight = getTorchlight(nx, ny, nz);
-                uint8_t newLight = node.lightLevel - 1;
-
-                if (newLight > currentTorchlight) {
-                    setTorchlight(nx, ny, nz, newLight, 3, 2, 1);
-                    lightQueue.push(LightNode(nx, ny, nz, newLight));
-                    visited.insert(hash);
-                }
-            }
-
-            iterations++;
-        }
-
-        std::cout << "Torchlight propagation completada! (" << iterations << " iterations)" << std::endl;
-    }
-
-    // EXTREME FPS: Iluminar UN CHUNK (solo skylight vertical, SIN BFS)
-    void lightChunk(Chunk* chunk) {
-        if (!chunk || !chunk->isGenerated) return;
-
-        const int cx = chunk->position.x;
-        const int cz = chunk->position.z;
-
-        // SOLO SKYLIGHT VERTICAL - Sin propagación horizontal (ultra rápido)
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            for (int z = 0; z < CHUNK_SIZE; z++) {
-                uint8_t currentLight = 18;
-
-                // Propagación vertical top-down
-                for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
-                    BlockType block = chunk->getBlock(x, y, z);
-
-                    if (block == BLOCK_AIR || block == BLOCK_WATER) {
-                        chunk->setSunlight(x, y, z, currentLight);
-                    } else {
-                        chunk->setSunlight(x, y, z, 0);
-                        currentLight = 0;  // Bloque sólido bloquea luz
-                    }
-                }
-            }
-        }
-
-        // Propagar 1 bloque a los lados (mínima propagación)
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                for (int z = 0; z < CHUNK_SIZE; z++) {
-                    uint8_t light = chunk->getSunlight(x, y, z);
-                    if (light <= 1) continue;
-
-                    // Propagar a vecinos inmediatos (solo -1 light)
-                    int dx[] = {1, -1, 0, 0};
-                    int dz[] = {0, 0, 1, -1};
-
-                    for (int i = 0; i < 4; i++) {
-                        int nx = x + dx[i];
-                        int nz = z + dz[i];
-
-                        if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
-                            BlockType neighborBlock = chunk->getBlock(nx, y, nz);
-                            if (neighborBlock == BLOCK_AIR || neighborBlock == BLOCK_WATER) {
-                                uint8_t neighborLight = chunk->getSunlight(nx, y, nz);
-                                uint8_t newLight = light - 1;
-                                if (newLight > neighborLight) {
-                                    chunk->setSunlight(nx, y, nz, newLight);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // chunk->needsRebuild = true;  // CRÍTICO: No forzar rebuild
-        chunk->needsLightUpdate = false;
-    }
-
-    // Procesar queue de iluminación (llamar cada frame)
-    void processLightingQueue() {
-        std::lock_guard<std::mutex> lock(lightingQueueMutex);
-
-        // Procesar hasta 3 chunks por frame (balance entre FPS y velocidad de iluminación)
-        int chunksProcessed = 0;
-        const int MAX_CHUNKS_PER_FRAME = 1;  // OPTIMIZADO: 1 chunk/frame - Sin congelamiento  // EXTREME FPS: 1 chunk/frame
-
-        while (!lightingQueue.empty() && chunksProcessed < MAX_CHUNKS_PER_FRAME) {
-            Vec3i chunkPos = lightingQueue.front();
-            lightingQueue.pop();
-
-            Chunk* chunk = getChunk(chunkPos);
-            if (chunk && chunk->isGenerated && chunk->needsLightUpdate) {
-                lightChunk(chunk);
-                chunksProcessed++;
-            }
-        }
-    }
-
-    // Agregar chunk a la queue de iluminación
-    void queueChunkForLighting(Vec3i chunkPos) {
-        std::lock_guard<std::mutex> lock(lightingQueueMutex);
-        lightingQueue.push(chunkPos);
-    }
-
-
-
-    // ========================================================================
-    // SISTEMA COMPLETO - Skylight + Sunlight + Torchlight
-    // ========================================================================
-
-    void calculateWorldLightingThreaded() {
-        std::cout << "\n=== NEXT-GEN LIGHTING CALCULATION ===" << std::endl;
-
-        // PASO 1: Inicializar todo en 0
-        std::cout << "[1/4] Inicializando luz..." << std::endl;
-        for (auto& pair : chunks) {
-            Chunk* chunk = pair.second;
-            if (!chunk || !chunk->isGenerated) continue;
-
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                    for (int z = 0; z < CHUNK_SIZE; z++) {
-                        chunk->lightData[x][y][z] = LightVoxel();
-                    }
-                }
-            }
-        }
-
-        // PASO 2: Skylight (propagación vertical)
-        std::cout << "[2/4] Calculando skylight..." << std::endl;
-        calculateSkylight();
-
-        // PASO 3: Sunlight (propagación horizontal)
-        std::cout << "[3/4] Propagando sunlight..." << std::endl;
-        propagateSunlight();
-
-        // PASO 4: Torchlight (bloques emisores)
-        std::cout << "[4/4] Propagando torchlight..." << std::endl;
-        propagateTorchlight();
-
-        std::cout << "=== LIGHTING COMPLETE! ===" << std::endl;
-
-        // Marcar chunks para rebuild
-        for (auto& pair : chunks) {
-            if (pair.second && pair.second->isGenerated) {
-                pair.second->needsRebuild = true;
-                pair.second->needsLightUpdate = false;
-            }
-        }
-    }
-
-    // Helpers para World class
-    uint8_t getSunlight(int x, int y, int z) {
-        if (y < 0 || y >= CHUNK_HEIGHT) return 0;
-
-        Vec3i chunkPos(
-            (int)floor((float)x / CHUNK_SIZE),
-            0,
-            (int)floor((float)z / CHUNK_SIZE)
-        );
-
-        Chunk* chunk = getChunk(chunkPos);
-        if (!chunk) return 0;
-
-        int localX = x - chunkPos.x * CHUNK_SIZE;
-        int localZ = z - chunkPos.z * CHUNK_SIZE;
-
-        if (localX < 0) localX += CHUNK_SIZE;
-        if (localZ < 0) localZ += CHUNK_SIZE;
-
-        return chunk->getSunlight(localX, y, localZ);
-    }
-
-    void setSunlight(int x, int y, int z, uint8_t level) {
-        if (y < 0 || y >= CHUNK_HEIGHT) return;
-
-        Vec3i chunkPos(
-            (int)floor((float)x / CHUNK_SIZE),
-            0,
-            (int)floor((float)z / CHUNK_SIZE)
-        );
-
-        Chunk* chunk = getChunk(chunkPos);
-        if (!chunk) return;
-
-        int localX = x - chunkPos.x * CHUNK_SIZE;
-        int localZ = z - chunkPos.z * CHUNK_SIZE;
-
-        if (localX < 0) localX += CHUNK_SIZE;
-        if (localZ < 0) localZ += CHUNK_SIZE;
-
-        chunk->setSunlight(localX, y, localZ, level);
-    }
-
-    uint8_t getTorchlight(int x, int y, int z) {
-        if (y < 0 || y >= CHUNK_HEIGHT) return 0;
-
-        Vec3i chunkPos(
-            (int)floor((float)x / CHUNK_SIZE),
-            0,
-            (int)floor((float)z / CHUNK_SIZE)
-        );
-
-        Chunk* chunk = getChunk(chunkPos);
-        if (!chunk) return 0;
-
-        int localX = x - chunkPos.x * CHUNK_SIZE;
-        int localZ = z - chunkPos.z * CHUNK_SIZE;
-
-        if (localX < 0) localX += CHUNK_SIZE;
-        if (localZ < 0) localZ += CHUNK_SIZE;
-
-        return chunk->getTorchlight(localX, y, localZ);
-    }
-
-    void setTorchlight(int x, int y, int z, uint8_t level, uint8_t r, uint8_t g, uint8_t b) {
-        if (y < 0 || y >= CHUNK_HEIGHT) return;
-
-        Vec3i chunkPos(
-            (int)floor((float)x / CHUNK_SIZE),
-            0,
-            (int)floor((float)z / CHUNK_SIZE)
-        );
-
-        Chunk* chunk = getChunk(chunkPos);
-        if (!chunk) return;
-
-        int localX = x - chunkPos.x * CHUNK_SIZE;
-        int localZ = z - chunkPos.z * CHUNK_SIZE;
-
-        if (localX < 0) localX += CHUNK_SIZE;
-        if (localZ < 0) localZ += CHUNK_SIZE;
-
-        chunk->setTorchlight(localX, y, localZ, level, r, g, b);
-    }
-
-    void getLightColor(int x, int y, int z, float& r, float& g, float& b) {
-        if (y < 0 || y >= CHUNK_HEIGHT) {
-            r = g = b = 1.0f;
-            return;
-        }
-
-        Vec3i chunkPos(
-            (int)floor((float)x / CHUNK_SIZE),
-            0,
-            (int)floor((float)z / CHUNK_SIZE)
-        );
-
-        Chunk* chunk = getChunk(chunkPos);
-        if (!chunk) {
-            r = g = b = 1.0f;
-            return;
-        }
-
-        int localX = x - chunkPos.x * CHUNK_SIZE;
-        int localZ = z - chunkPos.z * CHUNK_SIZE;
-
-        if (localX < 0) localX += CHUNK_SIZE;
-        if (localZ < 0) localZ += CHUNK_SIZE;
-
-        chunk->getLightColor(localX, y, localZ, r, g, b);
-    }
-
-        // Calcular iluminación en un hilo separado
-    void startLightingCalculation() {
-        if (lightingInProgress) {
-            std::cout << "Iluminación ya en progreso, ignorando..." << std::endl;
-            return;
-        }
-
-        // Esperar a que termine el hilo anterior si existe
-        if (lightingThread != nullptr) {
-            if (lightingThread->joinable()) {
-                lightingThread->join();
-            }
-            delete lightingThread;
-        }
-
-        lightingInProgress = true;
-        lightingThread = new std::thread([this]() {
-            calculateWorldLightingThreaded();
-            lightingInProgress = false;
-        });
-    }
-
-    // Actualizar iluminación (versión simplificada, llama al sistema threaded)
-    void updateWorldLighting() {
-        // Solo iniciar cálculo si hay chunks que necesitan actualización
-        bool needsUpdate = false;
-        for (auto& pair : chunks) {
-            if (pair.second && pair.second->needsLightUpdate && pair.second->isGenerated) {
-                needsUpdate = true;
-                break;
-            }
-        }
-
-        if (needsUpdate && !lightingInProgress) {
-            startLightingCalculation();
-        }
-    }
-
-
 
 // ============================================================================
 };
@@ -29528,12 +31498,8 @@ inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
         case BLOCK_COBBLESTONE:
         case BLOCK_BEDROCK:
         case BLOCK_BRICKS:
-        case BLOCK_COAL_ORE:
-        case BLOCK_IRON_ORE:
-        case BLOCK_GOLD_ORE:
-        case BLOCK_SILVER_ORE:
-        case BLOCK_DIAMOND_ORE:
-        case BLOCK_SCRAP_METAL:
+            // Los minerales de veta sonaban aqui como piedra, que es lo que
+            // eran por debajo. Retirados del juego.
             return Audio::StepMaterial::Stone;
 
         case BLOCK_SAND:
@@ -30356,6 +32322,34 @@ struct GameState {
         // ⭐ EL AGUA NO SE RECOGE A MANO. Se coge con un tazon.
         if (esAguaCualquiera(brokenBlock)) return BLOCK_AIR;
 
+        // ====================================================================
+        // ⭐⭐ LA MATA DE NOPAL SUELTA PENCAS, NO "UNA MATA"
+        // ====================================================================
+        // PEDIDO: que el bloque de penca que crece en el nopal completo de el
+        // item de la penca SUELTA (Items/...suelto.png), no el dibujo de la
+        // penca EN LA PLANTA (Blocks/...).
+        //
+        // La mata vive en el rango compuesto (FAM_NOPAL), y el `switch` de
+        // abajo solo conoce los IDs del enum: sin esta linea caia al `default`
+        // y no soltaba nada, o soltaba su propio ID compuesto -- un item que
+        // en el inventario no tiene ni nombre ni textura.
+        //
+        // Devolviendo BLOCK_NOPAL_CLADODIO entra por el MISMO camino que ya
+        // siguen el tallo, las bases y los cladodios apilados, que es
+        // justamente el que usa la textura de item:
+        //
+        //   en la PLANTA   Blocks/Penca de Nopal de Castilla.png
+        //                  (la que se ve creciendo, con su fondo)
+        //   como ITEM      Items/Penca de Nopal de Castilla suelto.png
+        //                  (recortada, fondo transparente)
+        //
+        // Ese reparto ya estaba resuelto para el cladodio: `getBlockTexture`
+        // da la de Blocks/ al dibujar el bloque, y la silueta del item 3D pide
+        // la de Items/ (ver BLOCK_NOPAL_CLADODIO en `siluetaPNG`). Lo unico
+        // que faltaba era que la mata entrara por ahi.
+        if (Compuesto::Nopal::esNopal(brokenBlock))
+            return BLOCK_NOPAL_CLADODIO;
+
         switch (brokenBlock) {
             case BLOCK_GRASS:
                 // El bloque de pasto suelta tierra
@@ -30408,6 +32402,15 @@ struct GameState {
             case BLOCK_RAMA_OCOTE:
                 return BLOCK_STICK;
 
+            // ⭐ LAS DOS ORIENTACIONES DEL TECHO SUELTAN EL MISMO ITEM.
+            //
+            // `BLOCK_TECHO_SUELO` es una variante de colocacion, no un
+            // material aparte: en el inventario solo existe el techo normal.
+            // Sin esto, picar un techo apoyado daria un item que no se puede
+            // craftear ni aparece en ningun sitio.
+            case BLOCK_TECHO_SUELO:
+                return BLOCK_TECHO_HOJAS;
+
             // La tuna se recoge entera: es fruta, se arranca y ya.
             case BLOCK_TUNA:
             case BLOCK_TUNA_AMARILLA:
@@ -30430,6 +32433,18 @@ struct GameState {
             case BLOCK_LEAVES_OYAMEL:
             case BLOCK_LEAVES_OCOTE:
             case BLOCK_LEAVES_OCOTE_CHINO:
+            // ⭐ Y LAS DE LOS CUATRO PINOS NUEVOS.
+            //
+            // Entran aqui EXPRESAMENTE, no por el `default`. Es justo el
+            // sesgo que describe el comentario de arriba: sin su caso, estas
+            // cuatro caerian al `default` y soltarian hoja el 100% de las
+            // veces mientras las otras cinco lo hacen el 20%. Anadir una
+            // especie y olvidar esta lista es el error que ya se cometio una
+            // vez con el encino, el oyamel y el ocote.
+            case BLOCK_LEAVES_PATULA:
+            case BLOCK_LEAVES_PINONERO:
+            case BLOCK_LEAVES_ALTURAS:
+            case BLOCK_LEAVES_PSEUDOSTROBUS:
                 if ((rand() % 100) < 20) {
                     return brokenBlock;   // su propia hoja, no la del pino
                 }
@@ -31360,11 +33375,71 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
     // suelta una espina; el cuerpo, las que le quedaran). Aqui se devuelve
     // vacio para que el camino generico no spawnee un item del propio ID,
     // que en el inventario no tendria ni textura ni sentido.
+    // ⭐ LA MATA DE NOPAL SI SUELTA, Y SUELTA LAS PENCAS QUE SE VEN.
+    //
+    // Va ANTES del corte de los compuestos porque la mata ES un compuesto
+    // (FAM_NOPAL): su numero de pencas viaja dentro del ID. Sin este caso
+    // caeria en el `return` de abajo con el vector vacio, y el drop lo
+    // acabaria decidiendo `getDroppedItem` -- que da UNA penca, mida lo que
+    // mida la mata. Una mata de siete pencas soltaba lo mismo que una de una.
+    //
+    // `extrasDe` son las pencas ADICIONALES a la primera, de ahi el +1.
+    if (Compuesto::Nopal::esNopal(blockType)) {
+        const int pencas = 1 + (int)Compuesto::Nopal::extrasDe(blockType);
+        drops.push_back({BLOCK_NOPAL_CLADODIO, pencas, 1.0f});
+        return drops;
+    }
+
     if (Compuesto::esCompuesto(blockType)) return drops;
 
-    // Un nivel parcial suelta su bloque entero: el jugador recoge "tierra",
-    // no "tierra de nivel 3".
-    if (esNivelParcial(blockType)) blockType = bloqueBaseDe(blockType);
+    // ========================================================================
+    // ⭐⭐ UN NIVEL SUELTA TANTOS ITEMS COMO OCTAVOS TIENE
+    // ========================================================================
+    // PEDIDO: "si el jugador pica un nivel 3, te de 3 items de bloque de ese
+    // nivel; que por nivel suelte la cantidad de items de su numero".
+    //
+    // El material se conserva en los dos sentidos, que es lo que hace que el
+    // apilado no sea un exploit ni una perdida:
+    //
+    //   poner 3 veces tierra  -> una capa de nivel 3
+    //   picar esa capa        -> 3 items de tierra
+    //
+    // Antes soltaba SIEMPRE 1, asi que apilar y volver a picar borraba
+    // material: subir una capa a 7 y romperla devolvia un septimo de lo
+    // invertido.
+    //
+    // ⚠️ SE LEE EL NIVEL ANTES DE NORMALIZAR. La linea de abajo convierte
+    // `tierra_L3` en `tierra` (el jugador recoge "tierra", no "tierra de nivel
+    // 3"), y con ella se pierde el dato. Por eso se guarda aqui.
+    //
+    // ⚠️ SOLO SE MULTIPLICA LO QUE EL JUGADOR APILO.
+    //
+    // Antes aqui ponia lo contrario --"no depende de si el bloque es natural
+    // o colocado"-- y esa decision era un BUG con consecuencias grandes:
+    //
+    // El generador usa niveles parciales en TODA la superficie del mundo. La
+    // altura del terreno no se redondea a bloques enteros: la parte decimal
+    // se convierte en el nivel de la capa de arriba (ver "EL NIVEL SALE DE LA
+    // ALTURA REAL DEL TERRENO"). Casi cada bloque de suelo que se ve tiene
+    // nivel parcial.
+    //
+    // Con la regla vieja, picar una loma intacta de nivel 7 daba SIETE
+    // tierras de un golpe. Material infinito a ras de suelo, sin haber puesto
+    // nada: piedra, tierra, pasto, arena y grava, todas.
+    //
+    // La regla correcta es la que motivo el multiplicador en su origen: que
+    // APILAR conserve el material. Pones tierra tres veces, la picas,
+    // recuperas tres. Un nivel que puso el MUNDO suelta uno, como cualquier
+    // otro bloque del terreno.
+    //
+    // `consumirNivelDelJugador` consulta Y OLVIDA: la celda se esta rompiendo,
+    // asi que su entrada en el registro ya no sirve para nada.
+    int octavosDelNivel = 1;
+    if (esNivelParcial(blockType)) {
+        if (consumirNivelDelJugador(bx, by, bz))
+            octavosDelNivel = nivelDe(blockType);   // 1..7
+        blockType = bloqueBaseDe(blockType);
+    }
 
     // Una celda mixta suelta el RELLENO: es la capa que se quita al picarla
     // (updateMining la pela por arriba y deja la de abajo en pie). Si algun
@@ -31415,46 +33490,19 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         //
         // Antes esto era `1` siempre, asi que todos los bloques valian igual y
         // los cristales eran decoracion. Ahora significan algo.
-        case BLOCK_COAL_ORE:
-            drops.push_back({BLOCK_COAL_ITEM,
-                             Cristal::LeyDelBloque(blockType, bx, by, bz),
-                             1.0f});
-            break;
-
-        case BLOCK_SCRAP_METAL: {
-            // El desecho da los dos metales, cada uno con su propia ley.
-            const int n = Cristal::LeyDelBloque(blockType, bx, by, bz);
-            drops.push_back({BLOCK_RAW_ZINC,   n, 1.0f});
-            drops.push_back({BLOCK_RAW_COPPER, n, 1.0f});
-            break;
-        }
-
-        // Los que hasta ahora se soltaban A SI MISMOS -- o sea, el jugador se
-        // llevaba un bloque de piedra con la veta dentro en vez del mineral.
-        // Ahora dan el metal, que es lo que se pico.
-        case BLOCK_PYRITE_ORE:
-            // La pirita es sulfuro de HIERRO: da hierro crudo. Es el guiño al
-            // "oro de los tontos" -- brilla como el oro y no lo es.
-            drops.push_back({BLOCK_PEDAZO_HEMATITE,
-                             Cristal::LeyDelBloque(blockType, bx, by, bz),
-                             1.0f});
-            break;
-
-        case BLOCK_GOLD_ORE:
-        case BLOCK_SILVER_ORE:
-        case BLOCK_IRON_ORE:
-        case BLOCK_DIAMOND_ORE:
-            // ⚠️ ESTOS TRES NO TIENEN ITEM PROPIO TODAVIA.
-            //
-            // No existe "pepita de oro" ni "diamante" como item en el enum, y
-            // crearlos es otra tarea (toca texturas, iconos y crafteo). Hasta
-            // entonces se sueltan a si mismos, como hacian antes, pero YA con
-            // la cantidad que marca su ley: el dia que existan los items,
-            // basta cambiar el tipo aqui.
-            drops.push_back({blockType,
-                             Cristal::LeyDelBloque(blockType, bx, by, bz),
-                             1.0f});
-            break;
+        // ====================================================================
+        // LOS MINERALES DE VETA: RETIRADOS
+        // ====================================================================
+        // Aqui estaban los drops de carbon, desecho, pirita, oro, plata,
+        // hierro y diamante, con la cantidad calculada a partir de la ley del
+        // bloque (Cristal::LeyDelBloque). Los siete bloques se eliminaron del
+        // juego, asi que no hay nada que picar y el caso entero se va.
+        //
+        // ⚠️ LOS ITEMS QUE SOLTABAN SIGUEN EXISTIENDO: el carbon
+        // (BLOCK_COAL_ITEM), el zinc y el cobre crudos (BLOCK_RAW_ZINC,
+        // BLOCK_RAW_COPPER) y los cantos de hierro (BLOCK_PEDAZO_*). Lo que
+        // desaparece es esta via de obtenerlos; los guijarros del suelo, que
+        // son su otra fuente, no se han tocado.
 
         // ⭐ EL AGUAMIEL NO SE COGE CON LA MANO
         //
@@ -31482,6 +33530,63 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         case BLOCK_MAGUEY_HUECO:
             break;
 
+        // ====================================================================
+        // ⭐⭐ EL NOPAL SOLO DA PENCAS. NUNCA OTRA COSA.
+        // ====================================================================
+        // PEDIDO: "que los nopales solo te den este item y nunca los otros,
+        // pero aun te de tunas".
+        //
+        // EL PROBLEMA QUE ESTO CIERRA. Un nopal no es un bloque: es una
+        // planta de varias piezas --la base que lo ancla al suelo (una por
+        // tipo de terreno), el tallo, y los cladodios sueltos, dobles,
+        // triples y en diagonal--. Al TALARLO se desprende entero, y cada
+        // pieza pasaba por el `default` de aqui abajo, que suelta EL PROPIO
+        // BLOQUE. Resultado: del nopal caian "tallo en pasto", "cladodio X2"
+        // y demas piezas internas, que son andamiaje del generador y no
+        // items que el jugador deba tener.
+        //
+        // `getDroppedItem` ya traducia todo eso a penca, pero NO cierra esta
+        // puerta: es la SEGUNDA tabla de drops (ver PENDIENTES.md, "Dos
+        // tablas de drops que no coinciden"), y el multiplicador por octavos
+        // del final se aplica DESPUES, asi que una pieza con nivel parcial
+        // soltaba varias copias de su propio ID.
+        //
+        // Aqui se decide de una vez: TODA pieza de nopal da PENCAS y solo
+        // pencas. Y se aprovecha para que la cuenta sea la correcta --un
+        // cladodio doble da DOS pencas y uno triple TRES--, que es lo que el
+        // jugador ve en la planta.
+        //
+        // ⚠️ LA TUNA NO ENTRA AQUI, Y ES DELIBERADO. Es el FRUTO, no la
+        // planta: cae por su propio camino (`esTuna` mas arriba y el bucle de
+        // frutos laterales del minado) y se sigue recogiendo entera. Eso es
+        // justo lo que se pidio conservar.
+        case BLOCK_NOPAL_BASE_PASTO:
+        case BLOCK_NOPAL_BASE_TIERRA:
+        case BLOCK_NOPAL_BASE_ARENA:
+        case BLOCK_NOPAL_BASE_T_ARCILLA:
+        case BLOCK_NOPAL_BASE_A_ARCILLA:
+        case BLOCK_NOPAL_TALLO:
+            // La base y el tallo son ANCLAJE, no cosecha: la penca que se
+            // llevan es la que crecia ahi, una sola.
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
+            break;
+
+        case BLOCK_NOPAL_CLADODIO:
+        case BLOCK_NOPAL_CLADODIO_DIAG:
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
+            break;
+
+        // Dos y tres pencas juntas: sueltan las que se ven.
+        case BLOCK_NOPAL_CLADODIO_X2:
+        case BLOCK_NOPAL_CLADODIO_Z2:
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 2, 1.0f});
+            break;
+
+        case BLOCK_NOPAL_CLADODIO_X3:
+        case BLOCK_NOPAL_CLADODIO_Z3:
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 3, 1.0f});
+            break;
+
         case BLOCK_TALLGRASS:
         case BLOCK_ORANGE_FLOWER:
             // VEGETACIÓN: no suelta NADA al romperse.
@@ -31499,6 +33604,23 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
             // Todos los demás bloques dropean ellos mismos
             drops.push_back({blockType, 1, 1.0f});
             break;
+    }
+
+    // ========================================================================
+    // ⭐⭐ Y AQUI SE MULTIPLICA POR LOS OCTAVOS
+    // ========================================================================
+    // Al FINAL y no en el `default`, a proposito: asi vale para TODOS los
+    // caminos de arriba. Una capa de arena de nivel 4 suelta 4 arenas, y una
+    // capa de un bloque que dropea otra cosa suelta 4 de esa otra cosa -- la
+    // regla es "cuatro octavos de material dan cuatro veces lo que da uno", y
+    // no depende de que suelte cada bloque.
+    //
+    // Si se hubiera puesto solo en el `default`, los bloques con drop propio
+    // (los que sueltan pedernal, polvo de tierra, cobre...) habrian seguido
+    // dando 1 al picarlos en capa, y la perdida de material volveria por esa
+    // puerta.
+    if (octavosDelNivel > 1) {
+        for (BlockDrop& d : drops) d.count *= octavosDelNivel;
     }
 
     return drops;
@@ -32043,7 +34165,10 @@ void updateMining(GameState* state, float deltaTime) {
                                                mixtoNivel(blockType));
 
             const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
-            for (const auto& d : getBlockDrops(relleno)) {
+            // Se pasa la posicion: el relleno de una celda mixta puede ser un
+            // nivel parcial, y de la posicion depende saber si lo apilo el
+            // jugador (ver g_nivelesDelJugador).
+            for (const auto& d : getBlockDrops(relleno, bx, by, bz)) {
                 if (d.chance < 1.0f) continue;
                 for (int i = 0; i < d.count; ++i)
                     state->spawnItem(pos, d.itemType);
@@ -32387,8 +34512,8 @@ void prewarmItemTextures() {
     // ---- Items con textura propia en Items/ ----
     struct ItemTex { BlockType id; const char* file; };
     static const ItemTex ITEM_TEXTURES[] = {
-        { BLOCK_DIRT_POWDER, "polvo de tierra.png" },
-        { BLOCK_STICK,       "palo.png"            },
+        { BLOCK_DIRT_POWDER, "Polvo de Tierra.png" },
+        { BLOCK_STICK,       "Palo.png"            },
         { BLOCK_COAL_ITEM,   "carbon.png"          },
         { BLOCK_RAW_ZINC,    "zinc crudo.png"      },
         { BLOCK_RAW_COPPER,  "cobre crudo.png"     },
@@ -32399,29 +34524,66 @@ void prewarmItemTextures() {
         { BLOCK_TUNA,          "Tuna verde crecida.png"    },
         { BLOCK_TUNA_AMARILLA, "Tuna amarilla crecida.png" },
         { BLOCK_TUNA_ROJA,     "Tuna roja crecida.png"     },
+        // ⭐ LA PENCA RECOGIDA USA EL DIBUJO DE ITEM, NO EL DE LA PLANTA.
+        //
+        // Es el item que sueltan TODAS las partes del nopal al romperse (ver
+        // getDroppedItem: el tallo, las bases, los cladodios apilados y la
+        // mata compuesta devuelven este mismo ID).
+        //
+        // Sin esta fila el icono caia a `getBlockTexture`, que para un
+        // cladodio devuelve `Blocks/Penca de Nopal de Castilla.png`: la penca
+        // TAL COMO CRECE EN LA PLANTA. En el inventario se veia la textura de
+        // la planta en vez del item recortado.
+        //
+        // Son dos dibujos distintos a proposito y conviene no mezclarlos:
+        //   Blocks/...  la penca viva, pensada para la geometria de la mata
+        //   Items/...suelto.png   la penca cortada, con fondo transparente
+        { BLOCK_NOPAL_CLADODIO, "Penca de Nopal de Castilla suelto.png"   },
         { BLOCK_NOPAL_TIRAS,   "Penca de Nopal de Castilla en tiras.png" },
-        { BLOCK_NOPAL_SIN_BABA,"Penca de Nopal sin baba mojado.png"      },
-        { BLOCK_NOPAL_BABA,    "Baba de nopal.png"                       },
-        { BLOCK_NOPAL_MOJADO,  "Nopal mojado sin espinas.png"            },
+        { BLOCK_NOPAL_SIN_BABA,"Penca de Nopal de Castilla suelto sin espinas mojado.png"      },
+        { BLOCK_NOPAL_BABA,    "Baba de Nopal.png"                       },
+        { BLOCK_NOPAL_MOJADO,  "Penca de Nopal de Castilla suelto sin espinas mojado.png"            },
         // Los PEDAZOS DE PIEDRA se dibujan en el mundo con la textura de
         // roca (que llena el cuadro, y por eso el canto 3D se ve macizo),
         // pero en el INVENTARIO conservan su dibujo propio: el montoncito
         // sobre fondo transparente, que es lo que identifica al item de un
         // vistazo.
-        { BLOCK_PEDAZO_PIEDRA, "pedazo de piedra.png"                    },
+        { BLOCK_PEDAZO_PIEDRA, "Pedazo de piedra.png"                    },
         { BLOCK_PEDAZO_PEDERNAL,"pedernal.png"                           },
-        { BLOCK_PEDAZO_TIERRA, "polvo de tierra.png"                     },
+        { BLOCK_PEDAZO_TIERRA, "Polvo de Tierra.png"                     },
         { BLOCK_PEDAZO_CALIZA, "pedazo de piedra caliza.png"             },
         { BLOCK_PEDAZO_COBRE,  "cobre crudo.png"                         },
+        // ⭐ LOS CANTOS DE MINERAL DE HIERRO.
+        //
+        // Sus bloques existian desde hace tiempo (BLOCK_PEDAZO_HEMATITE y
+        // BLOCK_PEDAZO_LIMONITA, IDs 161 y 162) pero NO estaban en esta tabla:
+        // caian al `default` y se dibujaban con textura de piedra, asi que en
+        // el inventario los tres cantos de hierro se veian identicos a un
+        // pedazo de roca corriente.
+        //
+        // Sus imagenes ya estaban en el resourcepack, sin usar. Aqui solo se
+        // conectan: no se anade ningun bloque ni ninguna textura nueva.
+        //
+        // ⚠️ La GOETHITA (BLOCK_PEDAZO_GOETHITA, 160) se queda fuera a
+        // proposito: no tiene dibujo propio en disco. Inventarle uno prestado
+        // la haria pasar por otro mineral, que es peor que el generico.
+        { BLOCK_PEDAZO_HEMATITE, "../Blocks/Hematita.png"                 },
+        { BLOCK_PEDAZO_LIMONITA, "../Blocks/Limonita.png"                 },
         { BLOCK_HILO_IXTLE,    "Hilo de Ixtle.png"                       },
-        { BLOCK_HACHA_PIEDRA,  "Hacha de piedra.png"                     },
+        { BLOCK_HACHA_PIEDRA,  "hacha de piedra.png"                     },
         { BLOCK_MARTILLO_PIEDRA, "Martillo de Piedra.png"                },
-        { BLOCK_PICO_PIEDRA,     "pico de Piedra.png"                    },
+        { BLOCK_PICO_PIEDRA,     "Pico de piedra.png"                    },
         { BLOCK_PEDERNAL_AFILADO, "pedernal afilado.png"                 },
-        { BLOCK_HACHA_PEDERNAL, "Hacha de Pedernal afilado.png"          },
-        { BLOCK_PICO_PEDERNAL, "Pico de Pedernal.png"                    },
-        { BLOCK_MARTILLO_PEDERNAL, "Martillo de Pedernal.png"            },
-        { BLOCK_NOPAL_SECO,    "Penca de Nopal de Castilla seco sin espinas.png" },
+        // ⭐ EL HACHA DE PEDERNAL USA EL DIBUJO DEL HACHA.
+        //
+        // Apuntaba a "Pedernal afilado.png", que es la LASCA de pedernal
+        // suelta, no la herramienta: el hacha y la piedra en bruto se veian
+        // igual en el inventario. Su dibujo propio
+        // ("Hacha de Pedernal afilado.png") ya estaba en disco, sin usar.
+        { BLOCK_HACHA_PEDERNAL, "Hacha de Pedernal afilado.png" },
+        { BLOCK_PICO_PEDERNAL, "pico de pedernal afilado.png"                    },
+        { BLOCK_MARTILLO_PEDERNAL, "Martillo de Pedernal afilado.png"            },
+        { BLOCK_NOPAL_SECO,    "Penca de Nopal de castilla suelto seco.png" },
         { BLOCK_ESPINAS_NOPAL, "Espinas de Nopal de castilla.png"        },
         { BLOCK_TAZON_PINO,    "tazon de madera de pino.png"             },
         { BLOCK_TAZON_ENCINO,  "tazon de madera de encino.png"           },
@@ -32538,10 +34700,23 @@ void prewarmItemTextures() {
 
         for (int id = 1; id <= BLOCK_LAST_PLACEABLE; ++id) {
             const BlockType bt = (BlockType)id;
+
+            // ⚠️ LOS MISMOS FILTROS QUE EL BUCLE DEL CREATIVO, Y EN EL MISMO
+            // ORDEN. Si esta lista se separa de la de alla, la auditoria
+            // empieza a mentir: o denuncia bloques que el menu ya no muestra,
+            // o calla los que si muestra.
             if (esNivelParcial(bt)) continue;
+            if (esNivelDeMaderaHuerfano(bt)) continue;
+            if (esHuecoDeMineralRetirado(bt)) continue;
+            if (esBloqueRetirado(bt)) continue;
 
             // Los que SI son piedra de verdad no son un fallo.
             if (bt == BLOCK_STONE || bt == BLOCK_COBBLESTONE) continue;
+
+            // El pedazo de piedra comparte "Piedra.png" a proposito para su
+            // malla 3D del mundo, pero en el inventario se dibuja con su
+            // sprite de item (ver drawItemIcon), asi que no es un duplicado.
+            if (bt == BLOCK_PEDAZO_PIEDRA) continue;
 
             const GLuint tex = g_textureManager->getBlockTexture(bt, 0);
             if (tex != texPiedra || texPiedra == 0) continue;
@@ -32641,7 +34816,30 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
     // Un cubo isometrico con la textura de una planta se ve absurdo (seis
     // caras de hierba/nopal). La vegetacion se dibuja con su textura tal
     // cual, en 2D, aunque SI sea colocable.
-    if (!isPlaceableItem(blockType) || isCrossSprite(blockType)) {
+    //
+    // ⭐ EL PEDAZO DE PIEDRA TAMBIEN, Y ESTO QUITA EL "SEGUNDO BLOQUE DE
+    // PIEDRA" DEL INVENTARIO.
+    //
+    // Un guijarro es colocable, asi que caia por el camino del cubo
+    // isometrico. Y la textura de MUNDO del pedazo de piedra es "Piedra.png"
+    // a proposito (el canto 3D necesita una roca que llene el cuadro; con el
+    // dibujo del montoncito se veria el PNG entero repetido en cada cara,
+    // bordes redondeados incluidos -- esta explicado en getBlockTexture).
+    //
+    // Resultado: en el menu salia un cubo de roca IDENTICO al bloque de
+    // piedra. Dos casillas con el mismo dibujo.
+    //
+    // Su sprite propio ya estaba registrado en la tabla de items
+    // ("Pedazo de piedra.png"); lo que faltaba era llegar hasta el. Ademas de
+    // quitar el duplicado es lo correcto: un canto suelto no es un cubo.
+    //
+    // ⚠️ SOLO ESTE, no `esGuijarro()` entero. Los otros guijarros (grava,
+    // pedernal, caliza, los tres hierros, la nieve) ya tienen su propia
+    // textura de bloque y se distinguen bien como cubo; ademas cinco de ellos
+    // NO estan en la tabla de items, asi que mandarlos al camino plano los
+    // dejaria sin icono.
+    if (!isPlaceableItem(blockType) || isCrossSprite(blockType) ||
+        blockType == BLOCK_PEDAZO_PIEDRA) {
         const GLuint tex = (GLuint)g_itemTextures.resolve((int)blockType);
 
         // ⭐ EL ICONO VA DERECHO
@@ -32864,6 +35062,11 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
 
     const BlockType inicial = world.getBlock(x, y, z);
     if (!puedeCaer(inicial)) return false;
+
+    // El techo de hojas tiene su propia regla de soporte (por los lados, ver
+    // revisarTechos). Si el recorrido de estructuras empezara en el, lo daria
+    // por suelto en cuanto no tuviera suelo DEBAJO y lo convertiria en items.
+    if (esTechoDeHojas(inicial)) return false;
 
     // --- Flood fill por las seis caras ---
     //
@@ -33139,7 +35342,157 @@ void revisarHojasSueltas(World& world, int x, int y, int z) {
             }
 }
 
+// ============================================================================
+// ⭐ APUNTAR UNA CELDA PARA LA REVISION GRANULAR
+// ============================================================================
+// No mira nada: solo anota. La comprobacion se hace al procesar, porque entre
+// el apunte y el proceso el mundo puede haber cambiado.
+void apuntarGranular(int x, int y, int z) {
+    if (y < 0 || y >= CHUNK_HEIGHT) return;
+    if (g_granularesPendientes.size() >= MAX_GRANULARES_PENDIENTES) return;
+    g_granularesPendientes.push_back({ x, y, z });
+}
+
+// ============================================================================
+// ⭐ LA ARENA QUE SE QUEDA SIN SUELO
+// ============================================================================
+// Caida POR COLUMNA, al estilo de Minecraft: cada celda mira UNICAMENTE la de
+// abajo. Sin flood fill, sin arrastrar vecinos.
+//
+// La cascada sale sola y no hace falta recorrer la columna entera: cuando un
+// grano se va de su celda, se apunta la de ENCIMA. Asi la duna se desmorona de
+// abajo hacia arriba, un grano por vuelta, repartido entre frames.
+void actualizarGranulares(GameState* state) {
+    if (g_granularesPendientes.empty()) return;
+
+    World& world = state->world;
+    int hechas = 0;
+
+    while (hechas < MAX_GRANULARES_POR_FRAME && !g_granularesPendientes.empty()) {
+        const RevisionGranular r = g_granularesPendientes.back();
+        g_granularesPendientes.pop_back();
+        ++hechas;
+
+        const BlockType aqui = world.getBlock(r.x, r.y, r.z);
+        if (!Fisica::esGranular(aqui)) continue;
+
+        // El fondo del mundo no se cae.
+        if (r.y <= 0) continue;
+
+        // ¿Que hay debajo? Solo cae si el hueco es aire o liquido: cualquier
+        // otra cosa --roca, tierra, un tablon, otro grano-- lo sostiene.
+        const BlockType debajo = world.getBlock(r.x, r.y - 1, r.z);
+        const bool hueco = (debajo == BLOCK_AIR) || esAguaCualquiera(debajo) ||
+                           (debajo == BLOCK_LAVA);
+        if (!hueco) continue;
+
+        // ⚠️ TOPE DE BLOQUES EN EL AIRE.
+        //
+        // Si no cabe uno mas, la celda se deja COMO ESTA y se vuelve a apuntar
+        // para el frame siguiente. Descartarla sin mas dejaria arena flotando
+        // de forma permanente, que es justo lo que este sistema evita.
+        if (g_bloquesCayendo.size() >= MAX_BLOQUES_CAYENDO) {
+            apuntarGranular(r.x, r.y, r.z);
+            break;
+        }
+
+        // Sale de su celda y empieza a caer con fisica real (la misma que usan
+        // los bloques desprendidos: gravedad 9.80665 y arrastre por densidad).
+        world.setBlock(r.x, r.y, r.z, BLOCK_AIR);
+        g_bloquesCayendo.emplace_back(r.x, r.y, r.z, aqui);
+
+        // Y el de encima se queda sin suelo: ahi sigue la cascada.
+        apuntarGranular(r.x, r.y + 1, r.z);
+    }
+}
+
+// ============================================================================
+// ⭐⭐ ¿QUE AGARRA UN TECHO DE HOJAS?
+// ============================================================================
+// Lo que hace de pared o de poste: cualquier bloque solido. Incluidos los
+// troncos -- un tejado sobre postes de madera es la construccion mas basica
+// que hay, y aqui el tronco lo ha puesto el jugador.
+//
+// No agarran el follaje (una hoja no es una viga), las plantas que se dibujan
+// como sprite, ni otro techo: el techo de al lado es parte del MISMO tejado, y
+// lo recorre `Fisica::techoSostenidoCon`, no cuenta como apoyo por si solo.
+bool sujetaTecho(BlockType v) {
+    if (esTechoDeHojas(v)) return false;
+    if (esHojaDeArbol(v))  return false;
+    if (isCrossSprite(v))  return false;
+    return isBlockSolid(v);
+}
+
+// ¿Sigue agarrado el techo de (x,y,z)? Si no, `grupo` trae el tejado entero
+// que se ha quedado en el aire.
+bool techoSostenido(World& world, int x, int y, int z,
+                    std::vector<Fisica::CeldaTecho>& grupo) {
+    return Fisica::techoSostenidoCon(
+        [&](int cx, int cy, int cz) { return world.getBlock(cx, cy, cz); },
+        sujetaTecho, x, y, z, grupo);
+}
+
+// ============================================================================
+// ⭐⭐ EL TEJADO QUE SE QUEDA SIN PAREDES SE CAE
+// ============================================================================
+// Se llama al romper algo. Mira los seis vecinos: si alguno es techo y su
+// tejado ya no toca ninguna pared, el tejado ENTERO cae con la gravedad real
+// de los bloques sueltos (la misma de la arena: 9.80665 y arrastre por
+// densidad). Al aterrizar se recoloca como bloque, no como item -- es un
+// techo que se desploma, no uno que se rompe.
+void revisarTechos(World& world, int x, int y, int z) {
+    static const int CARAS[6][3] = {
+        { 1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}
+    };
+    std::vector<Fisica::CeldaTecho> grupo;
+
+    for (const auto& d : CARAS) {
+        const int nx = x + d[0], ny = y + d[1], nz = z + d[2];
+        if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
+
+        // Ya pudo caer con el grupo de una cara anterior: entonces aqui hay
+        // aire y esTechoDeHojas corta.
+        if (!esTechoDeHojas(world.getBlock(nx, ny, nz))) continue;
+        if (techoSostenido(world, nx, ny, nz, grupo)) continue;
+
+        for (const Fisica::CeldaTecho& c : grupo) {
+            // Sin sitio en la lista de bloques en el aire, el resto del tejado
+            // se queda puesto. La proxima rotura cercana lo vuelve a mirar.
+            if (g_bloquesCayendo.size() >= MAX_BLOQUES_CAYENDO) return;
+
+            const BlockType t = world.getBlock(c.x, c.y, c.z);
+            world.setBlock(c.x, c.y, c.z, BLOCK_AIR);
+            g_bloquesCayendo.emplace_back(c.x, c.y, c.z, t);
+
+            // La arena que hubiera encima del tejado se queda sin suelo.
+            apuntarGranular(c.x, c.y + 1, c.z);
+        }
+    }
+}
+
 void revisarSoporte(World& world, int x, int y, int z) {
+    // ⭐ EL TECHO DE HOJAS, POR SU CUENTA.
+    //
+    // Va primero y con su propia regla (ver revisarTechos): se sostiene por
+    // los lados, no por debajo como las estructuras.
+    revisarTechos(world, x, y, z);
+
+    // ⭐ LO GRANULAR, ANTES QUE NADA.
+    //
+    // La arena de encima cae SIEMPRE que se le quita el suelo, sea natural o
+    // puesta por el jugador, y no depende del flood fill de estructuras: para
+    // el fill la arena sigue siendo terreno (no lo arrastra), y aqui es un
+    // arido suelto que se desmorona. Ver Fisica::esGranular.
+    //
+    // Se apuntan los cinco vecinos que pueden haberse quedado sin apoyo: el de
+    // encima --el caso normal-- y los cuatro de al lado, que cubren el caso de
+    // picar en horizontal dentro de una duna.
+    apuntarGranular(x, y + 1, z);
+    apuntarGranular(x + 1, y, z);
+    apuntarGranular(x - 1, y, z);
+    apuntarGranular(x, y, z + 1);
+    apuntarGranular(x, y, z - 1);
+
     // El de encima, que es el candidato mas probable.
     if (y + 1 < CHUNK_HEIGHT) desprenderEstructura(world, x, y + 1, z);
 
@@ -33474,31 +35827,42 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
                 const BlockType debajo = world.getBlock(cx, cy - 1, cz);
 
                 if (esNivelParcial(debajo)) {
-                    const BlockType baseDebajo = bloqueBaseDe(debajo);
-                    const int nivelDebajo      = nivelDe(debajo);
-                    const BlockType queCae     = bloqueBaseDe(b->tipo);
+                    // ========================================================
+                    // ⭐⭐ UNA SOLA ARITMETICA PARA TODO LO QUE SE JUNTA
+                    // ========================================================
+                    // PEDIDO: "que los bloques enteros puedan juntarse con
+                    // cualquier nivel o desnivel de bloques sin problemas".
+                    //
+                    // Aqui habia una COPIA de la cuenta de `fusionarNiveles`,
+                    // escrita a mano, y le faltaban dos casos:
+                    //
+                    //   1. MISMO MATERIAL con suma > 8 (p. ej. una capa de 5/8
+                    //      y un bloque entero): el `if (suma <= 8)` fallaba, no
+                    //      se acoplaba nada y la pieza se quedaba FLOTANDO
+                    //      encima. Con un entero cayendo eso pasaba siempre que
+                    //      la capa tuviera 1/8 o mas -- o sea, casi siempre.
+                    //
+                    //   2. MATERIAL DISTINTO: `mixto()` llena la celda de suelo
+                    //      a techo sin mirar cuanto cae, asi que una capa de
+                    //      3/8 mas un entero (11/8) se quedaba en 8/8 y se
+                    //      PERDIAN 3 octavos. La materia desaparecia.
+                    //
+                    // `fusionarNiveles` ya resuelve los dos --y el sobrante
+                    // sube con SU material-- asi que se llama a ella en vez de
+                    // mantener dos versiones de la misma regla, que es como
+                    // acaban divergiendo.
+                    const Fusion fus = fusionarNiveles(b->tipo, debajo);
 
-                    if (baseDebajo == queCae) {
-                        // MISMO MATERIAL: la capa simplemente crece. Tierra
-                        // que cae sobre tierra engorda la capa en vez de
-                        // apilar una segunda encima.
-                        const int suma = nivelDebajo + nivelDe(b->tipo);
-                        if (suma <= 8) {
-                            world.setBlock(cx, cy - 1, cz,
-                                           conNivel(baseDebajo, suma));
-                            ++colocados;
-                            acoplado = true;
-                        }
-                    } else {
-                        // MATERIAL DISTINTO: comparten celda. Abajo la capa
-                        // que ya estaba, y de ahi al techo lo que acaba de
-                        // caer.
-                        const BlockType mezcla =
-                            mixto(baseDebajo, nivelDebajo, queCae);
-                        if (mezcla != BLOCK_AIR) {
-                            world.setBlock(cx, cy - 1, cz, mezcla);
-                            ++colocados;
-                            acoplado = true;
+                    if (fus.tipo == ResultadoFusion::FUSIONADOS) {
+                        world.setBlock(cx, cy - 1, cz, fus.resultado);
+                        ++colocados;
+                        acoplado = true;
+
+                        // Lo que no cupo se queda en la celda de la pieza, que
+                        // es justo la de encima. Asi la columna crece sin
+                        // perder ni un octavo.
+                        if (fus.sobrante != BLOCK_AIR) {
+                            world.setBlock(cx, cy, cz, fus.sobrante);
                         }
                     }
                 }
@@ -34949,6 +37313,26 @@ bool isPlaceableItem(BlockType type) {
     }
 }
 
+// ============================================================================
+// ⭐ ¿ES UN BLOQUE MACIZO QUE NO PUEDE COMPARTIR CELDA CON UNA CAPA?
+// ============================================================================
+// Troncos, hojas, el horno: llenan su voxel entero y NO admiten niveles, asi
+// que no hay celda mixta posible con ellos. Puestos sobre una capa, la unica
+// forma de que no floten ni se solapen es ocupar la celda de la capa (ver
+// "UN BLOQUE ENTERO SOBRE UNA CAPA" en placeBlock).
+//
+// Fuera quedan las cosas que no son un cubo aunque cuenten como solidas:
+// plantas en cruz, ramas, raices, pencas, guijarros y compuestos. Esas se
+// apoyan encima de la capa como siempre, sin desplazarla.
+bool esMacizoSinCapas(BlockType t) {
+    if (t == BLOCK_AIR) return false;
+    if (esNivelParcial(t) || esMixto(t) || admiteNiveles(t)) return false;
+    if (Compuesto::esCompuesto(t)) return false;
+    if (isCrossSprite(t) || isRama(t) || esRaiz(t) || esCladodio(t) ||
+        t == BLOCK_NOPAL_FRUTO || esGuijarro(t)) return false;
+    return isBlockSolid(t) && alturaDe(t) >= 1.0f;
+}
+
 void placeBlock(GameState* state) {
     if (state->placeCooldown > 0) return;
     if (!state->inventory.hasSelectedBlock()) return;
@@ -34957,6 +37341,143 @@ void placeBlock(GameState* state) {
     // que su chunk adelanta a cualquier terreno nuevo en la cola de mallado.
     // Ver AccionDelJugador y el comparador de chunksToRebuild.
     AccionDelJugador marcaUrgencia;
+
+    // ========================================================================
+    // ⭐ APILAR BAJO LOS PIES TE SUBE ENCIMA, NO TE ATASCA
+    // ========================================================================
+    // LO QUE SE PIDIO: manteniendo el clic derecho y colocando niveles debajo
+    // de uno mismo, sin saltar, que el jugador se eleve lo justo para no
+    // quedarse atrapado dentro de lo que acaba de colocar.
+    //
+    // POR QUE HACE FALTA AQUI Y NO EN LA COLISION:
+    //
+    // La comprobacion de solape que ya existe mas abajo protege el camino
+    // NORMAL (colocar un bloque entero en una celda libre) y su respuesta es
+    // no colocar nada. Pero las ramas de APILADO DE NIVELES salen por `return`
+    // mucho antes de llegar ahi: suben el nivel de una celda que el jugador ya
+    // esta pisando y nadie mira si eso lo encierra. Ese es exactamente el caso
+    // que se atasca -- y no se puede arreglar prohibiendolo, porque levantar
+    // el suelo bajo los pies es el gesto que se quiere conservar.
+    //
+    // La respuesta correcta es la del ESCALON: si la superficie sube, el
+    // jugador sube con ella. El motor ya sabe hacerlo (step-up en
+    // CollisionSystem), solo que alli es el jugador el que se mueve contra un
+    // bloque quieto y aqui es el suelo el que crece bajo un jugador quieto.
+    //
+    // ⚠️ SE LLAMA DESPUES DEL setBlock, NUNCA ANTES.
+    //
+    // La altura se lee del bloque YA COLOCADO, con `alturaDe()` -- la misma
+    // funcion que usan el mesher y la colision. Calcularla por adelantado
+    // obligaria a predecir el resultado de la fusion de niveles en cada rama,
+    // que es justo la clase de logica duplicada que este archivo ya ha pagado
+    // caro (dos listas de suelo firme, dos cajas de la penca).
+    auto subirSiApilaBajoLosPies = [state](int cx, int cy, int cz) {
+        // La caja se construye con la altura REAL de la fisica, no con las
+        // constantes obsoletas de `Player` (WIDTH/HEIGHT ya no definen la
+        // hitbox: lo dice su propio comentario). Agachado el cuerpo mide
+        // menos, y usar la altura de pie levantaria al jugador de mas.
+        float ancho = 0.6f, alto = 1.8f;
+        if (g_playerController) {
+            const PlayerSys::MovementConfig& mc = g_playerController->getConfig();
+            ancho = mc.width;
+            alto  = g_playerController->getState().isCrouching ? mc.crouchHeight
+                                                               : mc.height;
+        }
+
+        const Render::CajaJugador caja = Render::cajaDelJugador(
+            state->player.position.x, state->player.position.y,
+            state->player.position.z, ancho, alto);
+
+        const BlockType puesto = state->world.getBlock(cx, cy, cz);
+
+        // ⭐ EL TECHO DE HOJAS NO LEVANTA A NADIE.
+        //
+        // Esta funcion existe para el caso "la capa crece BAJO MIS PIES, asi
+        // que subo con ella". El techo de hojas crece al reves: cuelga de la
+        // cara de arriba de su celda y engorda hacia ABAJO. Nada sube bajo
+        // los pies del jugador, asi que no hay nada que seguir.
+        //
+        // Sin esta salida, `alturaDe()` diria "esta capa mide 3 px" y el
+        // jugador daria un salto de 3 px por cada techo colocado a sus pies,
+        // persiguiendo una superficie que en realidad esta en el techo.
+        if (bloqueBaseDe(puesto) == BLOCK_TECHO_HOJAS) return;
+
+        const float subida = Render::subidaPorApilado(
+            cx, cy, cz, alturaDe(puesto), caja);
+
+        if (subida <= 0.0f) return;
+
+        // ⚠️ Y SOLO SI ARRIBA CABE.
+        //
+        // Apilando bajo un techo bajo, subir al jugador lo meteria dentro de
+        // lo que tiene encima: se habria cambiado quedarse atascado abajo por
+        // quedarse atascado arriba. Si no cabe, se deja donde esta -- el
+        // bloque ya esta puesto y la fisica resolvera el resto.
+        const float nuevaY = state->player.position.y + subida;
+        const int pies   = (int)floorf(nuevaY + 0.001f);
+        const int cabeza = (int)floorf(nuevaY + alto - 0.001f);
+        for (int y = pies; y <= cabeza; ++y) {
+            if (y == cy) continue;   // la celda que se acaba de apilar
+            if (isBlockSolid(state->world.getBlock(cx, y, cz))) return;
+        }
+
+        // ⭐⭐ Y TAMPOCO SI HAY TECHO JUSTO ENCIMA.
+        //
+        // Misma regla que en la rama del pilar con bloques enteros (ver "SI HAY
+        // TECHO, EL PILAR SE PARA AQUI"), y hace falta aqui ademas porque este
+        // es el camino de los NIVELES: apilar capa a capa bajo una cornisa
+        // levantaba al jugador hasta encajarlo igual.
+        //
+        // El bucle de arriba mira de `pies` a `cabeza`; lo que falta es la
+        // celda SIGUIENTE. Si ahi hay algo macizo, el jugador cabe ahora pero
+        // el siguiente nivel lo sofocaria -- y entonces ya es tarde, porque la
+        // capa estaria puesta.
+        //
+        // Cuenta como techo cualquier cosa que ocupe la celda: un cubo, una
+        // mixta o una capa parcial. Un nivel de 3 px basta para golpearse.
+        {
+            const int sobreLaCabeza = cabeza + 1;
+            if (sobreLaCabeza < CHUNK_HEIGHT && sobreLaCabeza != cy) {
+                const BlockType techo =
+                    state->world.getBlock(cx, sobreLaCabeza, cz);
+                if (isBlockSolid(techo) || esNivelParcial(techo) ||
+                    esMixto(techo))
+                    return;
+            }
+        }
+
+        state->player.position.y = nuevaY;
+
+        // El controlador es la fuente de verdad de la simulacion: si no se le
+        // avisa, el siguiente frame sobrescribe la posicion con la suya y la
+        // subida se pierde.
+        //
+        // ⚠️ NO SE USA pullFromEngine / setPosition AQUI, Y ES DELIBERADO.
+        //
+        // `setPosition` esta pensado para TELETRANSPORTES (spawn, cargar
+        // partida): ademas de mover, PONE LA VELOCIDAD A CERO y borra el
+        // `stepSmoothOffset`. Las dos cosas estan mal para un escalon:
+        //
+        //   - anular la velocidad congelaria al jugador en el aire a mitad de
+        //     una caida o de un salto, con el clic derecho dado;
+        //   - borrar el offset de camara es justo lo contrario de lo que se
+        //     busca, porque ESE offset es el suavizado.
+        //
+        // Un escalon no es un teletransporte: la Y sube y todo lo demas sigue
+        // igual. Por eso se toca solo la Y del estado, como hace el propio
+        // step-up de CollisionSystem.
+        if (g_playerController) {
+            PlayerSys::MovementState& ms = g_playerController->getState();
+            ms.position.y         += subida;
+            ms.previousPosition.y += subida;   // sin esto la interpolacion de
+                                               // render dibuja el salto
+
+            // Se declara como escalon para que la CAMARA lo reabsorba en
+            // 0,1 s en vez de dar un tiron vertical. Sin esto la vista salta
+            // a cada octavo y marea.
+            g_playerController->getCamera().notifyStepUp(ms, subida);
+        }
+    };
 
     BlockType selectedBlock = state->inventory.getSelectedBlock();
 
@@ -35290,7 +37811,30 @@ void placeBlock(GameState* state) {
                     // tiene sentido cuando apuntas a la tapa de algo lleno.
                     // Y arranca por su nivel 1 si el material lo admite, para
                     // que se pueda seguir apilando desde ahi igual que antes.
-                    if (esMixto(tocado) || !esNivelParcial(tocado)) {
+                    //
+                    // ⚠️⚠️ "LLENO" SE MIDE EN OCTAVOS, NO POR EL TIPO.
+                    //
+                    // BUG QUE ESTO CORRIGE: "cuando colocas un nivel distinto
+                    // al de abajo, el juego se piensa que es un bloque
+                    // completo".
+                    //
+                    // La condicion era `esMixto(tocado) ||
+                    // !esNivelParcial(tocado)`, o sea: toda celda mixta se
+                    // daba por llena. Eso valia cuando una mixta era por
+                    // fuerza 8 octavos, pero desde que el relleno tiene
+                    // altura propia una mixta puede ser "3 de tierra + 2 de
+                    // arena" = 5, con TRES OCTAVOS LIBRES.
+                    //
+                    // Resultado: colocabas un nivel de otro material, la
+                    // celda pasaba a mixta, y el siguiente clic ya no entraba
+                    // ahi -- se iba a la celda de arriba como si estuviera
+                    // llena. Desde fuera se ve exactamente como "el nivel
+                    // recien colocado se comporta como un bloque entero".
+                    //
+                    // `celdaLlena` hace la cuenta de verdad y es la misma que
+                    // usan la fusion y el resto de guardas, asi que las tres
+                    // no pueden volver a discrepar.
+                    if (celdaLlena(tocado)) {
                         const Vec3i arriba(result.blockPos.x,
                                            result.blockPos.y + 1,
                                            result.blockPos.z);
@@ -35334,14 +37878,53 @@ void placeBlock(GameState* state) {
                         // ya sabe tratar ese caso (y comprueba la colision
                         // con el jugador antes de poner nada).
                         if (libre) {
+                            // ⭐⭐ UNA CAPA, NO EL CUBO ENTERO.
+                            //
+                            // Esta rama entra al apuntar a la TAPA de una
+                            // celda llena: el bloque va a la de ENCIMA, que
+                            // esta vacia.
+                            //
+                            // Antes aqui se ponia el cubo COMPLETO, por el
+                            // mismo motivo que en el camino principal (el
+                            // miedo a dejar una lamina flotando con 13 px de
+                            // aire). Y por el mismo motivo ya no aplica: una
+                            // capa crece desde el SUELO de su celda, asi que
+                            // sobre la tapa del bloque de abajo se apoya sin
+                            // dejar ni un pixel de hueco.
+                            //
+                            // Tenia que cambiar aqui tambien: si no, apuntar
+                            // a la tapa de un bloque seguiria dando cubos
+                            // enteros y la regla nueva solo valdria para la
+                            // mitad de los clics.
+                            //
+                            // La piedra labrada y el techo de hojas conservan
+                            // su excepcion y van enteros (seColocaEntero). El
+                            // techo faltaba aqui: apuntando a la tapa de un
+                            // bloque nacia como lamina.
                             BlockType aPoner = enMano;
-                            if (admiteNiveles(enMano) && !esNivelParcial(enMano))
-                                aPoner = conNivel(bloqueBaseDe(enMano), 1);
+                            if (esTechoDeHojas(aPoner)) {
+                                aPoner = BLOCK_TECHO_HOJAS;
+                            } else if (admiteNiveles(aPoner) &&
+                                       !esNivelParcial(aPoner) &&
+                                       !seColocaEntero(aPoner)) {
+                                aPoner = conNivel(bloqueBaseDe(aPoner), 1);
+                            }
 
                             state->world.setBlock(arriba.x, arriba.y,
                                                   arriba.z, aPoner);
+                            // Si lo que acaba de nacer es una capa, queda
+                            // apuntada como apilado del jugador: al picarla
+                            // devolvera lo que costo (ver g_nivelesDelJugador).
+                            if (esNivelParcial(aPoner))
+                                marcarNivelDelJugador(arriba.x, arriba.y,
+                                                      arriba.z);
                             state->inventory.consumeSelected();
                             state->placeCooldown = 0.25f;
+                            // `arriba` puede ser la celda de los propios pies
+                            // (apuntando al suelo que se pisa): entonces la
+                            // capa nueva nace dentro del jugador.
+                            subirSiApilaBajoLosPies(arriba.x, arriba.y,
+                                                    arriba.z);
                             return;
                         }
 
@@ -35365,13 +37948,199 @@ void placeBlock(GameState* state) {
                                     result.blockPos.x, result.blockPos.y,
                                     result.blockPos.z,
                                     (nuevo > 8) ? baseT : conNivel(baseT, nuevo));
+                                // Apilado del jugador: al picarla devolvera
+                                // tantos items como capas puso (ver
+                                // g_nivelesDelJugador).
+                                marcarNivelDelJugador(result.blockPos.x,
+                                                      result.blockPos.y,
+                                                      result.blockPos.z);
                                 state->inventory.consumeSelected();
                                 state->placeCooldown = 0.25f;
+                                subirSiApilaBajoLosPies(result.blockPos.x,
+                                                        result.blockPos.y,
+                                                        result.blockPos.z);
+                                return;
+                            }
+                        }
+
+                        // ⭐ UNA MIXTA CON SITIO ADMITE MAS, COMO CUALQUIERA.
+                        //
+                        // Es la otra mitad del bug: con `celdaLlena` ya no se
+                        // desvian arriba las mixtas a medio llenar, asi que
+                        // ahora llegan hasta aqui y hay que saber tratarlas.
+                        // Sin esto caerian en `placePos = arriba` y el clic
+                        // acabaria otra vez en la celda de encima.
+                        //
+                        // `fusionarNiveles` sabe anadirle material a una
+                        // mixta (ver "UNA MIXTA A MEDIO LLENAR: SE LE ANADE
+                        // AL RELLENO"), asi que se delega ahi en vez de
+                        // repetir la cuenta -- que es como aparecieron las
+                        // discrepancias entre guardas.
+                        if (esMixto(tocado) && !celdaLlena(tocado)) {
+                            const BlockType aFund =
+                                esNivelParcial(enMano)
+                                    ? enMano
+                                    : conNivel(bloqueBaseDe(enMano), 1);
+                            const Fusion fm = fusionarNiveles(aFund, tocado);
+
+                            if (fm.tipo == ResultadoFusion::FUSIONADOS) {
+                                state->world.setBlock(result.blockPos.x,
+                                                      result.blockPos.y,
+                                                      result.blockPos.z,
+                                                      fm.resultado);
+                                marcarNivelDelJugador(result.blockPos.x,
+                                                      result.blockPos.y,
+                                                      result.blockPos.z);
+
+                                // Lo que no quepa arranca la celda de encima,
+                                // que se apoya en esta ya llena.
+                                if (fm.sobrante != BLOCK_AIR &&
+                                    arriba.y < CHUNK_HEIGHT) {
+                                    const BlockType hueco =
+                                        state->world.getBlock(arriba.x,
+                                                              arriba.y,
+                                                              arriba.z);
+                                    if (hueco == BLOCK_AIR ||
+                                        isCrossSprite(hueco)) {
+                                        state->world.setBlock(arriba.x,
+                                                              arriba.y,
+                                                              arriba.z,
+                                                              fm.sobrante);
+                                        marcarNivelDelJugador(arriba.x,
+                                                              arriba.y,
+                                                              arriba.z);
+                                    }
+                                }
+
+                                state->inventory.consumeSelected();
+                                state->placeCooldown = 0.25f;
+                                subirSiApilaBajoLosPies(result.blockPos.x,
+                                                        result.blockPos.y,
+                                                        result.blockPos.z);
                                 return;
                             }
                         }
 
                         placePos = arriba;
+                    } else
+
+                    // ========================================================
+                    // ⭐⭐ UN BLOQUE ENTERO SOBRE UNA CAPA: SE JUNTAN SIN HUECO
+                    // ========================================================
+                    // PEDIDO: "que los bloques completos al ser colocados
+                    // sobre niveles no floten ni dejen espacio, pero que no se
+                    // sobreponga ni el bloque completo ni el nivel: que se
+                    // junten bien".
+                    //
+                    // Hay dos clases de bloque entero y cada una se junta a
+                    // su manera, porque una celda solo puede tener lo que su
+                    // formato admite.
+                    //
+                    // --- 1. ADMITE NIVELES PERO VA ENTERO (piedra labrada,
+                    //        techo de hojas) ---
+                    //
+                    // Antes aqui se recortaba a UNA capa de 1/8 antes de
+                    // mezclarlo: el jugador ponia un bloque y le salia una
+                    // lamina. Ahora entra con sus OCHO octavos en la misma
+                    // aritmetica de siempre (fusionarNiveles), que reparte
+                    // sin perder ni inventar nada:
+                    //
+                    //     capa de tierra 3/8 + piedra labrada 8/8 = 11/8
+                    //       -> esta celda queda LLENA: tierra abajo, piedra
+                    //          justo encima de ella (sin hueco)
+                    //       -> los 3/8 que sobran suben como capa de piedra
+                    //          a la celda de arriba
+                    //
+                    // El bloque sigue midiendo un bloque, y empieza
+                    // EXACTAMENTE donde acaba la capa.
+                    if (seColocaEntero(enMano)) {
+                        const BlockType entero = esTechoDeHojas(enMano)
+                                               ? BLOCK_TECHO_HOJAS
+                                               : bloqueBaseDe(enMano);
+                        const Fusion fe = fusionarNiveles(entero, tocado);
+                        const Vec3i arriba(result.blockPos.x,
+                                           result.blockPos.y + 1,
+                                           result.blockPos.z);
+
+                        // Lo que sobra necesita la celda de arriba libre: si
+                        // no, se perderia material. En ese caso no se coloca.
+                        bool caeArriba = true;
+                        if (fe.sobrante != BLOCK_AIR) {
+                            if (arriba.y >= CHUNK_HEIGHT) caeArriba = false;
+                            else {
+                                const BlockType h = state->world.getBlock(
+                                    arriba.x, arriba.y, arriba.z);
+                                caeArriba = (h == BLOCK_AIR) || isCrossSprite(h);
+                            }
+                        }
+
+                        if (fe.tipo == ResultadoFusion::FUSIONADOS && caeArriba) {
+                            state->world.setBlock(result.blockPos.x,
+                                                  result.blockPos.y,
+                                                  result.blockPos.z,
+                                                  fe.resultado);
+                            marcarNivelDelJugador(result.blockPos.x,
+                                                  result.blockPos.y,
+                                                  result.blockPos.z);
+                            if (fe.sobrante != BLOCK_AIR) {
+                                state->world.setBlock(arriba.x, arriba.y,
+                                                      arriba.z, fe.sobrante);
+                                marcarNivelDelJugador(arriba.x, arriba.y,
+                                                      arriba.z);
+                            }
+                            state->inventory.consumeSelected();
+                            state->placeCooldown = 0.25f;
+                            subirSiApilaBajoLosPies(result.blockPos.x,
+                                                    result.blockPos.y,
+                                                    result.blockPos.z);
+                            if (fe.sobrante != BLOCK_AIR)
+                                subirSiApilaBajoLosPies(arriba.x, arriba.y,
+                                                        arriba.z);
+                            return;
+                        }
+                        // Sin sitio arriba: el clic no hace nada (ni gasta).
+                        return;
+                    } else
+
+                    // --- 2. NO ADMITE NIVELES (troncos, tablones de los
+                    //        pinos sin niveles) ---
+                    //
+                    // PEDIDO: "que cuando colocas un bloque completo encima de
+                    // cualquier nivel, el bloque no elimine el nivel, que solo
+                    // se pegue encima".
+                    //
+                    // (Antes de este pedido el bloque ocupaba la celda de la
+                    // capa y la capa salia como items. Se retiro: la capa se
+                    // queda.)
+                    //
+                    // Un tronco no tiene lonchas, pero SI puede ser el
+                    // material de ARRIBA de una celda mixta (tablaRelleno):
+                    // ocupa desde donde acaba la capa hasta el techo de la
+                    // celda, sin partirse. Asi queda pegado a la capa, sin
+                    // aire en medio y sin taparla:
+                    //
+                    //     ┌────────────┐ 16
+                    //     │▓▓ TRONCO ▓▓│  de la capa al techo
+                    //     ├────────────┤  3
+                    //     │███ TIERRA █│  la capa, intacta
+                    //     └────────────┘  0
+                    //
+                    // Lo que el formato no sabe guardar como material de
+                    // arriba (mixto devuelve AIRE) sigue por el camino de
+                    // siempre: va a la celda de encima, con la capa intacta.
+                    if (esMacizoSinCapas(enMano) && esNivelParcial(tocado) &&
+                        mixto(bloqueBaseDe(tocado), nivelDe(tocado), enMano)
+                            != BLOCK_AIR) {
+                        state->world.setBlock(
+                            result.blockPos.x, result.blockPos.y,
+                            result.blockPos.z,
+                            mixto(bloqueBaseDe(tocado), nivelDe(tocado), enMano));
+                        state->inventory.consumeSelected();
+                        state->placeCooldown = 0.25f;
+                        subirSiApilaBajoLosPies(result.blockPos.x,
+                                                result.blockPos.y,
+                                                result.blockPos.z);
+                        return;
                     } else
 
                     if (enMano == base || bloqueBaseDe(enMano) == base) {
@@ -35429,8 +38198,12 @@ void placeBlock(GameState* state) {
                                 state->world.setBlock(arriba.x, arriba.y,
                                                       arriba.z,
                                                       conNivel(base, 1));
+                                marcarNivelDelJugador(arriba.x, arriba.y,
+                                                      arriba.z);
                                 state->inventory.consumeSelected();
                                 state->placeCooldown = 0.25f;
+                                subirSiApilaBajoLosPies(arriba.x, arriba.y,
+                                                        arriba.z);
                             } else {
                                 // Arriba ocupado: se remata ESTA celda como
                                 // bloque entero en vez de perder el clic.
@@ -35440,6 +38213,11 @@ void placeBlock(GameState* state) {
                                                       base);
                                 state->inventory.consumeSelected();
                                 state->placeCooldown = 0.25f;
+                                // La celda pasa de 7/8 a llena justo bajo los
+                                // pies: es el caso que mas atasca.
+                                subirSiApilaBajoLosPies(result.blockPos.x,
+                                                        result.blockPos.y,
+                                                        result.blockPos.z);
                             }
                             return;
                         }
@@ -35448,8 +38226,16 @@ void placeBlock(GameState* state) {
                                               result.blockPos.y,
                                               result.blockPos.z,
                                               conNivel(base, nuevo));
+                        marcarNivelDelJugador(result.blockPos.x,
+                                              result.blockPos.y,
+                                              result.blockPos.z);
                         state->inventory.consumeSelected();
                         state->placeCooldown = 0.25f;
+                        // La capa acaba de crecer: si era la que pisa el
+                        // jugador, sube con ella en vez de quedarse dentro.
+                        subirSiApilaBajoLosPies(result.blockPos.x,
+                                                result.blockPos.y,
+                                                result.blockPos.z);
                         return;
                     }
 
@@ -35470,14 +38256,62 @@ void placeBlock(GameState* state) {
                     //     ├────────────┤  5
                     //     │███ TIERRA █│  la capa de antes
                     //     └────────────┘  0
-                    const BlockType mezcla =
-                        mixto(base, nivelDe(tocado), bloqueBaseDe(enMano));
-                    if (mezcla != BLOCK_AIR) {
+                    // ⚠️⚠️ POR `fusionarNiveles`, NO POR `mixto`.
+                    //
+                    // Aqui habia una llamada a `mixto(base, nivelDe(tocado),
+                    // bloqueBaseDe(enMano))`, y tenia el mismo bug que ya se
+                    // corrigio en la otra rama de material distinto (ver "EL
+                    // NIVEL COLOCADO SIGUE SIENDO NIVEL"): `bloqueBaseDe`
+                    // descarta el nivel de lo que se coloca, y el relleno de
+                    // una celda mixta va SIEMPRE de la capa al techo. Poner
+                    // una lamina de arena sobre una capa de tierra llenaba
+                    // los siete octavos que quedaban -- el jugador colocaba
+                    // 3 px y le salia un bloque casi entero.
+                    //
+                    // `fusionarNiveles` es la misma aritmetica que usa la
+                    // arena al CAER: cada material conserva su altura y lo
+                    // que no cabe sube a la celda de arriba. Con esto las dos
+                    // ramas de material distinto --colocar de lado y colocar
+                    // encima-- hacen por fin lo mismo, que es lo que se pidio
+                    // al decir que los niveles "se junten sin sobreponer uno".
+                    const BlockType aFundir =
+                        esNivelParcial(enMano) ? enMano
+                                               : conNivel(bloqueBaseDe(enMano), 1);
+                    const Fusion fusAqui = fusionarNiveles(aFundir, tocado);
+                    // ⭐ SUBE_ENTERO tambien cuenta: significa "aqui ya no
+                    // cabe, ponlo arriba con su nivel intacto". Antes ese
+                    // caso devolvia NO_FUSIONA y la cadena de apilado se
+                    // cortaba -- era una de las barreras.
+                    if (fusAqui.tipo == ResultadoFusion::FUSIONADOS ||
+                        fusAqui.tipo == ResultadoFusion::SUBE_ENTERO) {
                         state->world.setBlock(result.blockPos.x,
                                               result.blockPos.y,
-                                              result.blockPos.z, mezcla);
+                                              result.blockPos.z,
+                                              fusAqui.resultado);
+
+                        // Lo que no cupo arranca la celda de arriba, en vez
+                        // de estirarse dentro de esta.
+                        if (fusAqui.sobrante != BLOCK_AIR &&
+                            result.blockPos.y + 1 < CHUNK_HEIGHT) {
+                            const BlockType hueco = state->world.getBlock(
+                                result.blockPos.x, result.blockPos.y + 1,
+                                result.blockPos.z);
+                            if (hueco == BLOCK_AIR || isCrossSprite(hueco)) {
+                                state->world.setBlock(result.blockPos.x,
+                                                      result.blockPos.y + 1,
+                                                      result.blockPos.z,
+                                                      fusAqui.sobrante);
+                                marcarNivelDelJugador(result.blockPos.x,
+                                                      result.blockPos.y + 1,
+                                                      result.blockPos.z);
+                            }
+                        }
+
                         state->inventory.consumeSelected();
                         state->placeCooldown = 0.25f;
+                        subirSiApilaBajoLosPies(result.blockPos.x,
+                                                result.blockPos.y,
+                                                result.blockPos.z);
                         return;
                     }
 
@@ -35526,27 +38360,150 @@ void placeBlock(GameState* state) {
             }
         }
 
-        // Verificar que no colisione con el jugador
-        Vec3 playerFeet = state->player.position;
-        Vec3 playerHead = playerFeet + Vec3(0, state->player.HEIGHT, 0);
+        // ====================================================================
+        // ⭐ ¿EL BLOQUE COMPLETO CAE DENTRO DEL JUGADOR?
+        // ====================================================================
+        // La caja se construye con la hitbox REAL de la fisica (0.6 de ancho,
+        // y la altura agachado cuando toca), no con `Player::WIDTH/HEIGHT`:
+        // esas dos constantes estan marcadas como obsoletas en su propia
+        // declaracion ("sin efecto en la fisica") y daban 0.5, asi que este
+        // test y la colision de verdad no decidian lo mismo en los bordes.
+        //
+        // Se usa `celdaPisaAlJugador`, que es la MISMA prueba que emplean la
+        // fisica de caida y el resto del motor. Antes habia aqui un AABB
+        // escrito a mano: dos copias de la misma regla es justo el patron que
+        // este archivo ya ha pagado caro varias veces.
+        float anchoJug = 0.6f, altoJug = 1.8f;
+        if (g_playerController) {
+            const PlayerSys::MovementConfig& mc = g_playerController->getConfig();
+            anchoJug = mc.width;
+            altoJug  = g_playerController->getState().isCrouching
+                     ? mc.crouchHeight : mc.height;
+        }
+        const Render::CajaJugador cajaJug = Render::cajaDelJugador(
+            state->player.position.x, state->player.position.y,
+            state->player.position.z, anchoJug, altoJug);
 
-        // AABB del bloque a colocar
-        float minX = placePos.x, maxX = placePos.x + 1.0f;
-        float minY = placePos.y, maxY = placePos.y + 1.0f;
-        float minZ = placePos.z, maxZ = placePos.z + 1.0f;
+        bool intersects = Render::celdaPisaAlJugador(
+            placePos.x, placePos.y, placePos.z, cajaJug);
 
-        // AABB del jugador
-        float pMinX = playerFeet.x - state->player.WIDTH / 2.0f;
-        float pMaxX = playerFeet.x + state->player.WIDTH / 2.0f;
-        float pMinY = playerFeet.y;
-        float pMaxY = playerHead.y;
-        float pMinZ = playerFeet.z - state->player.WIDTH / 2.0f;
-        float pMaxZ = playerFeet.z + state->player.WIDTH / 2.0f;
+        // ====================================================================
+        // ⭐⭐ UN BLOQUE ENTERO BAJO LOS PIES TAMBIEN TE SUBE ENCIMA
+        // ====================================================================
+        // LO QUE SE PIDIO: lo mismo que ya hacen los niveles, pero con los
+        // bloques completos.
+        //
+        // EL COMPORTAMIENTO DE ANTES: si el cubo caia dentro del jugador, el
+        // clic NO HACIA NADA. Ni colocaba, ni avisaba, ni gastaba el item --
+        // un no-op silencioso. Mirando al suelo y manteniendo el clic derecho,
+        // la columna no crecia y no habia forma de saber por que.
+        //
+        // AHORA: si el cubo va DEBAJO (solapa por los pies, no por el pecho) y
+        // el jugador cabe encima, se coloca y el jugador sube. Es el pilar de
+        // toda la vida, pero sin tener que saltar -- que es exactamente lo que
+        // se pidio.
+        //
+        // ⚠️ SOLO POR DEBAJO, Y ESTO NO ES UN DETALLE.
+        //
+        // Un bloque que te intersecta a la altura del PECHO no es un suelo que
+        // crece: es alguien tapiandose a si mismo. Subir al jugador ahi seria
+        // empujarlo hacia arriba por colocar de frente, que no es construir
+        // sino un ascensor involuntario. Ese caso se sigue rechazando igual
+        // que siempre.
+        //
+        // La frontera es la misma que ya usa `sostieneAlJugador` para el
+        // andamio: la celda tiene que empezar en los pies o por debajo. Asi un
+        // cubo puesto en la celda de los pies (que es donde apunta la mira al
+        // mirar al suelo) sube, y uno puesto a la altura del torso no.
+        if (intersects) {
+            const float superficie = (float)placePos.y + 1.0f;   // cubo entero
+            const float subida     = superficie - cajaJug.minY;
 
-        // Verificar intersección
-        bool intersects = (pMinX < maxX && pMaxX > minX) &&
-                          (pMinY < maxY && pMaxY > minY) &&
-                          (pMinZ < maxZ && pMaxZ > minZ);
+            // Que nazca en los pies o mas abajo, y que la subida sea de
+            // escalon. `+1` porque la celda de los pies empieza justo en
+            // minY y tiene que entrar.
+            const bool naceBajoLosPies =
+                ((float)placePos.y <= cajaJug.minY + 0.001f);
+
+            if (naceBajoLosPies && subida > 0.0f && subida <= 1.05f + 1e-4f) {
+                // ¿Cabe el cuerpo entero en su nueva altura? Se miran las
+                // celdas que ocuparia, saltandose la que se va a colocar.
+                const float nuevaY = state->player.position.y + subida;
+                const int pies   = (int)floorf(nuevaY + 0.001f);
+                const int cabeza = (int)floorf(nuevaY + altoJug - 0.001f);
+
+                bool cabe = true;
+                for (int y = pies; y <= cabeza && cabe; ++y) {
+                    if (y == placePos.y) continue;
+                    if (isBlockSolid(state->world.getBlock(placePos.x, y,
+                                                           placePos.z)))
+                        cabe = false;
+                }
+
+                // ============================================================
+                // ⭐⭐ SI HAY TECHO, EL PILAR SE PARA AQUI
+                // ============================================================
+                // PEDIDO: "si colocas bloques debajo de ti y subes, y arriba en
+                // la cabeza hay un nivel o bloque, que ya no te permita colocar
+                // bloques encima tuyo".
+                //
+                // EL CASO QUE ESTO EVITA. Construyendo un pilar hacia arriba
+                // bajo una cornisa, un techo o una capa:
+                //
+                //     ███████  <- el techo
+                //              <- un hueco
+                //       O      <- el jugador, subiendo
+                //      ███     <- el pilar
+                //
+                // Con el ultimo bloque el jugador sube y su cabeza entra en el
+                // techo. Quedaba SOFOCADO: dentro de la roca, sin aire y sin
+                // forma de salir salvo picando.
+                //
+                // El bucle de arriba NO lo cazaba, y conviene entender por que:
+                // recorre de `pies` a `cabeza` DESPUES de subir, pero ambos se
+                // calculan con `altoJug`, que agachado mide menos. En el borde
+                // --cuando el techo esta justo a la altura de la coronilla-- la
+                // celda del techo cae fuera del rango por milesimas y el pilar
+                // se dejaba crecer igual.
+                //
+                // ⚠️ SE MIRA UNA CELDA POR ENCIMA DE LA CABEZA, NO LA CABEZA.
+                //
+                // La de la cabeza ya la cubre el bucle. Lo que falta es la
+                // SIGUIENTE: si ahi hay algo macizo, el jugador cabe ahora pero
+                // no podra dar el siguiente paso, y cada bloque que coloque lo
+                // acerca mas a quedarse encajado. Pararlo aqui es lo que
+                // convierte "te quedas atrapado" en "el clic no hace nada".
+                //
+                // ⚠️ Y SOLO AFECTA AL PILAR BAJO LOS PIES. Esta rama es la del
+                // bloque que te SUBE; colocar de frente, de lado o en el suelo
+                // no pasa por aqui y sigue igual. Tampoco se toca el minado: si
+                // el jugador pica el techo, el hueco aparece y el pilar vuelve
+                // a crecer sin mas.
+                if (cabe) {
+                    const int sobreLaCabeza = cabeza + 1;
+                    if (sobreLaCabeza < CHUNK_HEIGHT) {
+                        const BlockType techo = state->world.getBlock(
+                            placePos.x, sobreLaCabeza, placePos.z);
+
+                        // Cuenta como techo cualquier cosa que ocupe su celda:
+                        // un cubo macizo, una celda mixta o una capa parcial.
+                        // Un nivel de 3 px basta para golpearse la cabeza, asi
+                        // que `esNivelParcial` entra igual que lo demas -- es
+                        // literalmente lo que se pidio ("un nivel/bloque").
+                        if (isBlockSolid(techo) || esNivelParcial(techo) ||
+                            esMixto(techo))
+                            cabe = false;
+                    }
+                }
+
+                // Si cabe, se deja pasar al camino normal de colocacion: asi
+                // el bloque entra por la MISMA ruta que cualquier otro (agua
+                // desplazada, sonido, pasto tapado, soporte...) y no hay una
+                // segunda copia de todo eso aqui. La subida se aplica despues,
+                // ya con el bloque puesto.
+                if (cabe) intersects = false;
+            }
+        }
 
         if (!intersects) {
             BlockType blockToPlace = state->inventory.getSelectedBlock();
@@ -35662,21 +38619,132 @@ void placeBlock(GameState* state) {
                                               g_tiempoJugadoSegundos });
             }
 
-            // ⭐ CUALQUIER BLOQUE EMPIEZA POR SU NIVEL 1
+            // ====================================================================
+            // ⭐⭐ UN BLOQUE COMPLETO SE COLOCA COMPLETO
+            // ====================================================================
+            // BUG REPORTADO: los bloques quedan separados o desalineados al
+            // ponerlos uno encima de otro.
             //
-            // Antes solo las ocho familias de terreno tenian niveles, y un
-            // bloque se plantaba siempre ENTERO: no habia forma de poner una
-            // capa fina de piedra labrada, de tablones ni de un mineral.
+            // LA CAUSA, y NO es de coordenadas. El mallado es exacto: la cara
+            // de arriba de la celda `layer` se emite en `layer + 1` y la de
+            // abajo de la celda siguiente en `layer`. Mismo numero, mismo
+            // float, cero hueco (ver `emitQuad`). La base del chunk es
+            // `position.x * CHUNK_SIZE`, multiplicacion entera sin redondeo.
             //
-            // Ahora todo macizo que admita niveles se coloca como capa de 3
-            // px y se va subiendo al seguir poniendo del mismo material (eso
-            // lo hace el bloque de "colocar sobre un nivel parcial" de mas
-            // arriba). Asi se apila sin dejar hueco, sea cual sea el bloque.
+            // El problema era ESTA LINEA: convertia TODO bloque colocado en su
+            // NIVEL 1, que mide 3 px de 16 (ver `alturaNivelPx`). Asi que el
+            // jugador pedia un cubo y recibia una lamina fina. Dos laminas
+            // apiladas dejan 13 px de aire entre ellas -- la "separacion" de la
+            // captura. No faltaba precision: faltaba bloque.
             //
-            // Lo que no admite niveles -- plantas, agua, lava, guijarros --
-            // se coloca igual que siempre.
-            if (admiteNiveles(blockToPlace) && !esNivelParcial(blockToPlace)) {
+            // La intencion original era buena (poder hacer capas finas de
+            // piedra o tablon) pero el reparto estaba al reves: la capa fina
+            // era el caso POR DEFECTO y el cubo entero no se podia colocar.
+            //
+            // ------------------------------------------------------------------
+            // EL REPARTO CORRECTO
+            // ------------------------------------------------------------------
+            //   - Apuntando a la TAPA de una capa parcial del mismo material,
+            //     se sigue subiendo esa capa de nivel. Eso lo resuelve el bloque
+            //     "COLOCAR SOBRE UN NIVEL PARCIAL" de mas arriba, que se
+            //     ejecuta ANTES que esto y hace `return`: el camino de las
+            //     capas finas sigue intacto.
+            //   - En cualquier otro sitio --suelo raso, sobre un cubo, de
+            //     lado-- se coloca el bloque ENTERO, que es lo que el jugador
+            //     tiene en la mano y lo que ve en el inventario.
+            //
+            // Asi dos bloques contiguos comparten EXACTAMENTE el limite de sus
+            // celdas, sin hueco, sin solape y sin agrandar nada: el cubo mide
+            // 1.0 de celda, que es su medida de siempre.
+            //
+            // ⚠️ LO QUE NO SE TOCA. Plantas, agua, lava, guijarros y todo lo
+            // que no llena su celda a proposito no pasaba por aqui ni pasa
+            // ahora: `admiteNiveles` es falso para ellos. Esta correccion solo
+            // afecta a los macizos de geometria cubica.
+            //
+            // ====================================================================
+            // ⭐⭐ Y AHORA, LA VUELTA DE LAS CAPAS: NIVEL A NIVEL SOBRE EL SUELO
+            // ====================================================================
+            // PEDIDO: "que si tienes bloques que tienen niveles, al colocarlos
+            // sea nivel por nivel como antes, pero sin eliminar las
+            // correcciones".
+            //
+            // Las dos cosas son compatibles porque el fallo NUNCA fue colocar
+            // una capa: fue colocar una capa DONDE NO TOCABA. La separacion de
+            // 13 px salia de poner una lamina FLOTANDO sobre una celda ya
+            // llena, no de las laminas en si.
+            //
+            // Asi que la regla se afina en vez de volver atras:
+            //
+            //   SOBRE ALGO LLENO (un cubo, una celda mixta)  -> BLOQUE ENTERO.
+            //       Ahi una lamina quedaria colgada con aire debajo: es el bug
+            //       que se arreglo y no vuelve.
+            //
+            //   SOBRE EL SUELO O APOYADO EN UNA CAPA          -> NIVEL 1.
+            //       Aqui la lamina SE APOYA, no flota. Es el comportamiento de
+            //       antes y el que permite hacer capas finas, rampas y
+            //       entrelazar materiales distintos.
+            //
+            // El resto de combinaciones --subir una capa existente, mezclar dos
+            // materiales en la misma celda, el sobrante que sube a la de
+            // arriba-- las resuelven `fusionarNiveles` y la rama de "COLOCAR
+            // SOBRE UN NIVEL PARCIAL", que se ejecutan ANTES y hacen `return`.
+            // ⭐⭐ REESCRITO: UN BLOQUE CON NIVELES SE COLOCA SIEMPRE COMO
+            //    CAPA. SIN EXCEPCIONES SALVO UNA.
+            //
+            // PEDIDO: "que el jugador no coloque los bloques que tienen
+            // niveles; los niveles deben colocarse siempre y no un bloque
+            // completo. Solo una excepcion: la piedra labrada".
+            //
+            // LO QUE HABIA ANTES, Y POR QUE SE VA. La regla miraba lo que
+            // habia DEBAJO del destino: sobre algo lleno ponia el CUBO
+            // ENTERO, y solo sobre suelo parcial o aire ponia la capa. Nacio
+            // para evitar que una lamina quedara "colgada con aire debajo".
+            //
+            // Ese miedo ya no aplica: una capa crece desde el SUELO de su
+            // celda hacia arriba (ver alturaDe), asi que puesta encima de un
+            // cubo se apoya en su cara superior exactamente igual que se
+            // apoya en el terreno. No queda ni un pixel de aire en medio. El
+            // bug original era poner la lamina en la celda EQUIVOCADA, no la
+            // lamina en si, y de eso se encargan las ramas de apilado que
+            // corren antes.
+            //
+            // Resultado: poner tierra, piedra, arena o grava deja SIEMPRE una
+            // capa de 3 px que crece al seguir poniendo. Para tener un bloque
+            // macizo hay que apilar sus ocho octavos, que es justo la mecanica
+            // que se quiere.
+            //
+            // ⭐ LA EXCEPCION: LA PIEDRA LABRADA.
+            //
+            // Es el material de CONSTRUCCION del juego --lo que sale de picar
+            // piedra y de juntar cuatro cascotes-- y con el se levantan muros
+            // y suelos. Obligar a ocho clics por bloque haria inviable
+            // construir cualquier cosa. Va entera, como siempre.
+            //
+            // Y una segunda excepcion: el techo de hojas, que se coloca
+            // siempre como bloque completo (ver abajo).
+            if (admiteNiveles(blockToPlace) && !esNivelParcial(blockToPlace) &&
+                !seColocaEntero(blockToPlace) &&
+                placePos.y > 0) {
                 blockToPlace = conNivel(bloqueBaseDe(blockToPlace), 1);
+            }
+
+            // ================================================================
+            // ⭐⭐ EL TECHO DE HOJAS SE COLOCA COMO BLOQUE COMPLETO
+            // ================================================================
+            // PEDIDO: "que si se coloque se ponga y sea ahora un bloque
+            // completo".
+            //
+            // Se coloca donde sea, y va siempre ENTERO: el ID base
+            // `BLOCK_TECHO_HOJAS`, que es el nivel 8 de la familia. Si se
+            // sostiene o cae lo decide despues `techoSostenido`.
+            //
+            // Ya no se colocan ni la lamina colgada ni la variante apoyada
+            // `BLOCK_TECHO_SUELO`. Los IDs se conservan porque los mundos
+            // guardados pueden tenerlos, y se siguen dibujando y picando
+            // igual; lo que cambia es solo lo que nace al colocar.
+            if (esTechoDeHojas(blockToPlace)) {
+                blockToPlace = BLOCK_TECHO_HOJAS;
             }
 
             // ================================================================
@@ -35714,35 +38782,244 @@ void placeBlock(GameState* state) {
                 const bool destinoLibre =
                     (actual == BLOCK_AIR) || isCrossSprite(actual);
 
-                if (destinoLibre && esNivelParcial(debajo) && !esMixto(debajo)) {
+                // ⚠️⚠️ SOLO APUNTANDO HACIA ARRIBA. ANTES NO MIRABA LA CARA,
+                //      Y ESE ERA EL BUG DE LOS LADOS.
+                //
+                // BUG QUE ESTO CORRIGE: "no permite colocar niveles a los
+                // lados de un bloque completo".
+                //
+                // Esta rama existe para que nada quede FLOTANDO sobre una
+                // capa: si apuntas a la cara de arriba de una lamina, el
+                // material nuevo entra en SU celda en vez de colgarse encima.
+                // Para eso es correcta.
+                //
+                // Pero no miraba por donde habia entrado el rayo, asi que
+                // tambien se disparaba apuntando AL COSTADO de un cubo:
+                //
+                //      [cubo] <- apuntas aqui, de lado
+                //      [capa] <- y como debajo del destino hay una capa...
+                //
+                //   ...el nivel no se ponia donde apuntabas: se iba a subir
+                //   esa capa de abajo. Desde fuera se ve como "no me deja
+                //   poner niveles al lado de un bloque".
+                //
+                // `normal.y > 0` = el rayo entro por una cara SUPERIOR, que
+                // es el unico caso donde "flotar encima" puede pasar. De
+                // lado (normal.x o normal.z) y por debajo, el bloque va
+                // donde el jugador apunta.
+                const bool apuntaHaciaArriba = (result.normal.y > 0);
+
+                if (apuntaHaciaArriba && destinoLibre &&
+                    esNivelParcial(debajo) && !esMixto(debajo)) {
                     const BlockType baseAbajo = bloqueBaseDe(debajo);
                     const int nivelAbajo = nivelDe(debajo);
 
                     // Mismo material: sube el nivel de la capa de abajo en vez
                     // de crear un bloque nuevo encima. Es lo que hace que las
                     // capas se acumulen sin escalones de aire.
-                    if (bloqueBaseDe(blockToPlace) == baseAbajo &&
+                    //
+                    // ⚠️ SOLO SI LO QUE SE PONE ES UNA CAPA. Un bloque entero
+                    // del mismo material (piedra labrada sobre su capa) no
+                    // suma un octavo: suma OCHO, y eso lo reparte la fusion
+                    // de abajo (llena esta celda y sube el resto).
+                    if (esNivelParcial(blockToPlace) &&
+                        bloqueBaseDe(blockToPlace) == baseAbajo &&
                         nivelAbajo >= 1 && nivelAbajo < 8) {
                         state->world.setBlock(
                             placePos.x, placePos.y - 1, placePos.z,
                             (nivelAbajo + 1 >= 8) ? baseAbajo
                                                   : conNivel(baseAbajo, nivelAbajo + 1));
+                        // El jugador acaba de subir esta capa: cuenta como
+                        // apilado suyo aunque la primera la pusiera el mundo
+                        // -- lo que recupera al picarla es lo que metio.
+                        marcarNivelDelJugador(placePos.x, placePos.y - 1,
+                                              placePos.z);
                         state->inventory.consumeSelected();
                         state->placeCooldown = 0.25f;
+                        // Esta rama sube la capa de ABAJO, que es justo la
+                        // celda donde se apoyan los pies al mirar al suelo.
+                        subirSiApilaBajoLosPies(placePos.x, placePos.y - 1,
+                                                placePos.z);
                         return;
                     }
 
-                    // Material distinto: celda mixta, los dos en el mismo voxel.
-                    const BlockType mezcla =
-                        mixto(baseAbajo, nivelAbajo, bloqueBaseDe(blockToPlace));
-                    if (mezcla != BLOCK_AIR) {
-                        state->world.setBlock(
-                            placePos.x, placePos.y - 1, placePos.z, mezcla);
+                    // ========================================================
+                    // ⭐ MATERIAL DISTINTO: EL NIVEL COLOCADO SIGUE SIENDO NIVEL
+                    // ========================================================
+                    // BUG QUE ESTO CORRIGE: colocar un nivel de arena sobre un
+                    // nivel de tierra convertia la arena en BLOQUE ENTERO. La
+                    // llamada era:
+                    //
+                    //     mixto(baseAbajo, nivelAbajo, bloqueBaseDe(blockToPlace))
+                    //
+                    // y `bloqueBaseDe` descarta el nivel del que se coloca: el
+                    // relleno de una celda mixta va SIEMPRE de la capa al techo,
+                    // asi que un nivel 1 de arena acababa ocupando los 7 octavos
+                    // que quedaban. El jugador colocaba una lamina fina y le
+                    // salia un bloque.
+                    //
+                    // Ahora se pasa por `fusionarNiveles`, que es la misma
+                    // aritmetica que usa la arena al caer: cada material conserva
+                    // su altura, y lo que no cabe en la celda SUBE a la de arriba
+                    // en vez de estirarse. Un solo camino para las dos formas de
+                    // apilar -- tirar y colocar-- que antes divergian.
+                    const Fusion fus = fusionarNiveles(blockToPlace, debajo);
+                    if (fus.tipo == ResultadoFusion::FUSIONADOS) {
+                        state->world.setBlock(placePos.x, placePos.y - 1,
+                                              placePos.z, fus.resultado);
+
+                        // Lo que no cupo se queda en la celda de encima, que es
+                        // justo donde el jugador apunto. Asi la pila crece hacia
+                        // arriba sin perder ni un octavo.
+                        if (fus.sobrante != BLOCK_AIR) {
+                            state->world.setBlock(placePos.x, placePos.y,
+                                                  placePos.z, fus.sobrante);
+                        }
+
                         state->inventory.consumeSelected();
                         state->placeCooldown = 0.25f;
+                        subirSiApilaBajoLosPies(placePos.x, placePos.y - 1,
+                                                placePos.z);
                         return;
                     }
                 }
+            }
+
+            // ================================================================
+            // ⭐⭐ UNA CAPA NUNCA NACE CON HUECO DEBAJO
+            // ================================================================
+            // BUG REPORTADO: al colocar un nivel junto a una columna quedaba
+            // una franja de aire entre la capa y el suelo de al lado -- el
+            // hueco que encuadra el cursor en la captura.
+            //
+            // LA CAUSA. `placePos` sale del raycast: es la celda VACIA por la
+            // que entro el rayo. Si apuntas al costado de un bloque que esta
+            // a media altura, esa celda vacia puede tener OTRA celda vacia (o
+            // a medio llenar) justo debajo. La capa nace en el suelo de SU
+            // celda, 16 px por encima del suelo real, y entre las dos queda
+            // aire a la vista.
+            //
+            // LA REGLA. Una capa parcial no puede empezar en el aire: tiene
+            // que apoyarse. Asi que antes de colocar se mira hacia ABAJO y se
+            // baja el destino mientras haya sitio libre. Es la misma idea que
+            // "un bloque puesto en el aire se cae", pero resuelta ANTES de
+            // ponerlo, para que no haya ni un frame con el hueco.
+            //
+            // ⚠️ SOLO PARA CAPAS PARCIALES. Un bloque entero colocado al
+            // costado de una pared es construccion legitima --un saliente, un
+            // puente-- y de el ya se encarga la regla de caida de mas abajo,
+            // que lo suelta si de verdad no tiene nada debajo. Bajarlo aqui
+            // haria imposible construir en horizontal.
+            //
+            // ⚠️ Y SOLO SI LO DE ABAJO NO TIENE SITIO. Si la celda inferior
+            // es una capa del mismo material con hueco, la rama de fusion de
+            // mas arriba ya se ocupo: aqui solo quedan los casos de aire.
+            if (esNivelParcial(blockToPlace) && placePos.y > 0) {
+                int destinoY = placePos.y;
+
+                // Se baja mientras lo de debajo sea AIRE: la capa cae hasta
+                // posarse. El tope son 8 celdas, que es mas de lo que puede
+                // abarcar un clic -- sin tope, un agujero profundo haria
+                // recorrer media columna.
+                for (int intentos = 0; intentos < 8 && destinoY > 0; ++intentos) {
+                    const BlockType abajo = state->world.getBlock(
+                        placePos.x, destinoY - 1, placePos.z);
+                    const BlockType aqui = state->world.getBlock(
+                        placePos.x, destinoY, placePos.z);
+
+                    // Si la celda actual ya tiene algo, no se puede bajar mas.
+                    if (!(aqui == BLOCK_AIR || isCrossSprite(aqui))) break;
+
+                    // Si debajo hay algo que sostenga, ya esta posada.
+                    if (abajo != BLOCK_AIR && !isCrossSprite(abajo)) break;
+
+                    --destinoY;
+                }
+
+                if (destinoY != placePos.y) {
+                    placePos.y = destinoY;
+
+                    // ⭐ Y SI AL BAJAR SE POSA SOBRE UNA CAPA, SE FUNDEN.
+                    //
+                    // Sin esto la capa quedaria ENCIMA de la otra en vez de
+                    // sumarse: dos laminas de 3 px apoyadas una en otra en
+                    // celdas distintas, que es medio hueco otra vez. Se pasa
+                    // por `fusionarNiveles`, la misma aritmetica que usa todo
+                    // lo demas, asi que el resultado es identico a apilar
+                    // normalmente.
+                    const BlockType soporte = state->world.getBlock(
+                        placePos.x, placePos.y - 1, placePos.z);
+
+                    if (esNivelParcial(soporte) || esMixto(soporte)) {
+                        const Fusion fb = fusionarNiveles(blockToPlace, soporte);
+                        if (fb.tipo == ResultadoFusion::FUSIONADOS) {
+                            state->world.setBlock(placePos.x, placePos.y - 1,
+                                                  placePos.z, fb.resultado);
+                            marcarNivelDelJugador(placePos.x, placePos.y - 1,
+                                                  placePos.z);
+
+                            // Lo que no quepa arranca la celda de encima, que
+                            // es justo esta: se apoya en la de abajo, ya llena.
+                            if (fb.sobrante != BLOCK_AIR) {
+                                state->world.setBlock(placePos.x, placePos.y,
+                                                      placePos.z, fb.sobrante);
+                                marcarNivelDelJugador(placePos.x, placePos.y,
+                                                      placePos.z);
+                            }
+
+                            state->inventory.consumeSelected();
+                            state->placeCooldown = 0.25f;
+                            subirSiApilaBajoLosPies(placePos.x, placePos.y - 1,
+                                                    placePos.z);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // ================================================================
+            // ⭐⭐ LA CELDA DESTINO TIENE QUE ESTAR LIBRE
+            // ================================================================
+            // BUG REPORTADO: "aun me deja colocar y se gastan y solo
+            // desaparecen".
+            //
+            // LA CAUSA. Este `setBlock` era INCONDICIONAL: escribia en la celda
+            // de destino sin mirar si ya habia algo. Y justo debajo,
+            // `consumeSelected()` gastaba el item pasara lo que pasara.
+            //
+            // Las dos consecuencias que se veian:
+            //
+            //   1. SE PIERDE EL BLOQUE. Si el destino ya estaba ocupado por un
+            //      bloque entero, el nuevo lo SOBRESCRIBIA -- destruyendo el que
+            //      habia-- o, en los caminos donde placePos apunta a una celda
+            //      llena, se gastaba el item y lo escrito era lo mismo que ya
+            //      estaba: el bloque "desaparecia" de la mano sin aparecer en el
+            //      mundo.
+            //
+            //   2. SE PISA LO QUE HAY. Un bloque colocado encima de otro borraba
+            //      el anterior en silencio, que es el peor fallo posible en un
+            //      juego de construccion: el jugador pierde trabajo hecho.
+            //
+            // LA REGLA: solo se escribe en AIRE o en vegetacion reemplazable (un
+            // sprite en cruz no ocupa volumen, y sustituirlo es lo que el motor
+            // ya hace a proposito en la rama de "vegetacion reemplazable").
+            // Cualquier otra cosa es una celda ocupada y el clic no hace nada --
+            // sin gastar el item, que es la mitad que faltaba.
+            //
+            // ⚠️ VA ANTES DE `consumeSelected`, Y ESE ES EL PUNTO.
+            // Rechazar despues de consumir es exactamente el bug que se
+            // reporto. El `return` sale sin tocar el inventario.
+            {
+                const BlockType ocupante = state->world.getBlock(
+                    placePos.x, placePos.y, placePos.z);
+
+                // El agua NO cuenta como ocupante: colocar dentro del agua es
+                // valido y la desplaza (ver `aguaDesplazada` justo abajo). Ese
+                // comportamiento ya existia y no se toca.
+                const bool libre = (ocupante == BLOCK_AIR) ||
+                                   esAguaCualquiera(ocupante) ||
+                                   isCrossSprite(ocupante);
+                if (!libre) return;
             }
 
             // ⭐ Cuanta agua habia AQUI antes de tapar la celda. Se lee ahora,
@@ -35752,6 +39029,11 @@ void placeBlock(GameState* state) {
                 state->world.aguaDe(placePos.x, placePos.y, placePos.z);
 
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
+            // ⭐ Si lo que se acaba de poner es una CAPA, queda apuntada como
+            // apilado del jugador: al picarla devolvera lo que costo. Un
+            // nivel que puso el MUNDO no esta en el registro y suelta uno.
+            if (esNivelParcial(blockToPlace))
+                marcarNivelDelJugador(placePos.x, placePos.y, placePos.z);
             state->inventory.consumeSelected();
 
             // ================================================================
@@ -35825,7 +39107,29 @@ void placeBlock(GameState* state) {
                         state->player.position.z,
                         state->player.WIDTH, state->player.HEIGHT));
 
-                if (!esVegetacion && sinSuelo && !bajoLosPies &&
+                // ============================================================
+                // ⭐⭐ EL TECHO DE HOJAS SE AGARRA DE LAS PAREDES
+                // ============================================================
+                // PEDIDO: "si lo colocas en techo con bloques a los lados de
+                // paredes, ahi se mantendra y podra conectar a otros bloques
+                // de techo de hojas, pero si no hay un soporte, caera como un
+                // bloque con gravedad normal".
+                //
+                // Un techo es una lamina que vuela sobre el hueco agarrada de
+                // los bordes. Con la regla general ("sin suelo debajo -> cae")
+                // solo se podrian hacer techos de una casilla.
+                //
+                // Antes se miraba un solo paso (un vecino techo o firme). Ahora
+                // se recorre el tejado CONECTADO hasta encontrar una pared: asi
+                // el mismo criterio vale al colocar y al romper -- quitar la
+                // pared tira el tejado que colgaba de ella (revisarTechos).
+                std::vector<Fisica::CeldaTecho> tejado;
+                const bool techoApoyado =
+                    esTechoDeHojas(blockToPlace) &&
+                    techoSostenido(state->world, placePos.x, placePos.y,
+                                   placePos.z, tejado);
+
+                if (!esVegetacion && sinSuelo && !bajoLosPies && !techoApoyado &&
                     g_piezasCayendo.size() < MAX_PIEZAS_CAYENDO) {
 
                     // Se saca del mundo y se manda a caer como pieza de un
@@ -35947,6 +39251,17 @@ void placeBlock(GameState* state) {
             if (g_soundManager) {
                 g_soundManager->playPlaceBlock(glfwGetTime());
             }
+
+            // ⭐ Y SI EL BLOQUE NACIO BAJO LOS PIES, SUBIR ENCIMA.
+            //
+            // Va al FINAL y no en la rama que decidio dejarlo pasar, porque la
+            // altura se lee del bloque YA COLOCADO: entre medias el camino
+            // normal puede haberlo convertido en otra cosa (nivel 1, celda
+            // mixta, penca tumbada). Leerlo aqui es leer la verdad.
+            //
+            // Es la misma llamada que usan las ramas de apilado, asi que la
+            // regla vive en un solo sitio para los dos casos.
+            subirSiApilaBajoLosPies(placePos.x, placePos.y, placePos.z);
         }
     }
 }
@@ -36573,6 +39888,32 @@ void charCallback(GLFWwindow* window, unsigned int codepoint) {
     }
 }
 
+// ============================================================================
+// CERRAR EL INVENTARIO
+// ============================================================================
+// Lo comparten E y ESC: las dos teclas cierran el inventario EXACTAMENTE igual.
+// Si cada una tuviera su copia, la que se quedara atras perderia el item que el
+// jugador llevaba en el cursor o dejaria el raton suelto.
+void cerrarInventario(GLFWwindow* window) {
+    g_gameState->inventoryOpen = false;
+
+    // Al cerrar el inventario, devolver el item del cursor al inventario
+    if (!g_gameState->heldSlot.isEmpty()) {
+        if (!g_gameState->inventory.addItem(g_gameState->heldSlot.blockType, g_gameState->heldSlot.count)) {
+            // Si no cabe en el inventario, hacer spawn del item en el mundo
+            for (int i = 0; i < g_gameState->heldSlot.count; i++) {
+                g_gameState->spawnItem(g_gameState->player.position, g_gameState->heldSlot.blockType);
+            }
+        }
+        g_gameState->heldSlot.blockType = BLOCK_AIR;
+        g_gameState->heldSlot.count = 0;
+    }
+
+    g_gameState->cursorLocked = true;
+    g_gameState->firstMouse = true;
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+}
+
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (!g_gameState) return;
 
@@ -36723,7 +40064,21 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     }
 
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-        if (g_gameState->isPaused) {
+        // ⭐ CON EL INVENTARIO ABIERTO, ESC LO CIERRA (COMO E).
+        //
+        // Antes ESC pausaba el juego con el inventario abierto detras. Ahora
+        // la primera pulsacion solo cierra el inventario y vuelve al juego;
+        // para pausar hay que pulsar ESC otra vez. La regla vive en
+        // TeclasDeMenu.h (accionDeEsc), con sus tests.
+        const PlayerSys::AccionEsc accion = PlayerSys::accionDeEsc(
+            g_gameState->inventoryOpen, g_gameState->isPaused);
+
+        if (accion == PlayerSys::AccionEsc::CERRAR_INVENTARIO) {
+            cerrarInventario(window);
+            return;
+        }
+
+        if (accion == PlayerSys::AccionEsc::MENU_DE_PAUSA) {
             // Si estamos en un submenú, volver al menú principal
             if (g_gameState->pauseMenuState != PAUSE_MENU_MAIN) {
                 g_gameState->pauseMenuState = PAUSE_MENU_MAIN;
@@ -36885,21 +40240,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             g_gameState->mouseLeftPressed = false;
             g_gameState->mouseRightPressed = false;
         } else {
-            // Al cerrar el inventario, devolver el item del cursor al inventario
-            if (!g_gameState->heldSlot.isEmpty()) {
-                if (!g_gameState->inventory.addItem(g_gameState->heldSlot.blockType, g_gameState->heldSlot.count)) {
-                    // Si no cabe en el inventario, hacer spawn del item en el mundo
-                    for (int i = 0; i < g_gameState->heldSlot.count; i++) {
-                        g_gameState->spawnItem(g_gameState->player.position, g_gameState->heldSlot.blockType);
-                    }
-                }
-                g_gameState->heldSlot.blockType = BLOCK_AIR;
-                g_gameState->heldSlot.count = 0;
-            }
-
-            g_gameState->cursorLocked = true;
-            g_gameState->firstMouse = true;
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            cerrarInventario(window);
         }
     }
 
@@ -37297,14 +40638,11 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         int width, height;
         glfwGetWindowSize(window, &width, &height);
 
-        // Configuración del inventario (debe coincidir con el renderizado)
-        const int COLS = 9;
-        const int ROWS = 5;
-        const float SLOT_SIZE = 50.0f;
-        const float SPACING = 5.0f;
-        const float GRID_WIDTH = COLS * (SLOT_SIZE + SPACING) - SPACING;
-        const float START_X = (width - GRID_WIDTH) / 2.0f;
-        const float START_Y = 120.0f;
+        // Configuración del inventario: la misma del render y del tooltip
+        // (ui/InventarioLayout.h). Antes era una copia a mano con un
+        // "debe coincidir con el renderizado".
+        using namespace InventarioLayout;
+        const float START_X = startX((float)width);
 
         // Lambda para intercambiar slots (tipo Minecraft)
         auto swapSlots = [](InventorySlot& slot1, InventorySlot& slot2) {
@@ -37425,12 +40763,8 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 
         if (clickHandled) return;
 
-        // Configuración del grid de crafteo
-        const float CRAFT_SLOT_SIZE = 50.0f;
-        const float CRAFT_SPACING = 5.0f;
-        const float CRAFT_GRID_SIZE = 3 * (CRAFT_SLOT_SIZE + CRAFT_SPACING) - CRAFT_SPACING;
-        const float CRAFT_START_X = START_X + GRID_WIDTH + 80.0f;
-        const float CRAFT_START_Y = START_Y + 30.0f;
+        // Configuración del grid de crafteo (compartida, ver arriba)
+        const float CRAFT_START_X = craftStartX((float)width);
 
         // Verificar clicks en slots del crafting grid
         for (int i = 0; i < 9; i++) {
@@ -37454,9 +40788,8 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 
         // Verificar click en slot de resultado (solo botón izquierdo)
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
-            float arrowX = CRAFT_START_X + CRAFT_GRID_SIZE + 15.0f;
-            float resultX = arrowX + 60.0f;
-            float resultY = CRAFT_START_Y + CRAFT_GRID_SIZE / 2.0f - CRAFT_SLOT_SIZE / 2.0f;
+            float resultX = resultadoX((float)width);
+            float resultY = RESULTADO_Y;
 
             if (xpos >= resultX && xpos <= resultX + CRAFT_SLOT_SIZE &&
                 ypos >= resultY && ypos <= resultY + CRAFT_SLOT_SIZE) {
@@ -40945,9 +44278,25 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
                 }
             }
 
-            // Dejar el inventario del tamaño que toca antes de llenarlo.
-            if (state->inventory.total() < numSlots)
-                state->inventory.slots.resize((size_t)numSlots);
+            // Dejar el inventario EXACTAMENTE del tamaño que toca antes de
+            // llenarlo.
+            //
+            // ⚠️ ANTES SOLO CRECIA (`if (total() < numSlots)`), y de ahi
+            // salia el bug de los items de creativo en supervivencia:
+            //
+            //   1. Juegas un mundo CREATIVO -> el inventario crece a ~115
+            //      casillas con un bloque infinito en cada una.
+            //   2. Sales al menu. `GameState` es de la APLICACION, no de la
+            //      partida, asi que esas 115 casillas siguen ahi.
+            //   3. Entras a un mundo de SUPERVIVENCIA cuyo player.dat dice
+            //      45 casillas. Como 115 > 45, el resize no hacia nada.
+            //   4. El bucle de abajo sobrescribia las 45 primeras... y las
+            //      casillas 45 a 115 se quedaban con los items del creativo.
+            //
+            // Encoger tambien es lo correcto por si solo: el inventario debe
+            // reflejar el archivo que se esta leyendo, no el maximo historico
+            // de la sesion.
+            state->inventory.slots.assign((size_t)numSlots, InventorySlot());
 
             for (int i = 0; i < numSlots; i++) {
                 int blockType;
@@ -42004,11 +45353,6 @@ int main() {
     std::cout << "¡Mundo listo!" << std::endl;
     */ // FIN DEL COMENTARIO - El spawn ahora se hace al crear/cargar mundo
 
-//     // Calcular iluminación inicial en un hilo separado
-//     std::cout << "\nIniciando calculo de iluminacion global (en hilo separado)..." << std::endl;
-//     g_gameState->world.startLightingCalculation();
-//     std::cout << "Sistema de iluminación iniciado!" << std::endl;
-//     std::cout << "La iluminacion se calculara mientras juegas.\n" << std::endl;
 
     double lastTime = glfwGetTime();
     int frameCount = 0;
@@ -42624,6 +45968,43 @@ int main() {
                         // seguir poniendo del mismo material.
                         if (esNivelParcial(bt)) continue;
 
+                        // ====================================================
+                        // ⭐ LOS QUE SE VEIAN COMO UN SEGUNDO BLOQUE DE PIEDRA
+                        // ====================================================
+                        // El menu tenia 47 casillas con el mismo cubo de
+                        // piedra. Ninguna era piedra: son bloques sin textura
+                        // propia que caen en el `default:` de getBlockTexture,
+                        // y ese default devuelve "Piedra.png".
+                        //
+                        // Son de dos clases, y las dos son bloques MUERTOS que
+                        // no deberian poder colocarse:
+                        //
+                        //   42  las lonchas de madera y tablon. La madera
+                        //       salio de tablaNiveles() a proposito (un tronco
+                        //       es un tronco entero, no una loncha de 3 px),
+                        //       pero sus IDs siguen en el enum porque
+                        //       quitarlos correria todo lo de detras. Al salir
+                        //       de la tabla, `esNivelParcial` dejo de
+                        //       reconocerlos -- y el filtro de arriba es
+                        //       justamente `esNivelParcial`, asi que se
+                        //       colaron.
+                        //
+                        //    5  los huecos que dejaron los minerales de veta
+                        //       al retirarse. Siguen en el enum por el mismo
+                        //       motivo (no correr los IDs guardados) y no son
+                        //       bloques: no se generan ni tienen textura.
+                        //
+                        // ⚠️ Se filtran por lo que SON, no por su textura.
+                        // Comparar contra Piedra.png tambien sacaria del menu
+                        // al guijarro de piedra, que comparte esa imagen a
+                        // proposito, y a la piedra misma.
+                        if (esNivelDeMaderaHuerfano(bt)) continue;
+                        if (esHuecoDeMineralRetirado(bt)) continue;
+                        // Bloques que siguen existiendo para los mundos ya
+                        // guardados pero ya no se pueden obtener: hoy, el
+                        // tronco del nopal.
+                        if (esBloqueRetirado(bt)) continue;
+
                         ponerEnCreativo(bt);
                     }
 
@@ -42654,7 +46035,8 @@ int main() {
                     ponerEnCreativo(BLOCK_PEDAZO_HEMATITE);
                     ponerEnCreativo(BLOCK_PEDAZO_LIMONITA);
                     ponerEnCreativo(BLOCK_PEDAZO_NIEVE);
-                    ponerEnCreativo(BLOCK_PYRITE_ORE);
+                    // La pirita estaba aqui: era el unico mineral de veta que
+                    // llego al inventario creativo. Retirada con el resto.
 
                     // ================================================================
                     // ⭐ LO QUE SE HABIA QUEDADO FUERA
@@ -42688,6 +46070,32 @@ int main() {
                     ponerEnCreativo(BLOCK_WOOD_OCOTE_CHINO);
                     ponerEnCreativo(BLOCK_WOOD_OCOTE_CHINO_DENTRO);
                     ponerEnCreativo(BLOCK_LEAVES_OCOTE_CHINO);
+
+                    // --- Los cuatro pinos mexicanos nuevos ---
+                    //
+                    // Las cuatro piezas de cada uno: corteza, corte con los
+                    // anillos, acicula y tablones. Van aqui a mano porque
+                    // estan al final del enum, fuera del rango contiguo que
+                    // recorre el bucle de arriba.
+                    ponerEnCreativo(BLOCK_WOOD_PATULA);
+                    ponerEnCreativo(BLOCK_WOOD_PATULA_DENTRO);
+                    ponerEnCreativo(BLOCK_LEAVES_PATULA);
+                    ponerEnCreativo(BLOCK_PLANKS_PATULA);
+
+                    ponerEnCreativo(BLOCK_WOOD_PINONERO);
+                    ponerEnCreativo(BLOCK_WOOD_PINONERO_DENTRO);
+                    ponerEnCreativo(BLOCK_LEAVES_PINONERO);
+                    ponerEnCreativo(BLOCK_PLANKS_PINONERO);
+
+                    ponerEnCreativo(BLOCK_WOOD_ALTURAS);
+                    ponerEnCreativo(BLOCK_WOOD_ALTURAS_DENTRO);
+                    ponerEnCreativo(BLOCK_LEAVES_ALTURAS);
+                    ponerEnCreativo(BLOCK_PLANKS_ALTURAS);
+
+                    ponerEnCreativo(BLOCK_WOOD_PSEUDOSTROBUS);
+                    ponerEnCreativo(BLOCK_WOOD_PSEUDOSTROBUS_DENTRO);
+                    ponerEnCreativo(BLOCK_LEAVES_PSEUDOSTROBUS);
+                    ponerEnCreativo(BLOCK_PLANKS_PSEUDOSTROBUS);
 
                     // ⚠️ NO ENTRAN, Y ES DELIBERADO:
                     //
@@ -42736,6 +46144,49 @@ int main() {
                     // ⭐ NO abrir inventario automáticamente
                     g_gameState->inventoryOpen = false;
                 }
+                else {
+                    // ========================================================
+                    // ⭐ SUPERVIVENCIA: EL INVENTARIO EMPIEZA VACIO
+                    // ========================================================
+                    // En supervivencia TODO lo que hay en el inventario tiene
+                    // que haberlo conseguido el jugador: picando, crafteando
+                    // o recogiendolo del suelo. Nada se regala.
+                    //
+                    // Sin esta limpieza se colaban los items del CREATIVO.
+                    // `GameState` sobrevive a salir al menu y entrar a otro
+                    // mundo, asi que el inventario de ~115 casillas que deja
+                    // una partida creativa seguia en memoria al entrar aqui.
+                    //
+                    // No basta con el arreglo de loadWorldData (que ahora
+                    // ajusta el tamaño exacto al leer player.dat), porque un
+                    // mundo RECIEN CREADO no tiene player.dat: no se lee
+                    // nada, no se ajusta nada, y el inventario creativo
+                    // entero pasaba tal cual al mundo nuevo.
+                    //
+                    // ⚠️ AQUI NO SE PUEDE LLAMAR A clear().
+                    //
+                    // Este codigo corre al TERMINAR la pantalla de carga, y
+                    // `loadWorldData` ya se ejecuto mucho antes (al pulsar
+                    // jugar). Un clear() aqui borraria la partida que acaba
+                    // de cargarse del disco.
+                    //
+                    // Lo que se hace es RECORTAR el excedente: las casillas
+                    // que pasan de las 45 reglamentarias solo pueden venir de
+                    // un inventario creativo anterior, porque en
+                    // supervivencia el inventario nunca crece por encima de
+                    // ese tamaño. Las 45 primeras se respetan tal cual: son
+                    // las que escribio loadWorldData.
+                    Inventory& inv = g_gameState->inventory;
+                    if (inv.total() > Inventory::SLOTS) {
+                        std::cout << "Supervivencia: recortadas "
+                                  << (inv.total() - Inventory::SLOTS)
+                                  << " casillas heredadas del creativo"
+                                  << std::endl;
+                        inv.slots.resize((size_t)Inventory::SLOTS);
+                    }
+                    if (inv.selectedSlot >= Inventory::SLOTS || inv.selectedSlot < 0)
+                        inv.selectedSlot = 0;
+                }
 
                 // ============================================================
                 // ⭐ ESTADO LIMPIO AL ENTRAR A UN MUNDO
@@ -42756,6 +46207,17 @@ int main() {
                 // reseteaba.
                 {
                     Player& pj = g_gameState->player;
+
+                    // ⭐ EL REGISTRO DE CAPAS APILADAS ES DE ESTE MUNDO.
+                    //
+                    // Son COORDENADAS, y las del mundo anterior señalan sitios
+                    // distintos aqui. Sin limpiarlo, una loma natural que
+                    // cayera en las mismas coordenadas donde el jugador apilo
+                    // algo en otra partida soltaria varios items.
+                    //
+                    // Es el mismo fallo que el inventario heredado: GameState
+                    // es de la APLICACION, no de la partida.
+                    g_nivelesDelJugador.clear();
 
                     // El vuelo NUNCA se hereda. Y si el mundo es de
                     // supervivencia, ademas no puede activarse (ver la tecla V).
@@ -43241,13 +46703,19 @@ int main() {
                     lavaUpdateTimer = 0.0;
                 }
 
-                // LIGHTING DESHABILITADO PARA DIAGNOSTICO
-                // g_gameState->world.processLightingQueue();
                 g_gameState->updateItems(deltaTime);
 
                 // ⭐ FAUNA: las manadas de pecari se mueven y siguen el
                 // terreno. Sale en la primera linea si no hay ninguno.
                 g_gameState->actualizarFauna(deltaTime);
+
+                // ⭐ LA ARENA QUE SE QUEDO SIN SUELO.
+                //
+                // Va ANTES de avanzar los bloques en el aire: asi el grano que
+                // se suelta en este frame ya empieza a caer en este mismo
+                // frame, en vez de esperar al siguiente. Sale en la primera
+                // linea si no hay nada apuntado.
+                actualizarGranulares(g_gameState);
 
                 // ⭐ BLOQUES EN EL AIRE: gravedad real (ver FisicaCaida.h).
                 // Si no hay ninguno cayendo, sale en la primera linea y no
@@ -43934,15 +47402,10 @@ int main() {
                         float raw = nivelProm / 18.0f;
                         if (raw > 1.0f) raw = 1.0f;
 
-                        // El ciclo del dia, con el mismo criterio del mesher:
-                        // lo que ve el cielo se apaga de noche, lo que no
-                        // (una cueva) se queda como esta.
-                        const float solFauna = luzSolar();
-                        constexpr float LUZ_DE_LUNA_FAUNA = 0.12f;
-                        const float delCielo = raw * raw;
-                        const float propia   = raw - delCielo;
-                        const float luzHora  = propia + delCielo *
-                            (LUZ_DE_LUNA_FAUNA + (1.0f - LUZ_DE_LUNA_FAUNA) * solFauna);
+                        // El ciclo del dia, con la MISMA curva del mesher
+                        // (LuzCielo.h): toda la luz es del cielo y de noche
+                        // se apaga hasta la de la luna.
+                        const float luzHora = brilloDeLuz(raw, luzSolar());
 
                         const float luzAmbiente = 0.18f + 0.82f * luzHora;
 
@@ -44109,7 +47572,6 @@ int main() {
             // puesto a caer y de caer a quedarse suelto en el suelo, que es un
             // parpadeo mucho mas visible que un item un poco oscuro.
             const float solItems = luzSolar();
-            constexpr float LUZ_DE_LUNA_ITEM = 0.12f;
 
             // ⭐ Y ADEMAS SE LES BAJA EL BRILLO DE BASE.
             //
@@ -44133,19 +47595,8 @@ int main() {
                 else if (cy < 0)         nivel = 0;    // por debajo: fondo
                 else nivel = g_gameState->world.getLightLevel(cx, cy, cz);
 
-                float raw = (float)nivel / 18.0f;
-                float f = raw;
-                if (f < 0.15f) f = 0.15f;              // nunca negro puro
-
-                // La parte que depende del sol es la exposicion al cielo; lo
-                // que no ve el cielo (una antorcha, el ambiente) no cambia con
-                // la hora.
-                const float delCielo = f * raw;
-                const float propia   = f - delCielo;
-                const float luz = propia + delCielo *
-                    (LUZ_DE_LUNA_ITEM + (1.0f - LUZ_DE_LUNA_ITEM) * solItems);
-
-                return luz * BRILLO_ITEM;
+                // Misma curva que el terreno (LuzCielo.h).
+                return brilloDeNivel(nivel, solItems) * BRILLO_ITEM;
             };
 
             glPushMatrix();
@@ -44165,6 +47616,44 @@ int main() {
 
             // Escala más pequeña (0.2 = 20% del tamaño normal)
             float scale = 0.2f;
+
+            // ================================================================
+            // ⭐⭐ LA PENCA SUELTA OCUPA SU CASILLA
+            // ================================================================
+            // PEDIDO: "que el bloque de penca de nopal suelto no sea la textura
+            // de imagen solo, quiero que sea del mismo tamano que el espacio y
+            // 3D".
+            //
+            // `scale` es el SEMILADO: con 0.2 el item mide 0.4 bloques, menos
+            // de la mitad de su casilla. Para un pedazo de cobre o un pedernal
+            // esta bien --son objetos pequenos-- pero una penca de nopal es una
+            // pieza grande: tirada en el suelo tiene que leerse como la penca
+            // que era, no como una ficha.
+            //
+            // 0.45 de semilado = 0.9 bloques de lado: llena la celda dejando un
+            // margen minimo para que no se incruste en los bloques de al lado
+            // al rotar (el item gira sobre su eje, y en la diagonal un cuadrado
+            // de lado L barre L*1.41).
+            //
+            // ⚠️ SOLO LAS PENCAS, NO TODO `esCactusSuelto`.
+            //
+            // Ese grupo incluye tambien la BABA, las ESPINAS y las TUNAS, que
+            // son piezas pequenas: una tuna del tamano de la casilla seria una
+            // sandia, y la baba es un charco de mucilago, no una hoja.
+            //
+            // Las CINCO que si son penca --y las cinco tienen que ir juntas, o
+            // lavar una penca la encogeria a la mitad delante del jugador:
+            //
+            //   CLADODIO   la penca recien cortada
+            //   MOJADO     la misma, ya lavada y sin espinas
+            //   SECO       la misma, curada al sol
+            //   SIN_BABA   la misma, desbabada
+            //   TIRAS      la misma, cortada en tiras (sigue siendo el cladodio
+            //              entero: se corta, no se parte en trozos sueltos)
+            //
+            // `esPencaDeNopal` vive en BlockType.h para que esta lista no se
+            // duplique: el grosor de mas abajo pregunta lo mismo.
+            if (esPencaDeNopal(item.blockType)) scale = 0.45f;
 
             // ================================================================
             // ITEMS 3D: LA SILUETA DE LA TEXTURA, CON GROSOR
@@ -44284,11 +47773,11 @@ int main() {
                 case BLOCK_MARTILLO_PIEDRA:
                     siluetaPNG = "Textures/Items/Martillo de Piedra.png"; break;
                 case BLOCK_HACHA_PEDERNAL:
-                    siluetaPNG = "Textures/Items/Hacha de Pedernal afilado.png"; break;
+                    siluetaPNG = "Textures/Items/Pedernal afilado.png"; break;
                 case BLOCK_PICO_PEDERNAL:
-                    siluetaPNG = "Textures/Items/Pico de Pedernal.png"; break;
+                    siluetaPNG = "Textures/Items/pico de pedernal afilado.png"; break;
                 case BLOCK_MARTILLO_PEDERNAL:
-                    siluetaPNG = "Textures/Items/Martillo de Pedernal.png"; break;
+                    siluetaPNG = "Textures/Items/Martillo de Pedernal afilado.png"; break;
 
                 // --- Maguey: las piezas que se sueltan como item ---
                 //
@@ -44303,7 +47792,7 @@ int main() {
                     siluetaPNG = "Textures/Blocks/Puntas de Maguey.png"; break;
                 case BLOCK_PENCA_AGAVE_AZUL:
                 case BLOCK_AGAVE_AZUL_PENCA:
-                    siluetaPNG = "Textures/Blocks/Maguey de Tequilana azul.png"; break;
+                    siluetaPNG = "Textures/Blocks/Maguey de Tequilana azulado.png"; break;
                 case BLOCK_AGAVE_AZUL_PUNTA:
                     siluetaPNG = "Textures/Blocks/punta de Maguey de Tequilana azul.png"; break;
 
@@ -44319,15 +47808,15 @@ int main() {
                 // sea la forma del dibujo: es lo que hace que "se rendericen
                 // las caras de todo en 3D".
                 case BLOCK_NOPAL_CLADODIO:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla.png"; break;
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto.png"; break;
                 case BLOCK_NOPAL_MOJADO:
-                    siluetaPNG = "Textures/Items/Nopal mojado sin espinas.png"; break;
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"; break;
                 case BLOCK_NOPAL_SECO:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla seco sin espinas.png"; break;
+                    siluetaPNG = "Textures/Items/Penca de Nopal de castilla suelto seco.png"; break;
                 case BLOCK_NOPAL_TIRAS:
                     siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras.png"; break;
                 case BLOCK_NOPAL_SIN_BABA:
-                    siluetaPNG = "Textures/Items/Penca de Nopal sin baba mojado.png"; break;
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"; break;
                 case BLOCK_NOPAL_BABA:
                     siluetaPNG = "Textures/Items/Baba de nopal.png"; break;
                 case BLOCK_ESPINAS_NOPAL:
@@ -44387,26 +47876,75 @@ int main() {
                         (GLuint)g_itemTextures.resolve((int)item.blockType);
                     if (g_textureManager) g_textureManager->bindForUI(tex);
 
-                    // Recorta el fondo transparente del PNG en las dos caras
-                    // planas. El canto ya nace solo donde hay dibujo.
+                    // ====================================================
+                    // ⭐⭐ EL UMBRAL DE RECORTE: 0.1, NO 0.5
+                    // ====================================================
+                    // PEDIDO: "que no tenga agujeros en la textura y sea
+                    // completa".
+                    //
+                    // Con 0.5 se descarta TODO pixel por debajo de alfa 128, y
+                    // eso no son solo los del fondo. Medido en la textura de la
+                    // penca:
+                    //
+                    //     6.601 px semitransparentes en el BORDE  (antialias)
+                    //       195 px semitransparentes en el INTERIOR
+                    //
+                    // Los 195 del interior se convertian en AGUJEROS que
+                    // atraviesan la pieza, y los 6.601 del borde se comian el
+                    // contorno suave: la silueta salia dentada.
+                    //
+                    // Con 0.1 solo se descarta lo verdaderamente transparente
+                    // (el fondo, que esta a alfa 0). Es ademas el umbral que YA
+                    // usa el render del mundo para la vegetacion, asi que el
+                    // item tirado y la planta de la que salio se recortan con
+                    // el mismo criterio.
                     glEnable(GL_ALPHA_TEST);
-                    glAlphaFunc(GL_GREATER, 0.5f);
+                    glAlphaFunc(GL_GREATER, 0.1f);
 
                     const float g = semiGrosor * scale;
+
+                    // ====================================================
+                    // ⭐⭐ LA TEXTURA NO SE DEFORMA: MANDA SU PROPORCION
+                    // ====================================================
+                    // PEDIDO: "que no tenga agujeros en la textura y sea
+                    // completa y 3D sin deformar mucho".
+                    //
+                    // Las dos caras planas iban SIEMPRE de -scale a +scale en
+                    // los dos ejes, con la textura entera estirada encima. Para
+                    // un PNG cuadrado da igual; para uno de 1024x1536 --que es
+                    // lo que mide la penca-- el dibujo se achata un 33%: la
+                    // penca salia mas ancha y mas baja de lo que es.
+                    //
+                    // Aqui el cuadro se ajusta a la PROPORCION REAL de la
+                    // imagen. El lado mayor conserva `scale` y el menor se
+                    // encoge a su proporcion, asi que el pixel sigue siendo
+                    // cuadrado y la silueta es la del dibujo.
+                    //
+                    // `mod.ancho`/`mod.alto` los rellena SiluetaItem al leer el
+                    // PNG, asi que no hay que abrir el archivo otra vez ni
+                    // mantener una tabla de tamanos aparte.
+                    float sx = scale, sy = scale;
+                    if (mod.ancho > 0 && mod.alto > 0) {
+                        if (mod.ancho >= mod.alto)
+                            sy = scale * (float)mod.alto / (float)mod.ancho;
+                        else
+                            sx = scale * (float)mod.ancho / (float)mod.alto;
+                    }
+
                     // La cara plana, a la luz del sitio donde esta el item.
                     glColor3f(luzIt, luzIt, luzIt);
 
                     glBegin(GL_QUADS);
                     // Cara de delante
-                    glTexCoord2f(0, 0); glVertex3f(-scale, -scale,  g);
-                    glTexCoord2f(1, 0); glVertex3f( scale, -scale,  g);
-                    glTexCoord2f(1, 1); glVertex3f( scale,  scale,  g);
-                    glTexCoord2f(0, 1); glVertex3f(-scale,  scale,  g);
+                    glTexCoord2f(0, 0); glVertex3f(-sx, -sy,  g);
+                    glTexCoord2f(1, 0); glVertex3f( sx, -sy,  g);
+                    glTexCoord2f(1, 1); glVertex3f( sx,  sy,  g);
+                    glTexCoord2f(0, 1); glVertex3f(-sx,  sy,  g);
                     // Cara de detras (al reves, para que mire al otro lado)
-                    glTexCoord2f(0, 1); glVertex3f(-scale,  scale, -g);
-                    glTexCoord2f(1, 1); glVertex3f( scale,  scale, -g);
-                    glTexCoord2f(1, 0); glVertex3f( scale, -scale, -g);
-                    glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -g);
+                    glTexCoord2f(0, 1); glVertex3f(-sx,  sy, -g);
+                    glTexCoord2f(1, 1); glVertex3f( sx,  sy, -g);
+                    glTexCoord2f(1, 0); glVertex3f( sx, -sy, -g);
+                    glTexCoord2f(0, 0); glVertex3f(-sx, -sy, -g);
                     glEnd();
 
                     // El CANTO: el contorno real, ya calculado y cacheado.
@@ -44419,7 +47957,15 @@ int main() {
                         // La V se invierte porque la silueta se leyo sin
                         // voltear y la textura si esta volteada en GL.
                         glTexCoord2f(v.u, 1.0f - v.v);
-                        glVertex3f(v.x * scale, v.y * scale, v.z * scale);
+                        // ⚠️ EL CANTO USA LOS MISMOS SEMILADOS QUE LAS CARAS.
+                        //
+                        // Si aqui se dejara `scale` en los dos ejes, el
+                        // contorno quedaria MAS GRANDE que la cara plana en el
+                        // eje corto: se veria un reborde desalineado alrededor
+                        // del dibujo, que es peor que la deformacion que se
+                        // acaba de quitar. La Z si va con `scale` porque el
+                        // grosor no depende de la proporcion de la imagen.
+                        glVertex3f(v.x * sx, v.y * sy, v.z * scale);
                     }
                     glEnd();
 
@@ -44439,8 +47985,12 @@ int main() {
                 // PNG y deja SOLO la silueta del objeto. Sin esto se veria
                 // un rectangulo con el dibujo dentro, que es justo lo que se
                 // queria quitar.
+                // 0.1 y no 0.5, por lo mismo que el camino de arriba: con
+                // medio alfa se descartan tambien los pixeles del borde
+                // suavizado y los semitransparentes del interior, que salen
+                // como agujeros. Ver la nota larga de `siluetaPNG`.
                 glEnable(GL_ALPHA_TEST);
-                glAlphaFunc(GL_GREATER, 0.5f);
+                glAlphaFunc(GL_GREATER, 0.1f);
 
                 // Grosor de la pieza: fino, como una lamina con cuerpo. Las
                 // pencas de maguey van mas gruesas (ver FACTOR_GROSOR): son
@@ -44648,7 +48198,6 @@ int main() {
             // cambiaria de brillo justo al aterrizar, que es el salto que
             // esto viene a quitar.
             const float solAhora = luzSolar();
-            constexpr float LUZ_DE_LUNA_CAIDA = 0.12f;
 
             auto luzDeCelda = [&](int cx, int cy, int cz) -> float {
                 // Por encima del mundo es cielo abierto; por debajo, fondo.
@@ -44657,16 +48206,8 @@ int main() {
                 else if (cy < 0)            nivel = 0;
                 else nivel = g_gameState->world.getLightLevel(cx, cy, cz);
 
-                float raw = (float)nivel / 18.0f;
-                float f = raw;
-                if (f < 0.15f) f = 0.15f;          // nunca negro puro
-
-                // La parte que depende del sol es la exposicion al cielo; el
-                // resto se queda igual de dia que de noche.
-                const float delCielo = f * raw;
-                const float propia   = f - delCielo;
-                return propia + delCielo *
-                       (LUZ_DE_LUNA_CAIDA + (1.0f - LUZ_DE_LUNA_CAIDA) * solAhora);
+                // Misma curva que el terreno (LuzCielo.h).
+                return brilloDeNivel(nivel, solAhora);
             };
 
             // Anade las seis caras de un cubo, cada una a su textura.
@@ -44989,43 +48530,11 @@ int main() {
                     debugRayResult.blockPos.z
                 );
 
-                const char* blockName = "DESCONOCIDO";
-                switch(blockType) {
-                    case BLOCK_DIRT: blockName = "TIERRA"; break;
-                    case BLOCK_DIRT_POWDER: blockName = "POLVO DE TIERRA"; break;
-                    case BLOCK_STICK: blockName = "PALO"; break;
-                    case BLOCK_HOE: blockName = "HOZ"; break;
-                    case BLOCK_COAL_ITEM: blockName = "CARBON"; break;
-                    case BLOCK_RAW_ZINC: blockName = "ZINC CRUDO"; break;
-                    case BLOCK_RAW_COPPER: blockName = "COBRE CRUDO"; break;
-                    case BLOCK_GRASS: blockName = "CESPED"; break;
-                    case BLOCK_STONE: blockName = "PIEDRA"; break;
-                    case BLOCK_WOOD: blockName = "MADERA"; break;
-                    case BLOCK_LEAVES: blockName = "HOJAS"; break;
-                    case BLOCK_SAND: blockName = "ARENA"; break;
-                    case BLOCK_BEDROCK: blockName = "BEDROCK"; break;
-                    case BLOCK_WATER: blockName = "AGUA"; break;
-                    case BLOCK_GRAVEL: blockName = "GRAVA"; break;
-                    case BLOCK_CLAY: blockName = "ARCILLA"; break;
-                    case BLOCK_ORANGE_FLOWER: blockName = "FLOR NARANJA"; break;
-                    case BLOCK_PLANKS: blockName = "TABLONES DE PINO"; break;
-                    case BLOCK_PLANKS_ENCINO: blockName = "TABLONES DE ENCINO"; break;
-                    case BLOCK_PLANKS_OYAMEL: blockName = "TABLONES DE OYAMEL"; break;
-                    case BLOCK_PLANKS_OCOTE: blockName = "TABLONES DE OCOTE"; break;
-                    case BLOCK_LIMESTONE: blockName = "PIEDRA CALIZA"; break;
-                    case BLOCK_GOLD_ORE: blockName = "MINERAL DE ORO"; break;
-                    case BLOCK_SILVER_ORE: blockName = "MINERAL DE PLATA"; break;
-                    case BLOCK_CLAY_DIRT: blockName = "TIERRA ARCILLOSA"; break;
-                    case BLOCK_CLAY_SAND: blockName = "ARENA ARCILLOSA"; break;
-                    case BLOCK_WOOD_ENCINO: blockName = "MADERA DE ENCINO"; break;
-                    case BLOCK_WOOD_OYAMEL: blockName = "MADERA DE OYAMEL"; break;
-                    case BLOCK_WOOD_OCOTE: blockName = "MADERA DE OCOTE"; break;
-                    case BLOCK_WOOD_OCOTE_DENTRO: blockName = "OCOTE RESINOSO"; break;
-                    case BLOCK_LEAVES_ENCINO: blockName = "HOJAS DE ENCINO"; break;
-                    case BLOCK_LEAVES_OYAMEL: blockName = "HOJAS DE OYAMEL"; break;
-                    case BLOCK_LEAVES_OCOTE: blockName = "ACICULAS DE OCOTE"; break;
-                    default: break;
-                }
+                // El nombre sale de la tabla unica (ui/NombreItem.h), la misma
+                // que usa el tooltip del inventario. Aqui antes habia un
+                // switch propio de ~45 entradas: lo demas salia DESCONOCIDO.
+                const char* blockName = NombreItem::nombreDeItem(blockType);
+                if (!blockName) blockName = "DESCONOCIDO";
 
                 glColor4f(0.0f, 1.0f, 0.0f, 1.0f);  // Verde = detectado
                 sprintf(debugText, "BLOQUE: %s (%d, %d, %d)",
@@ -45770,15 +49279,10 @@ int main() {
                 renderText(aviso, width / 2.0f - 110, 82, 14);
             }
 
-            // Configuración de la cuadrícula
-            const int COLS = 9;
-            const int ROWS = 5;
-            const float SLOT_SIZE = 50.0f;
-            const float SPACING = 5.0f;
-            const float GRID_WIDTH = COLS * (SLOT_SIZE + SPACING) - SPACING;
-            const float GRID_HEIGHT = ROWS * (SLOT_SIZE + SPACING) - SPACING;
-            const float START_X = (width - GRID_WIDTH) / 2.0f;
-            const float START_Y = 120.0f;
+            // Configuración de la cuadrícula: compartida con el clic y el
+            // tooltip (ui/InventarioLayout.h), para que no se desajusten.
+            using namespace InventarioLayout;
+            const float START_X = startX((float)width);
 
             // ⭐ SE DIBUJA LA VENTANA DE FILAS QUE TOQUE
             //
@@ -45868,11 +49372,7 @@ int main() {
 
             // ⭐⭐⭐ RENDERIZAR GRID DE CRAFTEO 3x3 (A LA DERECHA DEL INVENTARIO) ⭐⭐⭐
             {
-                const float CRAFT_SLOT_SIZE = 50.0f;
-                const float CRAFT_SPACING = 5.0f;
-                const float CRAFT_GRID_SIZE = 3 * (CRAFT_SLOT_SIZE + CRAFT_SPACING) - CRAFT_SPACING;
-                const float CRAFT_START_X = START_X + GRID_WIDTH + 80.0f;  // A la derecha del inventario
-                const float CRAFT_START_Y = START_Y + 30.0f;
+                const float CRAFT_START_X = craftStartX((float)width);  // A la derecha del inventario
 
                 // Título "CRAFTEO"
                 glColor4f(0.2f, 0.8f, 1.0f, 1.0f);
@@ -45940,8 +49440,8 @@ int main() {
                 renderText("=>", arrowX, arrowY, 24);
 
                 // Slot de resultado (a la derecha de la flecha)
-                float resultX = arrowX + 60.0f;
-                float resultY = CRAFT_START_Y + CRAFT_GRID_SIZE / 2.0f - CRAFT_SLOT_SIZE / 2.0f;
+                float resultX = resultadoX((float)width);
+                float resultY = RESULTADO_Y;
 
                 // Fondo del slot de resultado
                 glColor4f(0.2f, 0.6f, 0.2f, 0.9f);  // Verde
@@ -46035,6 +49535,74 @@ int main() {
                     char countText[16];
                     sprintf(countText, "%d", g_gameState->heldSlot.count);
                     renderText(countText, heldX + 5, heldY + HELD_SIZE - 12, 12);
+                }
+            }
+
+            // ================================================================
+            // ⭐⭐ EL NOMBRE DEL ITEM BAJO EL RATON
+            // ================================================================
+            // PEDIDO: "que cuando pasas el cursor encima de la casilla del
+            // item te muestre su nombre en una mini seccion abajo que se
+            // sobrepondra del inventario, o sea tapara levemente lo que este
+            // atras de el".
+            //
+            // Vale para todo lo que tenga casilla: inventario, rejilla de
+            // crafteo y resultado. Va lo ULTIMO del inventario para quedar
+            // encima de todo. No sale mientras se arrastra un item: el que
+            // va en el cursor taparia la casilla y el nombre estorbaria.
+            //
+            // El fondo es casi opaco (0.88): tapa lo de atras lo bastante
+            // para leer el nombre sobre cualquier icono, pero se intuye que
+            // el inventario sigue debajo.
+            if (g_gameState->heldSlot.isEmpty()) {
+                double mx, my;
+                glfwGetCursorPos(window, &mx, &my);
+
+                const Casilla c = casillaBajoCursor(
+                    (float)mx, (float)my, (float)width,
+                    g_gameState->inventory.scroll,
+                    g_gameState->inventory.total());
+
+                BlockType tipo = BLOCK_AIR;
+                if (c.zona == Zona::INVENTARIO)
+                    tipo = g_gameState->inventory.at(c.indice).blockType;
+                else if (c.zona == Zona::CRAFTEO)
+                    tipo = g_gameState->craftingGrid.slots[c.indice].blockType;
+                else if (c.zona == Zona::RESULTADO)
+                    tipo = g_gameState->craftingResult.blockType;
+
+                const char* nombre = (tipo != BLOCK_AIR)
+                                   ? NombreItem::nombreDeItem(tipo) : nullptr;
+                if (nombre) {
+                    const Etiqueta e = colocarEtiqueta(
+                        c, (int)strlen(nombre), (float)width, (float)height);
+
+                    glDisable(GL_TEXTURE_2D);
+
+                    // Fondo: casi negro con un punto de azul, como la noche
+                    // del juego, para que no parezca un hueco.
+                    glColor4f(0.04f, 0.04f, 0.08f, 0.88f);
+                    glBegin(GL_QUADS);
+                    glVertex2f(e.x,           e.y);
+                    glVertex2f(e.x + e.ancho, e.y);
+                    glVertex2f(e.x + e.ancho, e.y + e.alto);
+                    glVertex2f(e.x,           e.y + e.alto);
+                    glEnd();
+
+                    // Borde fino y claro: separa la etiqueta de las casillas
+                    // grises de debajo.
+                    glColor4f(0.85f, 0.75f, 0.45f, 0.9f);
+                    glLineWidth(1.0f);
+                    glBegin(GL_LINE_LOOP);
+                    glVertex2f(e.x,           e.y);
+                    glVertex2f(e.x + e.ancho, e.y);
+                    glVertex2f(e.x + e.ancho, e.y + e.alto);
+                    glVertex2f(e.x,           e.y + e.alto);
+                    glEnd();
+
+                    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                    renderText(nombre, e.x + TOOLTIP_PAD_X, e.y + TOOLTIP_PAD_Y,
+                               TOOLTIP_TEXTO);
                 }
             }
 

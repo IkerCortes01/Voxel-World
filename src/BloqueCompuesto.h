@@ -136,6 +136,51 @@ enum Familia : int {
     // planta en su sitio.
     FAM_AGAVE_ABISAII,
 
+    // ========================================================================
+    // EL NOPAL DE CASTILLA: UNA MATA DE PENCAS EN UNA SOLA CELDA
+    // ========================================================================
+    // PEDIDO: "que el nopal permita tener 3 o 4 pencas mas en su misma casilla
+    // en cualquier direccion o posicion -- encima, abajo, al lado, este, sur,
+    // norte, oeste, mil formas; y que el tallo se conecte con las pencas y haga
+    // una especie de rollo, y alrededor crezcan las pencas sueltas".
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE NO SERVIA EL SISTEMA VIEJO
+    // ------------------------------------------------------------------------
+    // El apilado de pencas vivia en IDs DEL ENUM: CLADODIO_X2, X3, Z2, Z3. Eso
+    // da un tope de 3 pencas y solo en 2 ejes, porque cada combinacion necesita
+    // su propia entrada. Para "cualquier direccion" harian falta cientos de
+    // entradas nuevas, y cada una insertada en medio corre los IDs de todo lo
+    // que va detras -- que es justo lo que este archivo existe para evitar.
+    //
+    // ------------------------------------------------------------------------
+    // EL REPARTO DE LOS 16 BITS, Y POR QUE ES ASI
+    // ------------------------------------------------------------------------
+    // La clave es NO guardar la geometria. Se guardan las DECISIONES (cuantas
+    // pencas, hacia donde, que semilla) y la FORMA se deriva por hash de la
+    // posicion, exactamente como hace CristalMineral.h con los cristales.
+    //
+    //     EXTRAS   3b   0..7    cuantas pencas extra cuelgan de esta celda
+    //     DIR_A    3b   0..5    direccion de la 1a extra (las 6 caras)
+    //     DIR_B    3b   0..5    direccion de la 2a
+    //     DIR_C    3b   0..5    direccion de la 3a
+    //     SEMILLA  3b   0..7    variacion de angulos y desplazamientos
+    //     ROLLO    1b   0/1     el tallo se enrolla con las pencas
+    //                 ----
+    //                  16 bits
+    //
+    // Tres direcciones explicitas y el resto por hash: con 4 o mas extras, las
+    // que pasan de la tercera toman su rumbo del hash de (posicion, indice).
+    // Es lo que permite "mil formas" sin gastar 3 bits por cada una.
+    //
+    // Cuentas: 8 semillas x 6^3 direcciones x 2 rollos = 3.456 combinaciones
+    // guardadas, y cada una se despliega en angulos distintos segun DONDE este
+    // la planta. Dos nopales con el mismo estado en casillas distintas no se
+    // ven iguales.
+    //
+    // ⚠️ VA AL FINAL, despues de FAM_AGAVE_ABISAII. Misma regla de siempre.
+    FAM_NOPAL,
+
     FAM_COUNT
 };
 
@@ -1541,9 +1586,356 @@ inline bool familiaTieneModelo(Familia f) {
         case FAM_AGUA:          return true;
         case FAM_AGAVE_AZUL:    return true;
         case FAM_AGAVE_ABISAII: return true;
+        case FAM_NOPAL:         return true;
         default:                return false;   // reservada, aun sin geometria
     }
 }
+
+// ============================================================================
+// ⭐⭐ EL NOPAL: HASTA 7 PENCAS EXTRA EN LA MISMA CASILLA
+// ============================================================================
+// Ver la nota de FAM_NOPAL arriba para el porque. Aqui va el COMO.
+//
+// ----------------------------------------------------------------------------
+// LA IDEA CENTRAL: SE GUARDAN DECISIONES, NO GEOMETRIA
+// ----------------------------------------------------------------------------
+// Una penca extra necesita, para dibujarse: direccion, angulo de giro,
+// inclinacion, desplazamiento respecto al centro y tamano. Son cinco numeros
+// continuos por penca; con 4 pencas no caben en 16 bits ni de lejos.
+//
+// La salida es la misma que usa CristalMineral.h: el ESTADO guarda lo que no
+// se puede deducir (cuantas hay, hacia donde miran las tres primeras, que
+// semilla les toco) y la FORMA se deriva con un hash de la posicion del bloque.
+// El hash es determinista, asi que la planta se ve igual siempre y no hay nada
+// que guardar ni que migrar.
+namespace Nopal {
+
+    // --- Reparto de los 16 bits ---
+    //
+    // ⚠️ Estos cinco campos suman exactamente 16. Anadir uno obliga a robarle
+    // bits a otro, no a ensanchar el estado: BITS_ESTADO es comun a todas las
+    // familias y subirlo corre los IDs de todas.
+    constexpr Campo EXTRAS  = {  0, 3 };   // 0..7 pencas extra
+    constexpr Campo DIR_A   = {  3, 3 };   // 0..5 cara por la que sale la 1a
+    constexpr Campo DIR_B   = {  6, 3 };   // 0..5 la 2a
+    constexpr Campo DIR_C   = {  9, 3 };   // 0..5 la 3a
+    constexpr Campo SEMILLA = { 12, 3 };   // 0..7 variacion
+    constexpr Campo ROLLO   = { 15, 1 };   // el tallo se enrolla
+
+    constexpr uint16_t MAX_EXTRAS = 7;
+
+    // ========================================================================
+    // ⭐⭐ EL SEMIEJE DE UNA PENCA: UN SOLO NUMERO PARA DOS SITIOS
+    // ========================================================================
+    // Lo usan DOS codigos que tienen que estar de acuerdo o la cadena se rompe:
+    //
+    //   `colocar()`, aqui abajo, para ESPACIAR los eslabones (alto = 2*SEMIEJE)
+    //   el mesher, en main.cpp, para DIBUJAR la caja (ly = sy * SEMIEJE)
+    //
+    // Si se separan, las pencas dejan de tocarse por el borde: o se solapan por
+    // dentro o queda un hueco de luz entre ellas. Y no hay aviso -- compila,
+    // dibuja, y se ve mal. Por eso vive aqui y no duplicado como literal.
+    //
+    // ----------------------------------------------------------------------
+    // POR QUE ES TAN PEQUENO
+    // ----------------------------------------------------------------------
+    // Porque SIETE pencas encadenadas tienen que caber en UNA celda. El alto
+    // total de la cadena es la suma de los altos menos los solapes:
+    //
+    //     7 pencas * 2 * SEMIEJE * escala_media  -  6 * SOLAPE
+    //
+    // Con SEMIEJE = 0.42 eso daba mas de tres celdas y el acotado aplastaba la
+    // cadena contra el techo: medido, el 85% de las pencas saturaba el limite y
+    // la mata se veia como un amasijo pegado arriba en vez de una columna.
+    //
+    // Con 0.075 la cadena entera mide ~0.7 de celda y cabe con margen.
+    constexpr float SEMIEJE = 0.075f;
+
+    // Las SEIS direcciones por las que puede brotar una penca. El indice es lo
+    // que se guarda en DIR_A/B/C; el vector, lo que usa el mesher.
+    //
+    //   0 = +X este    1 = -X oeste   2 = +Y arriba
+    //   3 = -Y abajo   4 = +Z norte   5 = -Z sur
+    constexpr int DIRS[6][3] = {
+        { 1, 0, 0}, {-1, 0, 0}, { 0, 1, 0},
+        { 0,-1, 0}, { 0, 0, 1}, { 0, 0,-1}
+    };
+
+    // --- Construir y leer ---
+
+    inline bool esNopal(BlockType t) {
+        return esCompuesto(t) && familiaDe(t) == FAM_NOPAL;
+    }
+
+    // Un nopal con N pencas extra. Las direcciones van a 0 y se completan
+    // luego con `conDireccion`, o se dejan al hash si no se fijan.
+    inline BlockType nuevo(uint16_t extras, uint16_t semilla = 0,
+                           bool rollo = true) {
+        if (extras > MAX_EXTRAS) extras = MAX_EXTRAS;
+        uint16_t est = 0;
+        est = escribir(est, EXTRAS,  extras);
+        est = escribir(est, SEMILLA, (uint16_t)(semilla & 7u));
+        est = escribir(est, ROLLO,   rollo ? 1 : 0);
+        return hacer(FAM_NOPAL, est);
+    }
+
+    inline uint16_t extrasDe(BlockType t) {
+        if (!esNopal(t)) return 0;
+        return leer(estadoDe(t), EXTRAS);
+    }
+
+    inline uint16_t semillaDe(BlockType t) {
+        if (!esNopal(t)) return 0;
+        return leer(estadoDe(t), SEMILLA);
+    }
+
+    inline bool tieneRollo(BlockType t) {
+        if (!esNopal(t)) return false;
+        return leer(estadoDe(t), ROLLO) != 0;
+    }
+
+    // La direccion de la penca extra `i`. Las tres primeras van guardadas; de
+    // la cuarta en adelante se derivan del hash, que es lo que permite "mil
+    // formas" sin gastar 3 bits por cada una.
+    //
+    // `hash` lo aporta el llamador a partir de la posicion del bloque (ver
+    // `hashPos`), de modo que dos plantas con el mismo estado en casillas
+    // distintas reparten sus pencas de otra manera.
+    inline int direccionDe(BlockType t, int i, unsigned hash) {
+        if (!esNopal(t)) return 0;
+        const uint16_t est = estadoDe(t);
+        if (i == 0) return (int)(leer(est, DIR_A) % 6u);
+        if (i == 1) return (int)(leer(est, DIR_B) % 6u);
+        if (i == 2) return (int)(leer(est, DIR_C) % 6u);
+        // De la cuarta en adelante: el hash decide, mezclado con el indice
+        // para que no salgan todas iguales.
+        unsigned h = hash ^ (unsigned)(i * 2654435761u);
+        h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+        return (int)(h % 6u);
+    }
+
+    // Fija la direccion de una de las tres primeras pencas. Mas alla de la
+    // tercera no se puede: su rumbo es del hash, por diseno.
+    inline BlockType conDireccion(BlockType t, int i, int dir) {
+        if (!esNopal(t) || i < 0 || i > 2) return t;
+        const Campo c = (i == 0) ? DIR_A : (i == 1) ? DIR_B : DIR_C;
+        uint16_t est = escribir(estadoDe(t), c, (uint16_t)(dir % 6));
+        return hacer(FAM_NOPAL, est);
+    }
+
+    // Anade una penca mas. Devuelve el mismo bloque si ya esta lleno, para que
+    // el llamador pueda distinguir "cabia" de "no cabia" comparando.
+    inline BlockType anadirPenca(BlockType t, int dir) {
+        if (!esNopal(t)) return t;
+        const uint16_t n = extrasDe(t);
+        if (n >= MAX_EXTRAS) return t;
+        uint16_t est = escribir(estadoDe(t), EXTRAS, (uint16_t)(n + 1));
+        BlockType r = hacer(FAM_NOPAL, est);
+        return (n < 3) ? conDireccion(r, (int)n, dir) : r;
+    }
+
+    // ------------------------------------------------------------------------
+    // EL HASH DE POSICION
+    // ------------------------------------------------------------------------
+    // Mismo esquema que CuantosEn() en CristalMineral.h: tres primos grandes,
+    // mezcla y avalancha. Determinista y barato.
+    inline unsigned hashPos(int x, int y, int z, uint16_t semilla) {
+        unsigned h = (unsigned)(x * 73856093) ^ (unsigned)(y * 19349663) ^
+                     (unsigned)(z * 83492791) ^ (unsigned)(semilla * 2971215073u);
+        h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+        return h;
+    }
+
+    // Un float 0..1 estable, sacado del hash. `canal` separa magnitudes
+    // distintas (angulo, desplazamiento, tamano) para que no esten
+    // correlacionadas entre si.
+    inline float aleatorio01(unsigned hash, int canal) {
+        unsigned h = hash ^ (unsigned)(canal * 0x9E3779B9u);
+        h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+        return (float)(h % 100000u) / 100000.0f;
+    }
+
+    // ------------------------------------------------------------------------
+    // LA COLOCACION DE UNA PENCA EXTRA
+    // ------------------------------------------------------------------------
+    // Todo lo que el mesher necesita para dibujarla, derivado del hash. Nada de
+    // esto se guarda.
+    struct Extra {
+        float cx, cy, cz;   // centro dentro de la celda, 0..1
+        float anguloY;      // giro en el plano horizontal, radianes
+        float inclina;      // cuanto se tumba, -0.5..0.5
+        float escala;       // 0.55..1.00 del tamano de la penca base
+        int   dir;          // de que cara sale (indice en DIRS)
+    };
+
+    // ========================================================================
+    // ⭐⭐ LA CADENA: CADA PENCA BROTA DEL BORDE DE LA ANTERIOR
+    // ========================================================================
+    // PEDIDO: "que varias pencas puedan estar en una sola casilla, y que crezcan
+    // y se coloquen de tal modo que esten APILADAS, PEGADAS y ENLAZADAS
+    // naturalmente".
+    //
+    // ------------------------------------------------------------------------
+    // LO QUE HACIA ANTES, Y POR QUE NO SERVIA
+    // ------------------------------------------------------------------------
+    // La version anterior colocaba cada penca INDEPENDIENTEMENTE: la empujaba
+    // hacia una cara del cubo y le sumaba una deriva lateral del hash. El
+    // resultado era un ramillete de pencas flotando alrededor del centro, sin
+    // tocarse -- "veinte objetos sueltos", no una planta. Cada una se sorteaba
+    // sin mirar donde habia quedado la anterior, asi que no podian enlazarse.
+    //
+    // ------------------------------------------------------------------------
+    // LO QUE HACE AHORA: UNA CADENA
+    // ------------------------------------------------------------------------
+    // La penca `i` nace del BORDE SUPERIOR de la penca `i-1`. Es la misma regla
+    // botanica que ya aplica GeneradorNopal en render/NopalArborescente.h --un
+    // cladodio brota del filo de otro, nunca de su centro-- y la que hace que
+    // la mata se lea como UNA planta.
+    //
+    // El encadenado se consigue acumulando: se parte del centro de la celda y
+    // se avanza, penca a penca, por el vector de salida de cada una. Como el
+    // avance es la MITAD del alto de la penca anterior mas la mitad de la
+    // nueva, las dos se tocan exactamente por el borde:
+    //
+    //     centro_i = centro_{i-1} + dir_i * (alto_{i-1} + alto_i) * 0.5
+    //
+    // Y para que no quede una junta visible, se resta un SOLAPE: la base de la
+    // hija se mete un poco dentro de la madre. Es lo que pediste con "pegadas"
+    // y lo que evita el hueco de luz entre dos piezas que deberian ser una.
+    //
+    // ------------------------------------------------------------------------
+    // POR QUE SE SESGA HACIA ARRIBA
+    // ------------------------------------------------------------------------
+    // Una Opuntia crece contra la gravedad: las pencas nuevas salen del filo
+    // SUPERIOR, no del de abajo. Sin ese sesgo la mata crecia hacia el suelo
+    // tantas veces como hacia el cielo y parecia derramada. `DIRS[2]` es +Y, y
+    // la tabla de abajo lo elige con mas probabilidad que el resto.
+    //
+    // ⚠️ SIGUE CABIENDO TODO EN LA CELDA. El acotado final no es decorativo:
+    // una penca que se saliera invadiria la casilla del vecino y se dibujaria
+    // dos veces (cada celda se dibuja desde si misma). Por eso la cadena se
+    // comprime si hace falta en vez de desbordar.
+    inline Extra colocar(BlockType t, int i, int wx, int wy, int wz) {
+        Extra e{};
+        const unsigned h0 = hashPos(wx, wy, wz, semillaDe(t));
+
+        // ⭐ SE RECORRE LA CADENA DESDE EL PRINCIPIO.
+        //
+        // Hay que recalcular las pencas 0..i-1 porque la posicion de la `i`
+        // depende de todas ellas. Es O(i) con i <= 7: unas pocas decenas de
+        // operaciones, y a cambio no hace falta guardar ni un byte de la
+        // cadena. La alternativa --cachear-- costaria memoria por bloque y
+        // habria que invalidarla, que es justo lo que este diseno evita.
+        float px = 0.5f, py = 0.5f, pz = 0.5f;   // centro de la penca actual
+        float altoPrev = 0.0f;                    // alto de la anterior
+
+        for (int k = 0; k <= i; ++k) {
+            const unsigned h = h0 ^ (unsigned)((k + 1) * 0x85EBCA6Bu);
+
+            // --- TAMANO DE ESTA PENCA ---
+            // Se encoge con la profundidad de la cadena: la planta se afina
+            // hacia las puntas, como un nopal real. 1.00 la primera, hasta
+            // ~0.55 la septima.
+            const float merma = 1.0f - 0.07f * (float)k;
+            e.escala = (0.72f + aleatorio01(h, 5) * 0.28f) * merma;
+            if (e.escala < 0.40f) e.escala = 0.40f;
+
+            // ⭐ ALTO COMPLETO DE LA PENCA, y el factor 2 NO es decorativo.
+            //
+            // El mesher construye la caja con `ly = sy * sLargo` donde `sy` vale
+            // -1 o +1 (ver `esq` en main.cpp): la penca se extiende de
+            // `cy - sLargo` a `cy + sLargo`, asi que su alto REAL es el DOBLE
+            // del semieje.
+            //
+            // Usar aqui el semieje a secas espaciaba la cadena a la mitad de lo
+            // que mide la pieza, y las pencas se interpenetraban por dentro en
+            // vez de tocarse por el borde. Es la clase de error que no da
+            // ningun aviso: compila, dibuja, y se ve mal.
+            //
+            // SEMIEJE es la constante compartida con el mesher (ver su nota
+            // arriba). No se repite el numero aqui a proposito.
+            const float alto = 2.0f * SEMIEJE * e.escala;
+
+            // --- HACIA DONDE SALE ---
+            // Sesgada hacia arriba: ver la nota de la cabecera.
+            e.dir = direccionDe(t, k, h0);
+            if (k > 0) {
+                // 45% de las veces manda el sesgo vertical, pase lo que pase
+                // en los bits guardados. Es lo que endereza la mata.
+                if (aleatorio01(h, 6) < 0.45f) e.dir = 2;   // +Y
+            } else {
+                // La PRIMERA siempre sube: es la que arranca la columna desde
+                // la penca base, y arrancarla de lado dejaba la mata tumbada.
+                e.dir = 2;
+            }
+            const int* d = DIRS[e.dir];
+
+            // --- EL AVANCE QUE LAS DEJA PEGADAS ---
+            //
+            // Media penca anterior + media nueva, menos el solape. Con el
+            // solape las dos geometrias se interpenetran un poco y la union
+            // no deja ver luz entre ellas.
+            // El solape es una FRACCION del alto, no un absoluto: con pencas de
+            // 0.15 de celda, un solape fijo de 0.055 se tragaba un tercio de
+            // cada eslabon. El 18% mantiene la union cerrada sin que una penca
+            // desaparezca dentro de la anterior.
+            const float SOLAPE = alto * 0.18f;
+            const float avance = (altoPrev + alto) * 0.5f - SOLAPE;
+
+            if (k > 0) {
+                px += (float)d[0] * avance;
+                py += (float)d[1] * avance;
+                pz += (float)d[2] * avance;
+            } else {
+                // La base no avanza: se queda en el centro de la celda, que es
+                // donde esta la penca principal con la que enlaza.
+                py += alto * 0.5f - SOLAPE;
+            }
+
+            // --- DESVIO LATERAL, PEQUENO ---
+            //
+            // Lo justo para que la columna no sea una torre perfecta. Antes
+            // esto valia +-0.18 y era lo que desperdigaba las pencas; ahora es
+            // +-0.05, suficiente para que se note organico sin romper la
+            // cadena.
+            // ⚠️ PROPORCIONAL AL TAMANO DE LA PENCA, no absoluto. Un desvio
+            // fijo mayor que la propia penca la saca de la cadena: dejaria de
+            // tocar a su madre, que es justo lo que este sistema evita.
+            const float dl1 = (aleatorio01(h, 1) - 0.5f) * alto * 0.35f;
+            const float dl2 = (aleatorio01(h, 2) - 0.5f) * alto * 0.35f;
+            if (d[0] != 0)      { py += dl1; pz += dl2; }
+            else if (d[1] != 0) { px += dl1; pz += dl2; }
+            else                { px += dl1; py += dl2; }
+
+            altoPrev = alto;
+
+            // --- GIRO E INCLINACION ---
+            //
+            // ⭐ EL GIRO NO ES LIBRE: SIGUE AL DE LA MADRE.
+            //
+            // Antes era `aleatorio01 * 2pi`, un giro completo al azar, y por eso
+            // dos pencas encadenadas podian quedar cruzadas en angulo recto --
+            // la union se veia como un aspa, no como una planta. Ahora cada una
+            // hereda el rumbo de la cadena (`k * 0.6` abre el abanico poco a
+            // poco) y solo se le suma un ruido corto.
+            e.anguloY = (float)k * 0.6f + (aleatorio01(h, 3) - 0.5f) * 0.9f;
+
+            // La inclinacion tambien se modera: una penca encadenada se vence
+            // un poco, no se dobla del todo.
+            e.inclina = (aleatorio01(h, 4) - 0.5f) * 0.45f;
+        }
+
+        // Que la cadena entera quepa en la celda. Si se sale, invadiria la del
+        // vecino y se dibujaria dos veces.
+        auto acotar = [](float v) {
+            return v < 0.12f ? 0.12f : (v > 0.88f ? 0.88f : v);
+        };
+        e.cx = acotar(px); e.cy = acotar(py); e.cz = acotar(pz);
+
+        return e;
+    }
+
+} // namespace Nopal
 
 // ¿Este bloque compuesto se puede dibujar tal cual esta?
 //

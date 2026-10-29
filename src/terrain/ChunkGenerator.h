@@ -159,17 +159,61 @@ public:
             // permitida: se puede pasar por debajo de un rio.
             if (caves.IsCave((float)worldX, y, (float)worldZ, surfaceY,
                              col.isRiverBed)) {
-                writer.Set(lx, y, lz, Blocks::AIR);
+                // ============================================================
+                // ⭐ CUEVA BAJO EL MAR: SE INUNDA
+                // ============================================================
+                // Una cueva excavada bajo el lecho marino esta por debajo del
+                // nivel freatico, asi que en la realidad esta ANEGADA. Antes
+                // quedaba con aire, y el resultado era una burbuja seca bajo
+                // el oceano: se picaba el fondo del mar y aparecia una caverna
+                // vacia con el agua flotando por encima sin caer.
+                //
+                // LA CONDICION ES `col.isOcean`, NO `y < SEA_LEVEL`.
+                //
+                // Son cosas muy distintas y la diferencia es el mundo entero:
+                //   - `col.isOcean` -> esta columna tiene mar encima. Es lo
+                //     que se pidio: "siempre que hay una cueva bajo el mar".
+                //   - `y < SEA_LEVEL` -> cualquier cueva por debajo de la cota
+                //     62, incluidas las de tierra firme y las de montana. Las
+                //     cuevas de este motor bajan hasta y=8, asi que eso
+                //     inundaria CASI TODO el subsuelo del mundo y acabaria con
+                //     la exploracion en seco.
+                //
+                // Se usa Blocks::WATER (celda llena) y no una celda con nivel:
+                // es agua de mar en reposo, igual que la del oceano de arriba,
+                // y asi la simulacion de fluidos la trata como fuente estable
+                // en vez de intentar repartirla.
+                //
+                // ⚠️ El agua NO cruza a las columnas vecinas de tierra: cada
+                // columna decide por si misma, asi que la pared de roca que
+                // separa una cueva submarina de una terrestre sigue seca por
+                // el otro lado. Si el jugador la pica, el flujo normal se
+                // encarga -- que es justo lo que deberia pasar.
+                // ⭐ Y SI NO HAY MAR ENCIMA, TODAVIA PUEDE HABER LAGO.
+                //
+                // El agua subterranea de la zona (ver NivelLagoEn) anega las
+                // partes hondas de los pisos inferiores. Es lo que convierte
+                // el subsuelo en un karst de verdad en vez de un laberinto
+                // seco -- y da al descenso un final que merece la pena.
+                //
+                // El ORDEN importa: el mar manda sobre el lago. Bajo el oceano
+                // la cueva esta anegada entera hasta arriba, no solo hasta la
+                // cota del lago.
+                const bool anegada =
+                    col.isOcean ||
+                    caves.HayLagoSubterraneo((float)worldX, y, (float)worldZ);
+
+                writer.Set(lx, y, lz, anegada ? Blocks::WATER : Blocks::AIR);
                 continue;
             }
 
             Blocks::Id block;
 
             if (y < subsurfaceStart) {
-                // Roca profunda: aqui viven los minerales.
+                // Roca profunda. Aqui vivian los minerales de veta (carbon,
+                // pirita, desecho, hierro, oro, plata y diamante), retirados
+                // del juego: el subsuelo es ahora roca limpia.
                 block = Blocks::STONE;
-                const Blocks::Id ore = terrain.Decoration().GetOre(worldX, y, worldZ);
-                if (ore != Blocks::AIR) block = ore;
             }
             else if (y < surfaceY) {
                 // Capa de subsuelo (tierra bajo la hierba, arena bajo la
@@ -240,7 +284,13 @@ public:
             if (y < 1 || y >= worldHeight) continue;
             if (caves.IsCaveEntrance((float)worldX, y, (float)worldZ, surfaceY,
                                      col.isRiverBed)) {
-                writer.Set(lx, y, lz, Blocks::AIR);
+                // ⭐ Y la BOCA tambien se inunda si esta bajo el mar.
+                //
+                // Sin esto quedaba el caso incoherente: la galeria llena de
+                // agua (arriba) y el pozo que baja hasta ella, seco. Una boca
+                // submarina es un cenote -- un sumidero anegado--, no un
+                // agujero con aire dentro del oceano.
+                writer.Set(lx, y, lz, col.isOcean ? Blocks::WATER : Blocks::AIR);
             }
         }
 

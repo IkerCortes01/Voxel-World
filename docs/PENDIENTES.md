@@ -64,7 +64,18 @@ suya (registrar un callback que solo leía su propio MeshBuilder, al que no
 llamaba nadie). La carpeta `include/` desaparece: solo tenía cabeceras
 muertas. Total: ~3.240 líneas fuera.
 
-### 2.2 Iluminación global obsoleta — PENDIENTE
+### 2.2 Iluminación global obsoleta — ✅ HECHO (2026-10-27)
+
+Borrado entero (~570 líneas): el hilo, la cola, el torchlight y la tabla
+`getBlockEmission`, donde la piedra figuraba como bloque emisor. Con él se
+quitaron `Chunk::getTorchlight/setTorchlight`: ya no existe ningún camino por
+el que un bloque emita luz. En el mismo cambio se corrigió el bug de "luz
+rara al colocar a oscuras": `recalcularLuzLocal` empezaba cada columna con
+cielo pleno aunque el borde de su caja quedara bajo un tejado o en una cueva
+(ahora lo decide `luzQueEntraPorArriba`, en `src/LuzCielo.h`). Tests en
+`tests/test_luz_sin_emision.cpp`.
+
+Lo que sigue es la descripción original, como registro:
 
 La reactivación del skylight per-chunk dejó **obsoleto el sistema de
 iluminación global** que nunca llegó a usarse:

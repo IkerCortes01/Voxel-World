@@ -128,4 +128,82 @@ inline bool sostieneAlJugador(int cx, int cy, int cz, const CajaJugador& j) {
     return cercaDeLosPies && debajoEnPlanta;
 }
 
+// ============================================================================
+// ⭐ APILAR BAJO LOS PIES TE SUBE ENCIMA, NO TE ENTIERRA
+// ============================================================================
+// LO QUE SE PIDIO: colocando niveles en continuo (clic derecho mantenido)
+// justo debajo del jugador, sin saltar, que el jugador se eleve lo necesario
+// para no quedarse atascado dentro de lo que acaba de poner.
+//
+// ----------------------------------------------------------------------------
+// POR QUE NO BASTA CON PROHIBIR LA COLOCACION
+// ----------------------------------------------------------------------------
+// `placeBlock` ya tiene una comprobacion de solape con el jugador, pero su
+// respuesta es NO COLOCAR NADA. Para el camino normal esta bien: si apuntas a
+// tus propios pies, el clic no hace nada y ya esta.
+//
+// Para el APILADO DE NIVELES esa respuesta es la equivocada. Un nivel de 1/8
+// crece dentro de la celda que ya ocupas: el jugador esta de pie SOBRE esa
+// celda y su caja empieza justo donde el nivel va a llegar. Si se prohibe,
+// apilar bajo los pies deja de funcionar a partir del primer octavo -- y es
+// justo el gesto de levantar el suelo sobre el que estas parado.
+//
+// Lo correcto es lo que hace un escalon: la superficie sube y el jugador sube
+// con ella. Es exactamente el step-up que el controlador ya aplica al andar
+// contra un bloque, solo que aqui el suelo se mueve y el jugador no.
+//
+// ----------------------------------------------------------------------------
+// LA CUENTA
+// ----------------------------------------------------------------------------
+// `alturaDe()` da la altura solida de un bloque en fraccion de voxel (0..1),
+// y es la MISMA funcion que usan el mesher y la colision -- no una copia. La
+// cara de arriba de la celda `cy` queda entonces en `cy + altura`.
+//
+// Solo se sube si:
+//
+//   1. La celda esta en la columna del jugador (solape en planta). Un nivel
+//      puesto a un lado no levanta a nadie.
+//   2. La nueva superficie queda POR ENCIMA de los pies. Si el nivel sigue
+//      por debajo, no hay nada que corregir y devolver un empujon de cero
+//      evita el temblor de subir y bajar cada clic.
+//   3. La subida es pequena -- como mucho un bloque. Es el mismo tope que
+//      `stepHeight` (1.05) y es lo que impide que esto se convierta en un
+//      teletransporte vertical si algun dia una celda crece de golpe.
+//
+// Devuelve CUANTO hay que subir (0 si no hay que hacer nada), no la posicion
+// final: el llamante suma ese incremento a la Y del jugador y se lo pasa a la
+// camara como escalon, para que el ojo lo reabsorba suavemente en vez de dar
+// un tiron.
+//
+// `alturaSolida` se recibe ya calculada en vez de llamar a `alturaDe()` aqui,
+// porque este header no conoce BlockType a proposito: es lo que le permite
+// compilarse en los tests sin arrastrar medio motor.
+inline float subidaPorApilado(int cx, int cy, int cz,
+                              float alturaSolida,
+                              const CajaJugador& j,
+                              float maxSubida = 1.05f) {
+    // Fuera de la columna del jugador: no lo levanta.
+    const bool enPlanta =
+        ((float)cx + 1.0f > j.minX) && ((float)cx < j.maxX) &&
+        ((float)cz + 1.0f > j.minZ) && ((float)cz < j.maxZ);
+    if (!enPlanta) return 0.0f;
+
+    const float superficie = (float)cy + alturaSolida;
+    const float subida = superficie - j.minY;
+
+    // Ya esta por encima de la nueva superficie: nada que hacer.
+    if (subida <= 0.0f) return 0.0f;
+
+    // Mas de un bloque de golpe no es un escalon: es otra cosa, y subir al
+    // jugador ahi seria moverlo a un sitio que no ha pedido.
+    //
+    // El epsilon no es cosmetico: `maxSubida` vale 1.05 y las alturas salen de
+    // dividir enteros entre 16, asi que el caso que cae JUSTO en el limite se
+    // decide por el ultimo bit del float. Sin margen, un escalon legal se
+    // rechazaba por 1e-7 y el jugador se quedaba dentro del bloque.
+    if (subida > maxSubida + 1e-4f) return 0.0f;
+
+    return subida;
+}
+
 } // namespace Render

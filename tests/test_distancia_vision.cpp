@@ -216,13 +216,22 @@ TEST_CASE("Difuminado: con la barra alta tapa antes que con la baja") {
 }
 
 TEST_CASE("Difuminado: lo invisible se descarta, lo demas no") {
-    // El umbral esta en 0.97 y no en 1.0 porque el ultimo 3% ya no aporta nada
-    // perceptible, y es donde MAS chunks hay (el area crece con el cuadrado).
+    // El umbral esta en 0.90 y no en 1.0 porque el ultimo tramo ya no aporta
+    // nada perceptible --el chunk va mezclado nueve partes de diez con el color
+    // de la niebla-- y es donde MAS chunks hay (el area crece con el cuadrado
+    // del radio). Bajarlo de 0.97 a 0.90 quito ~220.000 caras por frame en la
+    // maquina de referencia.
     CHECK(chunkInvisiblePorNiebla(1.0f)  == true);
     CHECK(chunkInvisiblePorNiebla(0.99f) == true);
-    CHECK(chunkInvisiblePorNiebla(0.90f) == false);
+    CHECK(chunkInvisiblePorNiebla(0.90f) == true);
     CHECK(chunkInvisiblePorNiebla(0.5f)  == false);
     CHECK(chunkInvisiblePorNiebla(0.0f)  == false);
+
+    // ⚠️ SUELO DEL UMBRAL. Por debajo de ~0.85 el recorte se ve como un borde
+    // que avanza con el jugador, que es justo el "pop" que la niebla existe
+    // para tapar. Si alguien lo baja mas buscando FPS, este test lo para.
+    CHECK(DIFUMINADO_INVISIBLE >= 0.85f);
+    CHECK(chunkInvisiblePorNiebla(0.84f) == false);
 }
 
 TEST_CASE("Difuminado: la curva es suave, sin bandas visibles") {

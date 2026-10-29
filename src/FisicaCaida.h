@@ -175,7 +175,7 @@ namespace Densidad {
 // parte de arriba, que es la que se desprende).
 inline float densidadDe(BlockType t) {
     if (esNivelParcial(t)) t = bloqueBaseDe(t);
-    if (esMixto(t))        t = mixtoRelleno(t);
+    if (esCeldaDeCapas(t)) t = materialArriba(t);
 
     switch (t) {
         // --- Roca ---
@@ -561,7 +561,7 @@ inline bool esTerrenoNatural(BlockType t) {
     // Las capas parciales y las celdas mixtas son el mismo material, solo que
     // con otra forma: una loncha de tierra sigue siendo tierra.
     if (esNivelParcial(t)) t = bloqueBaseDe(t);
-    if (esMixto(t))        t = mixtoRelleno(t);
+    if (esCeldaDeCapas(t)) t = materialArriba(t);
 
     switch (t) {
         // --- Suelo y roca ---
@@ -603,7 +603,7 @@ inline bool esSueloFirme(BlockType t) {
     // En una celda mixta manda el RELLENO: es la parte de arriba, sobre la
     // que se apoyaria lo que hubiera encima.
     if (esNivelParcial(t)) t = bloqueBaseDe(t);
-    if (esMixto(t))        t = mixtoRelleno(t);
+    if (esCeldaDeCapas(t)) t = materialArriba(t);
 
     // El arbol no sujeta nada: ni su madera ni su follaje. Va por los
     // predicados centralizados en vez de repetir la lista de especies, que es
@@ -758,7 +758,7 @@ inline bool esGranular(BlockType t) {
     // Una capa parcial de arena sigue siendo arena; en una celda mixta manda
     // el relleno, que es la parte de arriba -- la que se vendria abajo.
     if (esNivelParcial(t)) t = bloqueBaseDe(t);
-    if (esMixto(t))        t = mixtoRelleno(t);
+    if (esCeldaDeCapas(t)) t = materialArriba(t);
 
     switch (t) {
         case BLOCK_SAND:

@@ -344,8 +344,8 @@ struct Vec3i {
 
 void getBlockColor(BlockType type, float& r, float& g, float& b) {
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
-    // Una celda mixta toma el color de su capa de abajo.
-    if (esMixto(type)) type = mixtoBase(type);
+    // Una celda de capas (mixta o pila) toma el color de su capa de abajo.
+    if (esCeldaDeCapas(type)) type = materialAbajo(type);
 
     // ⭐ UN BLOQUE COMPUESTO TOMA EL COLOR DE SU PLANTA
     //
@@ -600,9 +600,9 @@ bool esSueloParaNopal(BlockType type) {
     // aqui, las plantas dejarian de crecer justo donde el terreno tiene
     // relieve fino, que es casi todas partes.
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
-    // En una celda mixta la planta se apoya en el RELLENO: es la
-    // capa de arriba, la que toca el aire.
-    if (esMixto(type)) type = mixtoRelleno(type);
+    // En una celda de capas la planta se apoya en la capa de ARRIBA, la que
+    // toca el aire.
+    if (esCeldaDeCapas(type)) type = materialArriba(type);
     switch (type) {
         // Roca y minerales: el nopal NO crece aqui.
         case BLOCK_STONE:
@@ -2550,7 +2550,9 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     //
     // ⚠️ Una mixta LLENA sigue midiendo 1.0, asi que pasa por aqui y obtiene
     // exactamente la caja de siempre. No se rompe nada de lo que ya andaba.
-    if (esNivelParcial(type) || esMixto(type)) {
+    // (Una PILA de varias capas mide lo mismo que sus capas sumadas: alturaDe
+    // ya lo cuenta, asi que entra igual que la mixta.)
+    if (esNivelParcial(type) || esCeldaDeCapas(type)) {
         // ⭐ LA CAJA SE CALCULA CON LOS TRES EJES DEL NIVEL
         //
         // Antes solo el ALTO seguia al nivel; el ancho y el grosor se
@@ -2596,8 +2598,8 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         //
         // La condicion tiene que ser la MISMA que usa el mesher (ver "EL
         // TECHO DE HOJAS CUELGA, NO SE APOYA", que esta dentro de la rama
-        // `!esMixto(block)`): cuelga solo cuando esta solo.
-        if (!esMixto(type) && esTechoColgante(type)) {
+        // `!deCapas`): cuelga solo cuando esta solo.
+        if (!esCeldaDeCapas(type) && esTechoColgante(type)) {
             minY = 1.0f - altoNivel;  maxY = 1.0f;
         } else {
             minY = 0.0f;              maxY = altoNivel;
@@ -3167,7 +3169,7 @@ bool isBlockSolid(BlockType type) {
     // caja la da nopalHitboxCon(), asi que el jugador se sube encima como en
     // un escalon en vez de atravesarlos.
     // Una celda MIXTA llega hasta arriba: frena como un bloque entero.
-    if (esNivelParcial(type) || esMixto(type)) return true;
+    if (esNivelParcial(type) || esCeldaDeCapas(type)) return true;
 
     // ⭐ EL AGUA CON VOLUMEN SE ATRAVIESA.
     //
@@ -3212,7 +3214,7 @@ bool isBlockOpaque(BlockType type) {
     // Si una mixta a medio llenar dijera que es opaca, taparia la cara del
     // bloque de al lado y se verian AGUJEROS -- el mismo motivo por el que un
     // nivel parcial tampoco tapa (la linea de aqui arriba).
-    if (esMixto(type)) return mixtoOctavosTotales(type) >= 8;
+    if (esCeldaDeCapas(type)) return octavosOcupados(type) >= 8;
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
     if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
@@ -3259,7 +3261,7 @@ bool isBlockOpaque(BlockType type) {
 // negro alrededor de una planta.
 inline bool esBloqueMacizoOpaco(BlockType type) {
     if (!isBlockOpaque(type)) return false;   // sprites, hojas, plantas...
-    if (esMixto(type)) return false;          // dos capas: deja hueco
+    if (esCeldaDeCapas(type)) return false;   // varias capas: deja hueco
     if (esRaiz(type)) return false;           // forma propia, no un cubo
     if (isRama(type)) return false;
     if (esGuijarro(type)) return false;       // bulto pequeño en el suelo
@@ -3337,7 +3339,7 @@ inline bool llenaSuVoxelFrenteALiquido(BlockType type) {
     // La cuenta de verdad la da `octavosOcupados`, la misma que usan la
     // fusion, las guardas de colocacion y la hitbox. Con esto las cuatro
     // dicen lo mismo.
-    if (esMixto(type)) return mixtoOctavosTotales(type) >= 8;
+    if (esCeldaDeCapas(type)) return octavosOcupados(type) >= 8;
 
     // Un COMPUESTO es una planta con huecos entre sus partes (maguey, biznaga,
     // agave): por ahi se ve el agua. La unica excepcion ya la aparto el
@@ -3376,9 +3378,9 @@ float getBlockBreakTime(BlockType type) {
     if (estaMojado(type)) type = versionSeca(type);
     // Un nivel parcial cuesta lo mismo que su bloque entero.
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
-    // En una celda mixta lo que se pica es el RELLENO (la capa de arriba),
-    // asi que cuesta lo que ese material.
-    if (esMixto(type)) type = mixtoRelleno(type);
+    // En una celda de capas lo que se pica es la capa de ARRIBA, asi que
+    // cuesta lo que ese material.
+    if (esCeldaDeCapas(type)) type = materialArriba(type);
     switch (type) {
         case BLOCK_DIRT:      return 0.5f;   // Tierra - rápido
         case BLOCK_GRASS:     return 0.6f;   // Pasto - rápido
@@ -7706,7 +7708,7 @@ public:
         // capa por separado, con su material ya resuelto. Pero este metodo lo
         // llama medio motor, y sin esta linea un ID mixto caeria al default
         // del switch y saldria una textura equivocada o ninguna.
-        if (esMixto(type)) type = mixtoBase(type);
+        if (esCeldaDeCapas(type)) type = materialAbajo(type);
 
         // ⭐ EL AGUA CON NIVEL
         //
@@ -9384,6 +9386,11 @@ struct Chunk {
         // El nivel 8 no entra: ese SI llena el voxel y corta el sol, como
         // cualquier bloque entero.
         if (esNivelParcial(b)) return true;
+
+        // Lo mismo para una celda de VARIAS capas (mixta o pila) que no
+        // llega al techo: le sobra hueco por arriba y el sol entra. Llena
+        // corta el sol como un bloque entero.
+        if (esCeldaDeCapas(b)) return octavosOcupados(b) < 8;
 
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
@@ -23825,7 +23832,7 @@ public:
                     // llena. Dentro hay una rama propia para ella (busca "EL
                     // AGUA SE DIBUJA A LA ALTURA DE SU NIVEL").
                     if (isCrossSprite(block) || esNivelParcial(block) ||
-                        esMixto(block) || Compuesto::Agua::esAgua(block)) {
+                        esCeldaDeCapas(block) || Compuesto::Agua::esAgua(block)) {
                         GLuint texture = texSegura(block, 0);
 
                         // ====================================================
@@ -24331,24 +24338,29 @@ public:
                         // UV verticales se recorten a esa misma fraccion: un
                         // bloque de 8 px enseña la MITAD de la imagen, no la
                         // imagen entera aplastada.
-                        if (esNivelParcial(block) || esMixto(block)) {
-                            // ⭐ UNA CELDA MIXTA SON DOS CAPAS
+                        if (esNivelParcial(block) || esCeldaDeCapas(block)) {
+                            // ⭐ UNA CELDA DE CAPAS SON VARIAS CAPAS
                             //
-                            // Se dibuja igual que un nivel normal, pero dos
-                            // veces: la capa de abajo con su material y, de
-                            // ahi hasta arriba, el relleno con el suyo. Como
-                            // la segunda empieza EXACTAMENTE donde acaba la
-                            // primera, no queda aire en medio y nada flota.
+                            // Se dibuja igual que un nivel normal, una vez
+                            // por capa: cada una con su material, y cada una
+                            // empezando EXACTAMENTE donde acaba la de debajo.
+                            // No queda aire en medio y nada flota.
                             //
-                            // capaIni/capaFin recorren las capas: para un
-                            // nivel normal hay una sola.
-                            const int nCapas = esMixto(block) ? 2 : 1;
+                            // Vale para la mixta (2 capas) y para la pila
+                            // (hasta 3): las dos se leen con capasDe(), asi
+                            // que el mesher no distingue el formato. Un nivel
+                            // normal es una sola capa.
+                            const bool deCapas = esCeldaDeCapas(block);
+                            const Capas capasCelda = deCapas ? capasDe(block)
+                                                             : Capas{};
+                            const int nCapas = deCapas ? capasCelda.n : 1;
+                            int octavosDebajo = 0;   // suma de las capas ya dibujadas
                             for (int capa = 0; capa < nCapas; ++capa) {
 
                             // Material y franja vertical de ESTA capa
                             BlockType mat;
                             float yIni, yFin;
-                            if (!esMixto(block)) {
+                            if (!deCapas) {
                                 mat  = block;
                                 // ========================================
                                 // ⭐ EL TECHO DE HOJAS CUELGA, NO SE APOYA
@@ -24384,28 +24396,41 @@ public:
                                     yIni = 0.0f;
                                     yFin = alturaDe(block);
                                 }
-                            } else if (capa == 0) {
-                                mat  = conNivel(mixtoBase(block), mixtoNivel(block));
-                                yIni = 0.0f;
-                                yFin = alturaBaseMixto(block);
                             } else {
-                                // ⭐ EL RELLENO YA NO LLEGA SIEMPRE AL TECHO.
+                                // ⭐ CADA CAPA, A SU ALTURA REAL.
                                 //
-                                // Antes `yFin = 1.0f` fijo: el material de
-                                // arriba se estiraba hasta llenar la celda.
-                                // Por eso apilar arena sobre pasto no se veia
-                                // hasta completar el bloque -- no habia forma
-                                // de representar "3 de pasto + 2 de arena".
+                                // La franja va de donde acaban las capas de
+                                // debajo hasta donde acaba esta, medido con
+                                // la MISMA curva que la colision
+                                // (alturaNivelPx sobre los octavos
+                                // acumulados). Asi lo que se ve y lo que
+                                // frena coinciden, y la frontera entre dos
+                                // capas cae en el mismo pixel para las dos.
                                 //
-                                // Ahora el relleno lleva su propia altura en
-                                // el ID, asi que se dibuja donde de verdad
-                                // acaba. Empieza EXACTAMENTE donde termina la
-                                // capa de abajo, de modo que las dos van
-                                // pegadas y no queda aire entre ellas.
-                                mat  = mixtoRelleno(block);
-                                yIni = alturaBaseMixto(block);
-                                yFin = alturaDe(block);
+                                // Antes la capa de arriba de una mixta podia
+                                // estirarse hasta el techo; ahora cada una
+                                // lleva su altura y ninguna tapa a otra.
+                                const Capa& cp = capasCelda.c[capa];
+                                const int desde = octavosDebajo;
+                                const int hasta = octavosDebajo + cp.octavos;
+                                octavosDebajo = hasta;
+
+                                yIni = (desde <= 0) ? 0.0f
+                                     : (float)alturaNivelPx(desde) / 16.0f;
+                                yFin = (hasta >= 8) ? 1.0f
+                                     : (float)alturaNivelPx(hasta) / 16.0f;
+
+                                // La capa de abajo se pide como su nivel (asi
+                                // lo hacia la mixta) y las demas como el
+                                // material entero: la textura es la misma, y
+                                // con esto la mixta de siempre sale identica.
+                                mat = (capa == 0 && admiteNiveles(cp.material) &&
+                                       cp.octavos < 8)
+                                    ? conNivel(cp.material, cp.octavos)
+                                    : cp.material;
                             }
+                            // ¿Hay otra capa encima, dentro de esta celda?
+                            const bool hayCapaEncima = deCapas && capa + 1 < nCapas;
                             const float alto = yFin;
                             const GLuint texN =
                                 texSegura(mat, 0);
@@ -24529,6 +24554,11 @@ public:
 
                             // TAPA: la cara de arriba, con su textura propia
                             // (la del pasto es distinta de la del lado).
+                            //
+                            // Solo la capa de ARRIBA la enseña: la tapa de
+                            // una capa interior queda pegada al suelo de la
+                            // siguiente y no se ve desde ningun lado.
+                            if (!hayCapaEncima) {
                             auto& vT = verticesByTexture[texN];
                             auto& cT = colorsByTexture[texN];
                             auto& uT = uvsByTexture[texN];
@@ -24545,6 +24575,7 @@ public:
                                 cT.push_back(cbA * BRILLO_ARRIBA);
                                 cT.push_back(ca);
                                 uT.push_back(TU[i]); uT.push_back(TV[i]);
+                            }
                             }
 
                             // ================================================
@@ -24575,10 +24606,11 @@ public:
                                 const bool seVe = (debajo == BLOCK_AIR) ||
                                                   !isBlockOpaque(debajo);
 
-                                // Y en una celda mixta, la capa de ARRIBA
-                                // nunca enseña su suelo: lo tapa la de abajo.
+                                // Y en una celda de capas, solo la de ABAJO
+                                // enseña su suelo: el de las demas lo tapa
+                                // la capa que tienen debajo.
                                 const bool tapadaPorLaOtraCapa =
-                                    (esMixto(block) && capa == 1);
+                                    (deCapas && capa > 0);
 
                                 if (seVe && !tapadaPorLaOtraCapa) {
                                     // La luz sale del vecino de ABAJO, igual
@@ -27212,9 +27244,10 @@ public:
                 //
                 // Sacandolos de aqui, caen en la rama de sprites, que es la
                 // que emite su caja de 3 a 13 px con la textura recortada.
-                // Una celda MIXTA tampoco: son dos capas de materiales
-                // distintos, y el greedy solo sabe de cubos de un material.
-                if (esNivelParcial(b) || esMixto(b)) return false;
+                // Una celda de CAPAS (mixta o pila) tampoco: son varias capas
+                // de materiales distintos, y el greedy solo sabe de cubos de
+                // un material.
+                if (esNivelParcial(b) || esCeldaDeCapas(b)) return false;
 
                 // ⭐⭐ AQUI ESTABA EL CUBO GIGANTE QUE TAPABA EL MAGUEY.
                 //
@@ -33441,10 +33474,10 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         blockType = bloqueBaseDe(blockType);
     }
 
-    // Una celda mixta suelta el RELLENO: es la capa que se quita al picarla
-    // (updateMining la pela por arriba y deja la de abajo en pie). Si algun
+    // Una celda de capas suelta la de ARRIBA: es la que se quita al picarla
+    // (updateMining la pela por arriba y deja las de abajo en pie). Si algun
     // otro camino la borra entera, al menos suelta algo en vez de nada.
-    if (esMixto(blockType)) blockType = mixtoRelleno(blockType);
+    if (esCeldaDeCapas(blockType)) blockType = materialArriba(blockType);
 
     // Un horno encendido se recoge APAGADO: el fuego no se lleva en el
     // inventario. Si no, al picarlo saldria un item "horno encendido" que al
@@ -34152,17 +34185,22 @@ void updateMining(GameState* state, float deltaTime) {
         }
 
         // ================================================================
-        // CELDA MIXTA: SE QUITA EL RELLENO Y QUEDA LA CAPA DE ABAJO
+        // CELDA DE CAPAS: SE QUITA LA DE ARRIBA Y QUEDAN LAS DEMAS
         // ================================================================
-        // Una celda mixta es una capa de un material con otro encima. Al
-        // picarla se retira SOLO el de arriba -- que es lo que se estaba
-        // tocando -- y la capa original se queda como estaba, con su nivel.
+        // Una celda de capas (mixta o pila) son varias capas apiladas. Al
+        // picarla se retira SOLO la de arriba -- que es lo que se estaba
+        // tocando -- y las de debajo se quedan como estaban, con su altura.
         //
-        // Picar otra vez ya rompe esa capa, que es lo normal.
-        if (esMixto(blockType)) {
-            const BlockType relleno = mixtoRelleno(blockType);
-            const BlockType queda   = conNivel(mixtoBase(blockType),
-                                               mixtoNivel(blockType));
+        // Picar otra vez quita la siguiente, que es lo normal. Lo que queda se
+        // vuelve a codificar con celdaDeCapas: de una pila de tres sale una
+        // mixta, y de una mixta un nivel -- igual que antes.
+        if (esCeldaDeCapas(blockType)) {
+            Capas resto = capasDe(blockType);
+            const BlockType relleno = materialArriba(blockType);
+            if (resto.n > 0) --resto.n;
+            BlockType queda = celdaDeCapas(resto);
+            if (queda == BLOCK_AIR && resto.n > 0)
+                queda = conNivel(resto.c[0].material, resto.c[0].octavos);
 
             const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
             // Se pasa la posicion: el relleno de una celda mixta puede ser un
@@ -37316,21 +37354,34 @@ bool isPlaceableItem(BlockType type) {
 // ============================================================================
 // ⭐ ¿ES UN BLOQUE MACIZO QUE NO PUEDE COMPARTIR CELDA CON UNA CAPA?
 // ============================================================================
-// Troncos, hojas, el horno: llenan su voxel entero y NO admiten niveles, asi
-// que no hay celda mixta posible con ellos. Puestos sobre una capa, la unica
-// forma de que no floten ni se solapen es ocupar la celda de la capa (ver
-// "UN BLOQUE ENTERO SOBRE UNA CAPA" en placeBlock).
+// Troncos, tablones sin niveles, hojas, el horno: llenan su voxel entero y NO
+// admiten niveles. Puestos sobre una capa se PEGAN ENCIMA de ella, en su
+// misma celda, como capa de arriba hasta el techo -- si el material puede
+// formar capa (ver "UN BLOQUE ENTERO SOBRE UNA CAPA" en placeBlock).
 //
 // Fuera quedan las cosas que no son un cubo aunque cuenten como solidas:
 // plantas en cruz, ramas, raices, pencas, guijarros y compuestos. Esas se
 // apoyan encima de la capa como siempre, sin desplazarla.
 bool esMacizoSinCapas(BlockType t) {
     if (t == BLOCK_AIR) return false;
-    if (esNivelParcial(t) || esMixto(t) || admiteNiveles(t)) return false;
+    if (esNivelParcial(t) || esCeldaDeCapas(t) || admiteNiveles(t)) return false;
     if (Compuesto::esCompuesto(t)) return false;
     if (isCrossSprite(t) || isRama(t) || esRaiz(t) || esCladodio(t) ||
         t == BLOCK_NOPAL_FRUTO || esGuijarro(t)) return false;
     return isBlockSolid(t) && alturaDe(t) >= 1.0f;
+}
+
+// La celda que resulta de pegar el bloque macizo `enMano` ENCIMA de las capas
+// de `tocado`, llenando lo que quede hasta el techo. BLOCK_AIR si no se puede:
+// no es macizo, la celda ya esta llena, ya tiene tres capas, o el material no
+// puede formar capa (hojas, horno).
+BlockType pegarEncimaDeCapas(BlockType enMano, BlockType tocado) {
+    if (!esMacizoSinCapas(enMano) || celdaLlena(tocado)) return BLOCK_AIR;
+    if (!esNivelParcial(tocado) && !esCeldaDeCapas(tocado)) return BLOCK_AIR;
+    Capas k = capasDe(tocado);
+    if (k.n <= 0 || k.n >= MAX_CAPAS) return BLOCK_AIR;
+    k.c[k.n++] = { enMano, 8 - k.total() };
+    return celdaDeCapas(k);
 }
 
 void placeBlock(GameState* state) {
@@ -37441,7 +37492,7 @@ void placeBlock(GameState* state) {
                 const BlockType techo =
                     state->world.getBlock(cx, sobreLaCabeza, cz);
                 if (isBlockSolid(techo) || esNivelParcial(techo) ||
-                    esMixto(techo))
+                    esCeldaDeCapas(techo))
                     return;
             }
         }
@@ -37774,12 +37825,14 @@ void placeBlock(GameState* state) {
             // encima, tenga niveles o no. Con esto un tronco apila sobre otro
             // tronco igual que la piedra sobre la piedra.
             const bool macizoSinNiveles =
-                !esNivelParcial(tocado) && !esMixto(tocado) &&
+                !esNivelParcial(tocado) && !esCeldaDeCapas(tocado) &&
                 !admiteNiveles(tocado) && isBlockSolid(tocado) &&
                 !isCrossSprite(tocado) && alturaDe(tocado) >= 1.0f;
 
+            // Las celdas de capas (mixta o pila) apilan igual: si les queda
+            // sitio, lo siguiente entra dentro; si estan llenas, va encima.
             const bool celdaApilable = esNivelParcial(tocado) ||
-                                       esMixto(tocado) ||
+                                       esCeldaDeCapas(tocado) ||
                                        admiteNiveles(tocado) ||
                                        macizoSinNiveles;
 
@@ -37976,7 +38029,7 @@ void placeBlock(GameState* state) {
                         // AL RELLENO"), asi que se delega ahi en vez de
                         // repetir la cuenta -- que es como aparecieron las
                         // discrepancias entre guardas.
-                        if (esMixto(tocado) && !celdaLlena(tocado)) {
+                        if (esCeldaDeCapas(tocado) && !celdaLlena(tocado)) {
                             const BlockType aFund =
                                 esNivelParcial(enMano)
                                     ? enMano
@@ -38113,11 +38166,11 @@ void placeBlock(GameState* state) {
                     // capa y la capa salia como items. Se retiro: la capa se
                     // queda.)
                     //
-                    // Un tronco no tiene lonchas, pero SI puede ser el
-                    // material de ARRIBA de una celda mixta (tablaRelleno):
-                    // ocupa desde donde acaba la capa hasta el techo de la
-                    // celda, sin partirse. Asi queda pegado a la capa, sin
-                    // aire en medio y sin taparla:
+                    // Un tronco no tiene lonchas, pero SI puede ser la capa
+                    // de ARRIBA de una celda de capas: ocupa desde donde
+                    // acaban las de debajo hasta el techo de la celda, sin
+                    // partirse. Asi queda pegado a la capa, sin aire en medio
+                    // y sin taparla:
                     //
                     //     ┌────────────┐ 16
                     //     │▓▓ TRONCO ▓▓│  de la capa al techo
@@ -38125,16 +38178,18 @@ void placeBlock(GameState* state) {
                     //     │███ TIERRA █│  la capa, intacta
                     //     └────────────┘  0
                     //
-                    // Lo que el formato no sabe guardar como material de
-                    // arriba (mixto devuelve AIRE) sigue por el camino de
+                    // Vale sobre un nivel y sobre una celda que ya tenga dos
+                    // capas (queda de tres). Con la pila entran las ocho
+                    // maderas, no solo pino, encino y oyamel.
+                    //
+                    // Lo que el formato no sabe guardar (hojas, horno; o una
+                    // celda que ya tiene tres capas) sigue por el camino de
                     // siempre: va a la celda de encima, con la capa intacta.
-                    if (esMacizoSinCapas(enMano) && esNivelParcial(tocado) &&
-                        mixto(bloqueBaseDe(tocado), nivelDe(tocado), enMano)
-                            != BLOCK_AIR) {
-                        state->world.setBlock(
-                            result.blockPos.x, result.blockPos.y,
-                            result.blockPos.z,
-                            mixto(bloqueBaseDe(tocado), nivelDe(tocado), enMano));
+                    if (const BlockType pegado = pegarEncimaDeCapas(enMano, tocado);
+                        pegado != BLOCK_AIR) {
+                        state->world.setBlock(result.blockPos.x,
+                                              result.blockPos.y,
+                                              result.blockPos.z, pegado);
                         state->inventory.consumeSelected();
                         state->placeCooldown = 0.25f;
                         subirSiApilaBajoLosPies(result.blockPos.x,
@@ -38491,7 +38546,7 @@ void placeBlock(GameState* state) {
                         // que `esNivelParcial` entra igual que lo demas -- es
                         // literalmente lo que se pidio ("un nivel/bloque").
                         if (isBlockSolid(techo) || esNivelParcial(techo) ||
-                            esMixto(techo))
+                            esCeldaDeCapas(techo))
                             cabe = false;
                     }
                 }
@@ -38810,7 +38865,7 @@ void placeBlock(GameState* state) {
                 const bool apuntaHaciaArriba = (result.normal.y > 0);
 
                 if (apuntaHaciaArriba && destinoLibre &&
-                    esNivelParcial(debajo) && !esMixto(debajo)) {
+                    esNivelParcial(debajo) && !esCeldaDeCapas(debajo)) {
                     const BlockType baseAbajo = bloqueBaseDe(debajo);
                     const int nivelAbajo = nivelDe(debajo);
 
@@ -38950,7 +39005,7 @@ void placeBlock(GameState* state) {
                     const BlockType soporte = state->world.getBlock(
                         placePos.x, placePos.y - 1, placePos.z);
 
-                    if (esNivelParcial(soporte) || esMixto(soporte)) {
+                    if (esNivelParcial(soporte) || esCeldaDeCapas(soporte)) {
                         const Fusion fb = fusionarNiveles(blockToPlace, soporte);
                         if (fb.tipo == ResultadoFusion::FUSIONADOS) {
                             state->world.setBlock(placePos.x, placePos.y - 1,

@@ -450,6 +450,33 @@ desarrollo. Esfuerzo: bajo (una línea de CMake), coste solo en Debug.
 
 ---
 
+## Celdas de varias capas ("pilas") — 2026-10-29
+
+Una celda mixta guarda dos materiales. Con tres, `fusionarNiveles` sumaba el
+tercero a la capa de arriba ("solo se estira el segundo nivel"). Ahora existe
+la **pila**: hasta 3 capas por celda, cada una con su material y su altura,
+pegadas de abajo arriba.
+
+- **Sin migración.** Las celdas de 1 y 2 capas conservan sus IDs de siempre
+  (nivel y mixta); `celdaDeCapas` solo usa la pila para lo que antes no cabía.
+  Ningún mundo guardado cambia.
+- **Rango propio**: `BLOCK_PILA_BASE = 2^28`, 9 bits por capa (6 de material
+  en `tablaPila`, 3 de altura). La tabla es de **orden intocable**, como
+  `tablaRelleno`: el índice viaja dentro del ID.
+- **Una sola puerta**: `capasDe(celda)` / `celdaDeCapas(capas)` en
+  `BlockType.h`. Todo lo que antes preguntaba `esMixto` pregunta
+  `esCeldaDeCapas`, y `materialArriba`/`materialAbajo` sustituyen a
+  `mixtoRelleno`/`mixtoBase` fuera del propio codificador.
+- **Lo que desbloquea**: las ocho maderas (troncos y tablones) pueden pegarse
+  encima de una capa; antes solo pino, encino y oyamel cabían en la mixta.
+- **Límite conocido**: una cuarta capa distinta en una celda de tres hace
+  crecer la de arriba (sin perder material). Hojas y horno siguen sin poder
+  ser capa.
+
+Tests: `tests/test_capas_celda.cpp`.
+
+---
+
 ## Registro de decisiones asumidas (para no re-litigarlas)
 
 1. **Lecturas fuera del chunk durante la generación devuelven aire.** Era la

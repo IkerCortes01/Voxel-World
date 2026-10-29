@@ -315,9 +315,10 @@ TEST_CASE("Techo: la caja cuelga SOLO si ocupa la celda en exclusiva") {
 
     const std::string cuerpo = src.substr(m, 1400);
     // Dos condiciones, y las dos importan: cuelga solo si ocupa la celda en
-    // exclusiva (`!esMixto`) Y si es la variante colgante (`esTechoColgante`,
-    // que distingue BLOCK_TECHO_HOJAS de BLOCK_TECHO_SUELO).
-    CHECK(cuerpo.find("!esMixto(type) && esTechoColgante(type)")
+    // exclusiva (`!esCeldaDeCapas`: ni mixta ni pila) Y si es la variante
+    // colgante (`esTechoColgante`, que distingue BLOCK_TECHO_HOJAS de
+    // BLOCK_TECHO_SUELO).
+    CHECK(cuerpo.find("!esCeldaDeCapas(type) && esTechoColgante(type)")
           != std::string::npos);
 }
 

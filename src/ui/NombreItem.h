@@ -246,12 +246,13 @@ inline const char* nombreDeFamilia(Compuesto::Familia f) {
 
 // El nombre que ve el jugador. Normaliza antes de buscar:
 //   - un nivel parcial se llama como su bloque (una capa de tierra es TIERRA);
-//   - una celda mixta, como el material de abajo, que es el que la define;
+//   - una celda de capas (mixta o pila), como su capa de abajo, que es la
+//     que la define;
 //   - un compuesto, por su familia.
 inline const char* nombreDeItem(BlockType t) {
     if (t == BLOCK_AIR) return nullptr;
     if (Compuesto::esCompuesto(t)) return nombreDeFamilia(Compuesto::familiaDe(t));
-    if (esMixto(t))                t = mixtoBase(t);
+    if (esCeldaDeCapas(t))         t = materialAbajo(t);
     if (esNivelParcial(t))         t = bloqueBaseDe(t);
 
     // Las capas de TRONCO siguen en el enum pero ya no son niveles: los

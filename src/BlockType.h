@@ -1602,6 +1602,238 @@ inline int mixtoOctavosTotales(BlockType t) {
 }
 
 // ============================================================================
+// ⭐⭐⭐ CELDAS DE VARIAS CAPAS ("PILAS")
+// ============================================================================
+// PEDIDO: "elimina el bug de que cuando combinas 2 niveles y quieres poner
+// otros, no te deje y solo estire el nivel 2 diferente; haz que sean por
+// separado pero esten juntos los niveles".
+//
+// EL LIMITE QUE LO CAUSABA. Una celda mixta guarda DOS materiales y nada mas.
+// Con "3 de tierra + 2 de arena" ya puesta, un tercer material no tenia donde
+// ir, asi que fusionarNiveles lo sumaba a la capa de arriba: la arena se
+// estiraba y la piedra que el jugador ponia no aparecia nunca.
+//
+// LA SOLUCION: un rango nuevo de IDs, la PILA, que guarda hasta TRES capas,
+// cada una con su material y su altura, pegadas de abajo arriba:
+//
+//     ┌────────────┐ 16
+//     │            │  hueco de la celda (si no esta llena)
+//     ├────────────┤  6
+//     │▒▒ PIEDRA ▒▒│  capa 3: 1 octavo
+//     ├────────────┤  5
+//     │░░ ARENA ░░░│  capa 2: 2 octavos
+//     ├────────────┤  3
+//     │██ TIERRA ██│  capa 1: 3 octavos
+//     └────────────┘  0
+//
+// ⚠️ NO HACE FALTA MIGRAR NINGUN MUNDO. Las celdas de 1 y 2 capas siguen
+// usando sus IDs de siempre (nivel parcial y mixta): `celdaDeCapas` elige la
+// forma vieja SIEMPRE que puede. La pila solo aparece para lo que antes no se
+// podia guardar -- tres capas, o un tronco/tablon que no cabe en la tabla de
+// la mixta -- asi que lo ya guardado se lee exactamente igual.
+//
+// ⚠️ EL RANGO VA MUY LEJOS DE TODO: 2^28 en adelante. Los IDs viajan en 4
+// bytes por todo el guardado (arrays crudos y paletas), igual que ya hacen
+// las mixtas (1.000+) y los compuestos (100.000+).
+
+constexpr int MAX_CAPAS = 3;
+
+struct Capa {
+    BlockType material = BLOCK_AIR;   // el bloque ENTERO del material
+    int       octavos  = 0;           // su altura dentro de la celda, 1..8
+};
+
+struct Capas {
+    int  n = 0;                       // cuantas hay, de abajo arriba
+    Capa c[MAX_CAPAS];
+
+    int total() const {
+        int s = 0;
+        for (int i = 0; i < n; ++i) s += c[i].octavos;
+        return s;
+    }
+};
+
+// Materiales que pueden formar capa en una pila.
+//
+// ⚠️ ORDEN INTOCABLE, como tablaRelleno: el INDICE viaja dentro del ID de cada
+// pila guardada. Lo nuevo se anade AL FINAL. El 0 es "capa vacia".
+//
+// Aqui SI entran las ocho maderas, troncos y tablones: la tabla de la mixta
+// se quedo sin huecos (24, todos usados o reservados) y por eso los cinco
+// pinos nuevos no podian pegarse encima de una capa.
+inline const BlockType* tablaPila(int& n) {
+    static const BlockType TABLA[] = {
+        BLOCK_AIR,                                                     // 0
+        BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_SAND, BLOCK_GRAVEL,// 1-5
+        BLOCK_SNOW, BLOCK_CLAY_DIRT, BLOCK_CLAY_SAND, BLOCK_COBBLESTONE,// 6-9
+        BLOCK_CLAY, BLOCK_LIMESTONE, BLOCK_TECHO_HOJAS,                // 10-12
+        BLOCK_PLANKS, BLOCK_PLANKS_ENCINO, BLOCK_PLANKS_OYAMEL,        // 13-15
+        BLOCK_PLANKS_OCOTE, BLOCK_PLANKS_PATULA, BLOCK_PLANKS_PINONERO,// 16-18
+        BLOCK_PLANKS_ALTURAS, BLOCK_PLANKS_PSEUDOSTROBUS,              // 19-20
+        BLOCK_WOOD, BLOCK_WOOD_ENCINO, BLOCK_WOOD_OYAMEL,              // 21-23
+        BLOCK_WOOD_OCOTE, BLOCK_WOOD_OCOTE_CHINO, BLOCK_WOOD_PATULA,   // 24-26
+        BLOCK_WOOD_PINONERO, BLOCK_WOOD_ALTURAS,                       // 27-28
+        BLOCK_WOOD_PSEUDOSTROBUS,                                      // 29
+    };
+    n = (int)(sizeof(TABLA) / sizeof(TABLA[0]));
+    return TABLA;
+}
+
+constexpr int PILA_BITS_MATERIAL = 6;     // hasta 64 materiales
+constexpr int PILA_BITS_ALTURA   = 3;     // 1..8 guardado como 0..7
+constexpr int PILA_BITS_CAPA     = PILA_BITS_MATERIAL + PILA_BITS_ALTURA;
+constexpr int BLOCK_PILA_BASE    = 1 << 28;
+constexpr int BLOCK_PILA_FIN     = BLOCK_PILA_BASE + (1 << (PILA_BITS_CAPA * MAX_CAPAS));
+
+static_assert(BLOCK_PILA_FIN > BLOCK_PILA_BASE, "el rango de pilas desborda int");
+
+// ¿Es una pila (celda de capas en el rango nuevo)?
+inline bool esPila(BlockType t) {
+    return (int)t >= BLOCK_PILA_BASE && (int)t < BLOCK_PILA_FIN;
+}
+
+// El material normalizado para la pila: el bloque entero, y las dos
+// orientaciones del techo como una sola (dentro de una celda de capas el
+// techo crece desde el suelo, como cualquier otra capa).
+inline BlockType materialDeCapa(BlockType t) {
+    t = bloqueBaseDe(t);
+    if (t == BLOCK_TECHO_SUELO) t = BLOCK_TECHO_HOJAS;
+    return t;
+}
+
+// Posicion del material en tablaPila, o -1 si no puede formar capa.
+inline int indicePila(BlockType material) {
+    material = materialDeCapa(material);
+    if (material == BLOCK_AIR) return -1;
+    int n = 0; const BlockType* T = tablaPila(n);
+    for (int i = 1; i < n; ++i) if (T[i] == material) return i;
+    return -1;
+}
+
+// Las capas de una celda, de abajo arriba. Vale para CUALQUIER celda:
+//   aire               -> 0 capas
+//   nivel parcial      -> 1 capa
+//   bloque entero que puede ser capa (tierra, tronco, tablon...) -> 1 de 8
+//   mixta              -> 2 capas
+//   pila               -> 1 a 3 capas
+//   lo demas (plantas, agua, items...) -> 0 capas: no es una celda de capas
+inline Capas capasDe(BlockType t) {
+    Capas r;
+    if (t == BLOCK_AIR) return r;
+
+    if (esPila(t)) {
+        int nT = 0; const BlockType* T = tablaPila(nT);
+        const int k = (int)t - BLOCK_PILA_BASE;
+        for (int i = 0; i < MAX_CAPAS; ++i) {
+            const int v   = (k >> (PILA_BITS_CAPA * i)) & ((1 << PILA_BITS_CAPA) - 1);
+            const int mat = v >> PILA_BITS_ALTURA;
+            if (mat <= 0 || mat >= nT) break;
+            r.c[r.n].material = T[mat];
+            r.c[r.n].octavos  = (v & ((1 << PILA_BITS_ALTURA) - 1)) + 1;
+            ++r.n;
+        }
+        return r;
+    }
+
+    if (esMixto(t)) {
+        r.n = 2;
+        r.c[0] = { mixtoBase(t),    mixtoNivel(t) };
+        r.c[1] = { materialDeCapa(mixtoRelleno(t)), mixtoNivelRelleno(t) };
+        return r;
+    }
+
+    if (esNivelParcial(t)) {
+        r.n = 1;
+        r.c[0] = { bloqueBaseDe(t), nivelDe(t) };
+        return r;
+    }
+
+    if (admiteNiveles(t) || indicePila(t) >= 0) {
+        r.n = 1;
+        r.c[0] = { bloqueBaseDe(t), 8 };
+    }
+    return r;
+}
+
+// El ID que representa estas capas, o BLOCK_AIR si no se puede.
+//
+// Elige SIEMPRE la forma mas antigua que sirva (nivel, mixta) y solo usa la
+// pila para lo que no cabe en ellas. Es lo que hace que ningun mundo guardado
+// necesite migracion, y que las celdas de siempre no cambien de ID.
+//
+// Antes de codificar: se descartan capas vacias y se UNEN las contiguas del
+// mismo material (dos capas de tierra seguidas son una capa de tierra mas
+// alta, no dos).
+inline BlockType celdaDeCapas(Capas in) {
+    Capas k;
+    for (int i = 0; i < in.n; ++i) {
+        if (in.c[i].octavos <= 0 || in.c[i].material == BLOCK_AIR) continue;
+        const BlockType m = materialDeCapa(in.c[i].material);
+        if (k.n > 0 && materialDeCapa(k.c[k.n - 1].material) == m) {
+            k.c[k.n - 1].octavos += in.c[i].octavos;
+            continue;
+        }
+        if (k.n >= MAX_CAPAS) return BLOCK_AIR;
+        k.c[k.n++] = { in.c[i].material, in.c[i].octavos };
+    }
+
+    if (k.n == 0) return BLOCK_AIR;
+    if (k.total() > 8) return BLOCK_AIR;
+
+    // --- Una capa: el nivel o el bloque de siempre ---
+    if (k.n == 1) {
+        const BlockType m = k.c[0].material;
+        const int h = k.c[0].octavos;
+        if (h >= 8) return bloqueBaseDe(m);
+        if (admiteNiveles(m)) return conNivel(m, h);
+        // Un tronco o tablon sin niveles a media altura: solo la pila lo sabe
+        // guardar (pasa al picar la capa de abajo de una celda de varias).
+    }
+
+    // --- Dos capas: la mixta, si la pareja cabe en sus tablas ---
+    if (k.n == 2 && k.c[0].octavos <= 7 && k.c[1].octavos <= 7) {
+        const BlockType m = mixto(k.c[0].material, k.c[0].octavos,
+                                  k.c[1].material, k.c[1].octavos);
+        if (m != BLOCK_AIR && mixtoNivel(m) == k.c[0].octavos &&
+            mixtoNivelRelleno(m) == k.c[1].octavos)
+            return m;
+    }
+
+    // --- La pila: lo que no cabe en las formas viejas ---
+    int id = 0;
+    for (int i = 0; i < k.n; ++i) {
+        const int mat = indicePila(k.c[i].material);
+        const int h   = k.c[i].octavos;
+        if (mat < 0 || h < 1 || h > 8) return BLOCK_AIR;
+        // Con varias capas ninguna llega a 8 (sumarian mas de una celda);
+        // una sola de 8 ya se devolvio arriba como bloque entero.
+        id |= ((mat << PILA_BITS_ALTURA) | (h - 1)) << (PILA_BITS_CAPA * i);
+    }
+    return (BlockType)(BLOCK_PILA_BASE + id);
+}
+
+// ¿Es una celda de varias capas, en cualquiera de sus dos formatos?
+inline bool esCeldaDeCapas(BlockType t) {
+    return esMixto(t) || esPila(t);
+}
+
+// El material de la capa de ARRIBA: lo que se ve, se pisa y se pica primero.
+// Para lo que no es celda de capas devuelve el propio bloque.
+inline BlockType materialArriba(BlockType t) {
+    if (!esCeldaDeCapas(t)) return t;
+    const Capas k = capasDe(t);
+    return (k.n > 0) ? k.c[k.n - 1].material : BLOCK_AIR;
+}
+
+// El material de la capa de ABAJO: la que define la celda (nombre, color).
+inline BlockType materialAbajo(BlockType t) {
+    if (!esCeldaDeCapas(t)) return t;
+    const Capas k = capasDe(t);
+    return (k.n > 0) ? k.c[0].material : BLOCK_AIR;
+}
+
+// ============================================================================
 // ⭐ ¿CUANTO MATERIAL HAY EN ESTA CELDA, EN OCTAVOS?
 // ============================================================================
 // La pregunta que hay que hacer para decidir si cabe algo mas. Antes el
@@ -1615,6 +1847,7 @@ inline int mixtoOctavosTotales(BlockType t) {
 inline int octavosOcupados(BlockType t) {
     if (t == BLOCK_AIR) return 0;
     if (esMixto(t)) return mixtoOctavosTotales(t);
+    if (esPila(t))  return capasDe(t).total();
     if (esNivelParcial(t)) return nivelDe(t);
     return 8;                     // bloque entero
 }
@@ -1629,7 +1862,7 @@ inline bool celdaLlena(BlockType t) {
 // pero exigiendo ademas que sea un material apilable (no aire, no planta).
 inline bool celdaAdmiteMas(BlockType t) {
     if (t == BLOCK_AIR) return true;
-    if (!esMixto(t) && !esNivelParcial(t) && !admiteNiveles(t)) return false;
+    if (!esCeldaDeCapas(t) && !esNivelParcial(t) && !admiteNiveles(t)) return false;
     return octavosOcupados(t) < 8;
 }
 
@@ -1646,8 +1879,8 @@ inline float alturaDe(BlockType t) {
     //
     // Esto es la COLISION exacta del bloque, asi que de aqui depende que el
     // jugador se suba a la altura correcta y no flote ni se hunda.
-    if (esMixto(t)) {
-        const int oct = mixtoOctavosTotales(t);
+    if (esCeldaDeCapas(t)) {
+        const int oct = octavosOcupados(t);
         if (oct >= 8) return 1.0f;
         return (float)alturaNivelPx(oct) / 16.0f;
     }
@@ -1818,7 +2051,7 @@ inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
     // Si quedan octavos libres, se rellenan primero; solo cuando la celda
     // esta de verdad a 8 se sube lo que sobra.
     const int octavosDestino =
-        esMixto(enDestino)       ? mixtoOctavosTotales(enDestino)
+        esCeldaDeCapas(enDestino) ? octavosOcupados(enDestino)
       : esNivelParcial(enDestino) ? nivelDe(enDestino)
                                   : 8;    // bloque entero
 
@@ -1842,16 +2075,55 @@ inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
     // arriba.
     //
     // Lo que no quepa sube, y alli vuelve a fusionarse con lo que haya.
-    if (esMixto(enDestino)) {
+    //
+    // ⭐⭐⭐ Y SI EL MATERIAL ES OTRO, VA EN SU PROPIA CAPA.
+    //
+    // BUG QUE ESTO CORRIGE: "cuando combinas 2 niveles y quieres poner otros,
+    // no te deje y solo estire el nivel 2 diferente".
+    //
+    // Aqui se sumaba SIEMPRE a la capa de arriba, fuera cual fuera el
+    // material que llegaba, porque la mixta no sabia guardar un tercero:
+    // tierra(3) + arena(2), y al poner piedra, la ARENA crecia y la piedra no
+    // aparecia nunca.
+    //
+    // Ahora:
+    //   - mismo material que la capa de arriba -> esa capa crece (lo de
+    //     siempre: dos capas de arena seguidas son una capa de arena);
+    //   - material distinto -> CAPA NUEVA encima, con su altura, pegada a la
+    //     de debajo. La celda pasa a ser una pila (hasta 3 capas).
+    //
+    // Si la celda ya tiene 3 capas o el material no puede formar capa, se
+    // vuelve a lo de antes (crece la de arriba): nunca se pierde ni se
+    // inventa un octavo, y nada flota.
+    if (esCeldaDeCapas(enDestino)) {
         const int libre = 8 - octavosDestino;
         const int nCaeM = esNivelParcial(queCae) ? nivelDe(queCae) : 8;
         const int entra = (nCaeM < libre) ? nCaeM : libre;
         const int sobra = nCaeM - entra;
 
-        const BlockType nueva = mixto(mixtoBase(enDestino),
-                                      mixtoNivel(enDestino),
-                                      mixtoRelleno(enDestino),
-                                      mixtoNivelRelleno(enDestino) + entra);
+        const Capas antes = capasDe(enDestino);
+
+        // Intento 1: el material que llega, en su propia capa encima. Si es el
+        // mismo que el de arriba, celdaDeCapas las une en una sola mas alta.
+        Capas conNueva = antes;
+        BlockType nueva = BLOCK_AIR;
+        if (conNueva.n < MAX_CAPAS ||
+            materialDeCapa(queCae) == materialDeCapa(antes.c[antes.n - 1].material)) {
+            if (conNueva.n < MAX_CAPAS) {
+                conNueva.c[conNueva.n++] = { bloqueBaseDe(queCae), entra };
+            } else {
+                conNueva.c[conNueva.n - 1].octavos += entra;
+            }
+            nueva = celdaDeCapas(conNueva);
+        }
+
+        // Intento 2 (sin sitio para otra capa, o material que no puede ser
+        // capa): crece la de arriba, como antes.
+        if (nueva == BLOCK_AIR) {
+            Capas crece = antes;
+            crece.c[crece.n - 1].octavos += entra;
+            nueva = celdaDeCapas(crece);
+        }
 
         f.tipo      = ResultadoFusion::FUSIONADOS;
         f.resultado = (nueva != BLOCK_AIR) ? nueva : enDestino;
@@ -2008,8 +2280,13 @@ inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
         //
         // ⚠️ EL MISMO MATERIAL NO ENTRA AQUI: la rama de arriba ya lo sumo.
         // Esto es solo para materiales DISTINTOS.
-        const BlockType mezclaParcial =
-            mixto(matAbajo, nDestino, matArriba, nCae);
+        // celdaDeCapas elige la mixta de siempre si la pareja cabe, y la
+        // pila si no (los materiales que no estan en la tabla de la mixta).
+        Capas dos;
+        dos.n = 2;
+        dos.c[0] = { matAbajo,  nDestino };
+        dos.c[1] = { matArriba, nCae };
+        const BlockType mezclaParcial = celdaDeCapas(dos);
         f.resultado = (mezclaParcial != BLOCK_AIR)
                         ? mezclaParcial
                         : conNivel(matAbajo, total);
@@ -2020,7 +2297,11 @@ inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
     if (total == 8) {
         // Encaje perfecto: los dos materiales caben tal cual y la celda queda
         // llena. Este es el caso bonito -- abajo su nivel, arriba el resto.
-        const BlockType mezcla = mixto(matAbajo, nDestino, matArriba);
+        Capas dos;
+        dos.n = 2;
+        dos.c[0] = { matAbajo,  nDestino };
+        dos.c[1] = { matArriba, 8 - nDestino };
+        const BlockType mezcla = celdaDeCapas(dos);
         f.resultado = (mezcla != BLOCK_AIR) ? mezcla : bloqueBaseDe(matAbajo);
         f.sobrante  = BLOCK_AIR;
         return f;
@@ -2035,7 +2316,11 @@ inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
     const int cabe  = 8 - nDestino;          // 1..7, porque nDestino <= 7
     const int sobra = nCae - cabe;           // > 0 por la condicion de arriba
 
-    const BlockType mezcla = mixto(matAbajo, nDestino, matArriba);
+    Capas dos;
+    dos.n = 2;
+    dos.c[0] = { matAbajo,  nDestino };
+    dos.c[1] = { matArriba, cabe };
+    const BlockType mezcla = celdaDeCapas(dos);
     f.resultado = (mezcla != BLOCK_AIR) ? mezcla : bloqueBaseDe(matAbajo);
     f.sobrante  = (sobra >= 8) ? bloqueBaseDe(matArriba)
                                : conNivel(matArriba, sobra);
@@ -2705,7 +2990,7 @@ inline int desgasteHacha(BlockType t) {
 // entre solo sin tener que acordarse de apuntarlo aquí.
 inline bool esRocaParaPico(BlockType t) {
     if (esNivelParcial(t)) t = bloqueBaseDe(t);
-    if (esMixto(t))        t = mixtoRelleno(t);
+    if (esCeldaDeCapas(t)) t = materialArriba(t);
 
     if (t == BLOCK_AIR || t == BLOCK_WATER || t == BLOCK_LAVA) return false;
 

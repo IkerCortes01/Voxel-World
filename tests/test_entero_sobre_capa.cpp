@@ -144,9 +144,7 @@ TEST_CASE("Entero sobre capa: placeBlock ya no recorta el bloque a una lamina") 
 
     // 2. Los que no: se pegan ENCIMA de la capa, en su celda, sin borrarla.
     //    PEDIDO: "que el bloque no elimine el nivel, que solo se pegue encima".
-    CHECK(rama.find("esMacizoSinCapas(enMano)") != std::string::npos);
-    CHECK(rama.find("mixto(bloqueBaseDe(tocado), nivelDe(tocado), enMano)")
-          != std::string::npos);
+    CHECK(rama.find("pegarEncimaDeCapas(enMano, tocado)") != std::string::npos);
     // Y ya no se suelta la capa como items.
     CHECK(rama.find("getBlockDrops(t, bx, by, bz)") == std::string::npos);
 }

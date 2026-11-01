@@ -37530,6 +37530,35 @@ void placeBlock(GameState* state) {
         }
     };
 
+    // ⭐⭐ JUNTAR MATERIAL EN UNA COLUMNA, EMPEZANDO EN (x,y,z).
+    //
+    // Rellena lo que quepa y sube lo que sobre (planearDeposito). Si no tiene
+    // donde acabar devuelve false SIN escribir ni gastar el item.
+    auto depositarEnColumna = [&](int x, int y, int z, BlockType material) -> bool {
+        EscrituraColumna esc[MAX_ESCRITURAS_COLUMNA];
+        int n = 0;
+        const bool ok = planearDeposito(
+            [&](int cy) { return state->world.getBlock(x, cy, z); },
+            [](BlockType t) {
+                const bool ocupaSitio = esCladodio(t) || t == BLOCK_NOPAL_FRUTO ||
+                                        isRama(t) || esRaiz(t) ||
+                                        Compuesto::esCompuesto(t);
+                return t == BLOCK_AIR || (isCrossSprite(t) && !ocupaSitio);
+            },
+            y, CHUNK_HEIGHT, material, esc, n);
+        if (!ok) return false;
+
+        for (int i = 0; i < n; ++i) {
+            state->world.setBlock(x, esc[i].y, z, esc[i].tipo);
+            if (!celdaLlena(esc[i].tipo) || esCeldaDeCapas(esc[i].tipo))
+                marcarNivelDelJugador(x, esc[i].y, z);
+        }
+        state->inventory.consumeSelected();
+        state->placeCooldown = 0.25f;
+        for (int i = 0; i < n; ++i) subirSiApilaBajoLosPies(x, esc[i].y, z);
+        return true;
+    };
+
     BlockType selectedBlock = state->inventory.getSelectedBlock();
 
     // ========================================================================
@@ -38110,48 +38139,10 @@ void placeBlock(GameState* state) {
                         const BlockType entero = esTechoDeHojas(enMano)
                                                ? BLOCK_TECHO_HOJAS
                                                : bloqueBaseDe(enMano);
-                        const Fusion fe = fusionarNiveles(entero, tocado);
-                        const Vec3i arriba(result.blockPos.x,
-                                           result.blockPos.y + 1,
-                                           result.blockPos.z);
-
-                        // Lo que sobra necesita la celda de arriba libre: si
-                        // no, se perderia material. En ese caso no se coloca.
-                        bool caeArriba = true;
-                        if (fe.sobrante != BLOCK_AIR) {
-                            if (arriba.y >= CHUNK_HEIGHT) caeArriba = false;
-                            else {
-                                const BlockType h = state->world.getBlock(
-                                    arriba.x, arriba.y, arriba.z);
-                                caeArriba = (h == BLOCK_AIR) || isCrossSprite(h);
-                            }
-                        }
-
-                        if (fe.tipo == ResultadoFusion::FUSIONADOS && caeArriba) {
-                            state->world.setBlock(result.blockPos.x,
-                                                  result.blockPos.y,
-                                                  result.blockPos.z,
-                                                  fe.resultado);
-                            marcarNivelDelJugador(result.blockPos.x,
-                                                  result.blockPos.y,
-                                                  result.blockPos.z);
-                            if (fe.sobrante != BLOCK_AIR) {
-                                state->world.setBlock(arriba.x, arriba.y,
-                                                      arriba.z, fe.sobrante);
-                                marcarNivelDelJugador(arriba.x, arriba.y,
-                                                      arriba.z);
-                            }
-                            state->inventory.consumeSelected();
-                            state->placeCooldown = 0.25f;
-                            subirSiApilaBajoLosPies(result.blockPos.x,
-                                                    result.blockPos.y,
-                                                    result.blockPos.z);
-                            if (fe.sobrante != BLOCK_AIR)
-                                subirSiApilaBajoLosPies(arriba.x, arriba.y,
-                                                        arriba.z);
-                            return;
-                        }
-                        // Sin sitio arriba: el clic no hace nada (ni gasta).
+                        // Lo que sobra sube y se funde con lo que haya arriba.
+                        // Si no tiene donde acabar, el clic no gasta nada.
+                        depositarEnColumna(result.blockPos.x, result.blockPos.y,
+                                           result.blockPos.z, entero);
                         return;
                     } else
 
@@ -38339,34 +38330,11 @@ void placeBlock(GameState* state) {
                     // cortaba -- era una de las barreras.
                     if (fusAqui.tipo == ResultadoFusion::FUSIONADOS ||
                         fusAqui.tipo == ResultadoFusion::SUBE_ENTERO) {
-                        state->world.setBlock(result.blockPos.x,
-                                              result.blockPos.y,
-                                              result.blockPos.z,
-                                              fusAqui.resultado);
-
-                        // Lo que no cupo arranca la celda de arriba, en vez
-                        // de estirarse dentro de esta.
-                        if (fusAqui.sobrante != BLOCK_AIR &&
-                            result.blockPos.y + 1 < CHUNK_HEIGHT) {
-                            const BlockType hueco = state->world.getBlock(
-                                result.blockPos.x, result.blockPos.y + 1,
-                                result.blockPos.z);
-                            if (hueco == BLOCK_AIR || isCrossSprite(hueco)) {
-                                state->world.setBlock(result.blockPos.x,
-                                                      result.blockPos.y + 1,
-                                                      result.blockPos.z,
-                                                      fusAqui.sobrante);
-                                marcarNivelDelJugador(result.blockPos.x,
-                                                      result.blockPos.y + 1,
-                                                      result.blockPos.z);
-                            }
-                        }
-
-                        state->inventory.consumeSelected();
-                        state->placeCooldown = 0.25f;
-                        subirSiApilaBajoLosPies(result.blockPos.x,
-                                                result.blockPos.y,
-                                                result.blockPos.z);
+                        // Lo que no cabe sube y se funde con lo que encuentre.
+                        // Antes, si arriba no estaba vacio, se gastaba el item
+                        // y ese material desaparecia.
+                        depositarEnColumna(result.blockPos.x, result.blockPos.y,
+                                           result.blockPos.z, aFundir);
                         return;
                     }
 
@@ -38439,8 +38407,43 @@ void placeBlock(GameState* state) {
             state->player.position.x, state->player.position.y,
             state->player.position.z, anchoJug, altoJug);
 
+        // ⭐⭐ UNA CAPA SE PRUEBA DONDE VA A CAER, NO DONDE SE APUNTA.
+        //
+        // Una capa nunca se queda en el aire: baja hasta posarse (ver "UNA CAPA
+        // NUNCA NACE CON HUECO DEBAJO"), y si se posa sobre otra capa con sitio
+        // se funde con ella. Pero esta prueba miraba la celda APUNTADA: una
+        // capa a la altura del pecho se rechazaba por "caer dentro del jugador"
+        // aunque iba a acabar en el suelo, a sus pies.
+        //
+        // Los bloques enteros no bajan, asi que para ellos sigue siendo la celda
+        // apuntada.
+        int yPrueba = placePos.y;
+        const BlockType aPoner = state->inventory.getSelectedBlock();
+        const bool seraCapa = esNivelParcial(aPoner) ||
+                              (admiteNiveles(aPoner) && !seColocaEntero(aPoner));
+        {
+            if (seraCapa) {
+                const BlockType aqui = state->world.getBlock(
+                    placePos.x, yPrueba, placePos.z);
+                if (aqui == BLOCK_AIR || isCrossSprite(aqui)) {
+                    for (int i = 0; i < 8 && yPrueba > 0; ++i) {
+                        const BlockType abajo = state->world.getBlock(
+                            placePos.x, yPrueba - 1, placePos.z);
+                        if (abajo != BLOCK_AIR && !isCrossSprite(abajo)) {
+                            // Va a fundirse con esa capa: ahi es donde crece.
+                            if (celdaAdmiteMas(abajo) &&
+                                (esNivelParcial(abajo) || esCeldaDeCapas(abajo)))
+                                --yPrueba;
+                            break;
+                        }
+                        --yPrueba;
+                    }
+                }
+            }
+        }
+
         bool intersects = Render::celdaPisaAlJugador(
-            placePos.x, placePos.y, placePos.z, cajaJug);
+            placePos.x, yPrueba, placePos.z, cajaJug);
 
         // ====================================================================
         // ⭐⭐ UN BLOQUE ENTERO BAJO LOS PIES TAMBIEN TE SUBE ENCIMA
@@ -38471,14 +38474,27 @@ void placeBlock(GameState* state) {
         // cubo puesto en la celda de los pies (que es donde apunta la mira al
         // mirar al suelo) sube, y uno puesto a la altura del torso no.
         if (intersects) {
-            const float superficie = (float)placePos.y + 1.0f;   // cubo entero
+            // Un cubo llega al techo de su celda. Una capa solo hasta donde
+            // suma con lo que ya hay: subir un bloque entero por un octavo
+            // rechazaria el clic bajo cualquier techo bajo.
+            int octavosFinal = 8;
+            if (seraCapa) {
+                octavosFinal = octavosOcupados(state->world.getBlock(
+                                   placePos.x, yPrueba, placePos.z)) + 1;
+                if (octavosFinal > 8) octavosFinal = 8;
+            }
+            const float superficie =
+                (float)yPrueba + (float)alturaNivelPx(octavosFinal) / 16.0f;
             const float subida     = superficie - cajaJug.minY;
+
+            // La capa acaba por debajo de los pies: no toca al jugador.
+            if (seraCapa && subida <= 0.0f) intersects = false;
 
             // Que nazca en los pies o mas abajo, y que la subida sea de
             // escalon. `+1` porque la celda de los pies empieza justo en
             // minY y tiene que entrar.
             const bool naceBajoLosPies =
-                ((float)placePos.y <= cajaJug.minY + 0.001f);
+                ((float)yPrueba <= cajaJug.minY + 0.001f);
 
             if (naceBajoLosPies && subida > 0.0f && subida <= 1.05f + 1e-4f) {
                 // ¿Cabe el cuerpo entero en su nueva altura? Se miran las
@@ -38489,7 +38505,7 @@ void placeBlock(GameState* state) {
 
                 bool cabe = true;
                 for (int y = pies; y <= cabeza && cabe; ++y) {
-                    if (y == placePos.y) continue;
+                    if (y == yPrueba) continue;
                     if (isBlockSolid(state->world.getBlock(placePos.x, y,
                                                            placePos.z)))
                         cabe = false;
@@ -38991,7 +39007,10 @@ void placeBlock(GameState* state) {
                     --destinoY;
                 }
 
-                if (destinoY != placePos.y) {
+                // ⭐ TAMBIEN SI NO BAJA NINGUNA CELDA. Puesta de lado justo encima
+                // de una capa con sitio, nacia en el suelo de su celda, flotando
+                // sobre la de abajo. Se funde igual que si hubiera bajado.
+                {
                     placePos.y = destinoY;
 
                     // ⭐ Y SI AL BAJAR SE POSA SOBRE UNA CAPA, SE FUNDEN.
@@ -39074,7 +39093,34 @@ void placeBlock(GameState* state) {
                 const bool libre = (ocupante == BLOCK_AIR) ||
                                    esAguaCualquiera(ocupante) ||
                                    isCrossSprite(ocupante);
-                if (!libre) return;
+                if (!libre) {
+                    // ⭐⭐ SI EL DESTINO ES UNA CAPA CON SITIO, SE JUNTAN.
+                    //
+                    // PEDIDO: "que en cualquier direccion de mirada y posicion
+                    // del jugador puedas juntar niveles sin limites".
+                    //
+                    // Mirando de lado o en diagonal, el rayo cruza el hueco de
+                    // una capa y choca con el bloque de al lado: el destino es
+                    // ESA capa. Antes el clic se perdia aqui, aunque le quedara
+                    // sitio. Ya no depende de por donde entro el rayo.
+                    if (!celdaLlena(ocupante) &&
+                        (esNivelParcial(ocupante) || esCeldaDeCapas(ocupante))) {
+                        const BlockType pegado =
+                            pegarEncimaDeCapas(blockToPlace, ocupante);
+                        if (pegado != BLOCK_AIR) {
+                            state->world.setBlock(placePos.x, placePos.y,
+                                                  placePos.z, pegado);
+                            state->inventory.consumeSelected();
+                            state->placeCooldown = 0.25f;
+                            subirSiApilaBajoLosPies(placePos.x, placePos.y,
+                                                    placePos.z);
+                        } else {
+                            depositarEnColumna(placePos.x, placePos.y,
+                                               placePos.z, blockToPlace);
+                        }
+                    }
+                    return;
+                }
             }
 
             // ⭐ Cuanta agua habia AQUI antes de tapar la celda. Se lee ahora,

@@ -2327,6 +2327,57 @@ inline Fusion fusionarNiveles(BlockType queCae, BlockType enDestino) {
     return f;
 }
 
+// ============================================================================
+// ⭐⭐ DEPOSITAR MATERIAL EN UNA COLUMNA, SIN PERDER NADA
+// ============================================================================
+// PEDIDO: "que en cualquier direccion de mirada y posicion del jugador puedas
+// juntar niveles sin limites".
+//
+// Empieza en la celda `y`: lo que quepa se funde ahi y lo que sobra sube, celda
+// a celda, fundiendose con lo que encuentre.
+//
+// SOLO PLANIFICA. Devuelve las escrituras sin tocar el mundo, y false si el
+// material no tiene donde acabar (un bloque que no es capa en medio, el techo
+// del mundo). Es lo que permite no gastar el item ni perder un octavo: antes,
+// lo que sobraba se tiraba si la celda de arriba no estaba vacia.
+//
+//     get(y)        -> BlockType   que hay en esa altura de la columna
+//     esLibre(tipo) -> bool        se puede sustituir (aire, hierba)
+struct EscrituraColumna { int y; BlockType tipo; };
+
+constexpr int MAX_ESCRITURAS_COLUMNA = 4;
+
+template <class Get, class EsLibre>
+bool planearDeposito(Get get, EsLibre esLibre, int y, int yMax, BlockType material,
+                     EscrituraColumna* out, int& n) {
+    n = 0;
+    for (int paso = 0; paso < 8; ++paso, ++y) {
+        if (y < 0 || y >= yMax) return false;
+
+        const BlockType celda = get(y);
+        if (esLibre(celda)) {
+            if (n >= MAX_ESCRITURAS_COLUMNA) return false;
+            out[n++] = { y, material };
+            return true;
+        }
+
+        const Fusion f = fusionarNiveles(material, celda);
+        // Solo se salta la celda de PARTIDA, si esta llena. Mas arriba, lo que
+        // sobra no atraviesa un bloque: acabaria encima de un techo.
+        if (f.tipo == ResultadoFusion::SUBE_ENTERO) {
+            if (paso == 0) continue;
+            return false;
+        }
+        if (f.tipo != ResultadoFusion::FUSIONADOS) return false;
+
+        if (n >= MAX_ESCRITURAS_COLUMNA) return false;
+        out[n++] = { y, f.resultado };
+        if (f.sobrante == BLOCK_AIR) return true;
+        material = f.sobrante;
+    }
+    return false;
+}
+
 // Altura (0..1) a la que acaba la capa de ABAJO de una celda mixta. Es donde
 // empieza el relleno, y lo que necesita el mesher para dibujar las dos.
 inline float alturaBaseMixto(BlockType t) {

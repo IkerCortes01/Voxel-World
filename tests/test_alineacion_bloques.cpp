@@ -181,7 +181,7 @@ TEST_CASE("Alineacion: material distinto se funde, no se estira al techo") {
     CHECK(cuerpo.find("fusionarNiveles(aFundir, tocado)") != std::string::npos);
     CHECK(cuerpo.find("ResultadoFusion::FUSIONADOS") != std::string::npos);
     // Y el sobrante sube, en vez de perderse o estirarse.
-    CHECK(cuerpo.find("fusAqui.sobrante") != std::string::npos);
+    CHECK(cuerpo.find("depositarEnColumna(") != std::string::npos);
 }
 
 TEST_CASE("Alineacion: el mesher usa limites de celda enteros") {

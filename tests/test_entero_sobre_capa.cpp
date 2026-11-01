@@ -140,7 +140,7 @@ TEST_CASE("Entero sobre capa: placeBlock ya no recorta el bloque a una lamina") 
 
     // 1. Los que admiten niveles entran con sus 8 octavos.
     CHECK(rama.find("if (seColocaEntero(enMano)) {") != std::string::npos);
-    CHECK(rama.find("fusionarNiveles(entero, tocado)") != std::string::npos);
+    CHECK(rama.find("result.blockPos.z, entero);") != std::string::npos);
 
     // 2. Los que no: se pegan ENCIMA de la capa, en su celda, sin borrarla.
     //    PEDIDO: "que el bloque no elimine el nivel, que solo se pegue encima".

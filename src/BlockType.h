@@ -2722,7 +2722,7 @@ inline bool esPencaDeMaguey(BlockType t) {
 inline bool esCactusSuelto(BlockType t) {
     switch (t) {
         // --- La penca del nopal y lo que sale de trabajarla ---
-        case BLOCK_NOPAL_CLADODIO:   // lo que cae al romper cualquier parte
+        case BLOCK_NOPAL_CLADODIO:   // la penca de la mata
         case BLOCK_NOPAL_MOJADO:     // limpia de espinas
         case BLOCK_NOPAL_SECO:       // curada al sol
         case BLOCK_NOPAL_TIRAS:      // cortada en tiras
@@ -2757,7 +2757,8 @@ inline bool esCactusSuelto(BlockType t) {
 // espinas y las tunas, que son piezas PEQUENAS: comparten el grosor carnoso
 // pero no el tamano de una hoja.
 inline bool esPencaDeNopal(BlockType t) {
-    return t == BLOCK_NOPAL_CLADODIO || t == BLOCK_NOPAL_MOJADO ||
+    return t == BLOCK_NOPAL_CLADODIO || t == BLOCK_NOPAL_FRUTO ||
+           t == BLOCK_NOPAL_MOJADO   ||
            t == BLOCK_NOPAL_SECO     || t == BLOCK_NOPAL_SIN_BABA ||
            t == BLOCK_NOPAL_TIRAS;
 }

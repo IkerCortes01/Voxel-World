@@ -24,7 +24,8 @@
 // que usan el minado y el derrumbe estructural.
 //
 // Lo que estos tests fijan:
-//   1. TODA pieza de nopal da BLOCK_NOPAL_CLADODIO, y solo eso.
+//   1. TODA pieza de nopal da BLOCK_NOPAL_FRUTO, y solo eso: es el item del
+//      icono a rayas que se pidio, y el que se moja al colocarlo junto al agua.
 //   2. La cuenta es la que se ve: un cladodio doble da 2 pencas, el triple 3,
 //      y una mata compuesta tantas como pencas tenga.
 //   3. LA TUNA SIGUE CAYENDO. Es el fruto, no la planta.
@@ -96,7 +97,7 @@ TEST_CASE("Nopal: getBlockDrops tiene caso propio para cada pieza") {
 
 TEST_CASE("Nopal: lo unico que sueltan es la penca") {
     // Ni tallos, ni bases, ni espinas, ni baba: en todo el bloque del arreglo
-    // el UNICO item que se empuja es BLOCK_NOPAL_CLADODIO.
+    // el UNICO item que se empuja es BLOCK_NOPAL_FRUTO.
     const std::string src = fuente();
     REQUIRE(!src.empty());
 
@@ -105,11 +106,30 @@ TEST_CASE("Nopal: lo unico que sueltan es la penca") {
     const std::string bloque = src.substr(m, 3200);
 
     // Ningun push_back de otra cosa dentro del bloque del nopal.
+    CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_CLADODIO") == std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_TALLO") == std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_ESPINAS_NOPAL") == std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_BABA") == std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_SECO") == std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_TIRAS") == std::string::npos);
+}
+
+TEST_CASE("Nopal: las dos tablas de drops dan el mismo item") {
+    // Antes salian dos items distintos segun por donde pasara cada pieza.
+    const std::string src = fuente();
+    REQUIRE(!src.empty());
+
+    const size_t m = src.find("if (Compuesto::Nopal::esNopal(brokenBlock))");
+    REQUIRE(m != std::string::npos);
+    CHECK(src.substr(m, 120).find("return BLOCK_NOPAL_FRUTO;") != std::string::npos);
+    CHECK(src.find("return BLOCK_NOPAL_CLADODIO;") == std::string::npos);
+    CHECK(src.find("{BLOCK_NOPAL_CLADODIO, pencas, 1.0f}") == std::string::npos);
+    CHECK(src.find("{BLOCK_NOPAL_FRUTO, pencas, 1.0f}") != std::string::npos);
+}
+
+TEST_CASE("Nopal: su item se ve como penca, no como tuna") {
+    CHECK(esPencaDeNopal(BLOCK_NOPAL_FRUTO));
+    CHECK_FALSE(esTuna(BLOCK_NOPAL_FRUTO));
 }
 
 TEST_CASE("Nopal: la cuenta de pencas es la que se ve en la planta") {
@@ -121,11 +141,11 @@ TEST_CASE("Nopal: la cuenta de pencas es la que se ve en la planta") {
     const std::string bloque = src.substr(m, 3200);
 
     // Suelto y diagonal: una penca.
-    CHECK(bloque.find("{BLOCK_NOPAL_CLADODIO, 1, 1.0f}") != std::string::npos);
+    CHECK(bloque.find("{BLOCK_NOPAL_FRUTO, 1, 1.0f}") != std::string::npos);
     // Dobles: dos.
-    CHECK(bloque.find("{BLOCK_NOPAL_CLADODIO, 2, 1.0f}") != std::string::npos);
+    CHECK(bloque.find("{BLOCK_NOPAL_FRUTO, 2, 1.0f}") != std::string::npos);
     // Triples: tres.
-    CHECK(bloque.find("{BLOCK_NOPAL_CLADODIO, 3, 1.0f}") != std::string::npos);
+    CHECK(bloque.find("{BLOCK_NOPAL_FRUTO, 3, 1.0f}") != std::string::npos);
 }
 
 TEST_CASE("Nopal: la mata compuesta suelta todas sus pencas") {

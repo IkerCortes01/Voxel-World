@@ -32381,7 +32381,7 @@ struct GameState {
         // la de Items/ (ver BLOCK_NOPAL_CLADODIO en `siluetaPNG`). Lo unico
         // que faltaba era que la mata entrara por ahi.
         if (Compuesto::Nopal::esNopal(brokenBlock))
-            return BLOCK_NOPAL_CLADODIO;
+            return BLOCK_NOPAL_FRUTO;
 
         switch (brokenBlock) {
             case BLOCK_GRASS:
@@ -32426,7 +32426,8 @@ struct GameState {
             case BLOCK_NOPAL_CLADODIO_Z2:
             case BLOCK_NOPAL_CLADODIO_Z3:
             case BLOCK_NOPAL_CLADODIO_DIAG:
-                return BLOCK_NOPAL_CLADODIO;
+            case BLOCK_NOPAL_FRUTO:
+                return BLOCK_NOPAL_FRUTO;
 
             // Una rama da un PALO: es exactamente lo que es.
             case BLOCK_RAMA_PINO:
@@ -33419,7 +33420,7 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
     // `extrasDe` son las pencas ADICIONALES a la primera, de ahi el +1.
     if (Compuesto::Nopal::esNopal(blockType)) {
         const int pencas = 1 + (int)Compuesto::Nopal::extrasDe(blockType);
-        drops.push_back({BLOCK_NOPAL_CLADODIO, pencas, 1.0f});
+        drops.push_back({BLOCK_NOPAL_FRUTO, pencas, 1.0f});
         return drops;
     }
 
@@ -33584,6 +33585,12 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         // del final se aplica DESPUES, asi que una pieza con nivel parcial
         // soltaba varias copias de su propio ID.
         //
+        // ⭐ EL ITEM ES BLOCK_NOPAL_FRUTO. PEDIDO (con captura): "que los
+        // nopales solo suelten este item, solo ese y tunas". La captura es el
+        // icono a rayas de FRUTO. Antes salian DOS items: CLADODIO de estos
+        // casos y FRUTO del `default`. FRUTO es ademas el que alimenta la
+        // cadena: colocado junto al agua se vuelve NOPAL_MOJADO.
+        //
         // Aqui se decide de una vez: TODA pieza de nopal da PENCAS y solo
         // pencas. Y se aprovecha para que la cuenta sea la correcta --un
         // cladodio doble da DOS pencas y uno triple TRES--, que es lo que el
@@ -33601,23 +33608,30 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         case BLOCK_NOPAL_TALLO:
             // La base y el tallo son ANCLAJE, no cosecha: la penca que se
             // llevan es la que crecia ahi, una sola.
-            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
+            drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});
             break;
 
         case BLOCK_NOPAL_CLADODIO:
         case BLOCK_NOPAL_CLADODIO_DIAG:
-            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
+            drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});
             break;
 
         // Dos y tres pencas juntas: sueltan las que se ven.
         case BLOCK_NOPAL_CLADODIO_X2:
         case BLOCK_NOPAL_CLADODIO_Z2:
-            drops.push_back({BLOCK_NOPAL_CLADODIO, 2, 1.0f});
+            drops.push_back({BLOCK_NOPAL_FRUTO, 2, 1.0f});
             break;
 
         case BLOCK_NOPAL_CLADODIO_X3:
         case BLOCK_NOPAL_CLADODIO_Z3:
-            drops.push_back({BLOCK_NOPAL_CLADODIO, 3, 1.0f});
+            drops.push_back({BLOCK_NOPAL_FRUTO, 3, 1.0f});
+            break;
+
+        // La penca colocada o generada se suelta a si misma. Con caso propio
+        // para que quede claro que es EL item del nopal, no un descuido del
+        // `default`.
+        case BLOCK_NOPAL_FRUTO:
+            drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});
             break;
 
         case BLOCK_TALLGRASS:
@@ -47908,6 +47922,9 @@ int main() {
                 // Con el contorno real el solido se cierra siempre, sea cual
                 // sea la forma del dibujo: es lo que hace que "se rendericen
                 // las caras de todo en 3D".
+                // FRUTO es la penca que sueltan los nopales: pese al nombre no
+                // es una tuna, y en el suelo se dibujaba como una tuna verde.
+                case BLOCK_NOPAL_FRUTO:
                 case BLOCK_NOPAL_CLADODIO:
                     siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto.png"; break;
                 case BLOCK_NOPAL_MOJADO:
@@ -47924,7 +47941,6 @@ int main() {
                     siluetaPNG = "Textures/Items/Espinas de Nopal de castilla.png"; break;
 
                 // Las tunas: fruto redondo, cada variedad con su color.
-                case BLOCK_NOPAL_FRUTO:
                 case BLOCK_TUNA:
                     siluetaPNG = "Textures/Items/Tuna verde crecida.png"; break;
                 case BLOCK_TUNA_AMARILLA:

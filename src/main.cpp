@@ -47922,9 +47922,12 @@ int main() {
                 // Con el contorno real el solido se cierra siempre, sea cual
                 // sea la forma del dibujo: es lo que hace que "se rendericen
                 // las caras de todo en 3D".
-                // FRUTO es la penca que sueltan los nopales: pese al nombre no
-                // es una tuna, y en el suelo se dibujaba como una tuna verde.
+                // FRUTO es el item "Nopal de Castilla", lo unico que sueltan los
+                // nopales ademas de las tunas. En el suelo se ve igual que su
+                // icono: ni como tuna (lo que sugiere su nombre de ID) ni como
+                // la penca recortada, que se pidio expresamente que no salga.
                 case BLOCK_NOPAL_FRUTO:
+                    siluetaPNG = "Textures/Blocks/Tallo de Nopal de Castilla.png"; break;
                 case BLOCK_NOPAL_CLADODIO:
                     siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto.png"; break;
                 case BLOCK_NOPAL_MOJADO:

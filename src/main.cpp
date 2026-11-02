@@ -520,7 +520,7 @@ bool isNopal(BlockType type) {
            type == BLOCK_NOPAL_BASE_A_ARCILLA ||
            type == BLOCK_NOPAL_TALLO ||
            esCladodio(type) ||
-           type == BLOCK_NOPAL_FRUTO ||
+           esNopalDeCastilla(type) ||
            type == BLOCK_NOPAL_MOJADO;
 }
 
@@ -556,7 +556,7 @@ bool isCrossSprite(BlockType type) {
            esIxtleHoja(type) || type == BLOCK_IXTLE_PUNTA ||
            esCompartido(type) || esGuijarro(type) ||
            esCladodio(type) ||
-           type == BLOCK_NOPAL_FRUTO ||
+           esNopalDeCastilla(type) ||
            type == BLOCK_NOPAL_MOJADO ||
            type == BLOCK_NOPAL_TIRAS ||
            type == BLOCK_NOPAL_SIN_BABA ||
@@ -1385,6 +1385,12 @@ inline bool nopalEncadena(BlockType b, BlockType propio = BLOCK_AIR) {
     // silueta en vez de fundirse con la de al lado.
     if (propio == BLOCK_NOPAL_FRUTO && b == BLOCK_NOPAL_FRUTO) return false;
 
+    // LA QUE PONE EL JUGADOR NO ES PLANTA. PEDIDO: el item Nopal de Castilla
+    // hace todo lo del nopal "excepto que se junte y una como la planta". Ni
+    // ella se estira hacia la mata ni (porque abajo no aparece en la lista) la
+    // mata se estira hacia ella. La mojada tampoco: sale siempre de un item.
+    if (propio == BLOCK_NOPAL_PUESTO || propio == BLOCK_NOPAL_MOJADO) return false;
+
     // La TUNA queda FUERA a proposito: es un bloque independiente que se
     // apoya en la penca, no una parte de ella. Si encadenara, la penca se
     // estiraria hacia el fruto y perderia su forma.
@@ -1440,7 +1446,7 @@ inline bool nopalEncadena(BlockType b, BlockType propio = BLOCK_AIR) {
 // `nopalEncadena`, que es lo que necesita conocer BlockType.
 template <typename TGet>
 inline bool pencaPuestaPorJugador(BlockType tipo, TGet get) {
-    if (tipo != BLOCK_NOPAL_FRUTO && tipo != BLOCK_NOPAL_MOJADO) return false;
+    if (!esNopalDeCastilla(tipo) && tipo != BLOCK_NOPAL_MOJADO) return false;
 
     return Render::pencaSuelta([&](int dx, int dy, int dz) {
         return nopalEncadena(get(dx, dy, dz), tipo);
@@ -1776,7 +1782,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
     // El cladodio de la MATA conserva las suyas (8 de ancho, 7 de grosor):
     // no es una penca sola sino un grupo apretado de varias.
     const int nPencas = pencasApiladas(f.tipo);
-    const bool esPencaSuelta = (f.tipo == BLOCK_NOPAL_FRUTO ||
+    const bool esPencaSuelta = (esNopalDeCastilla(f.tipo) ||
                                 f.tipo == BLOCK_NOPAL_MOJADO);
 
     constexpr float PENCA_LARGO  = 15.00f / 16.0f;
@@ -1858,7 +1864,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
             // Es la MISMA clase de fallo que este archivo ya ha tenido tres
             // veces -- dos sitios calculando la misma forma por separado --
             // asi que aqui se toman literalmente las constantes del mesher.
-            if (f.tipo == BLOCK_NOPAL_FRUTO || f.tipo == BLOCK_NOPAL_MOJADO) {
+            if (esNopalDeCastilla(f.tipo) || f.tipo == BLOCK_NOPAL_MOJADO) {
                 constexpr float GRUESO_TIRADA = 5.0f / 16.0f;
                 constexpr float MARGEN_LOSA   = 1.0f / 16.0f;
                 f.minX = MARGEN_LOSA;  f.maxX = 1.0f - MARGEN_LOSA;
@@ -1970,7 +1976,7 @@ NopalForma calcularFormaNopalCon(TGet get, int wx, int wy, int wz,
         // de lado por 5 de alto, la misma geometria que las tiras de nopal.
         // Mismos valores que `case 4`, por la razon de siempre: si los dos no
         // coinciden, vuelve el tiron del final.
-        if (f.tipo == BLOCK_NOPAL_FRUTO || f.tipo == BLOCK_NOPAL_MOJADO) {
+        if (esNopalDeCastilla(f.tipo) || f.tipo == BLOCK_NOPAL_MOJADO) {
             constexpr float GRUESO_TIRADA = 5.0f / 16.0f;
             constexpr float MARGEN_LOSA   = 1.0f / 16.0f;
             finX0 = MARGEN_LOSA;  finX1 = 1.0f - MARGEN_LOSA;
@@ -2330,7 +2336,7 @@ void tunaCajaCon(TGet get,
     // ven como frutos sueltos y no como un bloque macizo.
     auto sostenido = [&](int dx, int dy, int dz) {
         const BlockType b = get(dx, dy, dz);
-        return esCladodio(b) || b == BLOCK_NOPAL_FRUTO;
+        return esCladodio(b) || esNopalDeCastilla(b);
     };
 
     // PEGADA A LA PENCA, PERO SIN SALIRSE DE SU VOXEL.
@@ -2892,7 +2898,7 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
         }
     }
 
-    if (!esCladodio(type) && type != BLOCK_NOPAL_FRUTO &&
+    if (!esCladodio(type) && !esNopalDeCastilla(type) &&
         type != BLOCK_NOPAL_MOJADO) return false;
 
     const NopalForma f = calcularFormaNopalCon(get, wx, wy, wz, type);
@@ -2907,7 +2913,7 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
     //
     // Es la misma regla que ya siguen las TIRAS de nopal: su caja es su forma,
     // sin ajustes por vecindad.
-    if (type == BLOCK_NOPAL_FRUTO) {
+    if (esNopalDeCastilla(type)) {
         minX = f.minX;  maxX = f.maxX;
         minY = f.minY;  maxY = f.maxY;
         minZ = f.minZ;  maxZ = f.maxZ;
@@ -3217,7 +3223,7 @@ bool isBlockOpaque(BlockType type) {
     if (esCeldaDeCapas(type)) return octavosOcupados(type) >= 8;
     // Solo el CLADODIO es sprite: no tapa las caras vecinas. Las bases y el
     // tallo son bloques completos y si son opacos.
-    if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
+    if (esCladodio(type) || esNopalDeCastilla(type) ||
         type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
         type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
         esTuna(type)) return false;
@@ -3351,7 +3357,7 @@ inline bool llenaSuVoxelFrenteALiquido(BlockType type) {
     // derivados, las raices, las ramas y los guijarros.
     if (type == BLOCK_MAGUEY_HUECO || type == BLOCK_AGUAMIEL ||
         type == BLOCK_MAGUEY_PUNTA) return false;
-    if (esCladodio(type) || type == BLOCK_NOPAL_FRUTO ||
+    if (esCladodio(type) || esNopalDeCastilla(type) ||
         type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
         type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
         esTuna(type)) return false;
@@ -6909,12 +6915,10 @@ public:
         // Son DOS archivos distintos, y el sufijo es lo que los separa:
         // `Blocks/Penca de Nopal de Castilla.png` es la penca de la PLANTA
         // (la que forma el cuerpo del nopal), y
-        // `Items/Penca de Nopal de Castilla suelto.png` es la penca cortada
-        // que el jugador lleva en la mano. El "suelto" no es decorativo:
-        // antes los dos archivos se llamaban igual y solo los distinguia la
-        // carpeta, que es un sitio muy facil de equivocarse.
+        // las pieles de la penca limpia, mojada y seca.
         loadTexture("Penca de Nopal de Castilla.png");
-        loadTexture("../Items/Penca de Nopal de Castilla suelto.png");
+        loadTexture("Penca de nopal de castilla mojado sin espinas.png");
+        loadTexture("Penca de nopal de castilla seco sin espinas.png");
         // La marca de union (la cicatriz por donde una penca nace de otra) hoy
         // NO esta en disco. Se sigue pidiendo a proposito: el sitio que la usa
         // (ver "LA MARCA DE UNION") ya degrada a la penca lisa cuando vale 0,
@@ -7890,7 +7894,7 @@ public:
                 return getTexture("Techo de Hojas.png");
 
             case BLOCK_NOPAL_SECO:
-                return getTexture("../Items/Penca de Nopal de castilla suelto seco.png");
+                return getTexture("Penca de nopal de castilla seco sin espinas.png");
 
             // ================================================================
             // ⭐ EL HORNO DE BARRO: UNA TEXTURA POR CARA
@@ -8287,12 +8291,12 @@ public:
             // que ya usan el cladodio y la mata compuesta -- las tres son la
             // misma pieza fisica y ahora se ven iguales.
             case BLOCK_NOPAL_FRUTO:
+            case BLOCK_NOPAL_PUESTO:
                 return getTexture("Tallo de Nopal de Castilla.png");
 
             // Nopal ya lavado y desespinado.
             case BLOCK_NOPAL_MOJADO:
-                return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"));
+                return getTexture("Penca de nopal de castilla mojado sin espinas.png");
 
             // Nopal cortado en tiras: se puede colocar, y en agua se desbaba.
             case BLOCK_NOPAL_TIRAS:
@@ -8302,7 +8306,7 @@ public:
             // Lo que sale del desbabado.
             case BLOCK_NOPAL_SIN_BABA:
                 return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"));
+                    "resourcepacks/Textures/Items/Penca de Nopal de Castilla en tiras mojado.png"));
             case BLOCK_NOPAL_BABA:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Baba de nopal.png"));
@@ -9399,7 +9403,7 @@ struct Chunk {
                esIxtleHoja(b) || b == BLOCK_IXTLE_PUNTA ||
                esCompartido(b) || esGuijarro(b) ||
                isRama(b) ||
-               esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
+               esCladodio(b) || esNopalDeCastilla(b) ||
                b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
                b == BLOCK_NOPAL_SIN_BABA || b == BLOCK_NOPAL_BABA ||
                esTuna(b);
@@ -9519,7 +9523,7 @@ struct Chunk {
         // Cladodio y fruto: losas de 5/16 de grosor. Tapan mas que una rama
         // pero mucho menos que un cubo, asi que atenuan 2: se nota una sombra
         // suave bajo la penca sin que llegue a oscurecerla.
-        if (esCladodio(b) || b == BLOCK_NOPAL_FRUTO ||
+        if (esCladodio(b) || esNopalDeCastilla(b) ||
             b == BLOCK_NOPAL_MOJADO) return 2;
 
         // La TUNA es un bulto de 4x4 pixeles: ocupa aun menos que la penca,
@@ -19902,7 +19906,9 @@ public:
             //   - la penca que el jugador COLOCA (BLOCK_NOPAL_FRUTO)
             //   - la mata compuesta (FAM_NOPAL)
             const bool pielOpaca = esCladodio(b) ||
-                                   b == BLOCK_NOPAL_FRUTO ||
+                                   esNopalDeCastilla(b) ||
+                                   b == BLOCK_NOPAL_MOJADO ||
+                                   b == BLOCK_NOPAL_SECO ||
                                    Compuesto::Nopal::esNopal(b);
 
             if (t != 0 && t != ultimaRecortada && !esBloqueMacizoOpaco(b) &&
@@ -23898,7 +23904,9 @@ public:
                         // sin recorte saldrian con un recuadro negro.
                         if (isCrossSprite(block) && texture != 0 &&
                             !esCladodio(block) &&
-                            block != BLOCK_NOPAL_FRUTO)
+                            !esNopalDeCastilla(block) &&
+                            block != BLOCK_NOPAL_MOJADO &&
+                            block != BLOCK_NOPAL_SECO)
                             texturasRecortadas.insert(texture);
 
                         // NOTA: la marca de union con el cladodio ya NO se
@@ -25120,7 +25128,7 @@ public:
                         // rama propia para el (busca "LA MATA: LAS PENCAS
                         // EXTRA").
                         if (esCladodio(block) ||
-                            block == BLOCK_NOPAL_FRUTO ||
+                            esNopalDeCastilla(block) ||
                             block == BLOCK_NOPAL_MOJADO ||
                             Compuesto::Nopal::esNopal(block) ||
                             esTuna(block)) {
@@ -32427,6 +32435,7 @@ struct GameState {
             case BLOCK_NOPAL_CLADODIO_Z3:
             case BLOCK_NOPAL_CLADODIO_DIAG:
             case BLOCK_NOPAL_FRUTO:
+            case BLOCK_NOPAL_PUESTO:
                 return BLOCK_NOPAL_FRUTO;
 
             // Una rama da un PALO: es exactamente lo que es.
@@ -32537,6 +32546,17 @@ struct GameState {
         for (size_t i = 0; i < items.size(); ) {
             // ⭐⭐⭐ Pasar posición del jugador para atracción magnética
             items[i].update(deltaTime, player.position);
+
+            // EL NOPAL TIRADO AL AGUA SALE MOJADO. Se mira tambien la celda de
+            // debajo porque el item flota por encima de la superficie.
+            if (items[i].blockType == BLOCK_NOPAL_FRUTO) {
+                const int ix = (int)floor(items[i].position.x);
+                const int iy = (int)floor(items[i].position.y);
+                const int iz = (int)floor(items[i].position.z);
+                if (esAguaCualquiera(world.getBlock(ix, iy, iz)) ||
+                    esAguaCualquiera(world.getBlock(ix, iy - 1, iz)))
+                    items[i].blockType = BLOCK_NOPAL_MOJADO;
+            }
 
             // ⭐ COLISIÓN CON EL SUELO (solo si NO está siendo atraído)
             if (!items[i].isBeingAttracted) {
@@ -33631,6 +33651,7 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         // para que quede claro que es EL item del nopal, no un descuido del
         // `default`.
         case BLOCK_NOPAL_FRUTO:
+        case BLOCK_NOPAL_PUESTO:
             drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});
             break;
 
@@ -34590,11 +34611,11 @@ void prewarmItemTextures() {
         // Son dos dibujos distintos a proposito y conviene no mezclarlos:
         //   Blocks/...  la penca viva, pensada para la geometria de la mata
         //   Items/...suelto.png   la penca cortada, con fondo transparente
-        { BLOCK_NOPAL_CLADODIO, "Penca de Nopal de Castilla suelto.png"   },
+        { BLOCK_NOPAL_CLADODIO, "../Blocks/Tallo de Nopal de Castilla.png" },
         { BLOCK_NOPAL_TIRAS,   "Penca de Nopal de Castilla en tiras.png" },
-        { BLOCK_NOPAL_SIN_BABA,"Penca de Nopal de Castilla suelto sin espinas mojado.png"      },
+        { BLOCK_NOPAL_SIN_BABA,"Penca de Nopal de Castilla en tiras mojado.png" },
         { BLOCK_NOPAL_BABA,    "Baba de Nopal.png"                       },
-        { BLOCK_NOPAL_MOJADO,  "Penca de Nopal de Castilla suelto sin espinas mojado.png"            },
+        { BLOCK_NOPAL_MOJADO,  "../Blocks/Penca de nopal de castilla mojado sin espinas.png" },
         // Los PEDAZOS DE PIEDRA se dibujan en el mundo con la textura de
         // roca (que llena el cuadro, y por eso el canto 3D se ve macizo),
         // pero en el INVENTARIO conservan su dibujo propio: el montoncito
@@ -34635,7 +34656,7 @@ void prewarmItemTextures() {
         { BLOCK_HACHA_PEDERNAL, "Hacha de Pedernal afilado.png" },
         { BLOCK_PICO_PEDERNAL, "pico de pedernal afilado.png"                    },
         { BLOCK_MARTILLO_PEDERNAL, "Martillo de Pedernal afilado.png"            },
-        { BLOCK_NOPAL_SECO,    "Penca de Nopal de castilla suelto seco.png" },
+        { BLOCK_NOPAL_SECO,    "../Blocks/Penca de nopal de castilla seco sin espinas.png" },
         { BLOCK_ESPINAS_NOPAL, "Espinas de Nopal de castilla.png"        },
         { BLOCK_TAZON_PINO,    "tazon de madera de pino.png"             },
         { BLOCK_TAZON_ENCINO,  "tazon de madera de encino.png"           },
@@ -36169,6 +36190,61 @@ void actualizarVida(GameState* state, float deltaTime) {
         }
     }
 
+    // ------------------------------------------------------------------
+    // EL NOPAL REACCIONA AL AGUA AUNQUE LE LLEGUE DESPUES
+    // ------------------------------------------------------------------
+    // Colocar solo cubre el agua que ya estaba. Con este barrido tambien vale
+    // la que llega fluyendo, y las tiras y pencas limpias de un mundo recargado
+    // retoman su proceso: sus temporizadores no se guardan en disco.
+    //
+    // Una vez por segundo y ~8.000 lecturas: no se nota, ni en la HD 4000.
+    {
+        static double ultimoBarridoNopal = 0.0;
+        if (state->tiempoJugadoSegundos < ultimoBarridoNopal ||
+            state->tiempoJugadoSegundos - ultimoBarridoNopal >= 1.0) {
+            ultimoBarridoNopal = state->tiempoJugadoSegundos;
+            const int px = (int)floor(state->player.position.x);
+            const int py = (int)floor(state->player.position.y);
+            const int pz = (int)floor(state->player.position.z);
+            for (int y = py - 6; y <= py + 6; ++y) {
+                if (y < 1 || y >= CHUNK_HEIGHT - 1) continue;
+                for (int x = px - 12; x <= px + 12; ++x) {
+                    for (int z = pz - 12; z <= pz + 12; ++z) {
+                        const BlockType b = state->world.getBlock(x, y, z);
+                        auto vecino = [&](int dx, int dy, int dz) {
+                            return state->world.getBlock(x + dx, y + dy, z + dz);
+                        };
+                        if (b == BLOCK_NOPAL_SIN_BABA) {
+                            bool apuntada = false;
+                            for (const PencaSecandose& p : g_pencasSecandose)
+                                if (p.x == x && p.y == y && p.z == z) apuntada = true;
+                            if (!apuntada)
+                                g_pencasSecandose.push_back(
+                                    { x, y, z, state->tiempoJugadoSegundos });
+                            continue;
+                        }
+                        // FRUTO solo si esta suelto: los de una mata son planta.
+                        const bool suelto = b == BLOCK_NOPAL_PUESTO ||
+                                            pencaPuestaPorJugador(b, vecino);
+                        if (b != BLOCK_NOPAL_TIRAS && !suelto) continue;
+                        if (!tocaAgua(vecino)) continue;
+                        if (b != BLOCK_NOPAL_TIRAS) {
+                            if (b != BLOCK_NOPAL_MOJADO)
+                                state->world.setBlock(x, y, z, BLOCK_NOPAL_MOJADO);
+                            continue;
+                        }
+                        bool apuntadas = false;
+                        for (const TirasDesbabando& t : g_tirasDesbabando)
+                            if (t.x == x && t.y == y && t.z == z) apuntadas = true;
+                        if (!apuntadas)
+                            g_tirasDesbabando.push_back(
+                                { x, y, z, state->tiempoJugadoSegundos });
+                    }
+                }
+            }
+        }
+    }
+
     if (!g_tirasDesbabando.empty()) {
         for (size_t i = 0; i < g_tirasDesbabando.size(); ) {
             const TirasDesbabando& t = g_tirasDesbabando[i];
@@ -37381,7 +37457,7 @@ bool esMacizoSinCapas(BlockType t) {
     if (esNivelParcial(t) || esCeldaDeCapas(t) || admiteNiveles(t)) return false;
     if (Compuesto::esCompuesto(t)) return false;
     if (isCrossSprite(t) || isRama(t) || esRaiz(t) || esCladodio(t) ||
-        t == BLOCK_NOPAL_FRUTO || esGuijarro(t)) return false;
+        esNopalDeCastilla(t) || esGuijarro(t)) return false;
     return isBlockSolid(t) && alturaDe(t) >= 1.0f;
 }
 
@@ -37554,7 +37630,7 @@ void placeBlock(GameState* state) {
         const bool ok = planearDeposito(
             [&](int cy) { return state->world.getBlock(x, cy, z); },
             [](BlockType t) {
-                const bool ocupaSitio = esCladodio(t) || t == BLOCK_NOPAL_FRUTO ||
+                const bool ocupaSitio = esCladodio(t) || esNopalDeCastilla(t) ||
                                         isRama(t) || esRaiz(t) ||
                                         Compuesto::esCompuesto(t);
                 return t == BLOCK_AIR || (isCrossSprite(t) && !ocupaSitio);
@@ -37963,7 +38039,7 @@ void placeBlock(GameState* state) {
                         // maguey): eso son piezas reales y machacarlas al
                         // apilar seria destruir cosas sin querer.
                         const bool ocupaSitio =
-                            esCladodio(encima) || encima == BLOCK_NOPAL_FRUTO ||
+                            esCladodio(encima) || esNopalDeCastilla(encima) ||
                             isRama(encima) || esRaiz(encima) ||
                             Compuesto::esCompuesto(encima);
                         const bool libre = (encima == BLOCK_AIR) ||
@@ -38232,7 +38308,7 @@ void placeBlock(GameState* state) {
                             // colocaba nada y el jugador no entendia por que.
                             const bool ocupaSitio2 =
                                 esCladodio(encima) ||
-                                encima == BLOCK_NOPAL_FRUTO ||
+                                esNopalDeCastilla(encima) ||
                                 isRama(encima) || esRaiz(encima) ||
                                 Compuesto::esCompuesto(encima);
                             const bool libre2 =
@@ -38389,7 +38465,7 @@ void placeBlock(GameState* state) {
             // sustituido: el bloque nuevo se coloca al lado, como con
             // cualquier bloque solido. Solo la hierba se reemplaza.
             const bool encadenable = (esCladodio(targetBlock) ||
-                                      targetBlock == BLOCK_NOPAL_FRUTO ||
+                                      esNopalDeCastilla(targetBlock) ||
                                       isRama(targetBlock));
 
             if (isCrossSprite(targetBlock) && !encadenable) {
@@ -38648,43 +38724,27 @@ void placeBlock(GameState* state) {
             // Cuenta como agua tanto el hueco donde se coloca (si estaba
             // inundado) como cualquiera de sus seis caras: basta con que la
             // penca toque el agua para que se moje.
+            //
+            // Y SECA TAMPOCO SE QUEDA COMO FRUTO: ese ID es la penca que nace de
+            // la mata y se une a ella. Puesta a mano es BLOCK_NOPAL_PUESTO.
             if (blockToPlace == BLOCK_NOPAL_FRUTO) {
-                bool enAgua = state->world.getBlock(
-                    placePos.x, placePos.y, placePos.z) == BLOCK_WATER;
-                if (!enAgua) {
-                    static const int LADOS[6][3] = {
-                        { 1,0,0}, {-1,0,0}, {0, 1,0},
-                        { 0,-1,0}, {0,0,1}, {0,0,-1}
-                    };
-                    for (int i = 0; i < 6 && !enAgua; ++i) {
-                        if (state->world.getBlock(
-                                placePos.x + LADOS[i][0],
-                                placePos.y + LADOS[i][1],
-                                placePos.z + LADOS[i][2]) == BLOCK_WATER)
-                            enAgua = true;
-                    }
-                }
-                if (enAgua) blockToPlace = BLOCK_NOPAL_MOJADO;
+                blockToPlace = nopalAlColocar(tocaAgua(
+                    [&](int dx, int dy, int dz) {
+                        return state->world.getBlock(placePos.x + dx,
+                                                     placePos.y + dy,
+                                                     placePos.z + dz);
+                    }));
             }
 
             // TIRAS EN REMOJO: si se colocan tocando agua, empiezan a
             // desbabarse. A los 10 segundos sueltan la baba y quedan limpias.
             if (blockToPlace == BLOCK_NOPAL_TIRAS) {
-                bool enAgua = state->world.getBlock(
-                    placePos.x, placePos.y, placePos.z) == BLOCK_WATER;
-                if (!enAgua) {
-                    static const int L[6][3] = {
-                        { 1,0,0}, {-1,0,0}, {0, 1,0},
-                        { 0,-1,0}, {0,0,1}, {0,0,-1}
-                    };
-                    for (int i = 0; i < 6 && !enAgua; ++i) {
-                        if (state->world.getBlock(
-                                placePos.x + L[i][0],
-                                placePos.y + L[i][1],
-                                placePos.z + L[i][2]) == BLOCK_WATER)
-                            enAgua = true;
-                    }
-                }
+                const bool enAgua = tocaAgua(
+                    [&](int dx, int dy, int dz) {
+                        return state->world.getBlock(placePos.x + dx,
+                                                     placePos.y + dy,
+                                                     placePos.z + dz);
+                    });
                 if (enAgua) {
                     g_tirasDesbabando.push_back({ placePos.x, placePos.y,
                                                   placePos.z,
@@ -39321,7 +39381,7 @@ void placeBlock(GameState* state) {
             // ⚠️ Y SE CONSULTA EL MUNDO YA ESCRITO: el bloque acaba de
             // colocarse, asi que los vecinos que ve la funcion son los
             // definitivos.
-            if (blockToPlace == BLOCK_NOPAL_FRUTO) {
+            if (blockToPlace == BLOCK_NOPAL_PUESTO) {
                 const bool quedaraCaida = pencaPuestaPorJugador(
                     blockToPlace,
                     [&](int dx, int dy, int dz) {
@@ -47929,15 +47989,15 @@ int main() {
                 case BLOCK_NOPAL_FRUTO:
                     siluetaPNG = "Textures/Blocks/Tallo de Nopal de Castilla.png"; break;
                 case BLOCK_NOPAL_CLADODIO:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto.png"; break;
+                    siluetaPNG = "Textures/Blocks/Tallo de Nopal de Castilla.png"; break;
                 case BLOCK_NOPAL_MOJADO:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"; break;
+                    siluetaPNG = "Textures/Blocks/Penca de nopal de castilla mojado sin espinas.png"; break;
                 case BLOCK_NOPAL_SECO:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de castilla suelto seco.png"; break;
+                    siluetaPNG = "Textures/Blocks/Penca de nopal de castilla seco sin espinas.png"; break;
                 case BLOCK_NOPAL_TIRAS:
                     siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras.png"; break;
                 case BLOCK_NOPAL_SIN_BABA:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla suelto sin espinas mojado.png"; break;
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras mojado.png"; break;
                 case BLOCK_NOPAL_BABA:
                     siluetaPNG = "Textures/Items/Baba de nopal.png"; break;
                 case BLOCK_ESPINAS_NOPAL:

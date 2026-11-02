@@ -261,7 +261,7 @@ inline float densidadDe(BlockType t) {
 
             // Lo que quede: nopal, maguey y demas carne de planta pesan como
             // agua; el resto, como roca.
-            if (esCladodio(t) || t == BLOCK_NOPAL_FRUTO || esTuna(t) ||
+            if (esCladodio(t) || esNopalDeCastilla(t) || esTuna(t) ||
                 t == BLOCK_NOPAL_TALLO || t == BLOCK_NOPAL_MOJADO)
                 return Densidad::NOPAL;
             // Ojo: isRama() vive en main.cpp y aqui no se alcanza, asi que

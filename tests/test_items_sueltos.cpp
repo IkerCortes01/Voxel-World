@@ -429,7 +429,8 @@ TEST_CASE("Cactus: el largo y el ancho salen de la textura, no de una constante"
         // y el CHECK(w == h) de abajo fallaria con razon. La de la mata se
         // dibuja sobre geometria propia que respeta su proporcion; el item
         // suelto se dibuja en un cuadro, y por eso SI tiene que ser cuadrado.
-        "resourcepacks/Textures/Items/Penca de Nopal de Castilla suelto.png",
+        "resourcepacks/Textures/Blocks/Penca de nopal de castilla mojado sin espinas.png",
+        "resourcepacks/Textures/Blocks/Penca de nopal de castilla seco sin espinas.png",
         "resourcepacks/Textures/Items/Espinas de Nopal de castilla.png",
         "resourcepacks/Textures/Items/Tuna verde crecida.png",
         "resourcepacks/Textures/Items/Baba de nopal.png",

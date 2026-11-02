@@ -122,6 +122,7 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_NOPAL_BASE_A_ARCILLA: return "TALLO DE NOPAL EN ARENA ARCILLOSA";
         case BLOCK_NOPAL_TALLO:          return "TALLO DE NOPAL";
         case BLOCK_NOPAL_FRUTO:          return "NOPAL DE CASTILLA";
+        case BLOCK_NOPAL_PUESTO:         return "NOPAL DE CASTILLA";
         case BLOCK_NOPAL_CLADODIO:       return "PENCA DE NOPAL";
         case BLOCK_NOPAL_CLADODIO_X2:    return "PENCAS DE NOPAL";
         case BLOCK_NOPAL_CLADODIO_X3:    return "PENCAS DE NOPAL";

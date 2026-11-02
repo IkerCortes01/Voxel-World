@@ -414,7 +414,7 @@ TEST_CASE("el cladodio tiene textura de ITEM registrada") {
 
     // Si esta fila desaparece, el icono vuelve a caer en getBlockTexture y se
     // dibuja con la textura de la PLANTA: justo el bug que esto cierra.
-    CHECK(src.find("BLOCK_NOPAL_CLADODIO, \"Penca de Nopal de Castilla suelto.png\"")
+    CHECK(src.find("BLOCK_NOPAL_CLADODIO, \"../Blocks/Tallo de Nopal de Castilla.png\"")
           != std::string::npos);
 }
 
@@ -441,7 +441,7 @@ TEST_CASE("el BLOQUE usa piel teselable y el ITEM su dibujo recortado") {
           != std::string::npos);
 
     // Y el item conserva su dibujo (la fila de la tabla de items).
-    CHECK(src.find("BLOCK_NOPAL_CLADODIO, \"Penca de Nopal de Castilla suelto.png\"")
+    CHECK(src.find("BLOCK_NOPAL_CLADODIO, \"../Blocks/Tallo de Nopal de Castilla.png\"")
           != std::string::npos);
 }
 

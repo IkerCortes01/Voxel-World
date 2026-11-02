@@ -90,6 +90,7 @@ add_executable(voxel_tests
     test_entero_sobre_capa.cpp
     test_capas_celda.cpp
     test_juntar_niveles.cpp
+    test_nopal_de_castilla.cpp
     test_tablones_niveles.cpp
     test_alineacion_bloques.cpp
     test_techo_pilar.cpp

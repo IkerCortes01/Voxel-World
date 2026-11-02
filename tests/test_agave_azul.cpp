@@ -596,9 +596,8 @@ TEST_CASE("BLOCK_TYPE_MAX cubre hasta el ultimo bloque del enum") {
     // propiedad de abajo -- que ningun bloque quede por encima del tope.
     // Hoy el ultimo son los TABLONES DE PSEUDOSTROBUS, la cuarta pieza del
     // ultimo de los cuatro pinos mexicanos que entraron al enum.
-    // Hoy el ultimo es el septimo nivel del TECHO APOYADO, la variante del
-    // techo de hojas que crece desde el suelo.
-    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_TECHO_SUELO_L7);
+    // Hoy el ultimo es el Nopal de Castilla colocado.
+    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_NOPAL_PUESTO);
 
     // Y las dos orientaciones del techo caben bajo el tope: si alguna se
     // saliera, no recibiria icono de item y los IDs leidos de disco la darian

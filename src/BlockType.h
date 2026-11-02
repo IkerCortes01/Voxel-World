@@ -798,7 +798,13 @@ enum BlockType {
     BLOCK_TECHO_SUELO_L4,           // 219
     BLOCK_TECHO_SUELO_L5,           // 220
     BLOCK_TECHO_SUELO_L6,           // 221
-    BLOCK_TECHO_SUELO_L7            // 222
+    BLOCK_TECHO_SUELO_L7,           // 222
+
+    // El item Nopal de Castilla (BLOCK_NOPAL_FRUTO) una vez COLOCADO. Hace falta
+    // otro ID porque FRUTO es tambien la penca que nace de la mata, y puesta
+    // junto a una planta se unia a ella como si fuera suya. Al romperse vuelve a
+    // ser FRUTO, asi que nunca llega al inventario.
+    BLOCK_NOPAL_PUESTO              // 223
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -999,6 +1005,27 @@ inline bool esAguaVolumen(BlockType t) {
 // nadara raro, se colocaran bloques dentro o el mesher la dibujara mal.
 inline bool esAguaCualquiera(BlockType t) {
     return t == BLOCK_WATER || esAguaVolumen(t);
+}
+
+// La pieza Nopal de Castilla: la que nace de la mata o la colocada a mano. Solo
+// se diferencian en que la colocada no se une a la planta.
+inline bool esNopalDeCastilla(BlockType t) {
+    return t == BLOCK_NOPAL_FRUTO || t == BLOCK_NOPAL_PUESTO;
+}
+
+// ¿Hay agua, de la que sea, en la celda o en una de sus seis caras?
+// `get(dx,dy,dz)` lee relativo a la celda.
+template <typename TGet>
+inline bool tocaAgua(TGet get) {
+    return esAguaCualquiera(get(0, 0, 0)) ||
+           esAguaCualquiera(get(1, 0, 0)) || esAguaCualquiera(get(-1, 0, 0)) ||
+           esAguaCualquiera(get(0, 1, 0)) || esAguaCualquiera(get(0, -1, 0)) ||
+           esAguaCualquiera(get(0, 0, 1)) || esAguaCualquiera(get(0, 0, -1));
+}
+
+// En que se convierte el item Nopal de Castilla al colocarlo.
+inline BlockType nopalAlColocar(bool enAgua) {
+    return enAgua ? BLOCK_NOPAL_MOJADO : BLOCK_NOPAL_PUESTO;
 }
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
@@ -1473,6 +1500,9 @@ inline bool esBloqueRetirado(BlockType t) {
         // El tronco del nopal. Ver la nota en su entrada del enum: la planta
         // pasa a ser pencas encadenadas, sin fuste.
         case BLOCK_NOPAL_TALLO:
+            return true;
+        // No esta retirado, pero tampoco se coge en creativo: su item es FRUTO.
+        case BLOCK_NOPAL_PUESTO:
             return true;
         default:
             return false;
@@ -2993,7 +3023,7 @@ inline bool esOrganicoParaHacha(BlockType t) {
     if (esRaiz(t)) return true;
 
     // --- Nopal: cladodio, penca, tallo, tunas y sus bases ---
-    if (esCladodio(t) || t == BLOCK_NOPAL_FRUTO || esTuna(t) ||
+    if (esCladodio(t) || esNopalDeCastilla(t) || esTuna(t) ||
         t == BLOCK_NOPAL_TALLO || t == BLOCK_NOPAL_MOJADO ||
         t == BLOCK_NOPAL_TIRAS || t == BLOCK_NOPAL_SIN_BABA ||
         t == BLOCK_NOPAL_BABA ||
@@ -3133,7 +3163,7 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // ve hasta que alguien recarga un mundo. Por eso hay un test que ata este
 // valor al ultimo del enum (test_agave_azul.cpp), para que la proxima vez que
 // se olvide falle el build de tests en vez de salir a produccion.
-constexpr int BLOCK_TYPE_MAX = BLOCK_TECHO_SUELO_L7;
+constexpr int BLOCK_TYPE_MAX = BLOCK_NOPAL_PUESTO;
 
 // ============================================================================
 //  CARAS OCULTAS Y VISION DEL INTERIOR

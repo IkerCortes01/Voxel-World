@@ -246,3 +246,17 @@ TEST_CASE("Alineacion: al bajar sobre una capa, se funden") {
     // Y el sobrante va a la celda de encima, que se apoya en la ya llena.
     CHECK(cuerpo.find("fb.sobrante") != std::string::npos);
 }
+
+TEST_CASE("Seleccion: gana el bloque que el jugador mira, no el de arriba") {
+    // PEDIDO: "elimina el sistema de que el juego prefiera el bloque de arriba".
+    // El rayo se queda con lo primero que toca: nada lo desvia a la celda de encima.
+    const std::string src = fuenteMotor();
+    REQUIRE_FALSE(src.empty());
+    const size_t i = src.find("RaycastResult raycastBlock(World& world");
+    REQUIRE(i != std::string::npos);
+    const size_t f = src.find("result.previousPos = prevBlock;", src.find("LA CARA DE LA CAJA REAL MANDA", i));
+    REQUIRE(f != std::string::npos);
+    const std::string rayo = src.substr(i, f - i);
+    CHECK(rayo.find("Vec3i(x, y + 1, z)") == std::string::npos);
+    CHECK(src.find("GANA EL DE ENCIMA") == std::string::npos);
+}

@@ -32874,17 +32874,8 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                     const float tz = (huecoZ * 0.5f < TOL_MAX)
                                    ? huecoZ * 0.5f : TOL_MAX;
 
-                    // ⭐ LO QUE HAY ENCIMA MANDA
-                    //
-                    // La tolerancia agrandaba el bloque tambien hacia
-                    // ARRIBA, y ahi esta el problema descrito: una capa de
-                    // tierra de nivel 5 con piedritas encima se llevaba la
-                    // seleccion, porque su caja invadia el espacio de los
-                    // guijarros. Habia que apuntar dos veces.
-                    //
-                    // Si en el voxel de encima hay ALGO, no se agranda por
-                    // arriba: esa franja pertenece a lo de arriba, que
-                    // suele ser mas pequeno y mas dificil de apuntar.
+                    // Con algo encima no se agranda por arriba: esa franja no es
+                    // de este bloque, y se seleccionaria sin estar mirandolo.
                     const BlockType encima = world.getBlock(x, y + 1, z);
                     const bool hayAlgoEncima =
                         (encima != BLOCK_AIR && encima != BLOCK_WATER);
@@ -32955,15 +32946,6 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 //
                 // Ahora la normal sale de la cara de la CAJA que el rayo
                 // atraveso de verdad, que es lo que el jugador esta viendo.
-                // ⚠️ SE GUARDA, NO SE DEVUELVE AQUI.
-                //
-                // Mas abajo hay una regla que puede cambiar la seleccion
-                // entera: "gana el de encima si es mas pequeno" (los guijarros
-                // sobre una capa de tierra). Retornar aqui se la saltaria y
-                // volveria a costar dos clics coger lo pequeno.
-                //
-                // La normal corregida se aplica al final, solo si esa regla no
-                // se ha llevado la seleccion a otro bloque.
                 if (ejeEntrada >= 0) {
                     const int signo = entroPorMin ? -1 : +1;
                     normalCajaReal = Vec3i(
@@ -32971,70 +32953,6 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                         ejeEntrada == 1 ? signo : 0,
                         ejeEntrada == 2 ? signo : 0);
                     tieneNormalCaja = true;
-                }
-            }
-
-            // ⭐ GANA EL DE ENCIMA SI ES MAS PEQUENO
-            //
-            // Sobre una capa de tierra puede haber guijarros, una planta o
-            // un brote. Como el bloque de abajo es mas grande, el rayo lo
-            // toca antes y se llevaba la seleccion: habia que apuntar dos
-            // veces para coger lo de arriba.
-            //
-            // Si en el voxel de encima hay algo que NO llena su cubo -- o
-            // sea, algo pequeno -- y el rayo tambien lo atraviesa, se
-            // selecciona eso. Lo pequeno es mas dificil de apuntar, asi que
-            // tiene preferencia.
-            {
-                const BlockType arriba = world.getBlock(x, y + 1, z);
-                if (arriba != BLOCK_AIR && arriba != BLOCK_WATER) {
-                    float ax0, ay0, az0, ax1, ay1, az1;
-                    if (nopalHitboxCon(arriba,
-                            [&](int dx, int dy, int dz) {
-                                return world.getBlock(x + dx, y + 1 + dy,
-                                                      z + dz);
-                            },
-                            x, y + 1, z, ax0, ay0, az0, ax1, ay1, az1)) {
-
-                        // Solo si de verdad es mas pequeno que un cubo.
-                        const float vol = (ax1-ax0) * (ay1-ay0) * (az1-az0);
-                        if (vol < 0.95f) {
-                            const float P0[3] = { ax0 + (float)x,
-                                                  ay0 + (float)(y + 1),
-                                                  az0 + (float)z };
-                            const float P1[3] = { ax1 + (float)x,
-                                                  ay1 + (float)(y + 1),
-                                                  az1 + (float)z };
-                            // Un poco de gracia, que para eso es lo pequeno.
-                            const float G = 0.10f;
-                            float tEnt = 0.0f, tSal = maxDistance;
-                            bool ok = true;
-                            const float O[3] = { origin.x, origin.y, origin.z };
-                            const float D[3] = { direction.x, direction.y,
-                                                 direction.z };
-                            for (int e = 0; e < 3 && ok; ++e) {
-                                const float lo = P0[e] - G, hi = P1[e] + G;
-                                if (fabsf(D[e]) < 1e-6f) {
-                                    if (O[e] < lo || O[e] > hi) ok = false;
-                                } else {
-                                    float t1 = (lo - O[e]) / D[e];
-                                    float t2 = (hi - O[e]) / D[e];
-                                    if (t1 > t2) { const float tp=t1; t1=t2; t2=tp; }
-                                    if (t1 > tEnt) tEnt = t1;
-                                    if (t2 < tSal) tSal = t2;
-                                    if (tEnt > tSal) ok = false;
-                                }
-                            }
-                            if (ok) {
-                                result.hit = true;
-                                result.blockPos = Vec3i(x, y + 1, z);
-                                result.previousPos = Vec3i(x, y + 2, z);
-                                result.normal = Vec3i(0, 1, 0);
-                                result.distance = t;
-                                return result;
-                            }
-                        }
-                    }
                 }
             }
 

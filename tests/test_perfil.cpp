@@ -166,6 +166,15 @@ TEST_CASE("Perfil: todos los niveles apuntan a 200 FPS") {
 // Si la deteccion falla, el juego no arranca. Tiene que aguantar cualquier
 // cosa que devuelva un driver.
 
+TEST_CASE("Perfil: la vista solo se recorta por debajo de un minimo jugable") {
+    // Medido en la HD 4000: persiguiendo 200 FPS bajaba a 2 chunks yendo a 160.
+    CHECK(perfilPara(NivelMaquina::MINIMO, 8).fpsMinimo == 60);
+    CHECK(perfilPara(NivelMaquina::BAJO, 8).fpsMinimo == 60);
+    CHECK(perfilPara(NivelMaquina::MEDIO, 8).fpsMinimo == 90);
+    CHECK(perfilPara(NivelMaquina::ALTO, 8).fpsMinimo == 120);
+    CHECK(Perfil{}.fpsMinimo == 60);
+}
+
 TEST_CASE("Perfil: punteros nulos no rompen nada") {
     const Perfil p = detectar(nullptr, nullptr, 4, 8192);
     CHECK(p.distanciaRender >= DISTANCIA_MINIMA);

@@ -127,6 +127,11 @@ struct Perfil {
     // `ajustarPresupuesto` mide contra el tiempo de CPU y no contra el frame.
     int fpsObjetivo = 200;
 
+    // Por debajo de esto la vista se recorta. Es lo que de verdad se le exige a
+    // la maquina: los 200 de arriba son un techo que una integrada no alcanza, y
+    // perseguirlos dejaba la distancia en 2 chunks yendo a 160 FPS.
+    int fpsMinimo = 60;
+
     // Efectos que se pueden apagar en las maquinas justas. Cada uno cuesta
     // medido, no supuesto (ver las notas de cada asignacion).
     bool nieblaPorPixel = false;   // GL_NICEST en vez de GL_FASTEST
@@ -272,6 +277,7 @@ inline Perfil perfilPara(NivelMaquina nivel, unsigned nucleos) {
             // el juego va fluido. Medido en la HD 4000: bajar de 5 a 4 ya daba
             // 118 FPS estables, y de 4 a 3 quita otro 44% de caras.
             p.distanciaRender      = 3;
+            p.fpsMinimo            = 60;
             p.presupuestoMalladoMs = 1.5f;
             p.fpsObjetivo          = 200;
             p.nieblaPorPixel       = false;
@@ -282,6 +288,7 @@ inline Perfil perfilPara(NivelMaquina nivel, unsigned nucleos) {
 
         case NivelMaquina::BAJO:
             p.distanciaRender      = 4;
+            p.fpsMinimo            = 60;
             p.presupuestoMalladoMs = 2.0f;
             p.fpsObjetivo          = 200;
             p.nieblaPorPixel       = false;
@@ -290,6 +297,7 @@ inline Perfil perfilPara(NivelMaquina nivel, unsigned nucleos) {
 
         case NivelMaquina::MEDIO:
             p.distanciaRender      = 6;
+            p.fpsMinimo            = 90;
             p.presupuestoMalladoMs = 3.0f;
             p.fpsObjetivo          = 200;
             p.nieblaPorPixel       = false;
@@ -301,6 +309,7 @@ inline Perfil perfilPara(NivelMaquina nivel, unsigned nucleos) {
             // Aqui si se abre la mano: es el caso de "y entre mejor sea la
             // computadora, ira mejor". Mas vista Y mas FPS a la vez.
             p.distanciaRender      = 8;
+            p.fpsMinimo            = 120;
             p.presupuestoMalladoMs = 5.0f;
             p.fpsObjetivo          = 200;
             p.nieblaPorPixel       = true;

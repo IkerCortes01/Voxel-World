@@ -89,6 +89,7 @@ add_executable(voxel_tests
     test_juntar_niveles.cpp
     test_nopal_de_castilla.cpp
     test_agua_minecraft.cpp
+    test_atmosfera.cpp
     test_planta_en_agua.cpp
     test_maguey_colocable.cpp
     test_tablones_niveles.cpp

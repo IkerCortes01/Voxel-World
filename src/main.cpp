@@ -317,6 +317,7 @@ struct Vec3i {
 #include "render/TinteBioma.h"         // el pasto toma el color de su bioma
 #include "render/EspacioJugador.h"     // nada se materializa dentro del jugador
 #include "AguaFlujo.h"                 // las reglas del agua
+#include "render/Atmosfera.h"           // los colores del cielo
 #include "render/PencaDelJugador.h"    // ¿la penca la puso el jugador o un nopal?
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
@@ -4237,73 +4238,6 @@ public:
         playSound(soundName, true);
     }
 
-    // ⭐ MEJORADO: Reproducir sonido de romper bloque con más variedad
-    void playBreakBlock(BlockType blockType, double currentTime) {
-        // Throttle: solo un sonido cada 0.1 segundos
-        if (currentTime - lastBreakTime < 0.1) return;
-        lastBreakTime = currentTime;
-
-        std::string soundName = "break_grass"; // Default
-
-        // Piedra básica
-        if (blockType == BLOCK_STONE || blockType == BLOCK_COBBLESTONE || blockType == BLOCK_BEDROCK || blockType == BLOCK_BRICKS) {
-            soundName = "break_stone";
-        }
-        // Los minerales de veta tenian aqui su propio sonido ("break_ore").
-        // Se retiraron del juego, asi que ya no hay bloque que lo dispare.
-        // Madera
-        else if (blockType == BLOCK_WOOD || blockType == BLOCK_PLANKS ||
-                 blockType == BLOCK_WOOD_ENCINO || blockType == BLOCK_WOOD_OYAMEL ||
-                 blockType == BLOCK_PLANKS_ENCINO || blockType == BLOCK_PLANKS_OYAMEL ||
-                 blockType == BLOCK_WOOD_OCOTE || blockType == BLOCK_WOOD_OCOTE_DENTRO ||
-                 blockType == BLOCK_PLANKS_OCOTE) {
-            soundName = "break_wood";
-        }
-        // Hojas (sonido único)
-        else if (blockType == BLOCK_LEAVES || blockType == BLOCK_LEAVES_ENCINO ||
-                 blockType == BLOCK_LEAVES_OYAMEL ||
-                 blockType == BLOCK_LEAVES_OCOTE) {
-            soundName = "break_leaves";
-        }
-        // Arena
-        else if (blockType == BLOCK_SAND) {
-            soundName = "break_sand";
-        }
-        // Grava (sonido único)
-        else if (blockType == BLOCK_GRAVEL) {
-            soundName = "break_gravel";
-        }
-        // Tierra y pasto
-        else if (blockType == BLOCK_DIRT || blockType == BLOCK_GRASS) {
-            soundName = "break_grass";
-        }
-
-        playSound(soundName, true);
-    }
-
-    // ⭐⭐⭐ NUEVO: Reproducir sonido continuo mientras se rompe un bloque
-    void playBreakingLoop(bool isBreaking) {
-        if (isBreaking) {
-            // Reproducir loop en modo asíncrono con flag de loop
-            #ifdef _WIN32
-            auto it = soundFiles.find("breaking_loop");
-            if (it != soundFiles.end()) {
-                std::string filepath = it->second;
-                std::ifstream file(filepath);
-                if (file.good()) {
-                    file.close();
-                    PlaySoundA(filepath.c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
-                }
-            }
-            #endif
-        } else {
-            // Detener el loop
-            #ifdef _WIN32
-            PlaySoundA(NULL, NULL, 0); // Detener todos los sonidos
-            #endif
-        }
-    }
-
     // Reproducir sonido de colocar bloque (con throttling)
     void playPlaceBlock(double currentTime) {
         // Throttle: solo un sonido cada 0.1 segundos
@@ -6617,7 +6551,7 @@ public:
     // Cuadro que toca dibujar ahora. Si la tira no cargó, se cae al horno
     // apagado: mejor un horno quieto que un bloque sin textura.
     GLuint getCurrentHornoFrame() {
-        if (hornoFrames.empty()) return getTexture("Horno preispanico.png");
+        if (hornoFrames.empty()) return getTexture("Horno de Barro.png");
         return hornoFrames[currentHornoFrame];
     }
 
@@ -6903,7 +6837,7 @@ public:
 
         // Texturas de agua y lava
         loadTexture("Agua.gif");               // BLOCK_WATER
-        loadTexture("Lava.gif");               // BLOCK_LAVA (será tratada como PNG)
+        loadTexture("Lava.png");               // BLOCK_LAVA (será tratada como PNG)
 
         // Texturas adicionales
         loadTexture("Grava.png");              // BLOCK_GRAVEL
@@ -7003,7 +6937,7 @@ public:
         std::cout << "=== Animación de agua inicializada ===" << std::endl;
 
         // El horno: la cara apagada y sus partes (lados y tapa)
-        loadTexture("Horno preispanico.png");
+        loadTexture("Horno de Barro.png");
         loadTexture("partes del horno.png");
         // Las SIETE del horno de barro. Se precargan porque el horno se mira de
         // cerca y una textura que llegue tarde deja la cara en blanco hasta el
@@ -8510,7 +8444,7 @@ public:
             // resourcepacks/ pero ya no los pide nadie.
 
             case BLOCK_LAVA:
-                return getTexture("Lava.gif");
+                return getTexture("Lava.png");
 
             default:
                 // Si no hay textura, usar piedra como fallback
@@ -19844,13 +19778,14 @@ public:
             bordeIncompleto = true;
         }
 
-        // Reset del contador de reintentos de TEXTURA.
+        // ⚠️ `buildRetries` NO se pone a cero aqui: se hacia, y por eso el freno
+        // de las texturas que faltan no actuaba nunca. Se limpia al subir una
+        // malla sin caras sin textura.
         //
-        // ⚠️ `esperasVecinos` NO se toca aqui, y es deliberado: si se pusiera a
+        // ⚠️ `esperasVecinos` tampoco, y es deliberado: si se pusiera a
         // cero, un chunk en el borde del mundo cargado alternaria espera/exito
         // sin agotar las esperas jamas. Se limpia en subirMallaAGPU, cuando la
         // malla de verdad entra con los cuatro vecinos presentes.
-        chunk->buildRetries = 0;
 
         // Todos los vecinos existen, proceder con construcción
         chunk->waitingForNeighbors = false;
@@ -20120,6 +20055,7 @@ public:
         // sprite ni nivel que dibujar: acotar ahi no cambia la malla.
         // (yTecho se calculo arriba, al tomar la foto plana de bloques.)
 
+        unsigned celdasDesdeBaliza = 0;
         for (int x = 0; x < CHUNK_SIZE; x++) {
             g_diagBalizaTicks.fetch_add(1);
             // El latido se refresca UNA VEZ POR COLUMNA, no por celda: son 16
@@ -20151,9 +20087,17 @@ public:
                     }
                     if (block == BLOCK_AIR) continue;
                     // Baliza fina: que celda y que bloque se esta procesando.
-                    g_diagBalizaCelda.store((x << 20) | (y << 8) | z);
-                    g_diagBalizaBloque.store((int)block);
-                    g_diagBalizaCeldas.fetch_add(1);
+                    //
+                    // Cada 256 celdas y no en todas: son atomicos compartidos
+                    // por los workers, y escribirlos por celda les hacia pelear
+                    // por la misma linea de cache solo por instrumentar.
+                    if ((++celdasDesdeBaliza & 0xFF) == 0) {
+                        g_diagBalizaCelda.store((x << 20) | (y << 8) | z,
+                                                std::memory_order_relaxed);
+                        g_diagBalizaBloque.store((int)block,
+                                                 std::memory_order_relaxed);
+                        g_diagBalizaCeldas.fetch_add(256, std::memory_order_relaxed);
+                    }
                     if (bal) {
                         bal->celda.store((x << 20) | (y << 8) | z);
                         bal->bloque.store((int)block);
@@ -28010,7 +27954,16 @@ public:
             // Reintentar es barato (una malla mas) y el chunk se arregla solo
             // en cuanto la textura esta. Se avisa de vez en cuando para que
             // quede rastro, sin llenar el log.
-            if (texturasFaltantes) {
+            //
+            // ⭐ Y AHORA SI SE RINDE, A LOS 30 INTENTOS. Medido en la HD 4000:
+            // con ocho archivos renombrados se hacian unas 430 mallas por cada
+            // 5-9 chunks nuevos, siempre las mismas, y el mundo tardaba minutos
+            // en cargar. Todas las texturas se suben al arrancar, asi que tras
+            // 30 intentos el archivo no existe: esas caras no se dibujan y el
+            // chunk deja de costar. Si luego cambia, se malla como cualquiera.
+            if (!texturasFaltantes) {
+                chunk->buildRetries = 0;
+            } else if (chunk->buildRetries < 30) {
                 chunk->buildRetries++;
                 if (chunk->buildRetries == 1 || chunk->buildRetries % 60 == 0) {
                     std::cerr << "AVISO: chunk (" << chunk->position.x << ","
@@ -28136,7 +28089,7 @@ public:
                           << chunk->position.z << ") no pudo mallarse tras 8 "
                              "intentos." << std::endl;
             }
-            chunk->buildRetries = 0;
+            // buildRetries no se toca: si llega a cero aqui, el freno de las texturas no actua.
         }
 
         // ====================================================================
@@ -28283,8 +28236,11 @@ public:
         //    150 FPS y para la que se conforma con 60.
         msFrameSuavizado = msFrameSuavizado * 0.9f + (deltaTime * 1000.0f) * 0.1f;
         metricas.anotarFrame(deltaTime * 1000.0f);
-        const float msObjetivo = 1000.0f / (float)(g_perfil.fpsObjetivo > 0
-                                                   ? g_perfil.fpsObjetivo : 120);
+        // Contra el minimo y no contra los 200: en la HD 4000 los 200 no llegan
+        // nunca, y el streaming se quedaba siempre en su presupuesto mas bajo con
+        // mallas terminadas esperando a subirse.
+        const float msObjetivo = 1000.0f / (float)(g_perfil.fpsMinimo > 0
+                                                   ? g_perfil.fpsMinimo : 60);
         // ⚠️ Se pasa el tiempo de CPU, NO el del frame. Ver la nota larga de
         // ajustarPresupuesto: con el frame entero, una GPU que va justa hacia
         // que el regulador recortara el streaming hasta el suelo y lo dejara
@@ -28399,7 +28355,9 @@ public:
         // sigue siendo cuatro veces el frame objetivo -- o sea, solo salta
         // ante un pico de verdad, no ante la carga normal de chunks -- pero
         // corta el bajon mucho antes de que se note como un paron.
-        if (deltaTime > 0.033f) {
+        //
+        // SUBIDO A 50 ms: a 33 ms saltaba en cada carga de chunk de una HD 4000.
+        if (deltaTime > 0.050f) {
             MAX_CHUNKS_PER_FRAME = 1;
             MAX_MESHES_PER_FRAME_DYNAMIC = 1;
         }
@@ -28430,12 +28388,16 @@ public:
             //
             // La banda muerta entre 5,5 y 8,3 ms evita que oscile subiendo y
             // bajando en frames alternos.
-            if (performanceSmoothed < 0.0055f) {
+            //
+            // ⭐ AHORA RELATIVAS AL MINIMO DEL PERFIL, NO A 120 FPS FIJOS: con
+            // estos umbrales una maquina a 100 FPS se quedaba en 1 malla por frame.
+            const float sMinimo = 1.0f / (float)g_perfil.fpsMinimo;
+            if (performanceSmoothed < sMinimo * 0.66f) {
                 if (MAX_CHUNKS_PER_FRAME < 2) MAX_CHUNKS_PER_FRAME++;
                 if (MAX_MESHES_PER_FRAME_DYNAMIC < 6) MAX_MESHES_PER_FRAME_DYNAMIC++;
             }
-            else if (performanceSmoothed < 0.0083f) {
-                // Zona óptima (120-180 FPS) - mantener valores actuales
+            else if (performanceSmoothed < sMinimo) {
+                // Zona óptima - mantener valores actuales
             }
             else {
                 if (MAX_CHUNKS_PER_FRAME > 1) MAX_CHUNKS_PER_FRAME--;
@@ -28500,16 +28462,29 @@ public:
                 constexpr float SEGUNDOS_PARA_BAJAR = 4.0f;
                 constexpr float SEGUNDOS_PARA_SUBIR = 15.0f;
 
-                const float msObjetivo = 1000.0f / (float)g_perfil.fpsObjetivo;
+                // ⭐ LA DISTANCIA SOLO SE RECORTA POR DEBAJO DEL MINIMO JUGABLE.
+                //
+                // Medido en la HD 4000: persiguiendo 200 FPS, bajaba de 8 chunks
+                // a 2 estando a 98, 111, 138 y hasta 161 FPS. Se pagaba ver casi
+                // nada por FPS que ni se notan.
+                const float msObjetivo = 1000.0f / (float)g_perfil.fpsMinimo;
                 const float msActual   = performanceSmoothed * 1000.0f;
 
+                // Mientras llega un anillo nuevo los FPS bajan de paso: medir
+                // ahi recortaria la distancia por un bajon que se va solo.
+                const bool cargando = mallaInFlight.size() > 16 ||
+                                      genInFlight.size() > 16;
+
                 // ---- BAJAR: se esta perdiendo el objetivo ----
-                if (msActual > msObjetivo * 1.15f) {
+                if (msActual > msObjetivo * 1.15f && cargando) {
+                    relojDistancia = 0.0f;
+                }
+                else if (msActual > msObjetivo * 1.15f) {
                     if (relojDistancia >= SEGUNDOS_PARA_BAJAR) {
                         relojDistancia = 0.0f;
                         if (ajustarDistancia(RENDER_DISTANCE - 1)) {
                             std::cout << "[CALIDAD] " << (int)(1000.0f / msActual)
-                                      << " FPS, por debajo de " << g_perfil.fpsObjetivo
+                                      << " FPS, por debajo de " << g_perfil.fpsMinimo
                                       << ": distancia de render -> "
                                       << RENDER_DISTANCE << std::endl;
                         }
@@ -30162,7 +30137,7 @@ public:
 
         // ANIMACIÓN DE AGUA/LAVA: Obtener texturas para comparación
         GLuint waterTexture = g_textureManager->getWaterTexture();
-        GLuint lavaTexture = g_textureManager->getTexture("Lava.gif");
+        GLuint lavaTexture = g_textureManager->getTexture("Lava.png");
         // BLOCK_ORANGE_FLOWER también usa textura de lava
         //
         // ⭐ SE USA EL RELOJ DEL MUNDO, QUE SE CONGELA EN PAUSA.
@@ -31223,6 +31198,22 @@ typedef PlayerSys::EngineWorldQuery<World, BlockType> EngineWorldAdapter;
 
 EngineWorldAdapter*            g_worldQuery       = nullptr;
 PlayerSys::PlayerController*   g_playerController = nullptr;
+
+// Cuanto gasta cada tramo de la fase que el log [FPS] llama `render`, que ademas
+// de dibujar simula el agua, la fauna, la luz... Sale en el log como [TRAMOS].
+enum TramoFrame { T_AGUA, T_ITEMS, T_FAUNA, T_CAIDAS, T_LUZ, T_HOJAS, T_ANIM, T_MINADO,
+                  T_PARTICULAS, T_CIELO, T_MUNDO, T_NUM_TRAMOS };
+static double g_tramosMs[T_NUM_TRAMOS] = {};
+struct MedirTramo {
+    TramoFrame t;
+    std::chrono::high_resolution_clock::time_point ini =
+        std::chrono::high_resolution_clock::now();
+    explicit MedirTramo(TramoFrame tramo) : t(tramo) {}
+    ~MedirTramo() {
+        g_tramosMs[t] += std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - ini).count();
+    }
+};
 
 // EL OJO DEL JUGADOR, EL MISMO PARA LA CAMARA Y PARA EL RAYO.
 //
@@ -33398,8 +33389,6 @@ void updateMining(GameState* state, float deltaTime) {
                 origin + direction * 1.5f,
                 murio ? BLOCK_DIRT : BLOCK_TALLGRASS);
 
-            if (g_soundManager)
-                g_soundManager->playBreakBlock(BLOCK_TALLGRASS, glfwGetTime());
 
             // No se pica nada este frame.
             state->isMining = false;
@@ -33628,8 +33617,6 @@ void updateMining(GameState* state, float deltaTime) {
                     // hacia que el maguey fuese una fuente facil de un
                     // material que no es suyo.
                 }
-                if (g_soundManager)
-                    g_soundManager->playBreakBlock(blockType, glfwGetTime());
                 state->isMining = false;
                 state->miningProgress = 0.0f;
                 state->miningParticleTimer = 0.0f;
@@ -33794,8 +33781,6 @@ void updateMining(GameState* state, float deltaTime) {
                 }
             }
             state->world.setBlock(bx, by, bz, BLOCK_AIR);
-            if (g_soundManager)
-                g_soundManager->playBreakBlock(blockType, glfwGetTime());
             state->particles.spawnBlockBreakParticles(pos, BLOCK_IXTLE_HOJA);
             state->isMining = false;
             state->miningProgress = 0.0f;
@@ -33927,7 +33912,6 @@ void updateMining(GameState* state, float deltaTime) {
                 }
             }
 
-            if (g_soundManager) g_soundManager->playBreakBlock(blockType, glfwGetTime());
             state->particles.spawnBlockBreakParticles(pos, blockType);
 
             state->isMining = false;
@@ -34105,9 +34089,6 @@ void updateMining(GameState* state, float deltaTime) {
         }
 
         // ⭐ SONIDO: Reproducir sonido de romper bloque
-        if (g_soundManager) {
-            g_soundManager->playBreakBlock(blockType, glfwGetTime());
-        }
 
         // EXPLOSIÓN FINAL - Generar muchas partículas de rotura
         state->particles.spawnBlockBreakParticles(
@@ -35376,9 +35357,6 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
             world.cerrarLote();
 
             if (colocados > 0) {
-                if (g_soundManager)
-                    g_soundManager->playBreakBlock(pz.bloques[0].tipo,
-                                                   glfwGetTime());
                 state->particles.spawnBlockBreakParticles(
                     Vec3((float)baseX + 0.5f, (float)baseY + 0.5f,
                          (float)baseZ + 0.5f),
@@ -35578,8 +35556,6 @@ void actualizarPiezasCayendo(GameState* state, float deltaTime) {
 
         // Ruido y polvo del golpe, una vez por pieza y no por bloque.
         if (colocados > 0) {
-            if (g_soundManager)
-                g_soundManager->playBreakBlock(pz.bloques[0].tipo, glfwGetTime());
             state->particles.spawnBlockBreakParticles(
                 Vec3((float)baseX + 0.5f, (float)baseY + 0.5f,
                      (float)baseZ + 0.5f),
@@ -35690,8 +35666,6 @@ void actualizarBloquesCayendo(GameState* state, float deltaTime) {
                         world.setBlock(celdaX, cyArr, celdaZ, fus.sobrante);
                     }
 
-                    if (g_soundManager)
-                        g_soundManager->playBreakBlock(b.tipo, glfwGetTime());
                     state->particles.spawnMiningParticles(
                         Vec3((float)celdaX + 0.5f, (float)celdaAbajo + 0.5f,
                              (float)celdaZ + 0.5f), b.tipo);
@@ -35732,8 +35706,6 @@ void actualizarBloquesCayendo(GameState* state, float deltaTime) {
                 world.setBlock(celdaX, destinoY, celdaZ, b.tipo);
 
                 // Sonido y polvo al golpear, con la fuerza del impacto.
-                if (g_soundManager)
-                    g_soundManager->playBreakBlock(b.tipo, glfwGetTime());
                 state->particles.spawnMiningParticles(
                     Vec3((float)celdaX + 0.5f, (float)destinoY + 0.5f,
                          (float)celdaZ + 0.5f), b.tipo);
@@ -44566,7 +44538,76 @@ void dibujarCieloYAstros() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
-    // Distancia a la que se dibujan: lejos, pero dentro del zFar de 128.
+    // ------------------------------------------------------------------
+    // LA BOVEDA, Y LAS ESTRELLAS
+    // ------------------------------------------------------------------
+    // Sin shaders y con muy pocos vertices: el color se interpola entre anillos.
+    // Va antes que los astros para que queden encima de ella.
+    {
+        double sx, sy, sz;
+        direccionAstro(angSol, sx, sy, sz);
+        const float luz = luzSolar();
+        const Atmosfera::Cielo cielo = Atmosfera::cieloPara(luz);
+
+        constexpr float RADIO_BOVEDA = 110.0f;
+        constexpr int SECTORES = 24;
+        // Altura de cada anillo, en seno. El ultimo tramo va bajo el horizonte
+        // para que no asome el color de limpieza entre el terreno y el cielo.
+        static const float ANILLOS[] = { -0.40f, 0.0f, 0.08f, 0.22f, 0.50f, 1.0f };
+        constexpr int N_ANILLOS = (int)(sizeof(ANILLOS) / sizeof(ANILLOS[0]));
+
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_BLEND);
+        auto vertice = [&](float senAlt, int sector) {
+            const float cosAlt = sqrtf(1.0f - senAlt * senAlt);
+            const float ang = (float)sector / (float)SECTORES * 6.2831853f;
+            const float dx = cosAlt * cosf(ang), dz = cosAlt * sinf(ang);
+            float c[3];
+            Atmosfera::colorEn(cielo, senAlt,
+                               dx * (float)sx + senAlt * (float)sy + dz * (float)sz, c);
+            glColor3f(c[0], c[1], c[2]);
+            glVertex3f(dx * RADIO_BOVEDA, senAlt * RADIO_BOVEDA, dz * RADIO_BOVEDA);
+        };
+        for (int a = 0; a + 1 < N_ANILLOS; ++a) {
+            glBegin(GL_QUAD_STRIP);
+            for (int s = 0; s <= SECTORES; ++s) {
+                vertice(ANILLOS[a + 1], s);
+                vertice(ANILLOS[a], s);
+            }
+            glEnd();
+        }
+
+        // Giran con la hora, como el sol. Las posiciones salen de un hash fijo:
+        // son siempre las mismas estrellas.
+        const float brillo = Atmosfera::brilloEstrellas(luz);
+        if (brillo > 0.01f) {
+            constexpr int N_ESTRELLAS = 320;
+            static float estrellas[N_ESTRELLAS][4];
+            static bool estrellasListas = false;
+            if (!estrellasListas) {
+                for (int i = 0; i < N_ESTRELLAS; ++i)
+                    Atmosfera::estrella(i, estrellas[i]);
+                estrellasListas = true;
+            }
+            glEnable(GL_BLEND);
+            glPushMatrix();
+            glRotatef((float)(h * 15.0), 0.0f, 0.0f, 1.0f);
+            glPointSize(1.5f);
+            glBegin(GL_POINTS);
+            for (int i = 0; i < N_ESTRELLAS; ++i) {
+                const float* e = estrellas[i];
+                glColor4f(1.0f, 1.0f, 1.0f, brillo * e[3]);
+                glVertex3f(e[0] * RADIO_BOVEDA * 0.97f, e[1] * RADIO_BOVEDA * 0.97f,
+                           e[2] * RADIO_BOVEDA * 0.97f);
+            }
+            glEnd();
+            glPopMatrix();
+        }
+        glEnable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+    }
+
+    // Distancia a la que se dibujan: lejos, pero dentro de la boveda.
     constexpr float DIST = 100.0f;
     constexpr float RADIO = 9.0f;    // medio ancho del astro
 
@@ -45490,6 +45531,18 @@ int main() {
                         const double minimo = (fpsPeor > 0.0)
                                             ? 1.0 / fpsPeor : 0.0;
                         const double n = (double)fpsFrames;
+                        {
+                            static const char* const NOMBRES[T_NUM_TRAMOS] = {
+                                "agua", "items", "fauna", "caidas", "luz", "hojas",
+                                "anim", "minado", "particulas", "cielo", "mundo" };
+                            std::cout << "[TRAMOS](ms/frame)";
+                            for (int t = 0; t < T_NUM_TRAMOS; ++t) {
+                                std::cout << " " << NOMBRES[t] << "="
+                                          << (g_tramosMs[t] / (double)fpsFrames);
+                                g_tramosMs[t] = 0.0;
+                            }
+                            std::cout << std::endl;
+                        }
                         std::cout << "[FPS] media=" << (int)media
                                   << " minimo=" << (int)minimo
                                   << " peorFrame=" << (int)(fpsPeor * 1000.0)
@@ -46469,7 +46522,7 @@ int main() {
                     waterUpdateTimer += deltaTime;
                     // Cada 0.25 s, el ritmo del agua en Minecraft (5 ticks).
                     if (waterUpdateTimer >= 0.25) {
-                        g_gameState->world.updateWaterFlow();
+                        { MedirTramo m_(T_AGUA); g_gameState->world.updateWaterFlow(); }
                         waterUpdateTimer = 0.0;
                     }
                 }
@@ -46487,11 +46540,11 @@ int main() {
                     lavaUpdateTimer = 0.0;
                 }
 
-                g_gameState->updateItems(deltaTime);
+                { MedirTramo m_(T_ITEMS); g_gameState->updateItems(deltaTime); }
 
                 // ⭐ FAUNA: las manadas de pecari se mueven y siguen el
                 // terreno. Sale en la primera linea si no hay ninguno.
-                g_gameState->actualizarFauna(deltaTime);
+                { MedirTramo m_(T_FAUNA); g_gameState->actualizarFauna(deltaTime); }
 
                 // ⭐ LA ARENA QUE SE QUEDO SIN SUELO.
                 //
@@ -46499,13 +46552,13 @@ int main() {
                 // se suelta en este frame ya empieza a caer en este mismo
                 // frame, en vez de esperar al siguiente. Sale en la primera
                 // linea si no hay nada apuntado.
-                actualizarGranulares(g_gameState);
+                { MedirTramo m_(T_CAIDAS); actualizarGranulares(g_gameState); }
 
                 // ⭐ BLOQUES EN EL AIRE: gravedad real (ver FisicaCaida.h).
                 // Si no hay ninguno cayendo, sale en la primera linea y no
                 // cuesta nada.
-                actualizarBloquesCayendo(g_gameState, deltaTime);
-                actualizarPiezasCayendo(g_gameState, deltaTime);
+                { MedirTramo m_(T_CAIDAS); actualizarBloquesCayendo(g_gameState, deltaTime); }
+                { MedirTramo m_(T_CAIDAS); actualizarPiezasCayendo(g_gameState, deltaTime); }
 
                 // ⭐ LO QUE SE DESPRENDIO SE CONVIERTE EN ITEMS.
                 //
@@ -46575,8 +46628,8 @@ int main() {
                 //
                 // Solo hace algo cuando la luz cambia de escalon (amanecer y
                 // atardecer); en pleno dia o de noche cerrada no cuesta nada.
-                g_gameState->world.actualizarLuzDelCielo(
-                    g_gameState->player.position);
+                { MedirTramo m_(T_LUZ); g_gameState->world.actualizarLuzDelCielo(
+                    g_gameState->player.position); }
 
                 // ⭐ EL FOLLAJE DEL OCOTE SE MUEVE
                 //
@@ -46594,11 +46647,11 @@ int main() {
                 g_hojaJugadorY = g_gameState->player.position.y + 1.6f;
                 g_hojaJugadorZ = g_gameState->player.position.z;
 
-                g_gameState->world.actualizarHojasQueSeMueven(
-                    g_gameState->player.position);
+                { MedirTramo m_(T_HOJAS); g_gameState->world.actualizarHojasQueSeMueven(
+                    g_gameState->player.position); }
 
                 // ANIMACIÓN: Actualizar animación de agua
-                g_textureManager->updateWaterAnimation(deltaTime);
+                { MedirTramo m_(T_ANIM); g_textureManager->updateWaterAnimation(deltaTime); }
 
                 // ⭐ EL FUEGO DEL HORNO
                 //
@@ -46617,7 +46670,7 @@ int main() {
 
                 // Sistema de minado progresivo (como Minecraft)
                 if (!g_gameState->inventoryOpen) {
-                    updateMining(g_gameState, deltaTime);
+                    { MedirTramo m_(T_MINADO); updateMining(g_gameState, deltaTime); }
 
                     // ⭐ COLOCAR EN CONTINUO MIENTRAS EL CLIC DERECHO SIGA DADO.
                     //
@@ -46636,7 +46689,7 @@ int main() {
                 }
 
                 // Actualizar sistema de partículas (gravedad, vida, etc.)
-                g_gameState->particles.update(deltaTime);
+                { MedirTramo m_(T_PARTICULAS); g_gameState->particles.update(deltaTime); }
 
                 // Decrementar cooldowns
                 if (g_gameState->breakCooldown > 0) {
@@ -46718,7 +46771,7 @@ int main() {
         // es lo que hace que se vean infinitamente lejos.
         //
         // Van sin depth: se pintan al fondo y el terreno los tapa despues.
-        dibujarCieloYAstros();
+        { MedirTramo m_(T_CIELO); dibujarCieloYAstros(); }
 
         // ====================================================================
         // POSICIÓN DEL OJO: la calcula el CameraSystem, no el struct Player.
@@ -46763,6 +46816,15 @@ int main() {
             // ⭐ COLOR DE NIEBLA (dinámico según hora del día / dimensión / agua / lava)
             float finalFogColor[4];
             g_gameState->fogSystem.getFinalColor(finalFogColor);
+            // Fuera del agua y la lava, el color del horizonte a esta hora: asi
+            // el terreno lejano se funde con el cielo en vez de recortarse. Y de
+            // noche la niebla ya no se queda azul claro.
+            if (!fogConfig.isUnderwater && !fogConfig.isInLava) {
+                const Atmosfera::Cielo cielo = Atmosfera::cieloPara(luzSolar());
+                finalFogColor[0] = cielo.horizonte[0];
+                finalFogColor[1] = cielo.horizonte[1];
+                finalFogColor[2] = cielo.horizonte[2];
+            }
             glFogfv(GL_FOG_COLOR, finalFogColor);
 
             // ⭐ DENSIDAD (con integración altura / agua / lava)
@@ -46821,7 +46883,7 @@ int main() {
         }
 
         // Pasar posición del jugador para near plane culling
-        g_gameState->world.render(g_gameState->player.position);
+        { MedirTramo m_(T_MUNDO); g_gameState->world.render(g_gameState->player.position); }
         t2 = std::chrono::high_resolution_clock::now();
         render_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
 

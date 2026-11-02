@@ -260,3 +260,16 @@ TEST_CASE("Seleccion: gana el bloque que el jugador mira, no el de arriba") {
     CHECK(rayo.find("Vec3i(x, y + 1, z)") == std::string::npos);
     CHECK(src.find("GANA EL DE ENCIMA") == std::string::npos);
 }
+
+TEST_CASE("Seleccion: el rayo sale del mismo ojo que la camara y sin margen") {
+    // PEDIDO: "miro un bloque [...] selecciona el de arriba [...] que sea como el
+    // de minecraft y no prefiera a los bloques". Agachado, el rayo salia 0.82 por
+    // encima de la camara.
+    const std::string src = fuenteMotor();
+    REQUIRE_FALSE(src.empty());
+    CHECK(src.find("Vec3 ojoDelJugador(const Player& player) {") != std::string::npos);
+    CHECK(src.find("Vec3 origin = state->player.getEyePosition();") == std::string::npos);
+    CHECK(src.find("const Vec3 ori = state->player.getEyePosition();") == std::string::npos);
+    CHECK(src.find("Vec3 rayOrigin = g_gameState->player.getEyePosition();") == std::string::npos);
+    CHECK(src.find("TOL_MAX") == std::string::npos);
+}

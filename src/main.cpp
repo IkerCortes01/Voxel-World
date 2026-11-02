@@ -31223,6 +31223,20 @@ typedef PlayerSys::EngineWorldQuery<World, BlockType> EngineWorldAdapter;
 
 EngineWorldAdapter*            g_worldQuery       = nullptr;
 PlayerSys::PlayerController*   g_playerController = nullptr;
+
+// EL OJO DEL JUGADOR, EL MISMO PARA LA CAMARA Y PARA EL RAYO.
+//
+// Player::getEyePosition() usa una altura fija de 1.62, y la camara la real
+// (0.80 agachado). Con el rayo saliendo de la fija, agachado se seleccionaba
+// lo que estaba 0.82 bloques por encima del punto de mira.
+Vec3 ojoDelJugador(const Player& player) {
+    if (g_playerController) {
+        const PlayerSys::MoveVec3 e = g_playerController->getEyePosition();
+        return Vec3(e.x, e.y, e.z);
+    }
+    return player.getEyePosition();
+}
+
 PlayerSys::PlayerDebug         g_playerDebug;
 
 // ---- AUDIO ----
@@ -32876,43 +32890,6 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 by0 += (float)y; by1 += (float)y;
                 bz0 += (float)z; bz1 += (float)z;
 
-                // ⭐ TOLERANCIA AL APUNTAR
-                //
-                // Un bloque que no llena su voxel -- una capa de 3 px, una
-                // penca, una hoja de maguey -- obliga a clavar el punto de
-                // mira EXACTAMENTE encima. Basta desviarse un pixel para que
-                // el rayo pase de largo y se seleccione lo de detras, que es
-                // justo lo molesto.
-                //
-                // Se agranda un poco la caja SOLO para la prueba del rayo:
-                // lo que se dibuja y lo que frena al jugador siguen siendo
-                // los valores exactos. El margen se calcula sobre el hueco
-                // que le sobra al bloque, asi que un cubo entero no se
-                // agranda nada -- no se le roba la seleccion a nadie.
-                {
-                    constexpr float TOL_MAX = 0.12f;   // 2 px de gracia
-                    const float huecoX = 1.0f - (bx1 - bx0);
-                    const float huecoY = 1.0f - (by1 - by0);
-                    const float huecoZ = 1.0f - (bz1 - bz0);
-                    const float tx = (huecoX * 0.5f < TOL_MAX)
-                                   ? huecoX * 0.5f : TOL_MAX;
-                    const float ty = (huecoY * 0.5f < TOL_MAX)
-                                   ? huecoY * 0.5f : TOL_MAX;
-                    const float tz = (huecoZ * 0.5f < TOL_MAX)
-                                   ? huecoZ * 0.5f : TOL_MAX;
-
-                    // Con algo encima no se agranda por arriba: esa franja no es
-                    // de este bloque, y se seleccionaria sin estar mirandolo.
-                    const BlockType encima = world.getBlock(x, y + 1, z);
-                    const bool hayAlgoEncima =
-                        (encima != BLOCK_AIR && encima != BLOCK_WATER);
-
-                    bx0 -= tx; bx1 += tx;
-                    by0 -= ty;
-                    if (!hayAlgoEncima) by1 += ty;   // solo si esta libre
-                    bz0 -= tz; bz1 += tz;
-                }
-
                 // Interseccion rayo-AABB (slab method).
                 float tEnt = 0.0f, tSal = maxDistance;
                 bool atraviesa = true;
@@ -33331,7 +33308,7 @@ void updateMining(GameState* state, float deltaTime) {
     // terreno nuevo que haya en cola de mallado. Ver AccionDelJugador.
     AccionDelJugador marcaUrgencia;
 
-    Vec3 origin = state->player.getEyePosition();
+    Vec3 origin = ojoDelJugador(state->player);
     Vec3 direction = state->player.getForward();
 
     // Detectar qué bloque estamos mirando (como Minecraft Java: 5 bloques de alcance)
@@ -34191,7 +34168,7 @@ void dropSelectedItem(GameState* state) {
     }
 
     // Calcular posición de spawn (frente al jugador)
-    Vec3 playerEye = state->player.getEyePosition();
+    Vec3 playerEye = ojoDelJugador(state->player);
     Vec3 forward = state->player.getForward();
     Vec3 spawnPos = playerEye + (forward * 1.5f); // 1.5 bloques adelante
 
@@ -36886,7 +36863,7 @@ void renderBlockCrack(Vec3i blockPos, float progress) {
     if (crackTexture == 0) return;
 
     // Obtener posición de la cámara (jugador)
-    Vec3 cameraPos = g_gameState->player.getEyePosition();
+    Vec3 cameraPos = ojoDelJugador(g_gameState->player);
 
     // La forma REAL del bloque, la misma que usan el raycast, la colision y
     // el selector. Se cachea igual: solo se recalcula al cambiar de bloque.
@@ -37312,7 +37289,7 @@ void placeBlock(GameState* state) {
         // termino de iniciarse.
         if (!state->pecaries) return;
 
-        const Vec3 ori = state->player.getEyePosition();
+        const Vec3 ori = ojoDelJugador(state->player);
         const Vec3 dir = state->player.getForward();
         RaycastResult r = raycastBlock(state->world, ori, dir, 5.0f);
 
@@ -37409,7 +37386,7 @@ void placeBlock(GameState* state) {
 
     if (esTazon(selectedBlock)) {
 
-        const Vec3 ori = state->player.getEyePosition();
+        const Vec3 ori = ojoDelJugador(state->player);
         const Vec3 dir = state->player.getForward();
 
         // ====================================================================
@@ -37510,7 +37487,7 @@ void placeBlock(GameState* state) {
         return;  // No se puede colocar este item
     }
 
-    Vec3 origin = state->player.getEyePosition();
+    Vec3 origin = ojoDelJugador(state->player);
     Vec3 direction = state->player.getForward();
 
     RaycastResult result = raycastBlock(state->world, origin, direction, 5.0f);
@@ -46251,7 +46228,7 @@ int main() {
 
                 // ⭐⭐⭐ ACTUALIZAR ESTADO DE NIEBLA SEGÚN JUGADOR
                 // Detectar si está en agua o lava (basado en bloque en la cabeza)
-                Vec3 eyePos = g_gameState->player.getEyePosition();
+                Vec3 eyePos = ojoDelJugador(g_gameState->player);
                 int eyeX = (int)floor(eyePos.x);
                 int eyeY = (int)floor(eyePos.y);
                 int eyeZ = (int)floor(eyePos.z);
@@ -46863,7 +46840,7 @@ int main() {
         // el que de verdad dibuja el juego. Tener dos pintaba el contorno por
         // duplicado.
         if (false) {
-            Vec3 origin = g_gameState->player.getEyePosition();
+            Vec3 origin = ojoDelJugador(g_gameState->player);
             Vec3 direction = g_gameState->player.getForward();
             RaycastResult result = raycastBlock(g_gameState->world, origin, direction, 5.0f);
 
@@ -48197,7 +48174,7 @@ int main() {
         }
 
         // Renderizar outline del bloque apuntado
-        Vec3 rayOrigin = g_gameState->player.getEyePosition();
+        Vec3 rayOrigin = ojoDelJugador(g_gameState->player);
         Vec3 rayDirection = g_gameState->player.getForward();
         RaycastResult rayResult = raycastBlock(g_gameState->world, rayOrigin, rayDirection, 4.0f);
 
@@ -48296,7 +48273,7 @@ int main() {
 
         if (!g_gameState->isPaused) {
             // ============ DEBUG: Información del raycast ============
-            Vec3 debugRayOrigin = g_gameState->player.getEyePosition();
+            Vec3 debugRayOrigin = ojoDelJugador(g_gameState->player);
             Vec3 debugRayDirection = g_gameState->player.getForward();
             RaycastResult debugRayResult = raycastBlock(g_gameState->world, debugRayOrigin, debugRayDirection, 4.0f);
 
@@ -48316,7 +48293,7 @@ int main() {
             // el texto cian solo ocupaba pantalla.
 
             // Origen del raycast (posición de los ojos)
-            Vec3 eyePos = g_gameState->player.getEyePosition();
+            Vec3 eyePos = ojoDelJugador(g_gameState->player);
             sprintf(debugText, "Ojos: (%.1f, %.1f, %.1f)",
                 eyePos.x, eyePos.y, eyePos.z);
             renderText(debugText, 10, 150, 12);

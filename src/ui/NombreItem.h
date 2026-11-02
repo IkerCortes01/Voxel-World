@@ -143,6 +143,8 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_IXTLE_TALLO:        return "BASE DE IXTLE";
         case BLOCK_IXTLE_TALLO_ARENA:  return "BASE DE IXTLE EN ARENA";
         case BLOCK_IXTLE_HOJA:         return "HOJA DE IXTLE";
+        case BLOCK_MAGUEY_PUESTO:      return "HOJA DE IXTLE";
+        case BLOCK_AGAVE_AZUL_PUESTO:  return "PENCA DE AGAVE AZUL";
         case BLOCK_IXTLE_PUNTA:        return "PUNTA DE IXTLE";
         case BLOCK_IXTLE_CON_HIERBA:   return "IXTLE CON HIERBA";
         case BLOCK_IXTLE_CON_FLOR:     return "IXTLE CON FLOR";

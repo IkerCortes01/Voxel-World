@@ -34,8 +34,6 @@ add_executable(voxel_tests
     test_aterrizaje.cpp
     test_biznaga.cpp
     test_agua_niveles.cpp
-    test_agua_flujo.cpp
-    test_agua_escenario.cpp
     test_agave_azul.cpp
     test_agave_abisaii.cpp
     test_caras_ocultas.cpp
@@ -49,7 +47,6 @@ add_executable(voxel_tests
     test_pecari_cuerpo.cpp
     test_pecari_malla.cpp
     test_pecari_pulido.cpp
-    test_agua_simplificada.cpp
     test_perfil.cpp
     test_ocotales.cpp
     test_streaming.cpp
@@ -91,6 +88,8 @@ add_executable(voxel_tests
     test_capas_celda.cpp
     test_juntar_niveles.cpp
     test_nopal_de_castilla.cpp
+    test_agua_minecraft.cpp
+    test_maguey_colocable.cpp
     test_tablones_niveles.cpp
     test_alineacion_bloques.cpp
     test_techo_pilar.cpp

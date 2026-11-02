@@ -1500,6 +1500,9 @@ namespace Agua {
         if (t == BLOCK_WATER) return 1.0f;
         if (!esAgua(t)) return 0.0f;
         if (estaCayendo(t)) return 1.0f;
+        // Los rios y la orilla son agua natural: un bloque completo, aunque un
+        // mundo viejo los guardara con nivel bajo.
+        if (tieneCorriente(t) || esOrilla(t)) return 1.0f;
         const uint16_t n = Agua::nivelDe(t);   // ver la nota en estaLlena()
         if (n == 0) return 0.0f;
         return (float)n / (float)LLENA;

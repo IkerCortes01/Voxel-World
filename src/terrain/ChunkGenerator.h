@@ -346,20 +346,6 @@ public:
             const int riverTop = surfaceY + depth;
             const int top = (riverTop < worldHeight - 1) ? riverTop : worldHeight - 1;
 
-            // ⭐ EL RIO NO VA LLENO, Y CORRE
-            //
-            // Un rio de montaña es agua SOMERA sobre un lecho que se ve. Antes
-            // se rellenaba con celdas llenas, asi que un arroyo se veia igual
-            // que un trozo de mar: opaco y quieto.
-            //
-            // Ahora la lamina de arriba lleva nivel bajo -- 2 o 3 octavos
-            // segun la fuerza del cauce -- de modo que se transparenta el
-            // fondo y se distingue de un vistazo un rio de un lago.
-            //
-            // El nivel sale de `riverStrength`: el centro del cauce lleva mas
-            // agua que la orilla, que es lo que da el perfil de un rio real.
-            const int nivelRio = (col.riverStrength > 0.55f) ? 3 : 2;
-
             // ---- LA DIRECCION DE LA CORRIENTE ----
             //
             // No hay un campo "hacia donde va el rio", pero se puede deducir:
@@ -392,8 +378,8 @@ public:
 
             for (int y = surfaceY + 1; y <= top; ++y) {
                 if (y == top) {
-                    // La lamina de arriba: nivel bajo y con corriente.
-                    BlockType agua = Compuesto::Agua::nuevo((uint16_t)nivelRio);
+                    // La lamina de arriba: un bloque completo, con corriente.
+                    BlockType agua = Compuesto::Agua::nuevo(Compuesto::Agua::LLENA);
                     agua = Compuesto::Agua::conCorriente(agua, dirCorriente);
                     writer.Set(lx, y, lz, (Blocks::Id)agua);
                 } else {

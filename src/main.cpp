@@ -316,6 +316,7 @@ struct Vec3i {
 #include "render/TexturaTuna.h"        // que imagen usa una tuna (precarga y mesher, misma lista)
 #include "render/TinteBioma.h"         // el pasto toma el color de su bioma
 #include "render/EspacioJugador.h"     // nada se materializa dentro del jugador
+#include "AguaFlujo.h"                 // las reglas del agua
 #include "render/PencaDelJugador.h"    // ¿la penca la puso el jugador o un nopal?
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
@@ -560,6 +561,7 @@ bool isCrossSprite(BlockType type) {
            type == BLOCK_NOPAL_MOJADO ||
            type == BLOCK_NOPAL_TIRAS ||
            type == BLOCK_NOPAL_SIN_BABA ||
+           esAgavePuesto(type) ||
            type == BLOCK_NOPAL_BABA ||
            // La penca SECA es la misma pieza que la mojada, solo que sin
            // agua: mismo sprite, otra textura.
@@ -1446,6 +1448,8 @@ inline bool nopalEncadena(BlockType b, BlockType propio = BLOCK_AIR) {
 // `nopalEncadena`, que es lo que necesita conocer BlockType.
 template <typename TGet>
 inline bool pencaPuestaPorJugador(BlockType tipo, TGet get) {
+    // La hoja de maguey colocada siempre va acostada.
+    if (esAgavePuesto(tipo)) return true;
     if (!esNopalDeCastilla(tipo) && tipo != BLOCK_NOPAL_MOJADO) return false;
 
     return Render::pencaSuelta([&](int dx, int dy, int dz) {
@@ -3226,7 +3230,7 @@ bool isBlockOpaque(BlockType type) {
     if (esCladodio(type) || esNopalDeCastilla(type) ||
         type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
         type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
-        esTuna(type)) return false;
+        esAgavePuesto(type) || esTuna(type)) return false;
     // El maguey capado es un CUENCO, no un cubo: por su agujero se ve el
     // interior, asi que no puede tapar las caras de sus vecinos (dejaria
     // huecos negros al mirar dentro). El aguamiel, por lo mismo: es una
@@ -3360,7 +3364,7 @@ inline bool llenaSuVoxelFrenteALiquido(BlockType type) {
     if (esCladodio(type) || esNopalDeCastilla(type) ||
         type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
         type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
-        esTuna(type)) return false;
+        esAgavePuesto(type) || esTuna(type)) return false;
     if (esRaiz(type)) return false;
     if (isRama(type)) return false;
     if (esGuijarro(type)) return false;
@@ -3408,6 +3412,8 @@ float getBlockBreakTime(BlockType type) {
         // El nopal MOJADO ya esta limpio y blando: 1.5 s, la mitad que una
         // penca con espinas (3 s).
         case BLOCK_NOPAL_MOJADO: return 1.5f;
+        case BLOCK_MAGUEY_PUESTO:
+        case BLOCK_AGAVE_AZUL_PUESTO: return 1.5f;
         case BLOCK_NOPAL_TIRAS:
         case BLOCK_NOPAL_SIN_BABA:
         case BLOCK_NOPAL_BABA:   return 0.4f;
@@ -8429,6 +8435,7 @@ public:
                 // El maguey en arena tiene su propia textura de base, con el
                 // terreno arenoso incrustado en vez del pasto.
                 return getTexture("Tallo de Maguey en arena.png");
+            case BLOCK_MAGUEY_PUESTO:
             case BLOCK_IXTLE_HOJA:
             case BLOCK_IXTLE_PEQUENA:
             case BLOCK_IXTLE_GRANDE:
@@ -9406,7 +9413,7 @@ struct Chunk {
                esCladodio(b) || esNopalDeCastilla(b) ||
                b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
                b == BLOCK_NOPAL_SIN_BABA || b == BLOCK_NOPAL_BABA ||
-               esTuna(b);
+               esAgavePuesto(b) || esTuna(b);
     }
 
     // ========================================================================
@@ -13338,9 +13345,11 @@ private:
                     const BlockType b = c->getBlock(x, y, z);
                     if (!esAguaCualquiera(b)) continue;
 
-                    // ¿Que hay debajo? Si es aire, esta agua no se sostiene.
+                    // ¿Que hay debajo? Si es aire, esta agua no se sostiene. Y
+                    // la que fluye tiene que comprobar que algo la alimenta:
+                    // cubre tambien un flujo que se guardo a medias.
                     const BlockType abajo = c->getBlock(x, y - 1, z);
-                    if (abajo != BLOCK_AIR) continue;
+                    if (abajo != BLOCK_AIR && AguaFlujo::esFuente(b)) continue;
 
                     scheduleWaterUpdate(baseX + x, y, baseZ + z);
                     if (++encoladas >= MAX_POR_CHUNK) break;
@@ -18742,40 +18751,14 @@ public:
     // ⭐⭐⭐ SISTEMA AVANZADO DE FLUIDOS - Estilo Minecraft Mejorado ⭐⭐⭐
     // ========================================================================
 private:
-    // ========================================================================
-    // ⭐ EL AGUA SOLO LLEGA HASTA 8 BLOQUES DE DONDE NACIO
-    // ========================================================================
-    // Antes el reparto lateral no tenia tope: mientras hubiera un vecino con
-    // 2 octavos menos, el agua seguia extendiendose. Sobre un terreno grande y
-    // llano un solo cubo podia acabar mojando media llanura, celda a celda, y
-    // cada celda nueva volvia a encolarse -- la cola crecia sola y el coste
-    // con ella.
-    //
-    // Ahora cada gota RECUERDA DE DONDE SALIO. Al repartirse a un lado, la
-    // celda destino hereda ese mismo origen, y en cuanto se aleja mas de
-    // RADIO_EXPANSION bloques deja de extenderse.
-    //
-    // LO QUE SIGUE FUNCIONANDO IGUAL:
-    //   - CAER no cuenta para el radio. Una cascada baja los bloques que haga
-    //     falta: el limite es de EXPANSION HORIZONTAL, no de recorrido.
-    //   - El agua no se pierde. Al llegar al borde simplemente no se reparte
-    //     mas, asi que se queda donde esta -- no se borra ni se evapora.
-    //   - Un oceano generado no se toca: nace ya colocado y en equilibrio, y
-    //     lo que no se mueve no entra en la cola.
-    //
-    // El origen viaja en la propia cola en vez de en un mapa lateral, que es
-    // lo que evita tener que purgarlo al descargar un chunk (la fuga que ya
-    // sufre lavaLevels).
-    static constexpr int RADIO_EXPANSION = 8;
-
-    // Cola de bloques de agua que necesitan actualización.
-    // Los cinco enteros son: x, y, z y el ORIGEN (ox, oz) de esa agua.
+    // Cola de celdas de agua pendientes. `aguaEnCola` evita repetirlas: una
+    // celda con varios vecinos cambiando se recalcula una sola vez por tick.
     struct PendienteAgua {
-        int x, y, z;      // la celda que hay que actualizar
-        int ox, oz;       // de donde salio esta agua (para medir el radio)
+        int x, y, z;
     };
     std::queue<PendienteAgua> waterUpdateQueue;
-    const int MAX_WATER_UPDATES_PER_TICK = 50;  // ⭐ AUMENTADO: 50 bloques por tick para flujo rápido y fluido
+    std::set<Vec3i> aguaEnCola;
+    const int MAX_WATER_UPDATES_PER_TICK = 128;
 
     // ========================================================================
     // ⭐ LAS OLAS: COLA PROPIA, PRESUPUESTO PROPIO
@@ -18863,19 +18846,6 @@ public:
         return (int)Compuesto::Agua::nivelDe(getBlock(x, y, z));
     }
 
-    // Dejar esta celda con este nivel de agua. Nivel 0 la seca (la deja en
-    // aire), que es lo que hace que un charco desaparezca del todo.
-    void setWaterLevel(int x, int y, int z, int nivel) {
-        if (nivel <= 0) {
-            if (Compuesto::Agua::esAgua(getBlock(x, y, z))) {
-                setBlock(x, y, z, BLOCK_AIR);
-            }
-            return;
-        }
-        if (nivel > (int)Compuesto::Agua::LLENA) nivel = Compuesto::Agua::LLENA;
-        setBlock(x, y, z, Compuesto::Agua::nuevo((uint16_t)nivel));
-    }
-
     // ¿Hay agua aqui? Reconoce tanto el agua con volumen como el BLOCK_WATER
     // de los mundos viejos, que se sigue leyendo como una celda llena.
     bool esCeldaDeAgua(BlockType b) const {
@@ -18895,12 +18865,6 @@ public:
         const BlockType b = getBlock(x, y, z);
         if (b == BLOCK_WATER) return (int)Compuesto::Agua::LLENA;
         return (int)Compuesto::Agua::nivelDe(b);
-    }
-
-    // ¿Puede el agua ocupar esta celda? Solo el aire y otra agua.
-    bool aguaPuedeEntrar(int x, int y, int z) {
-        const BlockType b = getBlock(x, y, z);
-        return b == BLOCK_AIR || esCeldaDeAgua(b);
     }
 
     // Añadir bloque de agua a la cola de actualización
@@ -18939,68 +18903,24 @@ public:
                != nullptr;
     }
 
-    // Encolar una celda. Sin origen explicito, la celda ES su propio origen:
-    // es lo que ocurre cuando el agua la coloca el jugador o la despierta un
-    // cambio de terreno, y entonces sus 8 bloques se cuentan desde ahi.
+    // Encolar una celda.
     void scheduleWaterUpdate(int x, int y, int z) {
-        scheduleWaterUpdate(x, y, z, x, z);
-    }
-
-    void scheduleWaterUpdate(int x, int y, int z, int ox, int oz) {
         // No se encola lo que ya no existe: evita que la cola se llene de
         // posiciones muertas que luego resucitarian chunks.
         if (!chunkCargadoEn(x, z)) return;
-        if (waterUpdateQueue.size() < 5000) {  // Límite de cola aumentado
-            waterUpdateQueue.push(PendienteAgua{ x, y, z, ox, oz });
-        }
+        if (waterUpdateQueue.size() >= 20000) return;
+        if (!aguaEnCola.insert(Vec3i(x, y, z)).second) return;
+        waterUpdateQueue.push(PendienteAgua{ x, y, z });
     }
 
     // ========================================================================
-    // ⭐ EL FLUJO DEL AGUA: REPARTIR SIN CREAR NI DESTRUIR
+    // ⭐ EL FLUJO DEL AGUA: LAS REGLAS DE MINECRAFT
     // ========================================================================
-    // La regla de la que cuelga todo el sistema:
+    // Las reglas viven en AguaFlujo.h. Aqui solo se aplican al mundo.
     //
-    //     EL AGUA NO SE CREA NI SE DESTRUYE, SOLO SE REPARTE.
-    //
-    // Cada celda tiene de 1 a 8 octavos. Mover agua es RESTAR de una celda y
-    // SUMAR exactamente lo mismo a otra. Nunca se pone agua sin quitarla de
-    // algun sitio.
-    //
-    // Eso es lo que hace que un mar siga siendo un mar: no hay reglas de
-    // "esta celda es fuente infinita" ni de "seca si no encuentra apoyo". El
-    // oceano se sostiene porque tiene MUCHISIMA agua, no porque el motor lo
-    // este rellenando por detras. Y por lo mismo, el agua que el jugador
-    // coloca es finita: se reparte, baja de nivel y se acaba.
-    //
-    // ------------------------------------------------------------------------
-    // POR QUE EL MAR NO SE VACIA, SI TODA EL AGUA ES FINITA
-    // ------------------------------------------------------------------------
-    // Son TRES cosas a la vez, y hacen falta las tres:
-    //
-    //   1. EL AGUA SOLO SE MUEVE CUESTA ABAJO, hacia una celda con menos agua
-    //      que ella. Dos celdas al mismo nivel no se intercambian nada, asi
-    //      que una superficie plana esta en equilibrio y el motor la deja
-    //      quieta. Sin esto el mar herviria eternamente moviendo agua de un
-    //      lado a otro, y se comeria el frame sin que se viera nada.
-    //
-    //   2. LA TIERRA SE SATURA. Absorber convierte el suelo en su version
-    //      mojada, que ya no bebe. Sin eso, la orilla de un mar -- millones de
-    //      celdas de agua tocando arena -- se tragaria el mar entero.
-    //
-    //   3. NADIE DESPIERTA AL MAR. Esta cola solo se llena cuando el JUGADOR
-    //      toca algo: coloca agua, rompe un bloque, llena un tazon. El agua
-    //      generada por el terreno no entra aqui sola, asi que un oceano
-    //      intacto no gasta ni un ciclo de CPU.
-    //
-    // La 3 es ademas lo que hace que esto escale: da igual que el mundo tenga
-    // millones de celdas de agua, porque solo se simulan las que se tocan.
-    //
-    // ------------------------------------------------------------------------
-    // EL ORDEN IMPORTA: PRIMERO ABAJO
-    // ------------------------------------------------------------------------
-    // La gravedad va antes que nada. Solo cuando no cabe mas agua abajo, lo
-    // que sobra se reparte a los lados. Al reves, el agua se extenderia en una
-    // lamina fina antes de caer por un agujero que tiene al lado.
+    // La cola solo se llena cuando algo cambia: colocar agua, romper un bloque
+    // junto a ella o cargar un chunk con agua sin apoyo. Un oceano intacto no
+    // gasta nada, porque nadie lo despierta.
 public:
     // ========================================================================
     // ⭐ REGISTRAR UNA CELDA DE ORILLA
@@ -19128,233 +19048,59 @@ public:
         }
     }
 
-    // (Se mantiene la visibilidad publica que tenia esta seccion: el resto de
-    // main.cpp llama a notifyWaterPlaced/Removed y repartirAguaDesplazada.)
     void updateWaterFlow() {
         PROFILE_SCOPE("World::updateWaterFlow");
         try {
-            int procesadas = 0;
+            // Solo lo que ya estaba en cola: lo que se encole ahora espera al
+            // siguiente tick, y asi el agua avanza un bloque por tick.
+            int quedan = (int)waterUpdateQueue.size();
+            if (quedan > MAX_WATER_UPDATES_PER_TICK)
+                quedan = MAX_WATER_UPDATES_PER_TICK;
 
-            while (!waterUpdateQueue.empty() &&
-                   procesadas < MAX_WATER_UPDATES_PER_TICK) {
+            while (quedan-- > 0) {
                 const PendienteAgua pos = waterUpdateQueue.front();
                 waterUpdateQueue.pop();
+                aguaEnCola.erase(Vec3i(pos.x, pos.y, pos.z));
 
                 const int x = pos.x;
                 const int y = pos.y;
                 const int z = pos.z;
-
-                // De donde salio esta agua. Se arrastra al repartir a los
-                // lados, y es lo que acota la expansion a RADIO_EXPANSION.
-                const int ox = pos.ox;
-                const int oz = pos.oz;
-
                 if (y < 1 || y >= CHUNK_HEIGHT - 1) continue;
 
-                // ⭐ Y AQUI OTRA VEZ, QUE ES DONDE DE VERDAD IMPORTA.
-                //
-                // No basta con filtrar al ENCOLAR: entre que una posicion
-                // entra en la cola y le llega el turno pueden pasar muchos
-                // frames, y en ese rato el jugador puede haberse alejado y el
-                // chunk haberse descargado.
-                //
-                // Sin esta comprobacion, esa posicion rezagada llama a
-                // setBlock, que resucita el chunk entero. Es exactamente el
-                // camino que cerraba el juego.
+                // Entre encolar y procesar el chunk pudo descargarse, y
+                // setBlock lo resucitaria entero.
                 if (!chunkCargadoEn(x, z)) continue;
 
-                // Cuanta agua hay aqui. El BLOCK_WATER de los mundos viejos
-                // cuenta como celda llena, asi que un mar guardado con el
-                // sistema anterior entra en el nuevo sin migracion.
-                int nivel = aguaDe(x, y, z);
-                if (nivel <= 0) continue;   // ya no hay agua que mover
+                const BlockType actual = getBlock(x, y, z);
+                if (!esAguaCualquiera(actual)) continue;
 
-                procesadas++;
+                // Sin ver a todos sus vecinos, una celda se secaria por error.
+                // Se recalcula al volver a cargar el chunk de al lado.
+                if (!AguaFlujo::esFuente(actual) &&
+                    (!chunkCargadoEn(x + 1, z) || !chunkCargadoEn(x - 1, z) ||
+                     !chunkCargadoEn(x, z + 1) || !chunkCargadoEn(x, z - 1)))
+                    continue;
 
-                // ------------------------------------------------------------
-                // PASO 1: LA TIERRA BEBE
-                // ------------------------------------------------------------
-                // Antes de repartirse, el agua moja lo que tiene debajo. La
-                // tierra y la arena secas absorben un octavo y quedan
-                // humedas; una vez saturadas ya no beben mas.
-                //
-                // La absorcion NO destruye el agua: la guarda dentro del
-                // bloque mojado. Por eso un mar puede mojar toda su orilla
-                // sin perder volumen -- la orilla se satura y el mar se
-                // queda. Sin esta conservacion, un oceano se drenaria solo
-                // por su propia playa.
-                if (nivel > 0 && absorberDebajo(x, y, z)) {
-                    nivel--;
-                    setWaterLevel(x, y, z, nivel);
-                    if (nivel <= 0) {
-                        despertarVecinos(x, y, z);
-                        continue;
-                    }
+                // Un chunk sin cargar se ve como pared: el agua no entra.
+                auto get = [&](int dx, int dy, int dz) -> BlockType {
+                    if (!chunkCargadoEn(x + dx, z + dz)) return BLOCK_STONE;
+                    return getBlock(x + dx, y + dy, z + dz);
+                };
+
+                const AguaFlujo::Plan plan = AguaFlujo::planear(get);
+
+                if (plan.propia != actual) {
+                    setBlock(x, y, z, plan.propia);
+                    despertarVecinos(x, y, z);
                 }
+                if (plan.propia == BLOCK_AIR) continue;
 
-                // ------------------------------------------------------------
-                // PASO 2: CAER
-                // ------------------------------------------------------------
-                // Todo lo que quepa abajo, baja. El agua que cae se marca como
-                // chorro para que el mesher la dibuje como una columna y no
-                // como un charco flotando.
-                if (aguaPuedeEntrar(x, y - 1, z)) {
-                    const int abajo = aguaDe(x, y - 1, z);
-                    const int hueco = (int)Compuesto::Agua::LLENA - abajo;
+                absorberDebajo(x, y, z);
 
-                    if (hueco > 0) {
-                        // ⭐ SIN GRAVEDAD: EL NIVEL BAJA DE GOLPE.
-                        //
-                        // Antes el trasvase estaba limitado a CAUDAL_CAIDA=2
-                        // octavos por tick para imitar un liquido que se
-                        // descuelga poco a poco. Con el tick a 0,5 s eso son
-                        // ~2 s por celda, y una cascada de diez bloques
-                        // tardaba veinte segundos en llegar abajo.
-                        //
-                        // El agua ya no simula caida: TODO lo que cabe abajo
-                        // baja en el mismo tick. No hay aceleracion, ni
-                        // velocidad, ni fisica -- solo el nivel que cae
-                        // deprisa, que es lo que se pidio y ademas es mucho
-                        // mas simple de razonar: una celda con hueco debajo
-                        // se vacia, y punto.
-                        //
-                        // ⚠️ NO SE PIERDE NI SE CREA AGUA. Sigue siendo restar
-                        // de aqui y sumar abajo -- el mismo total. Lo unico
-                        // que cambia es CUANTA se mueve por tick, asi que la
-                        // conservacion del volumen (de la que depende que un
-                        // oceano no se vacie) queda intacta.
-                        const int baja = (nivel < hueco) ? nivel : hueco;
-
-                        // Restar de aqui y sumar abajo: mismo total.
-                        setBlock(x, y - 1, z,
-                                 Compuesto::Agua::nuevo(
-                                     (uint16_t)(abajo + baja), true));
-                        nivel -= baja;
-                        setWaterLevel(x, y, z, nivel);
-
-                        // ⭐ CAER NO GASTA RADIO, PERO SI CONSERVA EL ORIGEN.
-                        //
-                        // Una cascada puede bajar los bloques que quiera: el
-                        // limite es de expansion HORIZONTAL. Pero el origen
-                        // viaja con ella, de modo que el charco del fondo se
-                        // extiende 8 bloques desde donde se solto el agua y no
-                        // desde el punto en que aterrizo -- que es lo que
-                        // convertiria una caida larga en un radio infinito a
-                        // saltos.
-                        scheduleWaterUpdate(x, y - 1, z, ox, oz);
-                        if (nivel <= 0) {
-                            despertarVecinos(x, y, z);
-                            continue;
-                        }
-
-                        // ⭐ SEGUIR VACIANDOSE SI AUN QUEDA HUECO ABAJO.
-                        //
-                        // Con la caida de golpe esta celda ya suelta todo lo
-                        // que cabe, asi que normalmente se queda a cero y no
-                        // hace falta reencolarla. Pero puede quedar agua si el
-                        // hueco de abajo era mas pequeño que el nivel de aqui
-                        // (por ejemplo 3 octavos cayendo sobre una celda que
-                        // solo admitia 2).
-                        //
-                        // Solo mientras QUEDE hueco abajo: en cuanto se llena,
-                        // la celda deja de despertarse sola y el agua vuelve a
-                        // estar en reposo. Eso es lo que impide que un charco
-                        // ya asentado siga gastando CPU para siempre.
-                        if (aguaDe(x, y - 1, z) < (int)Compuesto::Agua::LLENA) {
-                            scheduleWaterUpdate(x, y, z, ox, oz);
-                        }
-                    }
-                }
-
-                // ------------------------------------------------------------
-                // PASO 3: REPARTIRSE A LOS LADOS
-                // ------------------------------------------------------------
-                // Lo que no cupo abajo busca los vecinos con MENOS agua. Se
-                // reparte de octavo en octavo hacia el mas bajo de todos, que
-                // es lo que hace que el agua busque el hueco y no se extienda
-                // en abanico por celdas que ya estan igual de llenas.
-                //
-                // Una celda de un solo octavo NO se reparte: partirla en
-                // medios octavos no existe, y si se moviera entera estaria
-                // saltando de sitio en vez de fluyendo.
-                if (nivel >= 2) {
-                    const int dirs[4][2] = {{1,0}, {-1,0}, {0,1}, {0,-1}};
-
-                    // Se repite mientras siga habiendo cuesta abajo, para que
-                    // un chorro fuerte llene el hueco de al lado de una vez y
-                    // no de un octavo por tick.
-                    bool movio = true;
-                    while (movio && nivel >= 2) {
-                        movio = false;
-
-                        // Buscar el vecino mas VACIO.
-                        int mejorX = 0, mejorZ = 0, mejorNivel = nivel;
-                        for (int i = 0; i < 4; i++) {
-                            const int nx = x + dirs[i][0];
-                            const int nz = z + dirs[i][1];
-                            if (!aguaPuedeEntrar(nx, y, nz)) continue;
-
-                            // ⭐ EL TOPE DE 8 BLOQUES
-                            //
-                            // Se mide en distancia de Chebyshev (el mayor de
-                            // los dos ejes), que es la que dibuja un CUADRADO
-                            // de 17x17 alrededor del origen. Con distancia
-                            // euclidea saldria un circulo y el agua llegaria
-                            // mas lejos en recto que en diagonal, que es
-                            // justamente lo que confunde al construir.
-                            //
-                            // Va aqui, en la busqueda, y no despues: asi una
-                            // celda del borde ni siquiera se considera como
-                            // destino, en vez de elegirla y descartarla.
-                            const int dOx = nx - ox;
-                            const int dOz = nz - oz;
-                            const int distX = (dOx < 0) ? -dOx : dOx;
-                            const int distZ = (dOz < 0) ? -dOz : dOz;
-                            const int dist  = (distX > distZ) ? distX : distZ;
-                            if (dist > RADIO_EXPANSION) continue;
-
-                            const int n = aguaDe(nx, y, nz);
-                            if (n < mejorNivel) {
-                                mejorNivel = n;
-                                mejorX = nx;
-                                mejorZ = nz;
-                            }
-                        }
-
-                        // Solo se mueve CUESTA ABAJO, y solo si la diferencia
-                        // es de al menos 2: pasar un octavo a un vecino que
-                        // tiene uno menos los deja al reves e invierte el
-                        // desnivel, y las dos celdas se lo pasarian para
-                        // siempre. Con diferencia >= 2 el reparto converge.
-                        if (mejorNivel <= nivel - 2) {
-                            setBlock(mejorX, y, mejorZ,
-                                     Compuesto::Agua::nuevo(
-                                         (uint16_t)(mejorNivel + 1)));
-                            nivel--;
-                            setWaterLevel(x, y, z, nivel);
-
-                            // La celda destino HEREDA EL ORIGEN. Es lo que
-                            // hace que el radio se mida siempre desde donde
-                            // nacio el agua y no desde el ultimo salto: sin
-                            // esto, cada celda seria su propio origen y la
-                            // expansion volveria a ser infinita, avanzando de
-                            // 8 en 8 para siempre.
-                            scheduleWaterUpdate(mejorX, y, mejorZ, ox, oz);
-                            procesadas++;
-                            movio = true;
-
-                            if (procesadas >= MAX_WATER_UPDATES_PER_TICK) break;
-                        }
-                    }
-                }
-
-                // El agua que ya no cae deja de ser chorro: se asienta.
-                if (nivel > 0) {
-                    const BlockType aqui = getBlock(x, y, z);
-                    if (Compuesto::Agua::estaCayendo(aqui) &&
-                        !aguaPuedeEntrar(x, y - 1, z)) {
-                        setBlock(x, y, z, Compuesto::Agua::conCaida(aqui, false));
-                    }
+                for (int i = 0; i < plan.n; ++i) {
+                    const AguaFlujo::Escritura& e = plan.esc[i];
+                    setBlock(x + e.dx, y + e.dy, z + e.dz, e.tipo);
+                    scheduleWaterUpdate(x + e.dx, y + e.dy, z + e.dz);
                 }
             }
 
@@ -19366,27 +19112,11 @@ public:
     }
 
     // ------------------------------------------------------------------------
-    // LA TIERRA BEBE: absorcion por el bloque de debajo
+    // LA TIERRA SE MOJA
     // ------------------------------------------------------------------------
-    // Devuelve true si el bloque de debajo absorbio un octavo de agua.
-    //
-    // El agua absorbida NO desaparece del mundo: queda DENTRO del bloque, que
-    // pasa a su version mojada. Un bloque mojado ya no bebe mas. Eso acota la
-    // absorcion: una orilla se satura y deja de robarle agua al mar.
-    //
-    // La piedra no bebe: es impermeable.
+    // El bloque de debajo pasa a su version mojada. No le cuesta agua a nadie.
     bool absorberDebajo(int x, int y, int z) {
-        // ⭐ EL AGUA DE ORILLA NO MOJA LA PLAYA.
-        //
-        // Una ola sube y baja sobre la arena decenas de veces por minuto. Si
-        // cada pasada absorbiera un octavo, la franja entera se saturaria en
-        // unos segundos: la playa se volveria arena mojada permanente y --
-        // peor -- el mar habria PERDIDO todo ese volumen, porque absorber
-        // resta nivel a la celda.
-        //
-        // La marca de orilla la pone el generador (ver Agua::ORILLA), asi que
-        // esto solo exime a la franja de vaiven; el resto del agua sigue
-        // mojando la tierra como siempre.
+        // La franja de orilla no moja la playa (ver Agua::ORILLA).
         if (Compuesto::Agua::esOrilla(getBlock(x, y, z))) return false;
 
         const BlockType b = getBlock(x, y - 1, z);
@@ -19395,44 +19125,6 @@ public:
 
         setBlock(x, y - 1, z, mojado);
         return true;
-    }
-
-    // ------------------------------------------------------------------------
-    // ⭐ EL AGUA QUE DESPLAZA UN BLOQUE
-    // ------------------------------------------------------------------------
-    // Al meter un bloque en el agua, la que ocupaba esa celda tiene que ir a
-    // algun sitio. Se reparte a los vecinos que tengan hueco, de octavo en
-    // octavo, empezando por arriba (el agua desplazada sube: es lo que hace
-    // que el nivel de un estanque suba al tirar piedras dentro) y siguiendo
-    // por los lados.
-    //
-    // Lo que no cabe en ningun vecino se pierde, y es correcto que asi sea:
-    // el bloque la ha echado fuera. Es lo mismo que meter un ladrillo en un
-    // vaso lleno hasta el borde -- el agua que sobra acaba en la mesa.
-    void repartirAguaDesplazada(int x, int y, int z, int cantidad) {
-        if (cantidad <= 0) return;
-
-        // Arriba primero: el agua desplazada empuja hacia la superficie.
-        const int dirs[5][3] = {{0,1,0}, {1,0,0}, {-1,0,0}, {0,0,1}, {0,0,-1}};
-
-        for (int i = 0; i < 5 && cantidad > 0; i++) {
-            const int nx = x + dirs[i][0];
-            const int ny = y + dirs[i][1];
-            const int nz = z + dirs[i][2];
-
-            if (ny < 0 || ny >= CHUNK_HEIGHT) continue;
-            if (!aguaPuedeEntrar(nx, ny, nz)) continue;
-
-            const int tiene = aguaDe(nx, ny, nz);
-            const int hueco = (int)Compuesto::Agua::LLENA - tiene;
-            if (hueco <= 0) continue;
-
-            const int pasa = (cantidad < hueco) ? cantidad : hueco;
-            setBlock(nx, ny, nz,
-                     Compuesto::Agua::nuevo((uint16_t)(tiene + pasa)));
-            cantidad -= pasa;
-            scheduleWaterUpdate(nx, ny, nz);
-        }
     }
 
     // Despertar a los vecinos de una celda que acaba de cambiar, para que
@@ -19450,11 +19142,8 @@ public:
         }
     }
 
-    // Llamar cuando se coloca agua para iniciar la propagación.
-    //
-    // Un cubo de agua colocado por el jugador entra LLENO (8 octavos) y a
-    // partir de ahi se reparte. Es finito: no se rellena solo, asi que al
-    // extenderse baja de nivel hasta acabarse.
+    // Llamar cuando se coloca agua para iniciar la propagación. El agua
+    // colocada es una fuente: un bloque completo que no se gasta.
     void notifyWaterPlaced(int x, int y, int z) {
         if (!Compuesto::Agua::esAgua(getBlock(x, y, z))) {
             setBlock(x, y, z, Compuesto::Agua::nuevo(Compuesto::Agua::LLENA));
@@ -24181,25 +23870,8 @@ public:
                         // arriba (texturasTransparentes), asi que estos quads
                         // salen en el pase con blending sin tocar nada mas.
                         if (Compuesto::Agua::esAgua(block)) {
-                            const int nivelAgua =
-                                (int)Compuesto::Agua::nivelDe(block);
-
-                            // ⭐ LA ALTURA, Y LOS DOS CASOS EN QUE NO APLICA
-                            //
-                            // 8 octavos = celda llena: ocupa el voxel entero.
-                            //
-                            // Y el agua que CAE tambien llena el voxel aunque
-                            // su nivel sea bajo: un chorro fino sigue siendo un
-                            // chorro de arriba abajo, no un charco flotando en
-                            // el aire a media altura. Es lo que ya decia el bit
-                            // CAYENDO de BloqueCompuesto.h; aqui por fin se
-                            // dibuja como dice.
-                            const bool cayendo =
-                                Compuesto::Agua::estaCayendo(block);
                             const float altoAgua =
-                                (nivelAgua >= (int)Compuesto::Agua::LLENA || cayendo)
-                                    ? 1.0f
-                                    : (float)nivelAgua / (float)Compuesto::Agua::LLENA;
+                                Compuesto::Agua::alturaVisual(block);
 
                             const GLuint texAgua = texSegura(block, 0);
 
@@ -32438,6 +32110,12 @@ struct GameState {
             case BLOCK_NOPAL_PUESTO:
                 return BLOCK_NOPAL_FRUTO;
 
+            // La hoja de maguey colocada vuelve a ser su item.
+            case BLOCK_MAGUEY_PUESTO:
+                return BLOCK_IXTLE_HOJA;
+            case BLOCK_AGAVE_AZUL_PUESTO:
+                return BLOCK_PENCA_AGAVE_AZUL;
+
             // Una rama da un PALO: es exactamente lo que es.
             case BLOCK_RAMA_PINO:
             case BLOCK_RAMA_ENCINO:
@@ -33655,6 +33333,13 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
             drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});
             break;
 
+        case BLOCK_MAGUEY_PUESTO:
+            drops.push_back({BLOCK_IXTLE_HOJA, 1, 1.0f});
+            break;
+        case BLOCK_AGAVE_AZUL_PUESTO:
+            drops.push_back({BLOCK_PENCA_AGAVE_AZUL, 1, 1.0f});
+            break;
+
         case BLOCK_TALLGRASS:
         case BLOCK_ORANGE_FLOWER:
             // VEGETACIÓN: no suelta NADA al romperse.
@@ -33919,7 +33604,7 @@ void updateMining(GameState* state, float deltaTime) {
         int bz = result.blockPos.z;
 
         // ⭐ MEJORADO: Si es agua, notificar remoción
-        if (blockType == BLOCK_WATER) {
+        if (esAguaCualquiera(blockType)) {
             state->world.notifyWaterRemoved(bx, by, bz);
         }
         // ⭐ Igual para la lava: al abrir un hueco, la lava vecina debe fluir.
@@ -34473,8 +34158,8 @@ void updateMining(GameState* state, float deltaTime) {
             int nz = bz + directions[d][2];
 
             // Si hay agua adyacente, programar su actualización
-            if (state->world.getBlock(nx, ny, nz) == BLOCK_WATER) {
-                state->world.notifyWaterPlaced(nx, ny, nz);
+            if (esAguaCualquiera(state->world.getBlock(nx, ny, nz))) {
+                state->world.scheduleWaterUpdate(nx, ny, nz);
             }
         }
 
@@ -34912,6 +34597,7 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
     // NO estan en la tabla de items, asi que mandarlos al camino plano los
     // dejaria sin icono.
     if (!isPlaceableItem(blockType) || isCrossSprite(blockType) ||
+        esPencaDeMaguey(blockType) ||
         blockType == BLOCK_PEDAZO_PIEDRA) {
         const GLuint tex = (GLuint)g_itemTextures.resolve((int)blockType);
 
@@ -36036,18 +35722,10 @@ void actualizarBloquesCayendo(GameState* state, float deltaTime) {
                 const Fusion fus = fusionarNiveles(b.tipo, debajo);
 
                 if (fus.tipo != ResultadoFusion::NO_FUSIONA) {
-                    // El agua desplazada se reparte a los lados con la rutina
-                    // que ya existe, para no crear ni destruir agua.
+                    // El agua que tapa se va: las vecinas se recalculan.
                     if (fus.tipo == ResultadoFusion::SOLO_EL_QUE_CAE &&
-                        esAguaCualquiera(debajo)) {
-                        // Cuanta agua habia, en octavos. El BLOCK_WATER de los
-                        // mundos viejos cuenta como celda llena.
-                        const int oct = (debajo == BLOCK_WATER)
-                                      ? (int)Compuesto::Agua::LLENA
-                                      : (int)Compuesto::Agua::nivelDe(debajo);
-                        world.repartirAguaDesplazada(celdaX, celdaAbajo,
-                                                     celdaZ, oct);
-                    }
+                        esAguaCualquiera(debajo))
+                        world.notifyWaterRemoved(celdaX, celdaAbajo, celdaZ);
 
                     world.setBlock(celdaX, celdaAbajo, celdaZ, fus.resultado);
 
@@ -37375,14 +37053,6 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_PICO_PEDERNAL:   // Pico de pedernal - herramienta
         case BLOCK_MARTILLO_PEDERNAL: // Martillo de pedernal - herramienta
         case BLOCK_ESPINAS_NOPAL:   // Espinas - item puro
-        // La penca cortada del tequilana: es una hoja suelta, no un bloque.
-        // Colocarla dejaria un cubo azul en el mundo, que es justo lo que no
-        // se quiere de un item.
-        //
-        // ⚠️ BLOCK_IXTLE_HOJA NO va aqui a proposito: es el bloque con el que
-        // el generador construye la roseta del pulquero, asi que tiene que
-        // seguir siendo colocable o se romperia la planta.
-        case BLOCK_PENCA_AGAVE_AZUL:
         case BLOCK_AGUAMIEL:        // Aguamiel - liquido, se recoge con tazon
         // Los tazones se USAN sobre el maguey, no se colocan en el mundo.
         case BLOCK_TAZON_PINO:
@@ -37413,7 +37083,9 @@ bool isPlaceableItem(BlockType type) {
         // Se cierran aqui. Como ingrediente de crafteo siguen valiendo (la
         // receta del hilo de ixtle los acepta): esto solo impide ponerlos en
         // el mundo, no usarlos.
-        case BLOCK_IXTLE_HOJA:
+        //
+        // La hoja (BLOCK_IXTLE_HOJA) ya no esta en esta lista: es lo que suelta
+        // el maguey, y se coloca acostada como el nopal (ver agaveAlColocar).
         case BLOCK_IXTLE_PEQUENA:
         case BLOCK_IXTLE_GRANDE:
         case BLOCK_IXTLE_ENORME:
@@ -37457,7 +37129,7 @@ bool esMacizoSinCapas(BlockType t) {
     if (esNivelParcial(t) || esCeldaDeCapas(t) || admiteNiveles(t)) return false;
     if (Compuesto::esCompuesto(t)) return false;
     if (isCrossSprite(t) || isRama(t) || esRaiz(t) || esCladodio(t) ||
-        esNopalDeCastilla(t) || esGuijarro(t)) return false;
+        esNopalDeCastilla(t) || esPencaDeMaguey(t) || esGuijarro(t)) return false;
     return isBlockSolid(t) && alturaDe(t) >= 1.0f;
 }
 
@@ -37630,7 +37302,7 @@ void placeBlock(GameState* state) {
         const bool ok = planearDeposito(
             [&](int cy) { return state->world.getBlock(x, cy, z); },
             [](BlockType t) {
-                const bool ocupaSitio = esCladodio(t) || esNopalDeCastilla(t) ||
+                const bool ocupaSitio = esCladodio(t) || esNopalDeCastilla(t) || esAgavePuesto(t) ||
                                         isRama(t) || esRaiz(t) ||
                                         Compuesto::esCompuesto(t);
                 return t == BLOCK_AIR || (isCrossSprite(t) && !ocupaSitio);
@@ -37804,26 +37476,8 @@ void placeBlock(GameState* state) {
                     // sin querer, que cuesta 10 minutos de espera conseguir.
                     if (!esTazonVacio(selectedBlock)) break;
 
-                    // ⭐ EL TAZON SE LLEVA AGUA DE VERDAD
-                    //
-                    // Los niveles van de 8 (celda llena) a 1 (la lamina mas
-                    // fina), asi que llenar un tazon RESTA: queda menos agua
-                    // donde se metio. Al llegar a 0 la celda se queda seca.
-                    //
-                    // YA NO HAY FUENTES INAGOTABLES. El agua es finita en todo
-                    // el mundo, tambien la de los rios: un tazon saca de la
-                    // celda que toca, y esa celda se rellena -- o no -- segun
-                    // lo que le llegue de sus vecinas. En un rio se nota cero
-                    // (tiene millones de celdas alrededor); en un charco
-                    // pequeno se nota, y esa es la idea.
-                    const int nivel = state->world.aguaDe(bx, by, bz);
-
-                    if (nivel > 0) {
-                        state->world.setWaterLevel(bx, by, bz, nivel - 1);
-                        state->world.notifyWaterRemoved(bx, by, bz);
-                        state->world.scheduleWaterUpdate(bx, by, bz);
-                    }
-
+                    // Llenar un tazon no gasta la fuente, como un frasco en
+                    // Minecraft.
                     // El tazon vacio se cambia por el mismo tazon con agua.
                     const BlockType lleno = tazonLleno(selectedBlock);
                     state->inventory.consumeSelected();
@@ -38039,7 +37693,7 @@ void placeBlock(GameState* state) {
                         // maguey): eso son piezas reales y machacarlas al
                         // apilar seria destruir cosas sin querer.
                         const bool ocupaSitio =
-                            esCladodio(encima) || esNopalDeCastilla(encima) ||
+                            esCladodio(encima) || esNopalDeCastilla(encima) || esAgavePuesto(encima) ||
                             isRama(encima) || esRaiz(encima) ||
                             Compuesto::esCompuesto(encima);
                         const bool libre = (encima == BLOCK_AIR) ||
@@ -38308,7 +37962,7 @@ void placeBlock(GameState* state) {
                             // colocaba nada y el jugador no entendia por que.
                             const bool ocupaSitio2 =
                                 esCladodio(encima) ||
-                                esNopalDeCastilla(encima) ||
+                                esNopalDeCastilla(encima) || esAgavePuesto(encima) ||
                                 isRama(encima) || esRaiz(encima) ||
                                 Compuesto::esCompuesto(encima);
                             const bool libre2 =
@@ -38465,7 +38119,7 @@ void placeBlock(GameState* state) {
             // sustituido: el bloque nuevo se coloca al lado, como con
             // cualquier bloque solido. Solo la hierba se reemplaza.
             const bool encadenable = (esCladodio(targetBlock) ||
-                                      esNopalDeCastilla(targetBlock) ||
+                                      esNopalDeCastilla(targetBlock) || esAgavePuesto(targetBlock) ||
                                       isRama(targetBlock));
 
             if (isCrossSprite(targetBlock) && !encadenable) {
@@ -38668,6 +38322,10 @@ void placeBlock(GameState* state) {
 
         if (!intersects) {
             BlockType blockToPlace = state->inventory.getSelectedBlock();
+
+            // LA HOJA DE MAGUEY SE COLOCA ACOSTADA, COMO EL NOPAL.
+            if (esPencaDeMaguey(blockToPlace))
+                blockToPlace = agaveAlColocar(blockToPlace);
 
             // ================================================================
             // DOS BLOQUES EN EL MISMO ESPACIO
@@ -39162,11 +38820,11 @@ void placeBlock(GameState* state) {
                     placePos.x, placePos.y, placePos.z);
 
                 // El agua NO cuenta como ocupante: colocar dentro del agua es
-                // valido y la desplaza (ver `aguaDesplazada` justo abajo). Ese
-                // comportamiento ya existia y no se toca.
+                // valido y le quita la celda.
                 const bool libre = (ocupante == BLOCK_AIR) ||
                                    esAguaCualquiera(ocupante) ||
-                                   isCrossSprite(ocupante);
+                                   (isCrossSprite(ocupante) &&
+                                    !esAgavePuesto(ocupante));
                 if (!libre) {
                     // ⭐⭐ SI EL DESTINO ES UNA CAPA CON SITIO, SE JUNTAN.
                     //
@@ -39197,11 +38855,9 @@ void placeBlock(GameState* state) {
                 }
             }
 
-            // ⭐ Cuanta agua habia AQUI antes de tapar la celda. Se lee ahora,
-            // porque en cuanto se coloque el bloque el dato se pierde. Luego se
-            // le reparte a los vecinos en vez de dejar que se evapore.
-            const int aguaDesplazada =
-                state->world.aguaDe(placePos.x, placePos.y, placePos.z);
+            // ¿Habia agua aqui? Se lee ahora: al colocar el dato se pierde.
+            const bool tapaAgua = esAguaCualquiera(
+                state->world.getBlock(placePos.x, placePos.y, placePos.z));
 
             state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
             // ⭐ Si lo que se acaba de poner es una CAPA, queda apuntada como
@@ -39401,20 +39057,11 @@ void placeBlock(GameState* state) {
             if (blockToPlace == BLOCK_WATER) {
                 state->world.notifyWaterPlaced(placePos.x, placePos.y, placePos.z);
             }
-            // ⭐ UN BLOQUE PUESTO EN EL AGUA LA DESPLAZA, NO LA BORRA.
-            //
-            // Esto es lo que se pidio: al meter un bloque en el rio, el agua
-            // que ocupaba esa celda NO desaparece -- se reparte por alrededor
-            // en niveles pequenos, que es lo que hace de verdad.
-            //
-            // El agua desplazada se le entrega a los vecinos antes de que el
-            // bloque nuevo ocupe el sitio (el valor se leyo justo antes de
-            // colocar, en aguaDesplazada). Si no cabe en ningun vecino, se
-            // pierde: el bloque la ha expulsado del mundo, igual que un cubo
-            // metido en un vaso lleno hace que se derrame por la mesa.
-            else if (aguaDesplazada > 0) {
-                state->world.repartirAguaDesplazada(
-                    placePos.x, placePos.y, placePos.z, aguaDesplazada);
+            // UN BLOQUE PUESTO EN EL AGUA OCUPA SU CELDA Y YA. No empuja agua a
+            // ningun sitio: las vecinas se recalculan y bajan si esta las
+            // alimentaba.
+            else if (tapaAgua) {
+                state->world.notifyWaterRemoved(placePos.x, placePos.y, placePos.z);
             }
             // ⭐ SISTEMA DE LAVA: la lava colocada a mano es fuente y empieza
             // a fluir (despacio) desde ese punto.
@@ -46858,8 +46505,8 @@ int main() {
 
                 if (waterFlowEnabled) {
                     waterUpdateTimer += deltaTime;
-                    // ⭐ AJUSTADO: Actualizar cada 0.5 segundos (2 veces por segundo) para flujo más natural
-                    if (waterUpdateTimer >= 0.5) {
+                    // Cada 0.25 s, el ritmo del agua en Minecraft (5 ticks).
+                    if (waterUpdateTimer >= 0.25) {
                         g_gameState->world.updateWaterFlow();
                         waterUpdateTimer = 0.0;
                     }

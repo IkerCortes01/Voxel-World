@@ -35902,13 +35902,14 @@ void actualizarVida(GameState* state, float deltaTime) {
                             continue;
                         }
                         // FRUTO solo si esta suelto: los de una mata son planta.
-                        const bool suelto = b == BLOCK_NOPAL_PUESTO ||
+                        // Solo el nopal: la hoja de maguey colocada tambien
+                        // cuenta como suelta, pero el agua no le hace nada.
+                        const bool suelto = esNopalDeCastilla(b) &&
                                             pencaPuestaPorJugador(b, vecino);
                         if (b != BLOCK_NOPAL_TIRAS && !suelto) continue;
                         if (!tocaAgua(vecino)) continue;
                         if (b != BLOCK_NOPAL_TIRAS) {
-                            if (b != BLOCK_NOPAL_MOJADO)
-                                state->world.setBlock(x, y, z, BLOCK_NOPAL_MOJADO);
+                            state->world.setBlock(x, y, z, BLOCK_NOPAL_MOJADO);
                             continue;
                         }
                         bool apuntadas = false;

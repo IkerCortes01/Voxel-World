@@ -47,6 +47,15 @@ TEST_CASE("Maguey: el motor la coloca, la dibuja acostada y la devuelve") {
     CHECK(src.find("drops.push_back({BLOCK_IXTLE_HOJA, 1, 1.0f});") != std::string::npos);
     CHECK(src.find("drops.push_back({BLOCK_PENCA_AGAVE_AZUL, 1, 1.0f});") != std::string::npos);
 
+    // PEDIDO: "elimina que el maguey copie los sistemas de agua, sin espinas etc
+    // del nopal". El barrido del agua convertia la hoja en nopal mojado, porque
+    // pencaPuestaPorJugador tambien la da por suelta.
+    const size_t b = src.find("EL NOPAL REACCIONA AL AGUA AUNQUE LE LLEGUE DESPUES");
+    REQUIRE(b != std::string::npos);
+    const std::string barrido = src.substr(b, 3000);
+    CHECK(barrido.find("const bool suelto = esNopalDeCastilla(b) &&") != std::string::npos);
+    CHECK(src.find("esAgavePuesto(blockToPlace)") == std::string::npos);
+
     // El item ya no esta en la lista de los que no se colocan.
     const size_t i = src.find("bool isPlaceableItem(BlockType type) {");
     REQUIRE(i != std::string::npos);

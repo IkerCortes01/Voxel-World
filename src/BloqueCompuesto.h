@@ -181,6 +181,9 @@ enum Familia : int {
     // ⚠️ VA AL FINAL, despues de FAM_AGAVE_ABISAII. Misma regla de siempre.
     FAM_NOPAL,
 
+    // Una pieza dentro del agua (ver esPlantaEnAgua en BlockType.h).
+    FAM_PLANTA_EN_AGUA,
+
     FAM_COUNT
 };
 
@@ -193,6 +196,8 @@ constexpr int COMPUESTO_FIN =
 // aqui en vez de dejar que el motor confunda agua con vegetacion.
 static_assert(ESTADOS_POR_FAMILIA == BLOQUE_COMPUESTO_ESTADOS,
               "ESTADOS_POR_FAMILIA y BLOQUE_COMPUESTO_ESTADOS tienen que coincidir");
+static_assert((int)FAM_PLANTA_EN_AGUA == BLOQUE_COMPUESTO_FAM_PLANTA_EN_AGUA,
+              "FAM_PLANTA_EN_AGUA cambio de indice");
 static_assert((int)FAM_AGUA == BLOQUE_COMPUESTO_FAM_AGUA,
               "FAM_AGUA cambio de indice: actualiza BLOQUE_COMPUESTO_FAM_AGUA "
               "en BlockType.h o el motor tratara el agua como una planta");
@@ -1498,6 +1503,7 @@ namespace Agua {
         // contra el suelo: un mar guardado antes de este sistema se veria
         // vacio hasta que el flujo lo tocara celda a celda.
         if (t == BLOCK_WATER) return 1.0f;
+        if (esPlantaEnAgua(t)) return (float)nivelDePlantaEnAgua(t) / (float)LLENA;
         if (!esAgua(t)) return 0.0f;
         if (estaCayendo(t)) return 1.0f;
         // Los rios y la orilla son agua natural: un bloque completo, aunque un
@@ -1590,6 +1596,7 @@ inline bool familiaTieneModelo(Familia f) {
         case FAM_AGAVE_AZUL:    return true;
         case FAM_AGAVE_ABISAII: return true;
         case FAM_NOPAL:         return true;
+        case FAM_PLANTA_EN_AGUA: return true;
         default:                return false;   // reservada, aun sin geometria
     }
 }

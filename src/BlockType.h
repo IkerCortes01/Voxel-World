@@ -976,6 +976,49 @@ constexpr int BLOQUE_COMPUESTO_ESTADOS = 65536;
 // static_assert alli, contra el valor real del enum.
 constexpr int BLOQUE_COMPUESTO_FAM_AGUA = 5;
 
+// ============================================================================
+// UNA PLANTA DENTRO DEL AGUA
+// ============================================================================
+// PEDIDO: "que el maguey y nopal pueda estar dentro del agua y que no genere
+// aire". Una pieza no llena su celda, asi que al quitarle el agua dejaba una
+// burbuja alrededor. Esta familia guarda las dos cosas en un ID:
+//
+//     bits 0..11   la planta (su BlockType)
+//     bits 12..15  el agua que la rodea, 1..8. 8 es una fuente.
+//
+// Se guarda sola con el chunk. Quien pregunte por la planta usa plantaSeca().
+constexpr int BLOQUE_COMPUESTO_FAM_PLANTA_EN_AGUA = 9;
+
+inline bool esPlantaEnAgua(BlockType t) {
+    const int base = BLOQUE_COMPUESTO_BASE_ID +
+                     BLOQUE_COMPUESTO_FAM_PLANTA_EN_AGUA * BLOQUE_COMPUESTO_ESTADOS;
+    return (int)t >= base && (int)t < base + BLOQUE_COMPUESTO_ESTADOS;
+}
+
+// La planta que hay en la celda. Lo que no es planta en agua se devuelve igual.
+inline BlockType plantaSeca(BlockType t) {
+    if (!esPlantaEnAgua(t)) return t;
+    return (BlockType)(((int)t - BLOQUE_COMPUESTO_BASE_ID) & 0x0FFF);
+}
+
+// Cuanta agua la rodea, 1..8. 0 si no es una planta en agua.
+inline int nivelDePlantaEnAgua(BlockType t) {
+    if (!esPlantaEnAgua(t)) return 0;
+    return (((int)t - BLOQUE_COMPUESTO_BASE_ID) >> 12) & 0x0F;
+}
+
+inline BlockType plantaConAgua(BlockType planta, int nivel) {
+    return (BlockType)(BLOQUE_COMPUESTO_BASE_ID +
+                       BLOQUE_COMPUESTO_FAM_PLANTA_EN_AGUA * BLOQUE_COMPUESTO_ESTADOS +
+                       ((nivel & 0x0F) << 12) + ((int)planta & 0x0FFF));
+}
+
+// `nueva` con la misma agua que tenia `antes`: la pieza cambia, el agua sigue.
+inline BlockType conLaMismaAgua(BlockType antes, BlockType nueva) {
+    return esPlantaEnAgua(antes) ? plantaConAgua(nueva, nivelDePlantaEnAgua(antes))
+                                 : nueva;
+}
+
 // ¿Es una celda de agua con volumen?
 //
 // El agua vive en el rango compuesto (para heredar gratis el guardado del
@@ -1008,8 +1051,11 @@ inline bool esAguaVolumen(BlockType t) {
 // El precio es que cada sitio que preguntaba `== BLOCK_WATER` tiene que
 // preguntar esto. Los que no se cambien no reconoceran el agua nueva: se
 // nadara raro, se colocaran bloques dentro o el mesher la dibujara mal.
+//
+// Una PLANTA DENTRO DEL AGUA tambien cuenta: la celda tiene agua.
+inline bool esPlantaEnAgua(BlockType t);
 inline bool esAguaCualquiera(BlockType t) {
-    return t == BLOCK_WATER || esAguaVolumen(t);
+    return t == BLOCK_WATER || esAguaVolumen(t) || esPlantaEnAgua(t);
 }
 
 // La pieza Nopal de Castilla: la que nace de la mata o la colocada a mano. Solo
@@ -2809,6 +2855,14 @@ inline bool esPencaDeNopal(BlockType t) {
            t == BLOCK_NOPAL_MOJADO   ||
            t == BLOCK_NOPAL_SECO     || t == BLOCK_NOPAL_SIN_BABA ||
            t == BLOCK_NOPAL_TIRAS;
+}
+
+// ¿Puede esta pieza estar dentro del agua? Las piezas del nopal y las hojas de
+// maguey colocadas. Las matas enteras no: ocupan varias celdas y su ID no cabe.
+inline bool sePuedeInundar(BlockType t) {
+    return esPencaDeNopal(t) || t == BLOCK_NOPAL_BABA || esTuna(t) ||
+           esCladodio(t) || t == BLOCK_MAGUEY_PUESTO ||
+           t == BLOCK_AGAVE_AZUL_PUESTO;
 }
 
 // ¿Es un hacha, de la clase que sea? Las dos cortan lo mismo; la de pedernal

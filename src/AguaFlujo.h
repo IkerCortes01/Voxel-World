@@ -31,6 +31,7 @@ constexpr int BUSQUEDA_HUECO = 4;
 // naturales aunque un mundo viejo los guardara con nivel bajo.
 inline bool esFuente(BlockType b) {
     if (b == BLOCK_WATER) return true;
+    if (esPlantaEnAgua(b)) return nivelDePlantaEnAgua(b) >= (int)A::LLENA;
     if (!A::esAgua(b)) return false;
     if (A::esOrilla(b) || A::tieneCorriente(b)) return true;
     return A::nivelDe(b) >= A::LLENA && !A::estaCayendo(b);
@@ -39,6 +40,7 @@ inline bool esFuente(BlockType b) {
 // Cuanto alimenta a sus vecinas: fuente y caida 8, el flujo su nivel.
 inline int fuerza(BlockType b) {
     if (esFuente(b)) return (int)A::LLENA;
+    if (esPlantaEnAgua(b)) return nivelDePlantaEnAgua(b);
     if (!A::esAgua(b)) return 0;
     if (A::estaCayendo(b)) return (int)A::LLENA;
     return (int)A::nivelDe(b);
@@ -68,8 +70,9 @@ BlockType estadoNuevo(TGet get) {
     const BlockType b = get(0, 0, 0);
     if (esFuente(b)) return b;
 
-    // Con agua encima, cae.
-    if (esAguaCualquiera(get(0, 1, 0))) return A::nuevo(A::LLENA, true);
+    // Con agua encima, cae. La planta se queda como esta: no se vuelve fuente.
+    if (esAguaCualquiera(get(0, 1, 0)))
+        return esPlantaEnAgua(b) ? b : A::nuevo(A::LLENA, true);
 
     int fuentes = 0, mayor = 0;
     for (const auto& l : LADOS) {
@@ -83,10 +86,14 @@ BlockType estadoNuevo(TGet get) {
     if (fuentes >= 2) {
         const BlockType abajo = get(0, -1, 0);
         if (esFuente(abajo) || (abajo != BLOCK_AIR && !A::esAgua(abajo)))
-            return A::nuevo(A::LLENA);
+            return esPlantaEnAgua(b) ? plantaConAgua(plantaSeca(b), A::LLENA)
+                                     : A::nuevo(A::LLENA);
     }
 
     const int nivel = mayor - 1;
+    // Sin agua, la planta se queda en su celda ya seca.
+    if (esPlantaEnAgua(b))
+        return nivel <= 0 ? plantaSeca(b) : plantaConAgua(plantaSeca(b), nivel);
     return nivel <= 0 ? BLOCK_AIR : A::nuevo((uint16_t)nivel);
 }
 
@@ -149,7 +156,7 @@ template <typename TGet>
 Plan planear(TGet get) {
     Plan plan;
     plan.propia = estadoNuevo(get);
-    if (plan.propia == BLOCK_AIR) return plan;
+    if (!esAguaCualquiera(plan.propia)) return plan;
 
     int fuentes = 0;
     for (const auto& l : LADOS)

@@ -235,6 +235,7 @@ inline const char* nombreDeBase(BlockType t) {
 inline const char* nombreDeFamilia(Compuesto::Familia f) {
     switch (f) {
         case Compuesto::FAM_MAGUEY:        return "MAGUEY PULQUERO";
+        case Compuesto::FAM_PLANTA_EN_AGUA: return "PLANTA EN AGUA";
         case Compuesto::FAM_ARBOL_FRUTO:   return "ARBOL FRUTAL";
         case Compuesto::FAM_PIEDRA_MUSGO:  return "PIEDRA CON MUSGO";
         case Compuesto::FAM_PLANTA_FLOR:   return "PLANTA CON FLOR";

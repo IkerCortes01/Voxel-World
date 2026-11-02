@@ -344,6 +344,7 @@ struct Vec3i {
 // decoracion del terreno con su propio reparto por bioma.
 
 void getBlockColor(BlockType type, float& r, float& g, float& b) {
+    type = plantaSeca(type);
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
     // Una celda de capas (mixta o pila) toma el color de su capa de abajo.
     if (esCeldaDeCapas(type)) type = materialAbajo(type);
@@ -514,6 +515,7 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
 // planos cruzados de espesor cero, sus quads se separan 5 pixeles (5/16 de
 // bloque), asi que la planta tiene volumen real al mirarla de lado.
 bool isNopal(BlockType type) {
+    type = plantaSeca(type);
     return type == BLOCK_NOPAL_BASE_PASTO ||
            type == BLOCK_NOPAL_BASE_TIERRA ||
            type == BLOCK_NOPAL_BASE_ARENA ||
@@ -534,6 +536,7 @@ bool isNopalSolido(BlockType type) {
 bool isRama(BlockType type);   // definida mas abajo
 
 bool isCrossSprite(BlockType type) {
+    type = plantaSeca(type);
     // Las ramas tienen su propia geometria en el mesher, pero comparten con
     // los sprites que NO llenan el voxel: no tapan las caras del vecino y se
     // pueden atravesar.
@@ -1448,6 +1451,7 @@ inline bool nopalEncadena(BlockType b, BlockType propio = BLOCK_AIR) {
 // `nopalEncadena`, que es lo que necesita conocer BlockType.
 template <typename TGet>
 inline bool pencaPuestaPorJugador(BlockType tipo, TGet get) {
+    tipo = plantaSeca(tipo);
     // La hoja de maguey colocada siempre va acostada.
     if (esAgavePuesto(tipo)) return true;
     if (!esNopalDeCastilla(tipo) && tipo != BLOCK_NOPAL_MOJADO) return false;
@@ -2517,6 +2521,7 @@ template <typename TGet>
 bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
                     float& minX, float& minY, float& minZ,
                     float& maxX, float& maxY, float& maxZ) {
+    type = plantaSeca(type);
     // --- LA TUNA: bloque propio, conectado a la penca ---
     // Sigue siendo un bulto de 6x4x4 con su propia caja: se selecciona y se
     // arranca por separado. Pero NO queda suelta en medio del voxel: se
@@ -2988,6 +2993,7 @@ struct FormaBloque {
 // estaba declarado ahi.
 template <typename TGet>
 FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
+    type = plantaSeca(type);
     FormaBloque f;
 
     // --- EL MAGUEY CAPADO CON JUGO: SOLIDO SOLO EL CUENCO ---
@@ -3186,7 +3192,7 @@ bool isBlockSolid(BlockType type) {
     // Va ANTES de la regla de los compuestos: el agua vive en el rango
     // compuesto (para heredar el guardado del nivel), pero es un liquido y no
     // frena. Sin esta linea el jugador caminaria por encima del mar.
-    if (Compuesto::Agua::esAgua(type)) return false;
+    if (Compuesto::Agua::esAgua(type) || esPlantaEnAgua(type)) return false;
 
     // ⭐ EL MAGUEY COMPUESTO: SOLIDO, pero solo donde hay planta.
     //
@@ -3376,6 +3382,7 @@ inline bool llenaSuVoxelFrenteALiquido(BlockType type) {
 
 // Obtener tiempo de rotura de un bloque en segundos (como Minecraft)
 float getBlockBreakTime(BlockType type) {
+    type = plantaSeca(type);
     // El AGUA no se rompe: se atraviesa. Va antes de la regla de los
     // compuestos porque vive en su rango, y sin esto se "picaria" como si
     // fuera una planta de 0.6 s.
@@ -3602,6 +3609,7 @@ constexpr float HERRAMIENTA_MAL_USADA_BREAK_TIME = 780.0f;  // 13 minutos
 
 float getBlockBreakTimeForMode(BlockType type, int gameMode,
                                BlockType herramienta) {
+    type = plantaSeca(type);
     // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
     const bool isSurvival = (gameMode != 1);
 
@@ -7701,6 +7709,7 @@ public:
     }
 
     GLuint getBlockTexture(BlockType type, int face) {
+    type = plantaSeca(type);
         // face: 0=top, 1=bottom, 2=north, 3=south, 4=east, 5=west
 
         // ⭐ NIVELES: un bloque parcial usa la MISMA textura que el entero.
@@ -19093,7 +19102,7 @@ public:
                     setBlock(x, y, z, plan.propia);
                     despertarVecinos(x, y, z);
                 }
-                if (plan.propia == BLOCK_AIR) continue;
+                if (!esAguaCualquiera(plan.propia)) continue;
 
                 absorberDebajo(x, y, z);
 
@@ -20122,8 +20131,24 @@ public:
                 bal->ultimoLatido.store(glfwGetTime());
             }
             for (int z = 0; z < CHUNK_SIZE; z++) {
-                for (int y = 0; y < yTecho; y++) {
-                    BlockType block = bloqueLocal(x, y, z);
+                bool plantaPendiente = false;
+                for (int y = 0; y < yTecho || plantaPendiente; y++) {
+                    BlockType block;
+                    if (plantaPendiente) {
+                        // Segunda vuelta de la misma celda: ahora la planta.
+                        --y;
+                        plantaPendiente = false;
+                        block = plantaSeca(bloqueLocal(x, y, z));
+                    } else {
+                        block = bloqueLocal(x, y, z);
+                        // UNA PLANTA EN AGUA SON DOS COSAS EN LA CELDA: primero
+                        // se dibuja su agua y en la siguiente vuelta, ella.
+                        if (esPlantaEnAgua(block)) {
+                            plantaPendiente = true;
+                            block = Compuesto::Agua::nuevo(
+                                (uint16_t)nivelDePlantaEnAgua(block));
+                        }
+                    }
                     if (block == BLOCK_AIR) continue;
                     // Baliza fina: que celda y que bloque se esta procesando.
                     g_diagBalizaCelda.store((x << 20) | (y << 8) | z);
@@ -32024,6 +32049,7 @@ struct GameState {
 
     // ⭐ Determinar qué item debe caer cuando se rompe un bloque
     BlockType getDroppedItem(BlockType brokenBlock) {
+    brokenBlock = plantaSeca(brokenBlock);
         // ⭐ LA TIERRA MOJADA SUELTA TIERRA NORMAL.
         //
         // Va antes del switch porque el bloque mojado no tiene que repetir
@@ -32674,8 +32700,9 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
             tMaxZ += tDeltaZ;
         }
 
-        // AHORA verificar el bloque (después de avanzar)
-        BlockType block = world.getBlock(x, y, z);
+        // AHORA verificar el bloque (después de avanzar). De una planta en agua
+        // se selecciona la planta.
+        BlockType block = plantaSeca(world.getBlock(x, y, z));
 
         // Detectar TODOS los bloques sólidos (como Minecraft - solo ignora aire y agua)
         //
@@ -33018,6 +33045,7 @@ struct BlockDrop {
 // cuatro repartidas por la rotura de columnas y la vegetacion.
 std::vector<BlockDrop> getBlockDrops(BlockType blockType,
                                      int bx = 0, int by = 0, int bz = 0) {
+    blockType = plantaSeca(blockType);
     std::vector<BlockDrop> drops;
 
     // Un bloque COMPUESTO no suelta "un compuesto": lo que da lo decide la
@@ -33432,7 +33460,25 @@ void updateMining(GameState* state, float deltaTime) {
         }
     }
 
-    BlockType blockType = state->world.getBlock(result.blockPos.x, result.blockPos.y, result.blockPos.z);
+    const BlockType celdaAntes = state->world.getBlock(
+        result.blockPos.x, result.blockPos.y, result.blockPos.z);
+    BlockType blockType = plantaSeca(celdaAntes);
+
+    // ROMPER UNA PLANTA EN AGUA DEJA EL AGUA. Al salir, por el camino que sea:
+    // este codigo tiene muchos `return` despues de quitar el bloque.
+    struct DevolverAgua {
+        GameState* state;
+        Vec3i pos;
+        BlockType antes;
+        ~DevolverAgua() {
+            if (!esPlantaEnAgua(antes)) return;
+            if (state->world.getBlock(pos.x, pos.y, pos.z) != BLOCK_AIR) return;
+            state->world.setBlock(pos.x, pos.y, pos.z, Compuesto::Agua::nuevo(
+                (uint16_t)nivelDePlantaEnAgua(antes)));
+            state->world.scheduleWaterUpdate(pos.x, pos.y, pos.z);
+            state->world.notifyWaterRemoved(pos.x, pos.y, pos.z);
+        }
+    } devolverAgua{ state, result.blockPos, celdaAntes };
 
     // Solo no minar aire (el agua no se puede romper según getBlockBreakTime)
     if (blockType == BLOCK_AIR) {
@@ -35806,7 +35852,7 @@ void actualizarVida(GameState* state, float deltaTime) {
                 if (y < 1 || y >= CHUNK_HEIGHT - 1) continue;
                 for (int x = px - 12; x <= px + 12; ++x) {
                     for (int z = pz - 12; z <= pz + 12; ++z) {
-                        const BlockType b = state->world.getBlock(x, y, z);
+                        const BlockType b = plantaSeca(state->world.getBlock(x, y, z));
                         auto vecino = [&](int dx, int dy, int dz) {
                             return state->world.getBlock(x + dx, y + dy, z + dz);
                         };
@@ -35850,7 +35896,7 @@ void actualizarVida(GameState* state, float deltaTime) {
             // Si ya no hay tiras ahi (el jugador las rompio o las movio), se
             // descarta el temporizador en vez de convertir un bloque ajeno.
             const BlockType actual = state->world.getBlock(t.x, t.y, t.z);
-            if (actual != BLOCK_NOPAL_TIRAS) {
+            if (plantaSeca(actual) != BLOCK_NOPAL_TIRAS) {
                 g_tirasDesbabando[i] = g_tirasDesbabando.back();
                 g_tirasDesbabando.pop_back();
                 continue;
@@ -35858,7 +35904,8 @@ void actualizarVida(GameState* state, float deltaTime) {
 
             if (dt >= TIRAS_DESBABAR_SEG) {
                 // Las tiras quedan limpias...
-                state->world.setBlock(t.x, t.y, t.z, BLOCK_NOPAL_SIN_BABA);
+                state->world.setBlock(t.x, t.y, t.z,
+                                      conLaMismaAgua(actual, BLOCK_NOPAL_SIN_BABA));
                 // ...y sueltan DOS babas y DOS espinas, que caen como item.
                 //
                 // ⭐ Las espinas son lo que se le quita a la penca al
@@ -35902,14 +35949,16 @@ void actualizarVida(GameState* state, float deltaTime) {
             const double dt = state->tiempoJugadoSegundos - p.t0;
 
             // Si ya no esta ahi la penca mojada, se descarta el temporizador.
-            if (state->world.getBlock(p.x, p.y, p.z) != BLOCK_NOPAL_SIN_BABA) {
+            const BlockType celdaPenca = state->world.getBlock(p.x, p.y, p.z);
+            if (plantaSeca(celdaPenca) != BLOCK_NOPAL_SIN_BABA) {
                 g_pencasSecandose[i] = g_pencasSecandose.back();
                 g_pencasSecandose.pop_back();
                 continue;
             }
 
             if (dt >= PENCA_SECAR_SEG) {
-                state->world.setBlock(p.x, p.y, p.z, BLOCK_NOPAL_SECO);
+                state->world.setBlock(p.x, p.y, p.z,
+                                      conLaMismaAgua(celdaPenca, BLOCK_NOPAL_SECO));
                 g_pencasSecandose[i] = g_pencasSecandose.back();
                 g_pencasSecandose.pop_back();
             } else {
@@ -38037,7 +38086,8 @@ void placeBlock(GameState* state) {
             // Ahora que ramas y nopal SI ocupan volumen, ninguno debe ser
             // sustituido: el bloque nuevo se coloca al lado, como con
             // cualquier bloque solido. Solo la hierba se reemplaza.
-            const bool encadenable = (esCladodio(targetBlock) ||
+            const bool encadenable = (esPlantaEnAgua(targetBlock) ||
+                                      esCladodio(targetBlock) ||
                                       esNopalDeCastilla(targetBlock) || esAgavePuesto(targetBlock) ||
                                       isRama(targetBlock));
 
@@ -38741,8 +38791,10 @@ void placeBlock(GameState* state) {
                 // El agua NO cuenta como ocupante: colocar dentro del agua es
                 // valido y le quita la celda.
                 const bool libre = (ocupante == BLOCK_AIR) ||
-                                   esAguaCualquiera(ocupante) ||
+                                   (esAguaCualquiera(ocupante) &&
+                                    !esPlantaEnAgua(ocupante)) ||
                                    (isCrossSprite(ocupante) &&
+                                    !esPlantaEnAgua(ocupante) &&
                                     !esAgavePuesto(ocupante));
                 if (!libre) {
                     // ⭐⭐ SI EL DESTINO ES UNA CAPA CON SITIO, SE JUNTAN.
@@ -38775,10 +38827,22 @@ void placeBlock(GameState* state) {
             }
 
             // ¿Habia agua aqui? Se lee ahora: al colocar el dato se pierde.
-            const bool tapaAgua = esAguaCualquiera(
-                state->world.getBlock(placePos.x, placePos.y, placePos.z));
+            const BlockType aguaAntes =
+                state->world.getBlock(placePos.x, placePos.y, placePos.z);
+            const bool tapaAgua = esAguaCualquiera(aguaAntes);
 
-            state->world.setBlock(placePos.x, placePos.y, placePos.z, blockToPlace);
+            // UNA PIEZA DEL NOPAL O DEL MAGUEY SE QUEDA DENTRO DEL AGUA, CON EL
+            // NIVEL QUE HABIA. Una caida cuenta como 7 para no crear una fuente.
+            const bool quedaEnAgua = tapaAgua && sePuedeInundar(blockToPlace);
+            int nivelEnAgua = 0;
+            if (quedaEnAgua) {
+                nivelEnAgua = AguaFlujo::fuerza(aguaAntes);
+                if (Compuesto::Agua::estaCayendo(aguaAntes)) nivelEnAgua = 7;
+            }
+
+            state->world.setBlock(placePos.x, placePos.y, placePos.z,
+                                  quedaEnAgua ? plantaConAgua(blockToPlace, nivelEnAgua)
+                                              : blockToPlace);
             // ⭐ Si lo que se acaba de poner es una CAPA, queda apuntada como
             // apilado del jugador: al picarla devolvera lo que costo. Un
             // nivel que puso el MUNDO no esta en el registro y suelta uno.
@@ -38981,6 +39045,8 @@ void placeBlock(GameState* state) {
             // alimentaba.
             else if (tapaAgua) {
                 state->world.notifyWaterRemoved(placePos.x, placePos.y, placePos.z);
+                if (quedaEnAgua)
+                    state->world.scheduleWaterUpdate(placePos.x, placePos.y, placePos.z);
             }
             // ⭐ SISTEMA DE LAVA: la lava colocada a mano es fuente y empieza
             // a fluir (despacio) desde ese punto.

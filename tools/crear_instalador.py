@@ -4,9 +4,10 @@
     python tools/crear_instalador.py
 
 El instalador lo arma IExpress, que viene con Windows: no hay nada que instalar
-para generarlo. Dentro lleva el juego en un ZIP y un script de PowerShell que lo
-copia a %APPDATA%\\VoxelWorld. Los mundos se guardan en esa misma carpeta, y
-reinstalar no los toca.
+para generarlo. Dentro lleva el proyecto en un ZIP y un script de PowerShell que
+lo copia a %APPDATA%\\VoxelWorld por etapas, con una ventana de progreso: la
+aplicacion, las texturas, los sonidos y los demas archivos. Los mundos se guardan
+en esa misma carpeta, y reinstalar no los toca.
 """
 import shutil
 import subprocess
@@ -20,19 +21,77 @@ DIST = RAIZ / "dist"
 TMP = Path(tempfile.gettempdir()) / "voxelworld_instalador"
 SALIDA = DIST / "VoxelWorld-Instalador.exe"
 
-# Originales de trabajo de las texturas: el juego no los carga.
-EXCLUIR = {"_hd_original", "_borde_original", "_original", "_fuente"}
+# Lo que NO viaja al PC del jugador. Todo lo demas de la carpeta del proyecto, si.
+EXCLUIR_RAIZ = {
+    "build", "dist", "graphify-out",   # generados, 280 MB
+    "saves",                           # los mundos de quien genera el instalador
+    "HTML.txt", "Voxelworld.com", "nul", "dens.cpp",
+}
+# Originales de 1254 px: 254 MB que el juego no carga. Triplicarian la descarga.
+EXCLUIR_DENTRO = {"_hd_original"}
 
 INSTALAR = r"""param(
     [string]$Destino = (Join-Path $env:APPDATA 'VoxelWorld'),
     [switch]$Prueba      # sin accesos directos, sin registro y sin abrir el juego
 )
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+function Etapa([string]$nombre) {
+    if ($nombre -match '^(VoxelWorld\.exe|desinstalar\.ps1)$') { return 0 }
+    if ($nombre -match '^(resourcepacks/)?sounds/') { return 2 }
+    if ($nombre -match '^resourcepacks/') { return 1 }
+    return 3
+}
+$a = [char]0xE1; $o = [char]0xF3
+$ETAPAS = @("Instalando la aplicaci${o}n", 'Instalando las texturas',
+            'Instalando los sonidos', "Instalando los dem${a}s archivos")
+
+$ventana = New-Object Windows.Forms.Form
+$ventana.Text = 'Instalando Voxel World'
+$ventana.ClientSize = New-Object Drawing.Size(460, 120)
+$ventana.FormBorderStyle = 'FixedDialog'
+$ventana.ControlBox = $false
+$ventana.StartPosition = 'CenterScreen'
+$ventana.BackColor = [Drawing.Color]::FromArgb(10, 12, 24)
+$ventana.ForeColor = [Drawing.Color]::White
+$texto = New-Object Windows.Forms.Label
+$texto.SetBounds(20, 18, 420, 24)
+$detalle = New-Object Windows.Forms.Label
+$detalle.SetBounds(20, 82, 420, 24)
+$detalle.ForeColor = [Drawing.Color]::Silver
+$barra = New-Object Windows.Forms.ProgressBar
+$barra.SetBounds(20, 48, 420, 24)
+$ventana.Controls.AddRange(@($texto, $barra, $detalle))
+# Sin esto abre detras de las demas ventanas, y parece que no hace nada.
+$ventana.TopMost = $true
+$ventana.Show()
+$ventana.Activate()
+[Windows.Forms.Application]::DoEvents()
+
 try {
-    Write-Host 'Instalando Voxel World en' $Destino
     New-Item -ItemType Directory -Force -Path $Destino | Out-Null
+    $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $PSScriptRoot 'juego.zip'))
     # Encima de lo que haya: saves\ no viene en el ZIP, asi que no se toca.
-    Expand-Archive -LiteralPath (Join-Path $PSScriptRoot 'juego.zip') -DestinationPath $Destino -Force
+    $archivos = @($zip.Entries | Where-Object { $_.Name } |
+                  Sort-Object { Etapa $_.FullName })
+    $total = [double](($archivos | Measure-Object Length -Sum).Sum)
+    $hecho = 0.0
+    foreach ($e in $archivos) {
+        $texto.Text = $ETAPAS[(Etapa $e.FullName)]
+        $porcentaje = [int](100 * $hecho / $total)
+        $barra.Value = $porcentaje
+        $detalle.Text = "$porcentaje %"
+        [Windows.Forms.Application]::DoEvents()
+        $ruta = Join-Path $Destino ($e.FullName -replace '/', '\')
+        New-Item -ItemType Directory -Force -Path (Split-Path $ruta) | Out-Null
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $ruta, $true)
+        $hecho += $e.Length
+    }
+    $zip.Dispose()
+    $barra.Value = 100
 
     $exe = Join-Path $Destino 'VoxelWorld.exe'
     $desinstalar = Join-Path $Destino 'desinstalar.ps1'
@@ -58,10 +117,11 @@ try {
         Set-ItemProperty -Path $clave -Name NoRepair -Value 1 -Type DWord
         Start-Process -FilePath $exe -WorkingDirectory $Destino
     }
-    Write-Host 'Listo.'
+    $ventana.Close()
 } catch {
-    Write-Host 'No se pudo instalar:' $_
-    if (-not $Prueba) { Read-Host 'Pulsa Enter para cerrar' }
+    $ventana.Close()
+    if ($Prueba) { Write-Output "ERROR: $_" }
+    else { [Windows.Forms.MessageBox]::Show("No se pudo instalar. Si el juego esta abierto, cierralo y vuelve a intentarlo.`n`n$_", 'Voxel World') | Out-Null }
     exit 1
 }
 """
@@ -83,7 +143,7 @@ if (-not $Prueba) {
 
 LANZADOR = (
     "@echo off\r\n"
-    'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0instalar.ps1"\r\n'
+    'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0instalar.ps1"\r\n'
 )
 
 SED = """[Version]
@@ -138,11 +198,15 @@ def crear_zip():
     with zipfile.ZipFile(TMP / "juego.zip", "w", zipfile.ZIP_DEFLATED) as z:
         z.write(exe, "VoxelWorld.exe")
         z.writestr("desinstalar.ps1", DESINSTALAR)
-        for carpeta in ("resourcepacks", "sounds"):
-            for f in sorted((RAIZ / carpeta).rglob("*")):
-                relativo = f.relative_to(RAIZ)
-                if f.is_file() and not EXCLUIR.intersection(relativo.parts):
-                    z.write(f, relativo.as_posix())
+        for f in sorted(RAIZ.rglob("*")):
+            relativo = f.relative_to(RAIZ)
+            primero = relativo.parts[0]
+            # Lo que empieza por punto (.git, .claude...) tampoco viaja.
+            if (primero.startswith(".") or primero in EXCLUIR_RAIZ or
+                    EXCLUIR_DENTRO.intersection(relativo.parts) or
+                    "__pycache__" in relativo.parts or not f.is_file()):
+                continue
+            z.write(f, relativo.as_posix())
 
 
 def main():

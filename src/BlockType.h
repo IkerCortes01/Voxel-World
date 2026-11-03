@@ -2494,6 +2494,12 @@ inline bool esGuijarro(BlockType t) {
            t == BLOCK_PEDAZO_LIMONITA || t == BLOCK_PEDAZO_NIEVE;
 }
 
+// ¿Se recoge con la tecla F en vez de picarse? Los pedacitos del suelo:
+// pedernal, terrones, piedritas, cobre, hierros y nieve suelta.
+inline bool seRecogeConF(BlockType t) {
+    return esGuijarro(t);
+}
+
 // ¿Es el cuerpo de una mata de ixtle, de cualquier tamaño?
 inline bool esIxtleHoja(BlockType t) {
     return t == BLOCK_IXTLE_HOJA || t == BLOCK_IXTLE_PEQUENA ||

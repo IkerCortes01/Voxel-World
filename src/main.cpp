@@ -33446,6 +33446,15 @@ void updateMining(GameState* state, float deltaTime) {
         }
     } devolverAgua{ state, result.blockPos, celdaAntes };
 
+    // LOS PEDACITOS DEL SUELO NO SE PICAN: se recogen con F (ver
+    // recogerPedazoMirado).
+    if (seRecogeConF(blockType)) {
+        state->isMining = false;
+        state->miningProgress = 0.0f;
+        state->miningParticleTimer = 0.0f;
+        return;
+    }
+
     // Solo no minar aire (el agua no se puede romper según getBlockBreakTime)
     if (blockType == BLOCK_AIR) {
         state->isMining = false;
@@ -34116,6 +34125,92 @@ void updateMining(GameState* state, float deltaTime) {
         state->miningProgress = 0.0f;
         state->miningParticleTimer = 0.0f;
     }
+}
+
+// ============================================================================
+// LOS PEDACITOS DEL SUELO SE RECOGEN CON F
+// ============================================================================
+// PEDIDO: "en vez de romperse, cuando el jugador lo mira [...] te aparece una
+// imagen arriba de tu hotbar del boton F, y al presionarlo recoge
+// automaticamente el pedazo".
+
+// ¿El jugador esta mirando un pedacito? Devuelve su celda en `pos`.
+bool pedazoMirado(GameState* state, Vec3i& pos) {
+    const RaycastResult r = raycastBlock(state->world, ojoDelJugador(state->player),
+                                         state->player.getForward(), 5.0f);
+    if (!r.hit) return false;
+    if (!seRecogeConF(state->world.getBlock(r.blockPos.x, r.blockPos.y,
+                                            r.blockPos.z)))
+        return false;
+    pos = r.blockPos;
+    return true;
+}
+
+// Lo que suelta va directo al inventario. Si no cabe, cae al suelo.
+void recogerPedazoMirado(GameState* state) {
+    Vec3i p;
+    if (!pedazoMirado(state, p)) return;
+    const BlockType t = state->world.getBlock(p.x, p.y, p.z);
+
+    const Vec3 suelo(p.x + 0.5f, p.y + 0.5f, p.z + 0.5f);
+    for (const BlockDrop& d : getBlockDrops(t, p.x, p.y, p.z)) {
+        if (d.chance < 1.0f) continue;
+        for (int i = 0; i < d.count; ++i)
+            if (!state->inventory.addItem(d.itemType, 1))
+                state->spawnItem(suelo, d.itemType);
+    }
+
+    state->world.setBlock(p.x, p.y, p.z, BLOCK_AIR);
+    revisarSoporte(state->world, p.x, p.y, p.z);
+    static const int LADOS[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0},
+                                     {0,-1,0}, {0,0,1}, {0,0,-1} };
+    for (const auto& l : LADOS)
+        if (esAguaCualquiera(state->world.getBlock(p.x + l[0], p.y + l[1], p.z + l[2])))
+            state->world.scheduleWaterUpdate(p.x + l[0], p.y + l[1], p.z + l[2]);
+}
+
+void renderText(const char* text, float x, float y, float size);
+void renderChar(char c, float x, float y, float size);
+
+// El aviso sobre la hotbar: la tecla F y lo que hace.
+void renderAvisoRecoger(GameState* state, int width, int height) {
+    Vec3i p;
+    if (!pedazoMirado(state, p)) return;
+
+    constexpr float TECLA = 40.0f;
+    constexpr float LETRA = 22.0f;
+    const char* TEXTO = "RECOGER";
+    const float anchoTexto = 7 * LETRA * 0.7f;
+    const float ancho = TECLA + 12.0f + anchoTexto;
+    const float x = (width - ancho) / 2.0f;
+    const float y = height - 80.0f - 24.0f - 18.0f - 12.0f - TECLA;
+
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // La tecla: fondo oscuro, canto mas claro abajo y borde blanco.
+    glColor4f(0.12f, 0.12f, 0.14f, 0.85f);
+    glBegin(GL_QUADS);
+    glVertex2f(x, y); glVertex2f(x + TECLA, y);
+    glVertex2f(x + TECLA, y + TECLA); glVertex2f(x, y + TECLA);
+    glEnd();
+    glColor4f(0.35f, 0.35f, 0.40f, 0.9f);
+    glBegin(GL_QUADS);
+    glVertex2f(x, y + TECLA - 5.0f); glVertex2f(x + TECLA, y + TECLA - 5.0f);
+    glVertex2f(x + TECLA, y + TECLA); glVertex2f(x, y + TECLA);
+    glEnd();
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    glLineWidth(2);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(x, y); glVertex2f(x + TECLA, y);
+    glVertex2f(x + TECLA, y + TECLA); glVertex2f(x, y + TECLA);
+    glEnd();
+
+    renderChar('F', x + (TECLA - LETRA * 0.7f) / 2.0f + 2.0f,
+               y + (TECLA - 5.0f - LETRA) / 2.0f, LETRA);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    renderText(TEXTO, x + TECLA + 12.0f, y + (TECLA - LETRA) / 2.0f, LETRA);
 }
 
 void breakBlock(GameState* state) {
@@ -40096,6 +40191,12 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 
     // No procesar teclas de movimiento si está pausado o inventario abierto
     if (g_gameState->isPaused || g_gameState->inventoryOpen) return;
+
+    // F recoge el pedacito que se mira. Solo al pulsar, no al mantener.
+    if (action == GLFW_PRESS && key == GLFW_KEY_F &&
+        g_gameState->screenState == SCREEN_IN_GAME) {
+        recogerPedazoMirado(g_gameState);
+    }
 
     if (action == GLFW_PRESS) {
         // ⭐⭐⭐ TECLAS A-Z (minúsculas) + Ñ
@@ -48496,6 +48597,9 @@ int main() {
 
             // Barra de vida encima de la hotbar (solo en supervivencia).
             renderCorazones(g_gameState, width, height);
+
+            // Y encima de todo, la tecla F si se mira un pedacito del suelo.
+            renderAvisoRecoger(g_gameState, width, height);
 
 
             // ⭐ Renderizar item en la mano (esquina inferior derecha)

@@ -33381,6 +33381,47 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
 }
 
 // Sistema de minado progresivo (como Minecraft)
+// Las mallas del pecari, compartidas por el dibujo y por las heridas.
+Fauna::CacheMallas& cacheFauna() {
+    static Fauna::CacheMallas c;
+    return c;
+}
+
+// La textura de las heridas: una mancha oscura de bordes irregulares, hecha en
+// codigo para no depender de un archivo.
+GLuint texturaHerida() {
+    static GLuint tex = 0;
+    if (tex) return tex;
+    constexpr int T = 64;
+    std::vector<unsigned char> px(T * T * 4);
+    for (int y = 0; y < T; ++y)
+        for (int x = 0; x < T; ++x) {
+            const float fx = (x + 0.5f) / T * 2.0f - 1.0f;
+            const float fy = (y + 0.5f) / T * 2.0f - 1.0f;
+            const float ang = std::atan2(fy, fx);
+            // Borde que sube y baja: no es un circulo perfecto.
+            const float borde = 0.62f + 0.12f * std::sin(ang * 5.0f + 1.3f) +
+                                0.07f * std::sin(ang * 11.0f + 0.4f);
+            const float r = std::sqrt(fx * fx + fy * fy) / borde;
+            float a = 1.0f - (r - 0.75f) / 0.25f;
+            a = a < 0 ? 0 : (a > 1 ? 1 : a);
+            const float centro = 1.0f - (r < 1 ? r : 1);
+            unsigned char* p = &px[(y * T + x) * 4];
+            p[0] = (unsigned char)(70 + 40 * centro);   // rojo sangre, mas oscuro al borde
+            p[1] = (unsigned char)(10 + 6 * centro);
+            p[2] = (unsigned char)(12 + 6 * centro);
+            p[3] = (unsigned char)(a * 225);
+        }
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, T, T, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    return tex;
+}
+
 void updateMining(GameState* state, float deltaTime) {
     // ⭐ Romper un bloque es accion del jugador: su chunk adelanta a todo el
     // terreno nuevo que haya en cola de mallado. Ver AccionDelJugador.
@@ -33465,6 +33506,12 @@ void updateMining(GameState* state, float deltaTime) {
 
             TerrainGen::WorldGeneratorAAA* gen = state->world.getWorldGen();
             AdaptadorMundoFauna adaptador(gen, &state->world);
+
+            // La herida, donde toco el golpe. Va antes del dano: si lo mata,
+            // pasa al cuerpo con todo lo demas.
+            state->pecaries->marcarHerida(idTocado, origin.x, origin.y, origin.z,
+                                          direction.x, direction.y, direction.z,
+                                          cacheFauna());
 
             const bool murio = state->pecaries->recibirDano(
                 idTocado, dano,
@@ -47439,7 +47486,7 @@ int main() {
                 // MEMORIA: la geometria NO se duplica por animal. Cien pecaries
                 // usan las mismas ~20 mallas cacheadas (430 KB en total), y cada
                 // instancia solo aporta su transformacion.
-                static Fauna::CacheMallas cacheMallas;
+                Fauna::CacheMallas& cacheMallas = cacheFauna();
                 static std::vector<Fauna::MundoPecaries::InstanciaDibujo> instancias;
 
                 // El radio de dibujo coincide con la distancia de carga de
@@ -47672,6 +47719,46 @@ int main() {
                         // siempre los de la malla original: doblar mueve los
                         // vertices, no cambia como se conectan.
                         const size_t nVert = verts->size();
+
+                        // Un vertice, de la malla local al mundo, con su luz.
+                        // El cuerpo libre (ragdoll) lleva una rotacion completa.
+                        auto emitir = [&](const Fauna::V3& p, const Fauna::V3& n,
+                                          float r, float g, float b) {
+                            float px, py, pz, nx, ny, nz;
+                            if (inst.libre) {
+                                const float* R = inst.rot;
+                                px = R[0]*p.x + R[1]*p.y + R[2]*p.z;
+                                py = R[3]*p.x + R[4]*p.y + R[5]*p.z;
+                                pz = R[6]*p.x + R[7]*p.y + R[8]*p.z;
+                                nx = R[0]*n.x + R[1]*n.y + R[2]*n.z;
+                                ny = R[3]*n.x + R[4]*n.y + R[5]*n.z;
+                                nz = R[6]*n.x + R[7]*n.y + R[8]*n.z;
+                            } else {
+                                px = p.x * cy + p.z * sy;
+                                py = p.y;
+                                pz = -p.x * sy + p.z * cy;
+                                nx = n.x * cy + n.z * sy;
+                                ny = n.y;
+                                nz = -n.x * sy + n.z * cy;
+                            }
+                            // --- SOMBREADO ---
+                            // GL_LIGHTING esta desactivado en el motor, asi
+                            // que la iluminacion se calcula aqui por vertice.
+                            // El pipeline fijo interpola el color entre
+                            // vertices (Gouraud), y eso es lo que produce la
+                            // superficie continua en vez de facetas.
+                            float d = nx * lx + ny * ly + nz * lz;
+                            if (d < 0.0f) d = 0.0f;
+                            const float f = luzAmbiente * (1.0f - contraste * (1.0f - d));
+                            glColor3f(r * f, g * f, b * f);
+                            if (inst.libre)
+                                glVertex3f(inst.tx + px * esc, inst.ty + py * esc,
+                                           inst.tz + pz * esc);
+                            else
+                                glVertex3f(inst.x + px * esc, inst.y + py * esc,
+                                           inst.z + pz * esc);
+                        };
+
                         glBegin(GL_TRIANGLES);
                         for (size_t t = 0; t + 2 < malla->indices.size(); t += 3) {
                             if (malla->indices[t]     >= nVert ||
@@ -47680,49 +47767,56 @@ int main() {
                             for (int k = 0; k < 3; ++k) {
                                 const Fauna::VerticeAnimal& v =
                                     (*verts)[malla->indices[t + k]];
-
-                                // Rotar posicion y normal por la orientacion.
-                                // El cuerpo libre lleva una rotacion completa.
-                                float px, py, pz, nx, ny, nz;
-                                if (inst.libre) {
-                                    const float* R = inst.rot;
-                                    px = R[0]*v.pos.x + R[1]*v.pos.y + R[2]*v.pos.z;
-                                    py = R[3]*v.pos.x + R[4]*v.pos.y + R[5]*v.pos.z;
-                                    pz = R[6]*v.pos.x + R[7]*v.pos.y + R[8]*v.pos.z;
-                                    nx = R[0]*v.normal.x + R[1]*v.normal.y + R[2]*v.normal.z;
-                                    ny = R[3]*v.normal.x + R[4]*v.normal.y + R[5]*v.normal.z;
-                                    nz = R[6]*v.normal.x + R[7]*v.normal.y + R[8]*v.normal.z;
-                                } else {
-                                    px = v.pos.x * cy + v.pos.z * sy;
-                                    py = v.pos.y;
-                                    pz = -v.pos.x * sy + v.pos.z * cy;
-                                    nx = v.normal.x * cy + v.normal.z * sy;
-                                    ny = v.normal.y;
-                                    nz = -v.normal.x * sy + v.normal.z * cy;
-                                }
-
-                                // --- SOMBREADO ---
-                                // GL_LIGHTING esta desactivado en el motor, asi
-                                // que la iluminacion se calcula aqui por vertice.
-                                // El pipeline fijo interpola el color entre
-                                // vertices (Gouraud), y eso es lo que produce la
-                                // superficie continua en vez de facetas.
-                                float d = nx * lx + ny * ly + nz * lz;
-                                if (d < 0.0f) d = 0.0f;
-                                const float f = luzAmbiente * (1.0f - contraste * (1.0f - d));
-
-                                glColor3f(v.r * f, v.g * f, v.b * f);
-                                if (inst.libre)
-                                    glVertex3f(inst.tx + px * esc,
-                                               inst.ty + py * esc,
-                                               inst.tz + pz * esc);
-                                else
-                                    glVertex3f(inst.x + px * esc,
-                                               inst.y + py * esc,
-                                               inst.z + pz * esc);
+                                emitir(v.pos, v.normal, v.r, v.g, v.b);
                             }
                         }
                         glEnd();
+
+                        // ============================================
+                        // --- LAS HERIDAS (fase 2: calcomanias) ---
+                        // ============================================
+                        // Cada una se rehace con los vertices YA deformados,
+                        // asi que sigue a los huesos. Solo de cerca: a partir
+                        // de LOD 2 son un par de pixeles.
+                        if (inst.heridas && !inst.heridas->empty() && inst.lod <= 1) {
+                            glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT |
+                                         GL_POLYGON_BIT | GL_COLOR_BUFFER_BIT |
+                                         GL_TEXTURE_BIT);
+                            glEnable(GL_TEXTURE_2D);
+                            glBindTexture(GL_TEXTURE_2D, texturaHerida());
+                            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+                            glEnable(GL_BLEND);
+                            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                            glDisable(GL_ALPHA_TEST);
+                            glDepthMask(GL_FALSE);
+                            // Como polygonOffset en la pagina: un pelo por
+                            // delante de la piel, para que no parpadee.
+                            glEnable(GL_POLYGON_OFFSET_FILL);
+                            glPolygonOffset(-1.0f, -4.0f);
+                            glBegin(GL_TRIANGLES);
+                            for (const Fauna::Herida& h : *inst.heridas) {
+                                for (const Fauna::PuntoCalca& q :
+                                         Fauna::GeometriaHerida(*malla, h)) {
+                                    if (q.a >= nVert || q.b >= nVert || q.c >= nVert) continue;
+                                    const Fauna::VerticeAnimal& A = (*verts)[q.a];
+                                    const Fauna::VerticeAnimal& B = (*verts)[q.b];
+                                    const Fauna::VerticeAnimal& C = (*verts)[q.c];
+                                    const float wa = 1.0f - q.wb - q.wc;
+                                    const Fauna::V3 p(A.pos.x*wa + B.pos.x*q.wb + C.pos.x*q.wc,
+                                                      A.pos.y*wa + B.pos.y*q.wb + C.pos.y*q.wc,
+                                                      A.pos.z*wa + B.pos.z*q.wb + C.pos.z*q.wc);
+                                    const Fauna::V3 n(A.normal.x*wa + B.normal.x*q.wb + C.normal.x*q.wc,
+                                                      A.normal.y*wa + B.normal.y*q.wb + C.normal.y*q.wc,
+                                                      A.normal.z*wa + B.normal.z*q.wb + C.normal.z*q.wc);
+                                    glTexCoord2f(q.u, q.v);
+                                    emitir(p, n, 1.0f, 1.0f, 1.0f);
+                                }
+                            }
+                            glEnd();
+                            glPopAttrib();
+                            glDepthMask(GL_TRUE);
+                            glDisable(GL_TEXTURE_2D);   // el cuerpo va sin textura
+                        }
                     }
 
                     glColor3f(1.0f, 1.0f, 1.0f);

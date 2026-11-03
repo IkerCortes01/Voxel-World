@@ -166,6 +166,7 @@ private:
         r.semilla = v.semilla;
         r.erizado = v.erizado;
         r.lodActual = v.lodActual;
+        r.heridas = v.heridas;
         r.iniciar(esq, v.escala, v.x, v.y, v.z, v.orientacion, v.vx, v.vz, ex, ez);
         cadaveres.push_back(r);
     }
@@ -545,6 +546,8 @@ public:
         float tx, ty, tz;
         PoseEsqueleto poseLibre;
         int   cadaver = -1;         // indice en `cadaveres`, para el LOD
+
+        const std::vector<Herida>* heridas = nullptr;
     };
 
     // ------------------------------------------------------------------------
@@ -617,6 +620,7 @@ public:
             d.sueloDD = p.sueloPataDD;
             d.sueloTI = p.sueloPataTI;
             d.sueloTD = p.sueloPataTD;
+            d.heridas = &p.heridas;
 
             salida.push_back(d);
         }
@@ -651,6 +655,7 @@ public:
             d.libre = true;
             r.resolver(d.rot, d.tx, d.ty, d.tz, d.poseLibre);
             d.cadaver = (int)i;
+            d.heridas = &r.heridas;
             salida.push_back(d);
         }
     }
@@ -1252,6 +1257,48 @@ public:
     // animales, el alcance es corto y asi el codigo cabe de un vistazo. Cada
     // paso comprueba la caja del animal, no una esfera, para que apuntar al
     // morro o al lomo cuente igual.
+    // ------------------------------------------------------------------------
+    // LA MARCA DEL GOLPE
+    // ------------------------------------------------------------------------
+    // El rayo del jugador, llevado al espacio local del animal y lanzado contra
+    // su malla en reposo: donde toca queda la herida. Se calcula en reposo a
+    // proposito, porque es donde vive la herida -- luego sigue a los huesos.
+    static constexpr size_t MAX_HERIDAS = 6;
+
+    bool marcarHerida(int id, float ojoX, float ojoY, float ojoZ,
+                      float dirX, float dirY, float dirZ, CacheMallas& cache) {
+        PecariAgente* a = nullptr;
+        for (PecariAgente& p : pecaries)
+            if (p.id == id) { a = &p; break; }
+        if (!a) return false;
+        const MallaAnimal* malla =
+            cache.obtener(EspecieAnimal::PECARI_COLLAR, (int)a->etapa, 0);
+        if (!malla) return false;
+
+        const float esc = a->escala / 0.60f;
+        const float cy = std::cos(a->orientacion), sy = std::sin(a->orientacion);
+        // Inversa de: mundo.x = l.x*cy + l.z*sy ; mundo.z = -l.x*sy + l.z*cy
+        const auto aLocal = [&](float x, float y, float z) {
+            return V3(x * cy - z * sy, y, x * sy + z * cy);
+        };
+        V3 o = aLocal(ojoX - a->x, ojoY - a->y, ojoZ - a->z);
+        o = V3(o.x / esc, o.y / esc, o.z / esc);
+        const V3 d = aLocal(dirX, dirY, dirZ).normalizado();
+
+        V3 punto, normal;
+        if (!ImpactoEnMalla(*malla, o, d, punto, normal)) return false;
+
+        Herida h;
+        h.centro = punto;
+        h.normal = normal;
+        const uint32_t az = a->semilla * 2654435761u + (uint32_t)a->heridas.size() * 40503u;
+        h.tam = 0.10f + 0.06f * ((az >> 8) % 1000) / 1000.0f;
+        h.giro = 6.2831853f * ((az >> 18) % 1000) / 1000.0f;
+        if (a->heridas.size() >= MAX_HERIDAS) a->heridas.erase(a->heridas.begin());
+        a->heridas.push_back(h);
+        return true;
+    }
+
     int pecariApuntado(float ojoX, float ojoY, float ojoZ,
                        float dirX, float dirY, float dirZ,
                        float alcance) const {

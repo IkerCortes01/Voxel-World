@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include "PecariEsqueleto.h"
+#include "PecariHeridas.h"
 
 // ============================================================================
 // EL PECARI MUERTO SE DESPLOMA: RAGDOLL
@@ -54,6 +55,8 @@ public:
     uint32_t semilla = 0;
     float    erizado = 0.0f;
     int      lodActual = 0;
+
+    std::vector<Herida> heridas;   // las que tenia al morir
 
     float edad = 0.0f;          // segundos desde que murio
     bool  dormido = false;      // quieto: ya no se simula

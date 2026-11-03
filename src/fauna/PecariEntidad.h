@@ -1,6 +1,7 @@
 #ifndef PECARI_ENTIDAD_H
 #define PECARI_ENTIDAD_H
 
+#include "PecariHeridas.h"
 #include <cstdint>
 #include <cmath>
 #include <vector>
@@ -353,6 +354,9 @@ struct PecariAgente {
     // Semilla propia, para que cada individuo deambule distinto sin compartir
     // estado global ni depender del orden de actualizacion.
     uint32_t semilla = 0;
+
+    // Las marcas de los golpes, pegadas a la piel (ver PecariHeridas.h).
+    std::vector<Herida> heridas;
 };
 
 // ----------------------------------------------------------------------------

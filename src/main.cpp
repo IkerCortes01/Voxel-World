@@ -47601,7 +47601,16 @@ int main() {
                         const std::vector<Fauna::VerticeAnimal>* verts =
                             &malla->vertices;
 
-                        if (inst.articulado && inst.pesos) {
+                        if (inst.articulado && inst.pesos && inst.libre) {
+                            // Muerto: la pose la da el ragdoll.
+                            const int etapaIdx = inst.etapa;
+                            Fauna::ResolverPose(
+                                esqPorEtapa[(etapaIdx < 0 || etapaIdx > 4) ? 3 : etapaIdx],
+                                inst.poseLibre, transHuesos);
+                            Fauna::DeformarMalla(*malla, *inst.pesos,
+                                                 transHuesos, vertsDeform);
+                            verts = &vertsDeform;
+                        } else if (inst.articulado && inst.pesos) {
                             Fauna::PoseDeMarcha(inst.fasePaso, inst.rapidez, poseEsq);
 
                             // --- ADAPTACION AL TERRENO ---
@@ -47673,10 +47682,24 @@ int main() {
                                     (*verts)[malla->indices[t + k]];
 
                                 // Rotar posicion y normal por la orientacion.
-                                const float px = v.pos.x * cy + v.pos.z * sy;
-                                const float pz = -v.pos.x * sy + v.pos.z * cy;
-                                const float nx = v.normal.x * cy + v.normal.z * sy;
-                                const float nz = -v.normal.x * sy + v.normal.z * cy;
+                                // El cuerpo libre lleva una rotacion completa.
+                                float px, py, pz, nx, ny, nz;
+                                if (inst.libre) {
+                                    const float* R = inst.rot;
+                                    px = R[0]*v.pos.x + R[1]*v.pos.y + R[2]*v.pos.z;
+                                    py = R[3]*v.pos.x + R[4]*v.pos.y + R[5]*v.pos.z;
+                                    pz = R[6]*v.pos.x + R[7]*v.pos.y + R[8]*v.pos.z;
+                                    nx = R[0]*v.normal.x + R[1]*v.normal.y + R[2]*v.normal.z;
+                                    ny = R[3]*v.normal.x + R[4]*v.normal.y + R[5]*v.normal.z;
+                                    nz = R[6]*v.normal.x + R[7]*v.normal.y + R[8]*v.normal.z;
+                                } else {
+                                    px = v.pos.x * cy + v.pos.z * sy;
+                                    py = v.pos.y;
+                                    pz = -v.pos.x * sy + v.pos.z * cy;
+                                    nx = v.normal.x * cy + v.normal.z * sy;
+                                    ny = v.normal.y;
+                                    nz = -v.normal.x * sy + v.normal.z * cy;
+                                }
 
                                 // --- SOMBREADO ---
                                 // GL_LIGHTING esta desactivado en el motor, asi
@@ -47684,14 +47707,19 @@ int main() {
                                 // El pipeline fijo interpola el color entre
                                 // vertices (Gouraud), y eso es lo que produce la
                                 // superficie continua en vez de facetas.
-                                float d = nx * lx + v.normal.y * ly + nz * lz;
+                                float d = nx * lx + ny * ly + nz * lz;
                                 if (d < 0.0f) d = 0.0f;
                                 const float f = luzAmbiente * (1.0f - contraste * (1.0f - d));
 
                                 glColor3f(v.r * f, v.g * f, v.b * f);
-                                glVertex3f(inst.x + px * esc,
-                                           inst.y + v.pos.y * esc,
-                                           inst.z + pz * esc);
+                                if (inst.libre)
+                                    glVertex3f(inst.tx + px * esc,
+                                               inst.ty + py * esc,
+                                               inst.tz + pz * esc);
+                                else
+                                    glVertex3f(inst.x + px * esc,
+                                               inst.y + py * esc,
+                                               inst.z + pz * esc);
                             }
                         }
                         glEnd();

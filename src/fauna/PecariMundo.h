@@ -11,6 +11,7 @@
 #include "PecariEntidad.h"
 #include "PecariCuerpo.h"
 #include "AnimalMallaCache.h"
+#include "PecariRagdoll.h"
 
 // ============================================================================
 // EL REGISTRO DE PECARIES DEL MUNDO
@@ -116,6 +117,59 @@ private:
     std::vector<PecariAgente> pecaries;
     std::unordered_set<ClaveChunk, HashClaveChunk> chunksPoblados;
 
+    // Los muertos, mientras se desploman y un rato despues. Pocos y con vida
+    // limitada: cada uno es fisica y una malla mas que dibujar.
+    std::vector<Ragdoll> cadaveres;
+    static constexpr size_t MAX_CADAVERES = 6;
+    static constexpr float  VIDA_CADAVER = 90.0f;   // segundos
+
+    // El ragdoll solo necesita saber que es solido.
+    struct MundoParaRagdoll : IMundoRagdoll {
+        const IPecariMundo& m;
+        explicit MundoParaRagdoll(const IPecariMundo& mundo) : m(mundo) {}
+        bool solido(int x, int y, int z) const override { return m.esSolido(x, y, z); }
+    };
+
+    void actualizarCadaveres(float dt, const IPecariMundo& mundo) {
+        if (cadaveres.empty()) return;
+        const MundoParaRagdoll adaptador(mundo);
+        for (size_t i = 0; i < cadaveres.size(); ) {
+            cadaveres[i].avanzar(dt, adaptador);
+            if (cadaveres[i].edad > VIDA_CADAVER) {
+                cadaveres[i] = cadaveres.back();
+                cadaveres.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
+
+    // El cuerpo del que acaba de morir pasa a ser un ragdoll. El golpe lo
+    // empuja en la direccion contraria a quien lo dio.
+    void crearCadaver(const PecariAgente& v, float desdeX, float desdeZ) {
+        if (cadaveres.size() >= MAX_CADAVERES) {
+            size_t viejo = 0;
+            for (size_t i = 1; i < cadaveres.size(); ++i)
+                if (cadaveres[i].edad > cadaveres[viejo].edad) viejo = i;
+            cadaveres[viejo] = cadaveres.back();
+            cadaveres.pop_back();
+        }
+        float ex = v.x - desdeX, ez = v.z - desdeZ;
+        const float l = std::sqrt(ex * ex + ez * ez);
+        if (l > 1e-4f) { ex = ex / l * 3.0f; ez = ez / l * 3.0f; } else { ex = ez = 0.0f; }
+
+        const int etapa = (int)v.etapa;
+        const EsqueletoReposo esq = EsqueletoDePecari(
+            Especies::aplicarEdad(Especies::pecariDeCollar(), etapa));
+        Ragdoll r;
+        r.etapa = etapa;
+        r.semilla = v.semilla;
+        r.erizado = v.erizado;
+        r.lodActual = v.lodActual;
+        r.iniciar(esq, v.escala, v.x, v.y, v.z, v.orientacion, v.vx, v.vz, ex, ez);
+        cadaveres.push_back(r);
+    }
+
     int siguienteId = 0;
     int siguienteIdManada = 0;
 
@@ -144,6 +198,7 @@ public:
         : spawn(seed), repoblacion(seed) {}
 
     const std::vector<PecariAgente>& todos() const { return pecaries; }
+    const std::vector<Ragdoll>& cuerpos() const { return cadaveres; }
     size_t cuantos() const { return pecaries.size(); }
 
     // ------------------------------------------------------------------------
@@ -358,6 +413,8 @@ public:
     // aqui NO estan. Con pocos cientos de agentes va sobrado; con miles, no.
     // Se declara en las limitaciones en vez de fingir que esta resuelto.
     void actualizar(float dt, const IPecariMundo& mundo) {
+        // Los cuerpos caen aunque ya no quede ningun vivo.
+        actualizarCadaveres(dt, mundo);
         if (pecaries.empty()) return;
 
         // Centros de manada: se calculan UNA vez por manada, no por individuo.
@@ -478,6 +535,16 @@ public:
         // AplicarTerreno para que el animal se adapte a la cuesta en vez de
         // quedarse horizontal con dos patas en el aire.
         float sueloDI, sueloDD, sueloTI, sueloTD;
+
+        // --- CUERPO LIBRE (ragdoll) ---
+        // El animal muerto no esta de pie: su orientacion es una rotacion
+        // completa, y su pose la dicta la fisica en vez del paso.
+        //   mundo = t + rot * (local * escala / 0.6)
+        bool  libre = false;
+        float rot[9];
+        float tx, ty, tz;
+        PoseEsqueleto poseLibre;
+        int   cadaver = -1;         // indice en `cadaveres`, para el LOD
     };
 
     // ------------------------------------------------------------------------
@@ -553,12 +620,50 @@ public:
 
             salida.push_back(d);
         }
+
+        // Los cuerpos: mismo culling y LOD, y la pose sale de la fisica.
+        for (size_t i = 0; i < cadaveres.size(); ++i) {
+            const Ragdoll& r = cadaveres[i];
+            const V3 c = r.centro();
+            const float dx = c.x - camaraX, dz = c.z - camaraZ;
+            if (!Culling::visiblePorDistancia(dx, dz, distanciaMaxima)) continue;
+            if (!Culling::visiblePorAngulo(dx, dz, dirCamX, dirCamZ)) continue;
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            const int lod = LOD::seleccionar(dist, r.lodActual);
+            const MallaAnimal* malla =
+                cache.obtener(EspecieAnimal::PECARI_COLLAR, r.etapa, lod);
+            if (!malla) continue;
+
+            InstanciaDibujo d{};
+            d.malla = malla;
+            d.x = c.x; d.y = c.y; d.z = c.z;
+            d.escala = r.escala;
+            d.erizado = r.erizado;
+            d.semillaColor = r.semilla;
+            d.lod = lod;
+            d.fundido = LOD::factorTransicion(dist, lod);
+            d.distancia = dist;
+            d.etapa = r.etapa;
+            d.articulado = (lod <= 1);
+            d.pesos = d.articulado
+                    ? cache.pesosDe(EspecieAnimal::PECARI_COLLAR, r.etapa, lod)
+                    : nullptr;
+            d.libre = true;
+            r.resolver(d.rot, d.tx, d.ty, d.tz, d.poseLibre);
+            d.cadaver = (int)i;
+            salida.push_back(d);
+        }
     }
 
     // Actualiza el LOD guardado en cada agente, para que la histeresis tenga
     // memoria entre frames. Se llama despues de prepararDibujo.
     void confirmarLOD(const std::vector<InstanciaDibujo>& lista) {
         for (const InstanciaDibujo& d : lista) {
+            if (d.libre) {
+                if (d.cadaver >= 0 && d.cadaver < (int)cadaveres.size())
+                    cadaveres[d.cadaver].lodActual = d.lod;
+                continue;
+            }
             for (PecariAgente& p : pecaries) {
                 if (std::fabs(p.x - d.x) < 1e-4f &&
                     std::fabs(p.z - d.z) < 1e-4f) {
@@ -992,6 +1097,9 @@ public:
         if (victima->vidaMedios <= 0) {
             const int idManadaMuerto = victima->idManada;
             const float mx = victima->x, mz = victima->z;
+
+            // El cuerpo se queda en el mundo y se desploma.
+            crearCadaver(*victima, desdeX, desdeZ);
 
             // Retirar al muerto.
             for (size_t i = 0; i < pecaries.size(); ++i) {

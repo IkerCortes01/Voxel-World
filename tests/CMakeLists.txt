@@ -92,6 +92,7 @@ add_executable(voxel_tests
     test_atmosfera.cpp
     test_planta_en_agua.cpp
     test_recoger_con_f.cpp
+    test_opciones.cpp
     test_maguey_colocable.cpp
     test_tablones_niveles.cpp
     test_alineacion_bloques.cpp

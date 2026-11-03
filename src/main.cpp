@@ -317,6 +317,7 @@ struct Vec3i {
 #include "render/TinteBioma.h"         // el pasto toma el color de su bioma
 #include "render/EspacioJugador.h"     // nada se materializa dentro del jugador
 #include "AguaFlujo.h"                 // las reglas del agua
+#include "ui/Opciones.h"               // las 16 opciones del menu de pausa
 #include "render/Atmosfera.h"           // los colores del cielo
 #include "render/PencaDelJugador.h"    // ¿la penca la puso el jugador o un nopal?
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
@@ -825,6 +826,15 @@ int g_modoJuegoActual = 0;
 // Se mantiene al dia desde los tres sitios donde la barra cambia (arrastre,
 // clic y carga de world.cfg).
 int g_barraDistancia = 8;
+
+// Las opciones del menu de pausa. Se guardan aparte de los mundos, en
+// %LOCALAPPDATA%\VoxelWorld\opciones.txt (la distancia no: va con cada mundo).
+Opciones::Valores g_opciones;
+inline std::string rutaOpciones() {
+    const char* base = getenv("LOCALAPPDATA");
+    return (base && *base) ? std::string(base) + "\\VoxelWorld\\opciones.txt"
+                           : std::string("opciones.txt");
+}
 
 // ============================================================================
 // ⭐ ESTA ESCRITURA LA HA HECHO EL JUGADOR
@@ -12356,7 +12366,9 @@ public:
 
         // Cuantizar a 32 escalones: por debajo de eso el cambio de brillo es
         // invisible y remallar seria trabajo tirado.
-        const float paso = floorf(ahora * 32.0f) / 32.0f;
+        // Cuantos escalones, lo decide la opcion SUAVIDAD DE LUZ.
+        const float pasos = (float)Opciones::pasosDeLuz(g_opciones);
+        const float paso = floorf(ahora * pasos) / pasos;
         if (paso == luzYaMallada) return;
         luzYaMallada = paso;
 
@@ -12431,6 +12443,7 @@ public:
             return !(v && v[0] == '0');
         }();
         if (!activo) return;
+        if (g_opciones[Opciones::DETALLE] == 0) return;   // DETALLE BAJO: quieto
 
         // ====================================================================
         // ⚠️ EL PRESUPUESTO DE ESTO ES MINUSCULO, Y ESTA MEDIDO
@@ -28479,7 +28492,8 @@ public:
                 if (msActual > msObjetivo * 1.15f && cargando) {
                     relojDistancia = 0.0f;
                 }
-                else if (msActual > msObjetivo * 1.15f) {
+                else if (msActual > msObjetivo * 1.15f &&
+                         g_opciones[Opciones::OPTIMIZACION]) {
                     if (relojDistancia >= SEGUNDOS_PARA_BAJAR) {
                         relojDistancia = 0.0f;
                         if (ajustarDistancia(RENDER_DISTANCE - 1)) {
@@ -28745,7 +28759,8 @@ public:
             {
                 const double msGastados =
                     (glfwGetTime() - inicioStreaming) * 1000.0;
-                if (msGastados > presupuesto.generacionMs) break;
+                if (msGastados > presupuesto.generacionMs *
+                        Opciones::factorVelocidad(g_opciones[Opciones::CARGA_CHUNKS])) break;
             }
 
             const double t0Carga = glfwGetTime();
@@ -29047,7 +29062,8 @@ public:
         // repartido en mas frames, que es exactamente lo que se quiere: es
         // preferible que el terreno tarde medio segundo mas en aparecer a que
         // el juego pegue un tiron cada vez que aparece.
-        const float MAX_MESH_BUILD_TIME_MS = 2.5f;
+        const float MAX_MESH_BUILD_TIME_MS = 2.5f *
+            Opciones::factorVelocidad(g_opciones[Opciones::RAPIDEZ_DISTANCIA]);
 
         int meshesBuiltThisFrame = 0;
         auto meshBuildStart = std::chrono::high_resolution_clock::now();
@@ -29138,7 +29154,8 @@ public:
             else if (pendientes >=  64) factorPrisa = 4.0f;
             else if (pendientes >=  16) factorPrisa = 2.0f;
 
-            const float presupuestoSubida = presupuesto.subidaMs * factorPrisa;
+            const float presupuestoSubida = presupuesto.subidaMs * factorPrisa *
+                Opciones::factorVelocidad(g_opciones[Opciones::RAPIDEZ_DISTANCIA]);
 
             while (subidas < MAX_SUBIDAS_POR_FRAME) {
                 // De una en una, comprobando el reloj entre medias: asi el
@@ -29695,6 +29712,14 @@ public:
         Render::pglUniform1f(g_progTerreno.uNieblaFin, fin);
         Render::pglUniform1i(g_progTerreno.uNieblaModo, modo);
         Render::pglUniform1f(g_progTerreno.uNieblaDensidad, densidad);
+        {
+            const Opciones::LuzShader l = Opciones::luzShader(g_opciones);
+            Render::pglUniform1f(g_progTerreno.uBrillo, l.brillo);
+            Render::pglUniform1f(g_progTerreno.uLuzMin, l.luzMinima);
+            Render::pglUniform1f(g_progTerreno.uGamma, l.gamma);
+            Render::pglUniform1f(g_progTerreno.uIntensidad, l.intensidad);
+            Render::pglUniform1f(g_progTerreno.uSaturacion, l.saturacion);
+        }
 
         // El agua se desplaza; el terreno no. Antes esto era una matriz de
         // textura empujada con glPushMatrix, que el shader no mira.
@@ -32382,7 +32407,17 @@ struct GameState {
         }
 
         AdaptadorMundoFauna adaptador(gen, &world);
-        pecaries->actualizar(deltaTime, adaptador);
+        // FLUIDEZ DE ANIMALES: a menos herzios, menos coste y movimiento mas
+        // a saltos. El tiempo que se salta no se pierde: se acumula.
+        {
+            static float acumulado = 0.0f;
+            acumulado += deltaTime;
+            const int hz = Opciones::hzAnimales(g_opciones);
+            if (hz == 0 || acumulado >= 1.0f / (float)hz) {
+                pecaries->actualizar(acumulado, adaptador);
+                acumulado = 0.0f;
+            }
+        }
 
         // Soltar los que quedaron muy lejos, para que la poblacion no crezca
         // sin limite segun el jugador explora.
@@ -39544,6 +39579,20 @@ void renderChar(char c, float x, float y, float size) {
             glVertex2f(x + w, y + h); glVertex2f(x, y + h);
             break;
 
+        case '%':
+            // Dos puntos y una diagonal en escalones.
+            glVertex2f(x, y); glVertex2f(x + t * 1.6f, y);
+            glVertex2f(x + t * 1.6f, y + t * 1.6f); glVertex2f(x, y + t * 1.6f);
+            glVertex2f(x + w - t * 1.6f, y + h - t * 1.6f); glVertex2f(x + w, y + h - t * 1.6f);
+            glVertex2f(x + w, y + h); glVertex2f(x + w - t * 1.6f, y + h);
+            for (int i = 0; i < 5; ++i) {
+                const float py = y + h * (0.1f + 0.16f * i);
+                const float px = x + w - t - (w - t) * (0.1f + 0.2f * i);
+                glVertex2f(px, py); glVertex2f(px + t, py);
+                glVertex2f(px + t, py + h * 0.18f); glVertex2f(px, py + h * 0.18f);
+            }
+            break;
+
         case '+':
             // Barra horizontal
             glVertex2f(x, y + h * 0.5f - t * 0.5f); glVertex2f(x + w, y + h * 0.5f - t * 0.5f);
@@ -40402,6 +40451,191 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     }
 }
 
+// ============================================================================
+// LA PANTALLA DE OPCIONES
+// ============================================================================
+// Cuatro columnas (imagen, render, rendimiento, atmosfera) con dieciseis
+// botones. En cada uno: flecha izquierda, valor, flecha derecha. Los numericos
+// tienen ademas una barra que se puede arrastrar.
+
+int g_opcionArrastrada = -1;
+
+struct CeldaUI { float x, y, w, h; };
+
+struct DisposicionOpciones {
+    CeldaUI celda[Opciones::NUM];
+    CeldaUI columna[Opciones::NUM_GRUPOS];   // solo x, y del titulo de grupo
+    CeldaUI volver;
+    float tituloY;
+};
+
+// Una sola funcion para el dibujo y para los clics: asi no se desalinean.
+DisposicionOpciones disponerOpciones(int width, int height) {
+    DisposicionOpciones d;
+    constexpr float SEPARACION = 14.0f, ALTO = 50.0f, PASO = 58.0f;
+    float ancho = (width - 40.0f - 3 * SEPARACION) / 4.0f;
+    if (ancho > 280.0f) ancho = 280.0f;
+    const float total = 4 * ancho + 3 * SEPARACION;
+    const float x0 = (width - total) / 2.0f;
+
+    const float altoTotal = 56.0f + 30.0f + 5 * PASO + 24.0f + 50.0f;
+    float y0 = (height - altoTotal) / 2.0f;
+    if (y0 < 10.0f) y0 = 10.0f;
+    d.tituloY = y0;
+    const float yGrupo = y0 + 56.0f;
+    const float yBotones = yGrupo + 30.0f;
+
+    int fila[Opciones::NUM_GRUPOS] = {};
+    for (int g = 0; g < Opciones::NUM_GRUPOS; ++g)
+        d.columna[g] = { x0 + g * (ancho + SEPARACION), yGrupo, ancho, 20.0f };
+    for (int i = 0; i < Opciones::NUM; ++i) {
+        const int g = Opciones::def(i).grupo;
+        d.celda[i] = { d.columna[g].x, yBotones + fila[g]++ * PASO, ancho, ALTO };
+    }
+    d.volver = { width / 2.0f - 150.0f, yBotones + 5 * PASO + 24.0f, 300.0f, 50.0f };
+    return d;
+}
+
+static bool dentro(const CeldaUI& c, float x, float y) {
+    return x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h;
+}
+
+constexpr float FLECHA = 26.0f;   // ancho de la zona de cada flecha
+
+// La DISTANCIA es la misma barra de siempre: va con el mundo, no con el archivo.
+void aplicarDistanciaBarra(int nuevo) {
+    nuevo = Render::acotarBarra(nuevo);
+    if (nuevo == g_gameState->renderDistance) return;
+    g_gameState->renderDistance = nuevo;
+    const int radio = Render::radioCargado(nuevo);
+    g_barraDistancia = nuevo;
+    // El techo antes de ajustar: si no, el regulador la devolveria al perfil.
+    g_gameState->world.techoDistanciaUsuario = radio;
+    if (g_gameState->world.ajustarDistancia(radio))
+        g_gameState->world.pedirRecargaUrgente();
+}
+
+// Lo que no se lee en vivo se aplica aqui, y todo se guarda.
+void opcionCambiada(int id) {
+    if (id == Opciones::DISTANCIA) {
+        aplicarDistanciaBarra(g_opciones[Opciones::DISTANCIA]);
+        return;
+    }
+    if (id == Opciones::VSYNC) glfwSwapInterval(g_opciones[Opciones::VSYNC]);
+    if (id == Opciones::FPS_MINIMO) g_perfil.fpsMinimo = Opciones::fpsMinimo(g_opciones);
+    Opciones::guardar(g_opciones, rutaOpciones());
+}
+
+static float fraccionBarra(const CeldaUI& c, float x) {
+    return (x - (c.x + FLECHA)) / (c.w - 2 * FLECHA);
+}
+
+void arrastrarOpcion(float x, int width, int height) {
+    const int id = g_opcionArrastrada;
+    if (id < 0) return;
+    const DisposicionOpciones d = disponerOpciones(width, height);
+    const int antes = g_opciones[id];
+    g_opciones.ponerFraccion(id, fraccionBarra(d.celda[id], x));
+    if (g_opciones[id] != antes) opcionCambiada(id);
+}
+
+void clicOpciones(float x, float y, int width, int height) {
+    const DisposicionOpciones d = disponerOpciones(width, height);
+    if (dentro(d.volver, x, y)) {
+        g_gameState->pauseMenuState = PAUSE_MENU_MAIN;
+        return;
+    }
+    g_opciones.v[Opciones::DISTANCIA] = g_gameState->renderDistance;
+    for (int i = 0; i < Opciones::NUM; ++i) {
+        const CeldaUI& c = d.celda[i];
+        if (!dentro(c, x, y)) continue;
+        if (x < c.x + FLECHA) g_opciones.anterior(i);
+        else if (x > c.x + c.w - FLECHA) g_opciones.siguiente(i);
+        else if (Opciones::def(i).tipo != Opciones::LISTA) {
+            g_opciones.ponerFraccion(i, fraccionBarra(c, x));
+            g_opcionArrastrada = i;
+        } else {
+            g_opciones.siguiente(i);
+        }
+        opcionCambiada(i);
+        return;
+    }
+}
+
+static void rectUI(float x0, float y0, float x1, float y1) {
+    glBegin(GL_QUADS);
+    glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+    glEnd();
+}
+static void bordeUI(const CeldaUI& c) {
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(c.x, c.y); glVertex2f(c.x + c.w, c.y);
+    glVertex2f(c.x + c.w, c.y + c.h); glVertex2f(c.x, c.y + c.h);
+    glEnd();
+}
+static void textoCentrado(const std::string& s, float cx, float y, float size) {
+    renderText(s.c_str(), cx - s.size() * size * 0.7f / 2.0f, y, size);
+}
+
+void renderOpciones(int width, int height, float mx, float my) {
+    const DisposicionOpciones d = disponerOpciones(width, height);
+    g_opciones.v[Opciones::DISTANCIA] = g_gameState->renderDistance;
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    textoCentrado("OPCIONES", width / 2.0f, d.tituloY, 32);
+
+    for (int g = 0; g < Opciones::NUM_GRUPOS; ++g) {
+        const CeldaUI& c = d.columna[g];
+        glColor4f(0.55f, 0.75f, 1.0f, 1.0f);
+        renderText(Opciones::nombreGrupo(g), c.x + 2, c.y, 14);
+        rectUI(c.x, c.y + 19, c.x + c.w, c.y + 21);
+    }
+
+    for (int i = 0; i < Opciones::NUM; ++i) {
+        const CeldaUI& c = d.celda[i];
+        const bool hover = dentro(c, mx, my) || g_opcionArrastrada == i;
+        glColor4f(hover ? 0.17f : 0.10f, hover ? 0.19f : 0.11f, hover ? 0.26f : 0.16f, 0.94f);
+        rectUI(c.x, c.y, c.x + c.w, c.y + c.h);
+        glLineWidth(hover ? 2.0f : 1.0f);
+        if (hover) glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        else glColor4f(0.40f, 0.45f, 0.56f, 1.0f);
+        bordeUI(c);
+
+        glColor4f(0.72f, 0.78f, 0.90f, 1.0f);
+        renderText(Opciones::def(i).nombre, c.x + 10, c.y + 7, 11);
+
+        // Las flechas.
+        const float fy = c.y + 30.0f;
+        glColor4f(1.0f, 1.0f, 1.0f, 0.9f);
+        glBegin(GL_TRIANGLES);
+        glVertex2f(c.x + 9, fy); glVertex2f(c.x + 18, fy - 6); glVertex2f(c.x + 18, fy + 6);
+        glVertex2f(c.x + c.w - 9, fy); glVertex2f(c.x + c.w - 18, fy - 6);
+        glVertex2f(c.x + c.w - 18, fy + 6);
+        glEnd();
+
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        textoCentrado(g_opciones.texto(i), c.x + c.w / 2.0f, c.y + 23, 13);
+
+        if (Opciones::def(i).tipo != Opciones::LISTA) {
+            const float bx0 = c.x + FLECHA, bx1 = c.x + c.w - FLECHA;
+            const float by = c.y + c.h - 8.0f;
+            glColor4f(0.25f, 0.27f, 0.33f, 1.0f);
+            rectUI(bx0, by, bx1, by + 3);
+            glColor4f(0.40f, 0.70f, 1.0f, 1.0f);
+            rectUI(bx0, by, bx0 + (bx1 - bx0) * g_opciones.fraccion(i), by + 3);
+        }
+    }
+
+    const bool hv = dentro(d.volver, mx, my);
+    glColor4f(hv ? 0.5f : 0.3f, hv ? 0.5f : 0.3f, hv ? 0.5f : 0.3f, 0.9f);
+    rectUI(d.volver.x, d.volver.y, d.volver.x + d.volver.w, d.volver.y + d.volver.h);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    textoCentrado("VOLVER", d.volver.x + d.volver.w / 2.0f, d.volver.y + 15, 20);
+}
+
 void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     if (!g_gameState) return;
 
@@ -40413,35 +40647,11 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
         // de la barra (es normal: se mueve rapido) y el ajuste tiene que seguir
         // respondiendo. Es el comportamiento de cualquier slider: lo que manda
         // es donde EMPEZO el arrastre, no donde esta el cursor ahora.
-        if (g_gameState->arrastrandoBarraRender &&
+        if (g_opcionArrastrada >= 0 &&
             g_gameState->pauseMenuState == PAUSE_MENU_GRAPHICS) {
-
             int w = 0, h = 0;
             glfwGetWindowSize(window, &w, &h);
-            const float centerX = w / 2.0f;
-            const float barX = centerX - 200.0f;
-            const float barW = 400.0f;
-
-            float t = ((float)xpos - barX) / barW;
-            if (t < 0.0f) t = 0.0f;
-            if (t > 1.0f) t = 1.0f;
-
-            const int rango = Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN;
-            const int nuevo = Render::acotarBarra(
-                Render::DISTANCIA_BARRA_MIN + (int)(t * rango + 0.5f));
-
-            if (nuevo != g_gameState->renderDistance) {
-                g_gameState->renderDistance = nuevo;
-                const int radio = Render::radioCargado(nuevo);
-                g_barraDistancia = nuevo;   // el render lo lee para el difuminado
-                g_gameState->world.techoDistanciaUsuario = radio;
-                if (g_gameState->world.ajustarDistancia(radio)) {
-                    // ⭐ El radio cambio de verdad: a por los chunks nuevos sin
-                    // esperar a que el regulador lo permita. Ver
-                    // pedirRecargaUrgente().
-                    g_gameState->world.pedirRecargaUrgente();
-                }
-            }
+            arrastrarOpcion((float)xpos, w, h);
             return;
         }
 
@@ -40516,6 +40726,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
     // clasico de los sliders hechos a mano.
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
         g_gameState->arrastrandoBarraRender = false;
+        g_opcionArrastrada = -1;
     }
 
     // Manejar clics en menús
@@ -40853,84 +41064,12 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         }
 
     } else if (g_gameState->pauseMenuState == PAUSE_MENU_GRAPHICS) {
-        // Menú de gráficos
-        float startY = height / 2.0f - 100.0f;
-
-        // ⭐ LA BARRA DE DISTANCIA: clic en cualquier punto para saltar ahi.
-        //
-        // Las coordenadas son LAS MISMAS que usa el dibujo (ver el bloque de
-        // PAUSE_MENU_GRAPHICS en el render). Estan duplicadas porque el motor
-        // separa dibujo y hit-test en dos funciones distintas; si alguna vez se
-        // mueven, hay que moverlas en los dos sitios.
-        //
-        // La zona sensible es mas alta que la barra (de -12 a +30 sobre ella)
-        // para que no haya que acertar 18 pixeles exactos: un slider que exige
-        // punteria se siente roto.
-        {
-            const float barX = centerX - 200.0f;
-            const float barY = startY + 85.0f;
-            const float barW = 400.0f;
-
-            if (xpos >= barX - 10 && xpos <= barX + barW + 10 &&
-                ypos >= barY - 12 && ypos <= barY + 30) {
-
-                float t = ((float)xpos - barX) / barW;
-                if (t < 0.0f) t = 0.0f;
-                if (t > 1.0f) t = 1.0f;
-
-                const int rango = Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN;
-                const int nuevo = Render::DISTANCIA_BARRA_MIN + (int)(t * rango + 0.5f);
-
-                g_gameState->renderDistance = Render::acotarBarra(nuevo);
-                // Se aplica EN CALIENTE: el mundo reacciona mientras se arrastra,
-                // que es lo que convierte el ajuste en algo que se puede juzgar.
-                //
-                // El techo se fija ANTES de ajustar: si no, el regulador
-                // automatico volveria a bajar la distancia al valor del perfil
-                // en la siguiente revision y la barra pareceria no hacer nada.
-                const int radio = Render::radioCargado(g_gameState->renderDistance);
-                g_barraDistancia = g_gameState->renderDistance;
-                g_gameState->world.techoDistanciaUsuario = radio;
-                if (g_gameState->world.ajustarDistancia(radio)) {
-                    g_gameState->world.pedirRecargaUrgente();
-                }
-                g_gameState->arrastrandoBarraRender = true;
-                return;
-            }
-        }
-
-        // Botón volver
-        Button btnBack(centerX - buttonWidth / 2, startY + 160, buttonWidth, buttonHeight, "Volver");
-        if (btnBack.contains((float)xpos, (float)ypos)) {
-            g_gameState->pauseMenuState = PAUSE_MENU_MAIN;
-            return;
-        }
+        clicOpciones((float)xpos, (float)ypos, width, height);
+        return;
 
     } else if (g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
-        // Menú de sensibilidad
+        // AVATAR esta vacio: solo se puede volver.
         float startY = height / 2.0f - 100.0f;
-
-        // Botones para cambiar sensibilidad
-        Button btnMinus(centerX - 150, startY + 60, 50, 40, "-");
-        if (btnMinus.contains((float)xpos, (float)ypos)) {
-            if (g_gameState->mouseSensitivity > 0.05f) {
-                g_gameState->mouseSensitivity -= 0.01f;
-                // Propagar al controlador: es él quien aplica la sensibilidad.
-                if (g_playerController)
-                    g_playerController->getConfig().mouseSensitivity = g_gameState->mouseSensitivity;
-            }
-            return;
-        }
-
-        Button btnPlus(centerX + 100, startY + 60, 50, 40, "+");
-        if (btnPlus.contains((float)xpos, (float)ypos)) {
-            if (g_gameState->mouseSensitivity < 0.5f) {
-                g_gameState->mouseSensitivity += 0.01f;
-                if (g_playerController)
-                    g_playerController->getConfig().mouseSensitivity = g_gameState->mouseSensitivity;
-            }
-            return;
-        }
 
         // Botón volver
         Button btnBack(centerX - buttonWidth / 2, startY + 160, buttonWidth, buttonHeight, "Volver");
@@ -44723,6 +44862,10 @@ void dibujarCieloYAstros() {
             float c[3];
             Atmosfera::colorEn(cielo, senAlt,
                                dx * (float)sx + senAlt * (float)sy + dz * (float)sz, c);
+            // MEJORA ATMOSFERICA al 0 %: el cielo liso, del color del horizonte.
+            const float mejora = g_opciones[Opciones::ATMOSFERA] / 100.0f;
+            for (int k = 0; k < 3; ++k)
+                c[k] = cielo.horizonte[k] + (c[k] - cielo.horizonte[k]) * mejora;
             glColor3f(c[0], c[1], c[2]);
             glVertex3f(dx * RADIO_BOVEDA, senAlt * RADIO_BOVEDA, dz * RADIO_BOVEDA);
         };
@@ -44737,7 +44880,8 @@ void dibujarCieloYAstros() {
 
         // Giran con la hora, como el sol. Las posiciones salen de un hash fijo:
         // son siempre las mismas estrellas.
-        const float brillo = Atmosfera::brilloEstrellas(luz);
+        const float brillo = Atmosfera::brilloEstrellas(luz) *
+                             (g_opciones[Opciones::ATMOSFERA] / 100.0f);
         if (brillo > 0.01f) {
             constexpr int N_ESTRELLAS = 320;
             static float estrellas[N_ESTRELLAS][4];
@@ -44881,6 +45025,12 @@ int main() {
     // Lo primero: sin consola, hasta los errores del arranque se perderían.
     initLogging();
 
+    // Las opciones del menu de pausa, de la partida anterior.
+    Opciones::cargar(g_opciones, rutaOpciones());
+    // Sin esto Windows duerme en escalones de ~15 ms, y el limite de FPS no
+    // podria acertar con 60 o 144.
+    timeBeginPeriod(1);
+
     // ⭐ INSTALAR SIGNAL HANDLERS PARA GUARDADO DE EMERGENCIA
     setupSignalHandlers();
 
@@ -44985,7 +45135,7 @@ int main() {
     // El coste es el tearing (la imagen puede partirse en movimiento). A
     // cambio se ganan los FPS pedidos y, de propina, menos latencia de
     // entrada: el ratón responde antes porque no se encola un frame de espera.
-    glfwSwapInterval(0);
+    glfwSwapInterval(g_opciones[Opciones::VSYNC]);
 
     // VBO OPTIMIZATION: Cargar extensiones de VBO
     std::cout << "Cargando extensiones VBO..." << std::endl;
@@ -45053,6 +45203,7 @@ int main() {
         g_perfil = Render::detectar(glRenderer, glVendor,
                                     std::thread::hardware_concurrency(),
                                     ramMB);
+        g_perfil.fpsMinimo = Opciones::fpsMinimo(g_opciones);
 
         std::cout << "======================================" << std::endl;
         std::cout << "  HARDWARE DETECTADO" << std::endl;
@@ -47015,10 +47166,17 @@ int main() {
                 // Y es lo que hace que la barra a 100 no mate la maquina: el
                 // terreno lejano acaba siendo color de niebla, asi que ni se
                 // malla fino ni se distingue que esta simplificado.
-                const float fracInicio = Render::nieblaInicioFraccion(
+                float fracInicio = Render::nieblaInicioFraccion(
                     g_gameState->renderDistance);
+                // La opcion DIFUMINADO manda sobre la barra si no es NORMAL.
+                const float inicioOpcion = Opciones::inicioNiebla(g_opciones);
+                if (inicioOpcion > 0.0f) fracInicio = inicioOpcion;
                 float fogStart = chunkRadius * fracInicio;
                 float fogEnd = chunkRadius * 0.98f;
+                if (inicioOpcion < 0.0f) {          // SIN NIEBLA
+                    fogStart = 1.0e6f;
+                    fogEnd = 1.0e6f + 1.0f;
+                }
 
                 // Ajustar por densidad (más denso = empieza antes)
                 fogStart *= (1.0f - finalDensity * 0.5f);
@@ -47287,7 +47445,8 @@ int main() {
                 // El radio de dibujo coincide con la distancia de carga de
                 // chunks: mas alla no hay mundo que los sostenga, y ademas la
                 // niebla ya es opaca.
-                const float radioDibujo = 5.0f * (float)CHUNK_SIZE;
+                const float radioDibujo =
+                    Opciones::radioAnimalesChunks(g_opciones) * (float)CHUNK_SIZE;
 
                 // Direccion de la camara, para el culling por angulo.
                 //
@@ -48958,7 +49117,7 @@ int main() {
                 glEnd();
                 // Texto blanco
                 glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("GRAFICOS", btn2.x + 60, btn2.y + 15, 20);
+                renderText("OPCIONES", btn2.x + 60, btn2.y + 15, 20);
 
                 // Botón 3: Sensibilidad
                 Button btn3(centerX - buttonWidth / 2, startY + buttonSpacing * 2, buttonWidth, buttonHeight, "Sensibilidad");
@@ -48982,7 +49141,7 @@ int main() {
                 glEnd();
                 // Texto blanco
                 glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("SENSIBILIDAD", btn3.x + 35, btn3.y + 15, 20);
+                renderText("AVATAR", btn3.x + 85, btn3.y + 15, 20);
 
                 // Botón 4: Salir
                 Button btn4(centerX - buttonWidth / 2, startY + buttonSpacing * 3, buttonWidth, buttonHeight, "Salir");
@@ -49009,225 +49168,23 @@ int main() {
                 renderText("SALIR", btn4.x + 95, btn4.y + 15, 20);
 
             } else if (g_gameState->pauseMenuState == PAUSE_MENU_GRAPHICS) {
-                // MENÚ DE GRÁFICOS
-                float startY = height / 2.0f - 100.0f;
-
-                // ============================================================
-                // ⭐ LA BARRA DE DISTANCIA DE RENDER (2 a 100)
-                // ============================================================
-                // Sustituye a los dos botones +/- que habia (con tope 16). Una
-                // barra es lo correcto aqui: el rango es largo, y pulsar "+"
-                // ochenta y cuatro veces para llegar al maximo no es una
-                // interfaz.
-                //
-                // Ademas los "titulos" de antes eran RECTANGULOS DE COLOR sin
-                // texto dentro -- placeholders que nunca se completaron. Ahora
-                // se escribe de verdad lo que hay.
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("GRAFICOS", centerX - 55, startY + 8, 22);
-
-                const int rdActual = Render::acotarBarra(g_gameState->renderDistance);
-
-                // Etiqueta: numero + nombre del tramo + lo que se carga de
-                // verdad. Lo ultimo es honestidad con el jugador: la barra dice
-                // 100 pero el motor carga 28, y ocultarlo seria mentir.
-                {
-                    char txt[128];
-                    snprintf(txt, sizeof(txt), "DISTANCIA: %d  (%s)",
-                             rdActual, Render::nombreCalidad(rdActual));
-                    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                    renderText(txt, centerX - 150, startY + 52, 18);
-                }
-
-                // --- La barra ---
-                const float barX = centerX - 200.0f;
-                const float barY = startY + 85.0f;
-                const float barW = 400.0f;     // "algo larga", como se pidio
-                const float barH = 18.0f;
-
-                // Canal de fondo.
-                glColor4f(0.15f, 0.15f, 0.18f, 0.95f);
-                glBegin(GL_QUADS);
-                glVertex2f(barX, barY);
-                glVertex2f(barX + barW, barY);
-                glVertex2f(barX + barW, barY + barH);
-                glVertex2f(barX, barY + barH);
-                glEnd();
-
-                // Parte rellena, con color por tramo: verde mientras es barato,
-                // ambar cuando empieza a simplificar, rojo en la zona extrema.
-                // Es informacion, no adorno: el color dice cuanto cuesta.
-                const float t01 = (float)(rdActual - Render::DISTANCIA_BARRA_MIN) /
-                                  (float)(Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN);
-                if (rdActual <= 16)      glColor4f(0.30f, 0.80f, 0.35f, 0.95f);
-                else if (rdActual <= 40) glColor4f(0.55f, 0.75f, 0.30f, 0.95f);
-                else if (rdActual <= 70) glColor4f(0.90f, 0.70f, 0.25f, 0.95f);
-                else                     glColor4f(0.90f, 0.40f, 0.25f, 0.95f);
-                glBegin(GL_QUADS);
-                glVertex2f(barX, barY);
-                glVertex2f(barX + barW * t01, barY);
-                glVertex2f(barX + barW * t01, barY + barH);
-                glVertex2f(barX, barY + barH);
-                glEnd();
-
-                // Marcas en 16, 40 y 70: son las fronteras reales de los tramos
-                // de difuminado, asi que el jugador ve DONDE cambia el
-                // comportamiento en vez de tener que adivinarlo.
-                glColor4f(1.0f, 1.0f, 1.0f, 0.35f);
-                glBegin(GL_LINES);
-                for (int marca : { 16, 40, 70 }) {
-                    const float mx = barX + barW *
-                        ((float)(marca - Render::DISTANCIA_BARRA_MIN) /
-                         (float)(Render::DISTANCIA_BARRA_MAX - Render::DISTANCIA_BARRA_MIN));
-                    glVertex2f(mx, barY - 4.0f);
-                    glVertex2f(mx, barY + barH + 4.0f);
-                }
-                glEnd();
-
-                // ⭐ EL RECTANGULO BLANCO QUE SE MUEVE (el tirador).
-                const float tirX = barX + barW * t01;
-                const float tirW = 12.0f, tirH = barH + 14.0f;
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                glBegin(GL_QUADS);
-                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f);
-                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f);
-                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f + tirH);
-                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f + tirH);
-                glEnd();
-                glColor4f(0.1f, 0.1f, 0.1f, 1.0f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f);
-                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f);
-                glVertex2f(tirX + tirW * 0.5f, barY - 7.0f + tirH);
-                glVertex2f(tirX - tirW * 0.5f, barY - 7.0f + tirH);
-                glEnd();
-
-                // Extremos, para que se lea el rango de un vistazo.
-                glColor4f(0.7f, 0.7f, 0.7f, 1.0f);
-                renderText("2", barX - 18, barY + 2, 14);
-                renderText("100", barX + barW + 8, barY + 2, 14);
-
-                // Aviso en la zona cara. No prohibe nada -- es decision del
-                // jugador -- pero le dice lo que va a pasar antes de que lo
-                // note en los FPS.
-                if (rdActual > 40) {
-                    glColor4f(0.95f, 0.75f, 0.35f, 1.0f);
-                    renderText("LO LEJANO SE SIMPLIFICA Y DIFUMINA",
-                               centerX - 165, startY + 118, 14);
-                }
-
-                // Botón volver
-                Button btnBack(centerX - buttonWidth / 2, startY + 160, buttonWidth, buttonHeight, "Volver");
-                bool hoverBack = btnBack.contains((float)mouseX, (float)mouseY);
-                glColor4f(hoverBack ? 0.5f : 0.3f, hoverBack ? 0.5f : 0.3f, hoverBack ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btnBack.x, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y + btnBack.height);
-                glVertex2f(btnBack.x, btnBack.y + btnBack.height);
-                glEnd();
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btnBack.x, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y + btnBack.height);
-                glVertex2f(btnBack.x, btnBack.y + btnBack.height);
-                glEnd();
-                // Texto "Volver" blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("VOLVER", btnBack.x + 75, btnBack.y + 15, 20);
+                renderOpciones(width, height, (float)mouseX, (float)mouseY);
 
             } else if (g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
-                // MENÚ DE SENSIBILIDAD
-                float startY = height / 2.0f - 100.0f;
-
-                // Título "SENSIBILIDAD"
-                glColor4f(1.0f, 0.5f, 0.2f, 1.0f);
-                glBegin(GL_QUADS);
-                glVertex2f(centerX - 120, startY);
-                glVertex2f(centerX + 120, startY);
-                glVertex2f(centerX + 120, startY + 40);
-                glVertex2f(centerX - 120, startY + 40);
-                glEnd();
-
-                // Texto "Sensibilidad Mouse"
+                // AVATAR: por ahora vacio. Solo el titulo y VOLVER.
+                const float startY = height / 2.0f - 100.0f;
                 glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                glBegin(GL_QUADS);
-                glVertex2f(centerX - 120, startY + 50);
-                glVertex2f(centerX + 120, startY + 50);
-                glVertex2f(centerX + 120, startY + 70);
-                glVertex2f(centerX - 120, startY + 70);
-                glEnd();
+                renderText("AVATAR", centerX - 6 * 32 * 0.35f, startY - 40, 32);
 
-                // Botón -
-                Button btnMinus(centerX - 150, startY + 80, 50, 40, "-");
-                bool hoverMinus = btnMinus.contains((float)mouseX, (float)mouseY);
-                glColor4f(hoverMinus ? 0.5f : 0.3f, hoverMinus ? 0.5f : 0.3f, hoverMinus ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btnMinus.x, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y + btnMinus.height);
-                glVertex2f(btnMinus.x, btnMinus.y + btnMinus.height);
-                glEnd();
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btnMinus.x, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y);
-                glVertex2f(btnMinus.x + btnMinus.width, btnMinus.y + btnMinus.height);
-                glVertex2f(btnMinus.x, btnMinus.y + btnMinus.height);
-                glEnd();
-                // Texto "-" blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("-", btnMinus.x + 18, btnMinus.y + 10, 20);
-
-                // Valor actual (mostrar como porcentaje)
-                glColor4f(1.0f, 1.0f, 0.0f, 1.0f);
-                glBegin(GL_QUADS);
-                glVertex2f(centerX - 40, startY + 80);
-                glVertex2f(centerX + 40, startY + 80);
-                glVertex2f(centerX + 40, startY + 120);
-                glVertex2f(centerX - 40, startY + 120);
-                glEnd();
-
-                // Botón +
-                Button btnPlus(centerX + 100, startY + 80, 50, 40, "+");
-                bool hoverPlus = btnPlus.contains((float)mouseX, (float)mouseY);
-                glColor4f(hoverPlus ? 0.5f : 0.3f, hoverPlus ? 0.5f : 0.3f, hoverPlus ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btnPlus.x, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y + btnPlus.height);
-                glVertex2f(btnPlus.x, btnPlus.y + btnPlus.height);
-                glEnd();
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btnPlus.x, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y);
-                glVertex2f(btnPlus.x + btnPlus.width, btnPlus.y + btnPlus.height);
-                glVertex2f(btnPlus.x, btnPlus.y + btnPlus.height);
-                glEnd();
-                // Texto "+" blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("+", btnPlus.x + 18, btnPlus.y + 10, 20);
-
-                // Botón volver
                 Button btnBack(centerX - buttonWidth / 2, startY + 160, buttonWidth, buttonHeight, "Volver");
-                bool hoverBack = btnBack.contains((float)mouseX, (float)mouseY);
-                glColor4f(hoverBack ? 0.5f : 0.3f, hoverBack ? 0.5f : 0.3f, hoverBack ? 0.5f : 0.3f, 0.9f);
+                const bool hover = btnBack.contains((float)mouseX, (float)mouseY);
+                glColor4f(hover ? 0.5f : 0.3f, hover ? 0.5f : 0.3f, hover ? 0.5f : 0.3f, 0.9f);
                 glBegin(GL_QUADS);
                 glVertex2f(btnBack.x, btnBack.y);
                 glVertex2f(btnBack.x + btnBack.width, btnBack.y);
                 glVertex2f(btnBack.x + btnBack.width, btnBack.y + btnBack.height);
                 glVertex2f(btnBack.x, btnBack.y + btnBack.height);
                 glEnd();
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btnBack.x, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y + btnBack.height);
-                glVertex2f(btnBack.x, btnBack.y + btnBack.height);
-                glEnd();
-                // Texto "Volver" blanco
                 glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
                 renderText("VOLVER", btnBack.x + 75, btnBack.y + 15, 20);
             }
@@ -49676,6 +49633,23 @@ int main() {
                     std::chrono::high_resolution_clock::now() - tSwap).count();
             }
             glfwPollEvents();
+
+            // LIMITE DE FPS (opcion). Se espera hasta la hora del siguiente
+            // frame; si ya va tarde, no se intenta recuperar el retraso.
+            {
+                using Reloj = std::chrono::steady_clock;
+                static Reloj::time_point proximo = Reloj::now();
+                const int limite = Opciones::limiteFps(g_opciones);
+                const Reloj::time_point ahora = Reloj::now();
+                if (limite > 0) {
+                    const auto paso = std::chrono::nanoseconds(1000000000LL / limite);
+                    proximo += paso;
+                    if (proximo < ahora) proximo = ahora;
+                    else std::this_thread::sleep_until(proximo);
+                } else {
+                    proximo = ahora;
+                }
+            }
         }
     } catch (const std::exception& e) {
         std::cerr << "\n╔════════════════════════════════════════╗" << std::endl;

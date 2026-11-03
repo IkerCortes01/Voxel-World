@@ -177,6 +177,12 @@ uniform float uNieblaFin;
 // para que el terreno se difumine EXACTAMENTE igual que el resto del motor.
 uniform int   uNieblaModo;
 uniform float uNieblaDensidad;
+// Las opciones de imagen (ver Opciones::luzShader).
+uniform float uBrillo;
+uniform float uLuzMin;
+uniform float uGamma;
+uniform float uIntensidad;
+uniform float uSaturacion;
 
 in vec2 vUV;
 in vec3 vColor;
@@ -195,7 +201,13 @@ void main() {
     // no estorbar al early-Z.
     if (uRecorte > 0.5 && t.a <= 0.1) discard;
 
-    vec3 c = t.rgb * vColor;
+    // La luz horneada, con las opciones: intensidad, un suelo para las
+    // sombras y una curva que las hunde. Luego el brillo y la saturacion.
+    vec3 luz = max(vColor * uIntensidad, vec3(uLuzMin));
+    luz = pow(luz, vec3(uGamma));
+    vec3 c = t.rgb * luz * uBrillo;
+    float gris = dot(c, vec3(0.299, 0.587, 0.114));
+    c = mix(vec3(gris), c, uSaturacion);
 
     // La misma niebla que aplicaba GL_FOG, en sus tres modos.
     float f = 0.0;
@@ -220,6 +232,7 @@ struct ProgramaTerreno {
     GLint uTexturas = -1, uScroll = -1, uRecorte = -1;
     GLint uNieblaColor = -1, uNieblaIni = -1, uNieblaFin = -1;
     GLint uNieblaModo = -1, uNieblaDensidad = -1;
+    GLint uBrillo = -1, uLuzMin = -1, uGamma = -1, uIntensidad = -1, uSaturacion = -1;
 
     bool valido() const { return id != 0; }
 };
@@ -328,6 +341,11 @@ inline ProgramaTerreno crearPrograma() {
     p.uNieblaFin   = pglGetUniformLocation(prog, "uNieblaFin");
     p.uNieblaModo  = pglGetUniformLocation(prog, "uNieblaModo");
     p.uNieblaDensidad = pglGetUniformLocation(prog, "uNieblaDensidad");
+    p.uBrillo      = pglGetUniformLocation(prog, "uBrillo");
+    p.uLuzMin      = pglGetUniformLocation(prog, "uLuzMin");
+    p.uGamma       = pglGetUniformLocation(prog, "uGamma");
+    p.uIntensidad  = pglGetUniformLocation(prog, "uIntensidad");
+    p.uSaturacion  = pglGetUniformLocation(prog, "uSaturacion");
     return p;
 }
 

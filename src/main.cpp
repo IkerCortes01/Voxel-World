@@ -34229,40 +34229,45 @@ void renderAvisoRecoger(GameState* state, int width, int height) {
     Vec3i p;
     if (!pedazoMirado(state, p)) return;
 
-    constexpr float TECLA = 40.0f;
-    constexpr float LETRA = 22.0f;
-    const char* TEXTO = "RECOGER";
-    const float anchoTexto = 7 * LETRA * 0.7f;
-    const float ancho = TECLA + 12.0f + anchoTexto;
-    const float x = (width - ancho) / 2.0f;
-    const float y = height - 80.0f - 24.0f - 18.0f - 12.0f - TECLA;
+    // Las medidas de la hotbar (ver renderHotbar): la tecla va centrada sobre
+    // el quinto slot, que es el del medio.
+    constexpr float SLOT = 50.0f, ESPACIO = 4.0f;
+    const float inicioHotbar = (width - (9 * SLOT + 8 * ESPACIO)) / 2.0f;
+    const float centroX = inicioHotbar + 4 * (SLOT + ESPACIO) + SLOT / 2.0f;
+
+    constexpr float TECLA = 44.0f;
+    constexpr float LETRA = 24.0f;            // la F mide 0.6 de ancho por 1 de alto
+    const float x = centroX - TECLA / 2.0f;
+    const float y = height - 80.0f - 14.0f - TECLA;
 
     glDisable(GL_TEXTURE_2D);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // La tecla: fondo oscuro, canto mas claro abajo y borde blanco.
-    glColor4f(0.12f, 0.12f, 0.14f, 0.85f);
-    glBegin(GL_QUADS);
-    glVertex2f(x, y); glVertex2f(x + TECLA, y);
-    glVertex2f(x + TECLA, y + TECLA); glVertex2f(x, y + TECLA);
-    glEnd();
-    glColor4f(0.35f, 0.35f, 0.40f, 0.9f);
-    glBegin(GL_QUADS);
-    glVertex2f(x, y + TECLA - 5.0f); glVertex2f(x + TECLA, y + TECLA - 5.0f);
-    glVertex2f(x + TECLA, y + TECLA); glVertex2f(x, y + TECLA);
-    glEnd();
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-    glLineWidth(2);
-    glBegin(GL_LINE_LOOP);
-    glVertex2f(x, y); glVertex2f(x + TECLA, y);
-    glVertex2f(x + TECLA, y + TECLA); glVertex2f(x, y + TECLA);
-    glEnd();
+    auto cuadro = [](float x0, float y0, float x1, float y1) {
+        glBegin(GL_QUADS);
+        glVertex2f(x0, y0); glVertex2f(x1, y0);
+        glVertex2f(x1, y1); glVertex2f(x0, y1);
+        glEnd();
+    };
 
-    renderChar('F', x + (TECLA - LETRA * 0.7f) / 2.0f + 2.0f,
-               y + (TECLA - 5.0f - LETRA) / 2.0f, LETRA);
+    // Sombra, para que se lea sobre un fondo oscuro.
+    glColor4f(0.0f, 0.0f, 0.0f, 0.35f);
+    cuadro(x + 3.0f, y + 3.0f, x + TECLA + 3.0f, y + TECLA + 3.0f);
+    // La tecla: negra, con un borde gris claro de 2 px.
+    glColor4f(0.85f, 0.85f, 0.85f, 1.0f);
+    cuadro(x, y, x + TECLA, y + TECLA);
+    glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+    cuadro(x + 2.0f, y + 2.0f, x + TECLA - 2.0f, y + TECLA - 2.0f);
+
+    // La F blanca, centrada.
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-    renderText(TEXTO, x + TECLA + 12.0f, y + (TECLA - LETRA) / 2.0f, LETRA);
+    renderChar('F', centroX - LETRA * 0.3f, y + (TECLA - LETRA) / 2.0f, LETRA);
+
+    // Lo que hace, a su derecha, sin mover la tecla del centro.
+    constexpr float TEXTO = 16.0f;
+    glColor4f(1.0f, 1.0f, 1.0f, 0.95f);
+    renderText("RECOGER", x + TECLA + 10.0f, y + (TECLA - TEXTO) / 2.0f, TEXTO);
 }
 
 void breakBlock(GameState* state) {

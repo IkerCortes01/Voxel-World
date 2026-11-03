@@ -32951,6 +32951,58 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                 }
             }
 
+            // ⭐ UN PEDACITO ENCIMA GANA, Y SOLO ESO.
+            //
+            // PEDIDO: "si detecta un pedazo [...] prefiera elegir ese antes que
+            // el bloque de abajo, pero solo exclusivo de esto". El pedernal o la
+            // piedrita es un bulto de pocos pixeles: el rayo toca antes el suelo
+            // y se llevaba la seleccion, y con ella el aviso de la tecla F.
+            //
+            // Si encima no hay un pedacito, no cambia nada.
+            {
+                const BlockType arriba = world.getBlock(x, y + 1, z);
+                float ax0, ay0, az0, ax1, ay1, az1;
+                if (seRecogeConF(arriba) &&
+                    nopalHitboxCon(arriba,
+                        [&](int dx, int dy, int dz) {
+                            return world.getBlock(x + dx, y + 1 + dy, z + dz);
+                        },
+                        x, y + 1, z, ax0, ay0, az0, ax1, ay1, az1)) {
+                    // Con un poco de margen: es lo que de verdad cuesta apuntar.
+                    constexpr float MARGEN = 0.10f;
+                    const float P0[3] = { ax0 + (float)x - MARGEN,
+                                          ay0 + (float)(y + 1) - MARGEN,
+                                          az0 + (float)z - MARGEN };
+                    const float P1[3] = { ax1 + (float)x + MARGEN,
+                                          ay1 + (float)(y + 1) + MARGEN,
+                                          az1 + (float)z + MARGEN };
+                    const float O[3] = { origin.x, origin.y, origin.z };
+                    const float D[3] = { direction.x, direction.y, direction.z };
+                    float tEnt = 0.0f, tSal = maxDistance;
+                    bool toca = true;
+                    for (int e = 0; e < 3 && toca; ++e) {
+                        if (fabsf(D[e]) < 1e-6f) {
+                            if (O[e] < P0[e] || O[e] > P1[e]) toca = false;
+                        } else {
+                            float t1 = (P0[e] - O[e]) / D[e];
+                            float t2 = (P1[e] - O[e]) / D[e];
+                            if (t1 > t2) { const float tp = t1; t1 = t2; t2 = tp; }
+                            if (t1 > tEnt) tEnt = t1;
+                            if (t2 < tSal) tSal = t2;
+                            if (tEnt > tSal) toca = false;
+                        }
+                    }
+                    if (toca) {
+                        result.hit = true;
+                        result.blockPos = Vec3i(x, y + 1, z);
+                        result.previousPos = Vec3i(x, y + 2, z);
+                        result.normal = Vec3i(0, 1, 0);
+                        result.distance = t;
+                        return result;
+                    }
+                }
+            }
+
             result.hit = true;
             result.blockPos = Vec3i(x, y, z);
 

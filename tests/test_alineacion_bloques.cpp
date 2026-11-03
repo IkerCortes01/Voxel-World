@@ -257,8 +257,15 @@ TEST_CASE("Seleccion: gana el bloque que el jugador mira, no el de arriba") {
     const size_t f = src.find("result.previousPos = prevBlock;", src.find("LA CARA DE LA CAJA REAL MANDA", i));
     REQUIRE(f != std::string::npos);
     const std::string rayo = src.substr(i, f - i);
-    CHECK(rayo.find("Vec3i(x, y + 1, z)") == std::string::npos);
-    CHECK(src.find("GANA EL DE ENCIMA") == std::string::npos);
+    CHECK(src.find("GANA EL DE ENCIMA SI ES MAS PEQUENO") == std::string::npos);
+    // La unica excepcion: un pedacito de los que se recogen con F. El salto a
+    // la celda de encima solo puede ocurrir despues de preguntar por eso.
+    const size_t salto = rayo.find("result.blockPos = Vec3i(x, y + 1, z);");
+    REQUIRE(salto != std::string::npos);
+    CHECK(rayo.find("result.blockPos = Vec3i(x, y + 1, z);", salto + 1) == std::string::npos);
+    const size_t guarda = rayo.rfind("if (seRecogeConF(arriba) &&", salto);
+    REQUIRE(guarda != std::string::npos);
+    CHECK(salto - guarda < 2500);
 }
 
 TEST_CASE("Seleccion: el rayo sale del mismo ojo que la camara y sin margen") {

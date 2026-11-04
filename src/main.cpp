@@ -47687,6 +47687,10 @@ int main() {
                                                  transHuesos, vertsDeform);
                             Fauna::AnimarParpados(*malla, inst.gesto, transHuesos,
                                                   vertsDeform);
+                            // Respirar, la panza y los musculos (fase 4).
+                            Fauna::AnimarMusculos(*malla, *inst.pesos, poseEsq,
+                                                  transHuesos, inst.dinamica,
+                                                  vertsDeform);
                             verts = &vertsDeform;
                         }
 
@@ -47768,6 +47772,42 @@ int main() {
                             }
                         }
                         glEnd();
+
+                        // ============================================
+                        // --- EL PELO (fase 5) ---
+                        // ============================================
+                        // Lineas desde la piel ya deformada. Solo de muy cerca
+                        // y con DETALLE en ALTO: es lo mas caro del animal.
+                        if (inst.lod == 0 && g_opciones[Opciones::DETALLE] == 2) {
+                            const float tv = (float)g_relojMundo;
+                            // Una brisa que cambia despacio, del mundo al
+                            // espacio del animal.
+                            const float vwx = std::sin(tv * 0.21f) * 0.8f;
+                            const float vwz = std::cos(tv * 0.13f) * 0.6f;
+                            Fauna::EntornoPelo ent;
+                            ent.erizado = inst.erizado;
+                            ent.rapidez = inst.dinamica.rapidez;
+                            ent.panza = inst.dinamica.panza;
+                            ent.tiempo = tv;
+                            if (inst.libre) {
+                                const float* R = inst.rot;
+                                ent.vientoX = R[0] * vwx + R[6] * vwz;
+                                ent.vientoZ = R[2] * vwx + R[8] * vwz;
+                            } else {
+                                ent.vientoX = vwx * cy - vwz * sy;
+                                ent.vientoZ = vwx * sy + vwz * cy;
+                            }
+                            glLineWidth(1.3f);
+                            glBegin(GL_LINES);
+                            for (const Fauna::Cerda& c : Fauna::CerdasDe(*malla)) {
+                                if (c.vert >= nVert) continue;
+                                const Fauna::VerticeAnimal& b = (*verts)[c.vert];
+                                const Fauna::V3 punta = Fauna::PuntaCerda(c, b, ent);
+                                emitir(b.pos, b.normal, b.r * 0.80f, b.g * 0.80f, b.b * 0.80f);
+                                emitir(punta, b.normal, b.r * 0.55f, b.g * 0.55f, b.b * 0.55f);
+                            }
+                            glEnd();
+                        }
 
                         // ============================================
                         // --- LAS HERIDAS (fase 2: calcomanias) ---

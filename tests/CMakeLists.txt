@@ -96,6 +96,7 @@ add_executable(voxel_tests
     test_pecari_ragdoll.cpp
     test_pecari_heridas.cpp
     test_pecari_cara.cpp
+    test_pecari_cuerpo_vivo.cpp
     test_maguey_colocable.cpp
     test_tablones_niveles.cpp
     test_alineacion_bloques.cpp

@@ -2,6 +2,7 @@
 #define PECARI_ENTIDAD_H
 
 #include "PecariHeridas.h"
+#include "PecariMusculos.h"
 #include <cstdint>
 #include <cmath>
 #include <vector>
@@ -357,6 +358,9 @@ struct PecariAgente {
 
     // Las marcas de los golpes, pegadas a la piel (ver PecariHeridas.h).
     std::vector<Herida> heridas;
+
+    // La inercia de la panza (fase 4).
+    ResortePanza panza;
 };
 
 // ----------------------------------------------------------------------------
@@ -653,6 +657,7 @@ inline void ActualizarPecari(PecariAgente& p,
     // --- 0. Reloj propio ---
     // Alimenta la respiracion, que corre aunque el animal no se mueva.
     p.tiempoVivo += dt;
+    p.panza.actualizar(dt, std::sqrt(p.vx * p.vx + p.vz * p.vz));
 
     // ------------------------------------------------------------------------
     // ⭐ 0-bis. LA AMENAZA MANDA SOBRE TODO LO DEMAS

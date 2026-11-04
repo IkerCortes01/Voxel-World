@@ -13,6 +13,7 @@
 #include "AnimalMallaCache.h"
 #include "PecariRagdoll.h"
 #include "PecariCara.h"
+#include "PecariPelo.h"
 
 // ============================================================================
 // EL REGISTRO DE PECARIES DEL MUNDO
@@ -551,6 +552,7 @@ public:
         const std::vector<Herida>* heridas = nullptr;
 
         GestoCara gesto;            // boca, ojos y parpados (fase 3)
+        DinamicaCuerpo dinamica;    // respirar, panza y musculos (fase 4)
     };
 
     // ------------------------------------------------------------------------
@@ -625,6 +627,11 @@ public:
             d.sueloTD = p.sueloPataTD;
             d.heridas = &p.heridas;
             d.gesto = GestoDe((int)p.conducta, p.tiempoVivo, p.semilla, d.rapidez);
+            d.dinamica.panza = p.panza.x;
+            d.dinamica.fasePaso = p.fasePaso;
+            d.dinamica.rapidez = d.rapidez;
+            d.dinamica.tiempo = p.tiempoVivo;
+            d.dinamica.faseRespira = azar01(p.semilla + 77u) * 6.2831853f;
 
             salida.push_back(d);
         }
@@ -661,6 +668,7 @@ public:
             d.cadaver = (int)i;
             d.heridas = &r.heridas;
             d.gesto = GestoMuerto();
+            d.dinamica.respira = false;
             salida.push_back(d);
         }
     }

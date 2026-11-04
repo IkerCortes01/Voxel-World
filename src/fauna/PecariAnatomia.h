@@ -373,6 +373,39 @@ namespace Especies {
 // ============================================================================
 // El punto 17 pide cuatro niveles. Aqui se definen los parametros de cada uno;
 // la seleccion por distancia va en el gestor.
+// ----------------------------------------------------------------------------
+// DONDE ESTAN LOS OJOS Y LA BOCA
+// ----------------------------------------------------------------------------
+// Lo usan la malla (para construirlos), el esqueleto (para poner sus huesos) y
+// los pesos (para saber que vertices son de la mandibula). Una sola cuenta.
+struct GeometriaCara {
+    float zOjo, yOjo, xOjo, rOjo;
+    float yBoca, zMandibula, zPuntaBoca;
+};
+
+inline GeometriaCara CaraDe(const ParametrosPecari& p) {
+    GeometriaCara g;
+    const float largoTronco = p.largoCuerpo * p.fraccionTronco;
+    const float ejeY = p.alturaCruz - p.altoTorso * 0.5f;
+    const float zCraneo = largoTronco * 0.48f + p.largoCuello;
+    g.zOjo = zCraneo + p.largoCabeza * 0.34f;
+    const float tOjo = 0.34f / 0.42f;
+    const float radioXCraneo = p.anchoCabeza * 0.5f
+                             + (p.anchoCabeza * 0.46f - p.anchoCabeza * 0.5f) * tOjo;
+    const float radioYCraneo = p.altoCabeza * 0.5f
+                             + (p.altoCabeza * 0.44f - p.altoCabeza * 0.5f) * tOjo;
+    const float centroYCraneo = (ejeY + p.altoTorso * 0.12f) - p.altoCabeza * 0.045f * tOjo;
+    g.yOjo = centroYCraneo + radioYCraneo * 0.42f;
+    g.xOjo = radioXCraneo * std::sqrt(1.0f - 0.42f * 0.42f) * 0.94f;
+    g.rOjo = p.diametroOjo * 0.5f;
+    // La comisura: un poco por debajo del eje del hocico.
+    const float centroHocico = ejeY + p.altoTorso * 0.12f - p.altoCabeza * 0.17f;
+    g.yBoca = centroHocico - p.anchoHocico * 0.48f * 0.25f;
+    g.zMandibula = zCraneo + p.largoCabeza * 0.50f;
+    g.zPuntaBoca = zCraneo + p.largoCabeza + p.largoHocico * 0.80f;
+    return g;
+}
+
 struct ConfigLOD {
     int   ladosCuerpo;      // vertices por anillo del tronco
     int   seccionesCuerpo;  // anillos a lo largo del tronco
@@ -1469,6 +1502,65 @@ private:
                     malla.vertices[i].pelo = 0.0f;
                 }
             }
+
+            // ================================================================
+            // EL PARPADO (fase 3)
+            // ================================================================
+            // Un casquete un poco mayor que el globo, cerrado sobre el. Se
+            // abre y se cierra al dibujar (ver AnimarParpados en PecariCara.h).
+            {
+                std::vector<SeccionCuerpo> par;
+                SeccionCuerpo l1;
+                l1.z = 0.0f;
+                l1.radioX = rOjo * 1.14f;
+                l1.radioY = rOjo * 1.02f;
+                l1.centroY = 0.0f;
+                l1.zonaLomo = l1.zonaFlanco = l1.zonaVientre = ZonaCuerpo::PARPADO;
+                par.push_back(l1);
+                SeccionCuerpo l2 = l1;
+                l2.z = rOjo * 0.72f;
+                l2.radioX = rOjo * 0.70f;
+                l2.radioY = rOjo * 0.62f;
+                par.push_back(l2);
+
+                const size_t basePar = malla.vertices.size();
+                GeneradorMalla::coserTubo(malla, par, cfg.ladosPata, p.semilla,
+                                          false, true);
+                for (size_t i = basePar; i < malla.vertices.size(); ++i) {
+                    V3& q = malla.vertices[i].pos;
+                    const float ejeLateral = q.z;
+                    const float anchoZ     = q.x;
+                    q.x = sx * (xCraneo * 0.94f + ejeLateral);
+                    q.z = zOjo + anchoZ;
+                    q.y = yOjo + q.y;
+                    malla.vertices[i].zona = ZonaCuerpo::PARPADO;
+                    malla.vertices[i].pelo = 0.0f;
+                }
+            }
+        }
+
+        // ================================================================
+        // LA BOCA POR DENTRO (fase 3)
+        // ================================================================
+        // Lo que se ve al abrir la mandibula. Sin esto, abrir la boca dejaria
+        // un hueco por el que se veria a traves de la cabeza.
+        {
+            const GeometriaCara cara = CaraDe(p);
+            std::vector<SeccionCuerpo> boca;
+            for (int k = 0; k < 3; ++k) {
+                SeccionCuerpo s;
+                s.z = cara.zMandibula + 0.01f +
+                      (cara.zPuntaBoca - cara.zMandibula - 0.01f) * (k / 2.0f);
+                s.radioX = p.anchoHocico * (k == 2 ? 0.30f : 0.40f);
+                s.radioY = p.anchoHocico * 0.11f;
+                s.centroY = cara.yBoca;
+                s.zonaLomo = s.zonaFlanco = s.zonaVientre = ZonaCuerpo::BOCA;
+                boca.push_back(s);
+            }
+            const size_t baseBoca = malla.vertices.size();
+            GeneradorMalla::coserTubo(malla, boca, cfg.ladosPata, p.semilla,
+                                      true, true);
+            GeneradorMalla::marcarZona(malla, baseBoca, ZonaCuerpo::BOCA, 0.0f);
         }
     }
 
@@ -1605,6 +1697,11 @@ private:
                 case ZonaCuerpo::HOCICO:  c = p.colorHocico;  break;
                 case ZonaCuerpo::OJO:     c = p.colorOjo;     break;
                 case ZonaCuerpo::PUPILA:  c = p.colorPupila;  break;
+                case ZonaCuerpo::BOCA: {
+                    static const float BOCA[3] = { 0.30f, 0.09f, 0.09f };
+                    c = BOCA;
+                    break;
+                }
                 default:                  c = p.colorBase;    break;
             }
 

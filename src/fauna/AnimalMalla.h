@@ -139,6 +139,10 @@ enum class ZonaCuerpo : uint8_t {
     // tenga forma. En los ungulados presa es HORIZONTAL, no redonda -- va con
     // la franja visual horizontal MEDIDA en la retina de esta especie.
     PUPILA,
+    // Los parpados: un casquete sobre cada ojo que se abre y se cierra (ver
+    // PecariCara.h). Y la boca por dentro, que se ve al abrir la mandibula.
+    PARPADO,
+    BOCA,
     _COUNT
 };
 
@@ -686,7 +690,8 @@ public:
             // superficies duras o humedas, lisas por naturaleza. Arrugar un
             // globo ocular lo estropearia.
             if (v.zona == ZonaCuerpo::OJO || v.zona == ZonaCuerpo::PEZUNA ||
-                v.zona == ZonaCuerpo::PUPILA)
+                v.zona == ZonaCuerpo::PUPILA || v.zona == ZonaCuerpo::PARPADO ||
+                v.zona == ZonaCuerpo::BOCA)
                 continue;
 
             // Dos octavas. Los divisores de indice dan la "frecuencia": al

@@ -100,6 +100,11 @@ enum class HuesoAnimal : uint8_t {
     RODILLA_TD,
     CORVEJON_TD,
 
+    // La cara (fase 3). Van al final para no correr los indices de antes.
+    MANDIBULA,      // la boca: bisagra en X, hija de la cabeza
+    OJO_I,          // el globo y la pupila: giran en Y para mirar
+    OJO_D,
+
     _COUNT
 };
 

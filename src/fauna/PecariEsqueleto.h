@@ -82,6 +82,17 @@ inline EsqueletoReposo EsqueletoDePecari(const ParametrosPecari& p) {
     // --- Raiz ---
     e.huesos[(int)HuesoAnimal::TRONCO] = { V3(0, ejeY, 0), -1 };
 
+    // La cara (fase 3): la mandibula gira en la comisura; cada ojo, en su centro.
+    {
+        const GeometriaCara cara = CaraDe(p);
+        e.huesos[(int)HuesoAnimal::MANDIBULA] =
+            { V3(0, cara.yBoca, cara.zMandibula), (int8_t)HuesoAnimal::CABEZA };
+        e.huesos[(int)HuesoAnimal::OJO_I] =
+            { V3(-cara.xOjo, cara.yOjo, cara.zOjo), (int8_t)HuesoAnimal::CABEZA };
+        e.huesos[(int)HuesoAnimal::OJO_D] =
+            { V3(cara.xOjo, cara.yOjo, cara.zOjo), (int8_t)HuesoAnimal::CABEZA };
+    }
+
     // --- Cuello y cabeza: la cadena que permite mirar sin girarse ---
     e.huesos[(int)HuesoAnimal::CUELLO] = {
         V3(0, ejeY + p.altoTorso * 0.06f, zPecho),
@@ -155,6 +166,7 @@ inline void CalcularPesosPecari(const MallaAnimal& malla,
     // Punto medio entre las patas delanteras y traseras: separa a que tren
     // pertenece un vertice de pata.
     const float zMedioPatas = (p.patasDelanteZ + p.patasTraseraZ) * 0.5f;
+    const GeometriaCara cara = CaraDe(p);
 
     for (size_t i = 0; i < malla.vertices.size(); ++i) {
         const VerticeAnimal& v = malla.vertices[i];
@@ -169,10 +181,22 @@ inline void CalcularPesosPecari(const MallaAnimal& malla,
         // --- CABEZA Y HOCICO: van enteros con el hueso de la cabeza ---
         case ZonaCuerpo::CABEZA:
         case ZonaCuerpo::HOCICO:
+        case ZonaCuerpo::BOCA:
         case ZonaCuerpo::OREJA:
-        case ZonaCuerpo::OJO:      // los ojos van con la cabeza, faltaria mas
-        case ZonaCuerpo::PUPILA:   // y la pupila con el ojo, obviamente
+        case ZonaCuerpo::PARPADO:  // AnimarParpados lo rehace con la cabeza
             w.hueso = (uint8_t)HuesoAnimal::CABEZA;
+            w.peso  = 255;
+            // Lo que esta por debajo de la boca y por delante de la comisura
+            // es la mandibula. Entero: el skinning mezcla con el reposo, no con
+            // la cabeza, y un peso a medias se quedaria atras al girarla.
+            if (v.zona != ZonaCuerpo::OREJA && v.zona != ZonaCuerpo::PARPADO &&
+                v.pos.y < cara.yBoca && v.pos.z > cara.zMandibula)
+                w.hueso = (uint8_t)HuesoAnimal::MANDIBULA;
+            break;
+
+        case ZonaCuerpo::OJO:      // cada ojo con su hueso: gira para mirar
+        case ZonaCuerpo::PUPILA:
+            w.hueso = (uint8_t)(v.pos.x < 0 ? HuesoAnimal::OJO_I : HuesoAnimal::OJO_D);
             w.peso  = 255;
             break;
 

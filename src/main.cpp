@@ -47648,25 +47648,18 @@ int main() {
                         const std::vector<Fauna::VerticeAnimal>* verts =
                             &malla->vertices;
 
-                        if (inst.articulado && inst.pesos && inst.libre) {
-                            // Muerto: la pose la da el ragdoll.
-                            const int etapaIdx = inst.etapa;
-                            Fauna::ResolverPose(
-                                esqPorEtapa[(etapaIdx < 0 || etapaIdx > 4) ? 3 : etapaIdx],
-                                inst.poseLibre, transHuesos);
-                            Fauna::DeformarMalla(*malla, *inst.pesos,
-                                                 transHuesos, vertsDeform);
-                            verts = &vertsDeform;
-                        } else if (inst.articulado && inst.pesos) {
-                            Fauna::PoseDeMarcha(inst.fasePaso, inst.rapidez, poseEsq);
+                        if (inst.articulado && inst.pesos) {
+                            if (inst.libre) {
+                                // Muerto: la pose la da el ragdoll.
+                                poseEsq = inst.poseLibre;
+                            } else {
+                                Fauna::PoseDeMarcha(inst.fasePaso, inst.rapidez, poseEsq);
 
-                            // --- ADAPTACION AL TERRENO ---
-                            // El suelo bajo cada pata llega ya muestreado y
-                            // suavizado desde la simulacion. Aqui solo se
-                            // convierte de BLOQUES a METROS (el esqueleto vive
-                            // en metros) y se suma a la pose de marcha, para
-                            // que el animal siga andando mientras se adapta.
-                            {
+                                // --- ADAPTACION AL TERRENO ---
+                                // El suelo bajo cada pata llega ya muestreado y
+                                // suavizado desde la simulacion. Aqui solo se
+                                // convierte de BLOQUES a METROS (el esqueleto
+                                // vive en metros) y se suma a la pose de marcha.
                                 Fauna::SueloBajoPatas sp;
                                 constexpr float BLOQ_A_M = 0.60f;
                                 sp.delanteraIzq = inst.sueloDI * BLOQ_A_M;
@@ -47674,14 +47667,16 @@ int main() {
                                 sp.traseraIzq   = inst.sueloTI * BLOQ_A_M;
                                 sp.traseraDer   = inst.sueloTD * BLOQ_A_M;
                                 Fauna::AplicarTerreno(sp, poseEsq);
-                            }
 
-                            // La cabeza gira aparte del cuerpo: es lo que
-                            // permite que mire a los lados sin girarse entero.
-                            poseEsq.giroY[(int)Fauna::HuesoAnimal::CABEZA] =
-                                inst.giroCabezaY;
-                            poseEsq.giroX[(int)Fauna::HuesoAnimal::CABEZA] +=
-                                inst.giroCabezaX;
+                                // La cabeza gira aparte del cuerpo: es lo que
+                                // permite que mire a los lados sin girarse entero.
+                                poseEsq.giroY[(int)Fauna::HuesoAnimal::CABEZA] =
+                                    inst.giroCabezaY;
+                                poseEsq.giroX[(int)Fauna::HuesoAnimal::CABEZA] +=
+                                    inst.giroCabezaX;
+                            }
+                            // Boca y ojos (fase 3).
+                            Fauna::AplicarGesto(inst.gesto, poseEsq);
 
                             const int etapaIdx = inst.etapa;
                             Fauna::ResolverPose(
@@ -47690,6 +47685,8 @@ int main() {
 
                             Fauna::DeformarMalla(*malla, *inst.pesos,
                                                  transHuesos, vertsDeform);
+                            Fauna::AnimarParpados(*malla, inst.gesto, transHuesos,
+                                                  vertsDeform);
                             verts = &vertsDeform;
                         }
 

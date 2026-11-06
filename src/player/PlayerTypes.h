@@ -94,6 +94,9 @@ struct MovementConfig {
     // levantada mirando al frente.
     float proneHeight    = 0.55f;
     float proneEyeHeight = 0.42f;
+    // Medio agachado inspeccionando: la caja no cambia (sigue cabiendo donde
+    // cabe de pie), solo baja la vista.
+    float inspeccionEyeHeight = 1.30f;
     // Lo rapido que la camara sube o baja al cambiar de postura (1/s). Un
     // cuerpo que se agacha no teletransporta la cabeza.
     float postureEyeRate = 9.0f;
@@ -103,6 +106,8 @@ struct MovementConfig {
     float sprintSpeed  = 5.612f; // Correr (~1.3x)
     float crouchSpeed  = 1.31f;  // Agachado
     float proneSpeed   = 0.75f;  // Tumbado: se arrastra
+    float sigiloSpeed  = 1.90f;  // CTRL una vez y W: andar despacio
+    float inspeccionSpeed = 1.15f; // ...y SHIFT: medio agachado, inspeccionando
     float swimSpeed    = 2.20f;  // Nadando
     float flySpeed     = 10.0f;  // Vuelo creativo
     float flySprintSpeed = 21.0f;// Vuelo rapido
@@ -194,6 +199,8 @@ struct MovementState {
     bool isSprinting   = false;
     bool isCrouching   = false;
     bool isProne       = false;  // tumbado; implica isCrouching
+    bool isSigilo      = false;  // andando despacio (ver Postura.h)
+    bool isInspeccion  = false;  // medio agachado; implica isSigilo
     bool isFlying      = false;
     bool isInWater     = false;  // cuerpo en agua
     bool isSubmerged   = false;  // ojos bajo el agua
@@ -237,6 +244,8 @@ struct InputCommand {
     bool  sprint      = false;
     bool  crouch      = false;
     bool  prone       = false;  // tumbado (ver Postura.h)
+    bool  sigilo      = false;
+    bool  inspeccion  = false;
     bool  flyUp       = false;
     bool  flyDown     = false;
 
@@ -246,7 +255,7 @@ struct InputCommand {
 
     void clear() {
         moveForward = moveRight = 0.0f;
-        jump = sprint = crouch = prone = flyUp = flyDown = false;
+        jump = sprint = crouch = prone = sigilo = inspeccion = flyUp = flyDown = false;
         lookDeltaYaw = lookDeltaPitch = 0.0f;
     }
 };

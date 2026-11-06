@@ -253,6 +253,11 @@ struct Estado {
     bool escalonSube = true;
     int piernaEscalon = 1;
     bool pedernal = false;   // la herramienta es de pedernal
+    float tRecoger = -1;     // segundos desde la F; <0 nada
+    int saltoVariante = 0;   // cual de los 3 saltos
+    float tAire = 0;         // segundos desde que despego
+    bool sigilo = false;     // CTRL una vez y W: andar despacio
+    bool inspeccion = false; // ...y SHIFT: medio agachado
 };
 
 // Avanzar el paso con lo que se ha andado este frame (en bloques).
@@ -543,6 +548,122 @@ inline void aplicarEscalon(Pose& p, float k, bool sube, int pierna) {
     p.inclinacion += (sube ? 0.06f : -0.03f) * a;
 }
 
+
+// ============================================================================
+// RECOGER (la tecla F sobre un pedacito)
+// ============================================================================
+// PEDIDO: "una animacion de recoger [...] con 3 variantes, una cuando estas
+// agachado, otra tirado" (y la de pie). Dura RECOGER_SEG: baja, la mano se
+// abre, se cierra sobre el pedacito a la mitad y vuelve.
+//
+//   DE PIE     se dobla por la cintura con las rodillas un poco flexionadas
+//              y el brazo derecho baja hasta el suelo.
+//   AGACHADO   ya esta cerca: solo estira el brazo hacia delante y abajo.
+//   TUMBADO    alarga el brazo por el suelo y lo trae de vuelta.
+constexpr float RECOGER_SEG = 0.6f;
+
+inline void aplicarRecoger(Pose& p, float t, bool agachado, bool tumbado) {
+    if (t < 0.0f || t > RECOGER_SEG) return;
+    const float u = t / RECOGER_SEG;
+    const float k = std::sin(PI * u);                    // 0 -> 1 -> 0
+    const float cierre = suave((u - 0.40f) / 0.12f);     // agarra a la mitad
+    Brazo& b = p.brazo[1];
+    auto hacia = [k](float& v, float meta) { v += (meta - v) * k; };
+    if (tumbado) {
+        hacia(b.flex, 2.95f);
+        hacia(b.codo, 0.05f);
+        hacia(b.abd, 0.20f);
+        hacia(b.prono, 1.35f);
+    } else if (agachado) {
+        hacia(b.flex, 1.55f);
+        hacia(b.codo, 0.10f);
+        hacia(b.abd, 0.15f);
+        hacia(b.prono, 1.20f);
+        p.inclinacion += 0.25f * k;
+    } else {
+        p.inclinacion += 1.00f * k;
+        for (Pierna& g : p.pierna) { g.rodilla += 0.55f * k; g.flex += 0.25f * k; g.tobillo += 0.20f * k; }
+        hacia(b.flex, 1.10f);
+        hacia(b.codo, 0.15f);
+        hacia(b.abd, 0.12f);
+        hacia(b.prono, 1.20f);
+    }
+    b.munFlex = b.munFlex + (0.25f - b.munFlex) * k;
+    manoRelajada(b, cierre * 0.85f);
+    if (cierre < 0.5f) for (int d = 0; d < 4; ++d) b.abre[d] = 0.25f * k;   // la mano abierta al bajar
+}
+
+// ============================================================================
+// TRES SALTOS, AL AZAR
+// ============================================================================
+// PEDIDO: "otras animaciones de saltar variadas, solo 3 que se haran random".
+// `t` son los segundos desde que despego: el cuerpo pasa del impulso a la
+// pose del aire en los primeros 0.25 s.
+//
+//   0  RECOGIDO   rodillas arriba, brazos arriba para equilibrar.
+//   1  ZANCADA    una pierna delante estirada y la otra atras doblada, los
+//                 brazos al reves que las piernas: un salto de carrera.
+//   2  ENCOGIDO   las dos rodillas al pecho y los brazos tirando hacia
+//                 delante, como para salvar un obstaculo.
+inline void aplicarSalto(Pose& p, int variante, float t) {
+    const float k = suave(t / 0.25f);
+    auto hacia = [k](float& v, float meta) { v += (meta - v) * k; };
+    switch (variante) {
+        case 1:
+            hacia(p.pierna[0].flex, 0.95f);  hacia(p.pierna[0].rodilla, 0.25f);
+            hacia(p.pierna[1].flex, -0.30f); hacia(p.pierna[1].rodilla, 1.30f);
+            hacia(p.pierna[0].tobillo, 0.10f); hacia(p.pierna[1].tobillo, -0.50f);
+            hacia(p.brazo[1].flex, 1.10f);   hacia(p.brazo[1].codo, 0.70f);
+            hacia(p.brazo[0].flex, -0.55f);  hacia(p.brazo[0].codo, 0.50f);
+            for (Brazo& b : p.brazo) { hacia(b.abd, 0.20f); manoRelajada(b, 0.3f); }
+            p.inclinacion += 0.12f * k;
+            break;
+        case 2:
+            for (Pierna& g : p.pierna) {
+                hacia(g.flex, 1.35f); hacia(g.rodilla, 1.95f); hacia(g.tobillo, -0.40f);
+            }
+            for (Brazo& b : p.brazo) {
+                hacia(b.flex, 0.95f); hacia(b.codo, 0.35f); hacia(b.abd, 0.25f);
+                manoRelajada(b, 0.5f);
+            }
+            p.inclinacion += 0.18f * k;
+            break;
+        default: break;   // la 0 es la pose del aire de siempre
+    }
+}
+
+// ============================================================================
+// SIGILO E INSPECCION (CTRL una vez, luego W; y SHIFT encima)
+// ============================================================================
+// PEDIDO: "si presiona el jugador una vez ctrl y luego w, caminara despacio,
+// y si presiona ctrl y W y luego shift, caminara como semi agachado, como si
+// estuviera inspeccionando silencioso".
+//
+//   SIGILO      pasos cortos y suaves: rodillas algo dobladas, la punta del
+//               pie baja primero, los brazos un poco adelantados y quietos.
+//   INSPECCION  medio agachado y encorvado, la mano izquierda delante a media
+//               altura como tanteando, y los hombros girando despacio a un
+//               lado y a otro: mirando alrededor sin hacer ruido.
+inline void aplicarSigilo(Pose& p, bool inspeccion, float tiempo) {
+    for (Pierna& g : p.pierna) { g.rodilla += 0.15f; g.flex += 0.05f; g.tobillo -= 0.06f; }
+    for (Brazo& b : p.brazo) {
+        b.flex = b.flex * 0.4f + 0.25f;
+        b.codo += 0.35f;
+        manoRelajada(b, 0.15f);
+    }
+    p.inclinacion += 0.08f;
+    if (!inspeccion) return;
+    for (Pierna& g : p.pierna) { g.flex += 0.55f; g.rodilla += 0.85f; g.tobillo += 0.22f; }
+    p.inclinacion += 0.35f;
+    Brazo& i = p.brazo[0];
+    i.flex = 0.75f; i.codo = 1.15f; i.abd = 0.18f; i.prono = 1.0f; i.munFlex = -0.15f;
+    manoRelajada(i, 0.0f);
+    for (int d = 0; d < 4; ++d) i.abre[d] = 0.2f;
+    Brazo& d = p.brazo[1];
+    d.flex = 0.45f; d.codo = 0.95f; d.abd = 0.15f;
+    p.giroTorso += 0.14f * std::sin(tiempo * 0.6f);
+}
+
 inline Pose poseDe(const Estado& e) {
     Pose p;
     p.enMano = (uint8_t)e.herramienta;
@@ -586,6 +707,7 @@ inline Pose poseDe(const Estado& e) {
         }
         p.respira = respira;
         p.giroTorso = e.giroCuello * 0.35f;
+        aplicarRecoger(p, e.tRecoger, false, true);
         limitar(p);
         return p;
     }
@@ -612,6 +734,7 @@ inline Pose poseDe(const Estado& e) {
             manoRelajada(b, 0.0f);
             for (int d = 0; d < 4; ++d) { b.dedo[d][0] = 0.05f; b.dedo[d][1] = 0.12f; b.abre[d] = 0.25f; }
         }
+        aplicarSalto(p, e.saltoVariante, e.tAire);
     } else {
         // Andar con las curvas de la marcha humana:
         //   CADERA   flexionada al apoyar el talon, extendida al despegar.
@@ -655,6 +778,10 @@ inline Pose poseDe(const Estado& e) {
         }
     }
 
+    // Andar con sigilo, o medio agachado inspeccionando.
+    if (e.sigilo && e.enSuelo && !e.volando && !e.agachado)
+        aplicarSigilo(p, e.inspeccion, e.tiempo);
+
     // Respirar: los hombros suben un poco y los brazos se mecen.
     for (Brazo& b : p.brazo) b.flex += respira * 0.02f;
 
@@ -678,6 +805,9 @@ inline Pose poseDe(const Estado& e) {
         aplicarGolpe(p, golpeDe(e.herramienta, e.bloque), e.tiempo);
     else if (accion == Accion::GOLPE_AIRE || accion == Accion::GOLPE_ANIMAL)
         aplicarDisparo(p, accion, e.variante, e.ladoGolpe, e.tAccion);
+
+    // Recoger manda sobre todo lo demas: dura medio segundo.
+    aplicarRecoger(p, e.tRecoger, e.agachado, false);
 
     // La cabeza: los hombros acompanan un tercio del giro del cuello, que asi
     // nunca pasa de su limite. Al mirar abajo, el cuello se dobla hasta su
@@ -922,6 +1052,25 @@ inline Esqueleto resolver(const Pose& p, bool apoyar = true) {
         detalle::resolver(p, -baja, s);
     }
     return s;
+}
+
+// ----------------------------------------------------------------------------
+// LO QUE SE LLEVA EN LA MANO
+// ----------------------------------------------------------------------------
+// El punto y el marco donde se dibuja el item de la mano derecha: dentro del
+// puno, con el plano del item conteniendo el antebrazo y el pulgar (asi una
+// herramienta queda con el mango cruzando la mano y la cabeza por encima del
+// pulgar) y su grosor en la direccion de la palma.
+//
+// El marco que devuelve: +X hacia el pulgar, +Y hacia el codo, +Z la palma.
+inline Junta agarre(const Esqueleto& s) {
+    const Mano& m = s.mano[1];
+    const Junta& j = m.muneca;
+    const V centro = suma(j.p, j.r.aplicar({ 0, -0.068f, 0.020f }));
+    // Con lado = -1 el pulgar va hacia -X: se voltea X para que +X siempre sea
+    // el pulgar y el item no salga en espejo.
+    const Rot r = m.lado > 0 ? j.r : j.r.por(Rot::enY(PI));
+    return { centro, r };
 }
 
 // Agachado, la camara del motor baja hasta 0.80 y la figura no tanto: se

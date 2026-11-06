@@ -146,6 +146,8 @@ public:
         if (!state.onGround)    return state.velocity.y > 0.0f ? "SALTANDO" : "CAYENDO";
         if (state.isProne)      return "TUMBADO";
         if (state.isCrouching)  return "AGACHADO";
+        if (state.isInspeccion) return "INSPECCIONANDO";
+        if (state.isSigilo)     return "SIGILO";
         if (state.isSprinting)  return "CORRIENDO";
         if (state.velocity.lengthSqXZ() > 0.01f) return "CAMINANDO";
         return "QUIETO";

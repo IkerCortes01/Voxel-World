@@ -75,6 +75,7 @@ public:
     // ========================================================================
     float getEyeHeight(const MovementState& state) const {
         if (state.isProne) return cfg->proneEyeHeight;
+        if (state.isInspeccion && !state.isCrouching) return cfg->inspeccionEyeHeight;
         return state.isCrouching ? cfg->crouchEyeHeight : cfg->eyeHeight;
     }
     // La que usa la camara: va hacia la de la postura a postureEyeRate.

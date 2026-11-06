@@ -174,25 +174,98 @@ TEST_CASE("Animaciones: todo dentro de los limites humanos") {
     }
 }
 
-TEST_CASE("Animaciones: la herramienta se dibuja en la mano derecha") {
-    const Piel piel = generarPiel(3u);
-    Fisiologia f;
-    Malla sin, con;
-    Estado e = picando(Herramienta::MANO, ClaseBloque::TIERRA, 0.1f);
-    Pose p = poseDe(e);
-    generar(resolver(p), p, piel, f, Calidad{}, sin);
-    for (int h = 1; h < (int)Herramienta::NUM; ++h) {
-        e.herramienta = (Herramienta)h;
-        p = poseDe(e);
-        const Esqueleto s = resolver(p);
-        generar(s, p, piel, f, Calidad{}, con);
-        CHECK(con.v.size() > sin.v.size() + 50);
-        // Algun vertice de la herramienta queda a mas de 25 cm del puno.
-        float lejos = 0.0f;
-        for (size_t i = sin.v.size(); i < con.v.size(); ++i)
-            lejos = std::fmax(lejos, largo(resta(con.v[i].p, s.mano[1].muneca.p)));
-        CHECK(lejos > 0.25f);
+TEST_CASE("Animaciones: el item de la mano va en el puno derecho y sigue a la mano") {
+    // El item se dibuja con su textura en main.cpp (dibujarItem3D); aqui se
+    // comprueba el marco donde se pone.
+    for (int k = 0; k < 10; ++k) {
+        Estado e = picando(Herramienta::PICO, ClaseBloque::PIEDRA, k * 0.07f);
+        const Esqueleto s = resolver(poseDe(e));
+        const Junta g = agarre(s);
+        const Mano& m = s.mano[1];
+        // Dentro del puno: entre la muneca y los nudillos.
+        const float d = largo(resta(g.p, m.muneca.p));
+        CHECK(d > 0.04f);
+        CHECK(d < 0.11f);
+        // +X del agarre es el lado del pulgar.
+        const V pulgar = resta(m.dedo[4][0].p, m.muneca.p);
+        CHECK(punto(pulgar, g.r.aplicar({ 1, 0, 0 })) > 0.0f);
+        // +Y hacia el codo.
+        const V codo = resta(s.codo[1].p, m.muneca.p);
+        CHECK(punto(codo, g.r.aplicar({ 0, 1, 0 })) > 0.0f);
     }
+}
+
+TEST_CASE("Recoger: tres variantes, de pie, agachado y tumbado") {
+    Estado e;
+    e.tRecoger = RECOGER_SEG * 0.5f;              // abajo del todo
+    const Pose pie = poseDe(e);
+    CHECK(pie.inclinacion > 0.8f);                // se dobla por la cintura
+    CHECK(pie.brazo[1].codo < 0.4f);              // el brazo estirado hacia el suelo
+    e.agachado = true;
+    const Pose ag = poseDe(e);
+    CHECK(ag.brazo[1].flex > 1.4f);
+    e.agachado = false;
+    e.tumbado = true;
+    const Pose tu = poseDe(e);
+    CHECK(tu.brazo[1].flex > 2.6f);               // alarga el brazo por el suelo
+    // La mano se cierra al final y se abre al empezar.
+    e.tumbado = false;
+    e.tRecoger = RECOGER_SEG * 0.15f;
+    const float abierta = poseDe(e).brazo[1].dedo[1][1];
+    e.tRecoger = RECOGER_SEG * 0.75f;
+    CHECK(poseDe(e).brazo[1].dedo[1][1] > abierta + 0.6f);
+    // Y al terminar vuelve a estar derecho.
+    e.tRecoger = -1.0f;
+    CHECK(poseDe(e).inclinacion < 0.1f);
+    // Agachado, recoger cuesta menos: el cuerpo se dobla menos que de pie.
+    e.tRecoger = RECOGER_SEG * 0.5f;
+    e.agachado = true;
+    Estado sin = e;
+    sin.tRecoger = -1.0f;
+    CHECK(poseDe(e).inclinacion - poseDe(sin).inclinacion < 0.4f);
+}
+
+TEST_CASE("Saltos: tres distintos") {
+    Estado e;
+    e.enSuelo = false;
+    e.tAire = 0.4f;
+    Pose p[3];
+    for (int v = 0; v < 3; ++v) { e.saltoVariante = v; p[v] = poseDe(e); }
+    // Zancada: una pierna delante y otra atras.
+    CHECK(p[1].pierna[0].flex - p[1].pierna[1].flex > 1.0f);
+    // Encogido: las dos rodillas al pecho.
+    CHECK(p[2].pierna[0].rodilla > 1.7f);
+    CHECK(p[2].pierna[1].rodilla > 1.7f);
+    // Distintas entre si.
+    CHECK(std::fabs(p[0].pierna[1].flex - p[1].pierna[1].flex) > 0.3f);
+    CHECK(std::fabs(p[0].pierna[1].rodilla - p[2].pierna[1].rodilla) > 0.5f);
+    // Recien despegado aun no ha llegado a la pose.
+    e.saltoVariante = 2;
+    e.tAire = 0.02f;
+    CHECK(poseDe(e).pierna[0].rodilla < 1.3f);
+}
+
+TEST_CASE("Sigilo: pasos suaves, e inspeccion medio agachado") {
+    Estado e;
+    e.rapidez = 1.9f;
+    e.fasePaso = 1.0f;
+    const Pose normal = poseDe(e);
+    e.sigilo = true;
+    const Pose sig = poseDe(e);
+    CHECK(sig.pierna[0].rodilla > normal.pierna[0].rodilla + 0.1f);
+    CHECK(sig.brazo[0].codo > normal.brazo[0].codo + 0.2f);
+    e.inspeccion = true;
+    const Pose ins = poseDe(e);
+    CHECK(ins.inclinacion > sig.inclinacion + 0.3f);
+    CHECK(ins.pierna[0].rodilla > sig.pierna[0].rodilla + 0.6f);
+    CHECK(ins.brazo[0].flex > 0.6f);                  // la mano delante, tanteando
+    // Medio agachado baja de verdad el cuerpo.
+    CHECK(resolver(ins).pelvis.p.y < resolver(sig).pelvis.p.y - 0.12f);
+    // Mira alrededor despacio.
+    e.tiempo = 0.0f;
+    const float a = poseDe(e).giroTorso;
+    e.tiempo = 2.6f;
+    CHECK(std::fabs(poseDe(e).giroTorso - a) > 0.1f);
 }
 
 TEST_CASE("Escalon: los niveles se suben andando, los bloques completos no") {

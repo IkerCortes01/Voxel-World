@@ -630,52 +630,6 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
             }
         }
 
-        // La herramienta, en el puno derecho: el mango cruza la mano y la
-        // cabeza sale por el lado del pulgar, como se agarra de verdad.
-        if (l == 1 && p.enMano != (uint8_t)Herramienta::MANO) {
-            const Rot& RM = mano.muneca.r;
-            const V eje = RM.aplicar({ lado, 0, 0 });
-            const V puno = suma(mano.muneca.p, RM.aplicar({ 0, -0.070f, 0.022f }));
-            const Rot rMango = RM.por(Rot::enZ(lado * PI * 0.5f));
-            const Color madera{ 0.55f, 0.38f, 0.22f };
-            const Color cabeza = p.pedernal ? Color{ 0.30f, 0.28f, 0.31f } : Color{ 0.56f, 0.55f, 0.52f };
-            auto secMango = [](float t, float a, float& dx, float& dz) {
-                const float r = 0.0135f - 0.002f * t;
-                elipse(a, r, r, 0.0f, dx, dz);
-            };
-            dibujarTubo(m, tubo(EjeRecto{ suma(puno, escala(eje, -0.07f)), rMango, 0.47f }, secMango),
-                        N(6), N(10), plano(madera), true, true);
-            const V h = suma(puno, escala(eje, 0.37f));
-            const V ejeCabeza = rMango.aplicar({ 1, 0, 0 });
-            switch ((Herramienta)p.enMano) {
-                case Herramienta::PICO: {
-                    auto secPico = [](float t, float a, float& dx, float& dz) {
-                        const float u = std::fabs(2.0f * t - 1.0f);
-                        const float r = 0.004f + 0.015f * (1.0f - u * std::sqrt(u));
-                        elipse(a, r, r * 0.8f, 0.0f, dx, dz);
-                    };
-                    const Rot rCab = rMango.por(Rot::enZ(PI * 0.5f));
-                    dibujarTubo(m, tubo(EjeRecto{ suma(h, escala(ejeCabeza, -0.18f)), rCab, 0.36f }, secPico),
-                                N(8), N(8), plano(cabeza), false, false);
-                    break;
-                }
-                case Herramienta::HACHA:
-                    elipsoide(m, suma(h, escala(ejeCabeza, 0.055f)), rMango, { 0.065f, 0.055f, 0.012f },
-                              N(5), N(10), cabeza);
-                    elipsoide(m, suma(h, escala(ejeCabeza, -0.02f)), rMango, { 0.025f, 0.03f, 0.022f },
-                              N(4), N(8), cabeza);
-                    break;
-                case Herramienta::MARTILLO:
-                    elipsoide(m, h, rMango, { 0.060f, 0.036f, 0.036f }, N(5), N(10), cabeza);
-                    break;
-                case Herramienta::AZADA:
-                    elipsoide(m, suma(h, escala(ejeCabeza, 0.065f)), rMango, { 0.070f, 0.030f, 0.006f },
-                              N(4), N(10), cabeza);
-                    break;
-                default: break;
-            }
-        }
-
         // Las venas de este brazo.
         if (q.venas) {
             for (const Vena& v : piel.venas) {

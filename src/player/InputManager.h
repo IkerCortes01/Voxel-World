@@ -50,6 +50,8 @@ private:
     bool keySprint  = false;
     bool keyCrouch  = false;
     bool keyProne   = false;
+    bool keySigilo  = false;
+    bool keyInspeccion = false;
 
     bool inputEnabled = true;
 
@@ -113,6 +115,8 @@ public:
     void setSprint(bool v)  { keySprint  = v; }
     void setCrouch(bool v)  { keyCrouch  = v; }
     void setProne(bool v)   { keyProne   = v; }
+    void setSigilo(bool v)  { keySigilo  = v; }
+    void setInspeccion(bool v) { keyInspeccion = v; }
 
     // El motor inyecta su reloj: asi el modulo no depende de GLFW y los
     // tests pueden avanzar el tiempo de forma determinista.
@@ -151,7 +155,7 @@ public:
     // cancelDoubleTapSprint().
     void reset() {
         keyForward = keyBack = keyLeft = keyRight = false;
-        keyJump = keySprint = keyCrouch = keyProne = false;
+        keyJump = keySprint = keyCrouch = keyProne = keySigilo = keyInspeccion = false;
         pendingMouseDX = pendingMouseDY = 0.0f;
     }
 
@@ -179,6 +183,8 @@ public:
         cmd.sprint  = keySprint || (doubleTapSprint && keyForward);
         cmd.crouch  = keyCrouch;
         cmd.prone   = keyProne;
+        cmd.sigilo  = keySigilo;
+        cmd.inspeccion = keyInspeccion;
 
         // En vuelo, salto/agacharse controlan la altura.
         cmd.flyUp   = keyJump;

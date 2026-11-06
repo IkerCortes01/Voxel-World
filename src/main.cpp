@@ -757,6 +757,8 @@ double g_tiempoJugadoSegundos = 0.0;
 // Los golpes a un animal, para que el brazo elija su animacion (ver
 // ModeloJugador::aplicarDisparo). Los cuenta updateMining al acertar.
 int g_golpesAAnimal = 0;
+// Las veces que se recogio algo con F: el brazo hace el gesto de recoger.
+int g_recogidas = 0;
 
 // ============================================================================
 // CICLO DE DIA Y NOCHE
@@ -31557,7 +31559,6 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime,
 
     // CTRL = correr, SHIFT = agacharse (convencion estandar de sandbox voxel).
     // En vuelo, SHIFT desciende.
-    im.setSprint(!durmiendo && ctrlDown);
 
     // SHIFT y ESPACIO como interruptores de postura (ver player/Postura.h):
     // SHIFT de pie -> agachado -> tumbado; ESPACIO tumbado -> agachado -> de
@@ -31567,11 +31568,17 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime,
         static PlayerSys::ControlPostura postura;
         const PlayerSys::MovementState& ms = g_playerController->getState();
         const bool libre = !player.isFlying && !ms.isInWater && !ms.isOnLadder;
+        // CTRL tocado una vez pone el sigilo; mantenido con W, corre.
         const PlayerSys::ControlPostura::Salida sal =
-            postura.avanzar(!durmiendo && shiftDown, espacioPulsado, libre);
+            postura.avanzar(!durmiendo && shiftDown, espacioPulsado, libre,
+                            !durmiendo && ctrlDown, !durmiendo && keys[(unsigned char)'w'],
+                            glfwGetTime());
         im.setJump(sal.saltar);
         im.setCrouch(sal.agachar);
         im.setProne(sal.tumbar);
+        im.setSprint(sal.correr);
+        im.setSigilo(sal.sigilo);
+        im.setInspeccion(sal.inspeccion);
     }
 
     // ---- MANTENER SINCRONIZADO EL MODO VUELO ----
@@ -34349,6 +34356,7 @@ bool pedazoMirado(GameState* state, Vec3i& pos) {
 void recogerPedazoMirado(GameState* state) {
     Vec3i p;
     if (!pedazoMirado(state, p)) return;
+    ++g_recogidas;       // el cuerpo hace el gesto de recoger
     const BlockType t = state->world.getBlock(p.x, p.y, p.z);
 
     const Vec3 suelo(p.x + 0.5f, p.y + 0.5f, p.z + 0.5f);
@@ -34370,6 +34378,543 @@ void recogerPedazoMirado(GameState* state) {
 
 void renderText(const char* text, float x, float y, float size);
 void renderChar(char c, float x, float y, float size);
+
+// ============================================================================
+// UN ITEM EN 3D, CON SU TEXTURA
+// ============================================================================
+// Lo que dibujaba el bucle de los items sueltos, sacado a una funcion para
+// que la mano del jugador use EXACTAMENTE el mismo modelo (ver el cuerpo del
+// jugador): silueta de la textura con grosor para herramientas, pencas,
+// pedacitos y demas; cubo con las texturas de cada cara para los bloques.
+//
+// Se dibuja en el origen de la matriz actual, con semilado 0.2 (0.45 las
+// pencas de nopal); quien llama pone la posicion, el giro y la escala.
+// `luzIt` es el brillo del sitio donde esta, como en todo lo demas.
+// `enMano`: lo lleva el jugador. Las piezas planas (herramientas, pencas,
+// pedacitos) se giran 45 grados para que el mango, que en las texturas va de
+// la esquina de abajo a la de arriba, cruce el puno y la cabeza salga por el
+// lado del pulgar; los bloques se apoyan en la palma, mas pequenos.
+void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
+    // El cuerpo es el del bucle de antes, que leia `item.blockType`.
+    const struct { BlockType blockType; } item{ tipoItem };
+
+            // Escala más pequeña (0.2 = 20% del tamaño normal)
+            float scale = 0.2f;
+
+            // ================================================================
+            // ⭐⭐ LA PENCA SUELTA OCUPA SU CASILLA
+            // ================================================================
+            // PEDIDO: "que el bloque de penca de nopal suelto no sea la textura
+            // de imagen solo, quiero que sea del mismo tamano que el espacio y
+            // 3D".
+            //
+            // `scale` es el SEMILADO: con 0.2 el item mide 0.4 bloques, menos
+            // de la mitad de su casilla. Para un pedazo de cobre o un pedernal
+            // esta bien --son objetos pequenos-- pero una penca de nopal es una
+            // pieza grande: tirada en el suelo tiene que leerse como la penca
+            // que era, no como una ficha.
+            //
+            // 0.45 de semilado = 0.9 bloques de lado: llena la celda dejando un
+            // margen minimo para que no se incruste en los bloques de al lado
+            // al rotar (el item gira sobre su eje, y en la diagonal un cuadrado
+            // de lado L barre L*1.41).
+            //
+            // ⚠️ SOLO LAS PENCAS, NO TODO `esCactusSuelto`.
+            //
+            // Ese grupo incluye tambien la BABA, las ESPINAS y las TUNAS, que
+            // son piezas pequenas: una tuna del tamano de la casilla seria una
+            // sandia, y la baba es un charco de mucilago, no una hoja.
+            //
+            // Las CINCO que si son penca --y las cinco tienen que ir juntas, o
+            // lavar una penca la encogeria a la mitad delante del jugador:
+            //
+            //   CLADODIO   la penca recien cortada
+            //   MOJADO     la misma, ya lavada y sin espinas
+            //   SECO       la misma, curada al sol
+            //   SIN_BABA   la misma, desbabada
+            //   TIRAS      la misma, cortada en tiras (sigue siendo el cladodio
+            //              entero: se corta, no se parte en trozos sueltos)
+            //
+            // `esPencaDeNopal` vive en BlockType.h para que esta lista no se
+            // duplique: el grosor de mas abajo pregunta lo mismo.
+            if (esPencaDeNopal(item.blockType)) scale = 0.45f;
+
+            auto ajusteMano = [&](bool plano) {
+                if (!enMano) return;
+                if (plano) {
+                    glRotatef(-45.0f, 0, 0, 1);
+                    glTranslatef(scale * 0.80f, 0.0f, 0.0f);
+                } else {
+                    glTranslatef(0.0f, 0.0f, scale * 0.45f);
+                    glScalef(0.50f, 0.50f, 0.50f);
+                }
+            };
+
+            // ================================================================
+            // ITEMS 3D: LA SILUETA DE LA TEXTURA, CON GROSOR
+            // ================================================================
+            // Los items sueltos se dibujaban como un CUBO con la textura
+            // envuelta en las seis caras. Para un bloque eso esta bien, pero
+            // para un pedazo de cobre o un pedernal se veia como un cubo con
+            // el dibujo estampado, no como el objeto.
+            //
+            // Ahora estos items se dibujan como su PROPIA FORMA: la textura
+            // se pone a doble cara (delante y detras) y se le da grosor con
+            // un borde, de modo que se ve como una pieza plana con volumen,
+            // igual que en el genero. La silueta sale sola porque el PNG
+            // lleva su fondo transparente y GL_ALPHA_TEST lo recorta.
+            //
+            // Ventajas frente a construir un modelo por voxeles de la
+            // textura: no hay que analizar la imagen en tiempo de dibujado,
+            // el color es EXACTAMENTE el de la textura (no se recolorea
+            // nada), y no quedan huecos porque la silueta es la del propio
+            // dibujo.
+            //
+            // Solo para los items que se pidieron; los bloques siguen
+            // saliendo como cubos, que es lo correcto para ellos.
+            const bool item3D = (item.blockType == BLOCK_RAW_COPPER ||
+                                 item.blockType == BLOCK_PEDAZO_COBRE ||
+                                 item.blockType == BLOCK_PEDAZO_PEDERNAL ||
+                                 item.blockType == BLOCK_DIRT_POWDER ||
+                                 item.blockType == BLOCK_PEDAZO_TIERRA ||
+                                 item.blockType == BLOCK_PEDAZO_CALIZA ||
+                                 item.blockType == BLOCK_RAW_ZINC ||
+                                 item.blockType == BLOCK_COAL_ITEM ||
+                                 esPencaDeMaguey(item.blockType));
+
+            // ⭐ LAS PENCAS DE MAGUEY SON MAS GRUESAS QUE UN PEDAZO DE MINERAL.
+            //
+            // Una hoja de agave es CARNOSA -- es lo que la distingue de una
+            // hoja cualquiera, y de donde sale el aguamiel. Como lamina fina
+            // no se lee como lo que es.
+            //
+            // 4 px de grosor sobre los 16 de ancho y alto: un cuarto del lado.
+            // `scale` es el SEMILADO (medio ancho), asi que el semigrosor es
+            // scale * 0.25 para dar 4 px de los 16.
+            //
+            // Las PUNTAS van con el mismo cuerpo que la hoja de la que salen:
+            // son la espina terminal de esa misma penca, no una lamina aparte.
+            const bool esCarnosa = esPencaDeMaguey(item.blockType) ||
+                                   item.blockType == BLOCK_AGAVE_AZUL_PENCA ||
+                                   item.blockType == BLOCK_IXTLE_PUNTA ||
+                                   item.blockType == BLOCK_MAGUEY_PUNTA ||
+                                   item.blockType == BLOCK_AGAVE_AZUL_PUNTA;
+
+            // ⭐ EL CACTUS ES LO MAS GRUESO DE TODO.
+            //
+            // Una penca de nopal es una hoja SUCULENTA: guarda agua, y por eso
+            // es visiblemente mas gorda que la hoja fibrosa de un agave. Lo
+            // mismo vale para la tuna (un fruto redondo) y para la biznaga
+            // (un barril). Dibujarlas con el grosor de una hoja las aplanaria.
+            //
+            // 5 px sobre los 16 del lado = 5/16 = 0.3125, frente a los 4 px
+            // (0.25) del agave y los ~3 (0.18) de una herramienta.
+            const bool esCactus = esCactusSuelto(item.blockType);
+            const float FACTOR_GROSOR = esCactus  ? (5.0f / 16.0f)
+                                      : esCarnosa ? 0.25f
+                                                  : 0.18f;
+
+            // ⭐ ITEMS FINOS: el canto sale del CONTORNO, no del borde del cuadro.
+            //
+            // El camino item3D de abajo levanta el canto con cuatro tiras
+            // pegadas al borde de la textura. Eso vale para un item que llena
+            // su cuadro, pero el palo ocupa el 19.5% y es diagonal: de los 64
+            // pixeles del borde solo 5 son opacos. Con aquello el palo saldria
+            // como dos laminas planas con el hueco a la vista por el costado,
+            // mas cinco astillas sueltas flotando en el aire.
+            //
+            // Aqui el canto se levanta pixel a pixel donde la figura toca el
+            // vacio: 86 tiras que siguen el palo de verdad. Queda un solido
+            // cerrado, con su forma y sin nada invisible.
+            //
+            // ------------------------------------------------------------
+            // POR QUE ESTA LISTA CRECIO
+            // ------------------------------------------------------------
+            // Aqui solo estaba el palo, y eso dejaba fuera a dos grupos que
+            // sufren EL MISMO problema, cada uno a su manera:
+            //
+            //   HERRAMIENTAS (hacha, pico, martillo). Caian al cubo del
+            //   final, asi que un hacha tirada al suelo se veia como un dado
+            //   con el hacha estampada en las seis caras. Son objetos
+            //   diagonales que no llenan su cuadro: es exactamente el caso
+            //   del palo.
+            //
+            //   MAGUEY (la penca y la punta). Estas SI entraban en item3D,
+            //   pero su canto salia de las cuatro tiras del borde -- y el
+            //   borde de "Penca de Maguey.png" esta VACIO por los lados: 0 de 16
+            //   pixeles opacos en la columna izquierda y 0 de 16 en la
+            //   derecha (arriba y abajo si tienen 14 de 16). Con el alpha
+            //   test a 0.5, las tiras este y oeste se descartaban ENTERAS y
+            //   la penca quedaba abierta por los dos costados. Ese es el
+            //   "no cargan las caras este y oeste": no faltaba la textura,
+            //   faltaba dibujo opaco donde se iba a muestrear.
+            //
+            // Con el contorno real el problema no se arregla, DESAPARECE: el
+            // canto nace donde hay figura, asi que no puede caer en una
+            // columna transparente.
+            //
+            // La textura del maguey vive en Blocks/ y la de las herramientas
+            // en Items/, por eso la ruta se guarda desde `resourcepacks/`.
+            const char* siluetaPNG = nullptr;
+            switch (item.blockType) {
+                case BLOCK_STICK:
+                    siluetaPNG = "Textures/Items/palo.png"; break;
+
+                // --- Herramientas: las seis, de piedra y de pedernal ---
+                case BLOCK_HACHA_PIEDRA:
+                    siluetaPNG = "Textures/Items/Hacha de piedra.png"; break;
+                case BLOCK_PICO_PIEDRA:
+                    siluetaPNG = "Textures/Items/pico de Piedra.png"; break;
+                case BLOCK_MARTILLO_PIEDRA:
+                    siluetaPNG = "Textures/Items/Martillo de Piedra.png"; break;
+                case BLOCK_HACHA_PEDERNAL:
+                    siluetaPNG = "Textures/Items/Pedernal afilado.png"; break;
+                case BLOCK_PICO_PEDERNAL:
+                    siluetaPNG = "Textures/Items/pico de pedernal afilado.png"; break;
+                case BLOCK_MARTILLO_PEDERNAL:
+                    siluetaPNG = "Textures/Items/Martillo de Pedernal afilado.png"; break;
+
+                // --- Maguey: las piezas que se sueltan como item ---
+                //
+                // La hoja del pulquero y la penca del tequilana son las dos
+                // que el jugador recoge al talar. Las puntas caen al cortar
+                // el quiote. Todas son hojas o espinas: laminas con forma
+                // propia, nunca cubos.
+                case BLOCK_IXTLE_HOJA:
+                    siluetaPNG = "Textures/Blocks/Penca de Maguey.png"; break;
+                case BLOCK_IXTLE_PUNTA:
+                case BLOCK_MAGUEY_PUNTA:
+                    siluetaPNG = "Textures/Blocks/Puntas de Maguey.png"; break;
+                case BLOCK_PENCA_AGAVE_AZUL:
+                case BLOCK_AGAVE_AZUL_PENCA:
+                    siluetaPNG = "Textures/Blocks/Maguey de Tequilana azulado.png"; break;
+                case BLOCK_AGAVE_AZUL_PUNTA:
+                    siluetaPNG = "Textures/Blocks/punta de Maguey de Tequilana azul.png"; break;
+
+                // --- CACTUS: nopal y sus productos, y las tunas ---
+                //
+                // Entran por el mismo motivo que el maguey, y con el mismo
+                // sintoma si no entraran: sus texturas tampoco llenan el
+                // cuadro, asi que el canto de cuatro tiras del camino item3D
+                // se descartaria en las columnas transparentes y la penca
+                // saldria abierta por los costados.
+                //
+                // Con el contorno real el solido se cierra siempre, sea cual
+                // sea la forma del dibujo: es lo que hace que "se rendericen
+                // las caras de todo en 3D".
+                // FRUTO es el item "Nopal de Castilla", lo unico que sueltan los
+                // nopales ademas de las tunas. En el suelo se ve igual que su
+                // icono: ni como tuna (lo que sugiere su nombre de ID) ni como
+                // la penca recortada, que se pidio expresamente que no salga.
+                case BLOCK_NOPAL_FRUTO:
+                    siluetaPNG = "Textures/Blocks/Tallo de Nopal de Castilla.png"; break;
+                case BLOCK_NOPAL_CLADODIO:
+                    siluetaPNG = "Textures/Blocks/Tallo de Nopal de Castilla.png"; break;
+                case BLOCK_NOPAL_MOJADO:
+                    siluetaPNG = "Textures/Blocks/Penca de nopal de castilla mojado sin espinas.png"; break;
+                case BLOCK_NOPAL_SECO:
+                    siluetaPNG = "Textures/Blocks/Penca de nopal de castilla seco sin espinas.png"; break;
+                case BLOCK_NOPAL_TIRAS:
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras.png"; break;
+                case BLOCK_NOPAL_SIN_BABA:
+                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras mojado.png"; break;
+                case BLOCK_NOPAL_BABA:
+                    siluetaPNG = "Textures/Items/Baba de nopal.png"; break;
+                case BLOCK_ESPINAS_NOPAL:
+                    siluetaPNG = "Textures/Items/Espinas de Nopal de castilla.png"; break;
+
+                // Las tunas: fruto redondo, cada variedad con su color.
+                case BLOCK_TUNA:
+                    siluetaPNG = "Textures/Items/Tuna verde crecida.png"; break;
+                case BLOCK_TUNA_AMARILLA:
+                    siluetaPNG = "Textures/Items/Tuna amarilla crecida.png"; break;
+                case BLOCK_TUNA_ROJA:
+                    siluetaPNG = "Textures/Items/Tuna roja crecida.png"; break;
+
+                default: break;
+            }
+
+            if (siluetaPNG) {
+                // ⭐ EL GROSOR NO ES IGUAL PARA TODOS.
+                //
+                // El palo y las herramientas son laminas finas; una penca de
+                // agave es CARNOSA, y como lamina fina no se lee como lo que
+                // es. Se reutiliza FACTOR_GROSOR (0.25 para las pencas, 0.18
+                // para el resto) en vez del 0.09 fijo que habia, para que la
+                // hoja tenga el mismo cuerpo que ya tenia por el otro camino.
+                //
+                // El modelo se cachea por ruta Y el grosor forma parte de la
+                // geometria, asi que dos items con la misma textura y distinto
+                // grosor compartirian modelo. Hoy no ocurre (cada ruta la usa
+                // un grupo con el mismo grosor), pero conviene saberlo.
+                //
+                // ⚠️ AQUI HABIA UN FACTOR 2 DE MAS, Y HACIA LOS ITEMS LA MITAD
+                // DE GRUESOS DE LO QUE DECIA SU NUMERO.
+                //
+                // La cuenta completa, que es lo que hay que tener delante:
+                //
+                //     lado del item   = 2 * scale          (de -scale a +scale)
+                //     semiGrosor real = semiGrosor * scale (lo que se pasa aqui)
+                //     grosor total    = 2 * semiGrosor * scale
+                //
+                // O sea que grosor/lado == semiGrosor: el valor que se pasa YA
+                // ES la fraccion del lado, y multiplicarlo por 0.5 la partia en
+                // dos. Con el 0.5 la penca de agave salia a 2 px en vez de los
+                // 4 que documenta su constante, y el cactus habria salido a
+                // 2.5 en vez de 5.
+                //
+                // Lo caza el test "Cactus: 5 px de grosor sobre los 16 del lado".
+                const float semiGrosor = FACTOR_GROSOR;
+
+                const std::string ruta =
+                    gamePath("resourcepacks/") + siluetaPNG;
+                const SiluetaItem::Modelo& mod =
+                    SiluetaItem::obtener(ruta, semiGrosor);
+
+                if (mod.valido) {
+                    const GLuint tex =
+                        (GLuint)g_itemTextures.resolve((int)item.blockType);
+                    if (g_textureManager) g_textureManager->bindForUI(tex);
+
+                    // ====================================================
+                    // ⭐⭐ EL UMBRAL DE RECORTE: 0.1, NO 0.5
+                    // ====================================================
+                    // PEDIDO: "que no tenga agujeros en la textura y sea
+                    // completa".
+                    //
+                    // Con 0.5 se descarta TODO pixel por debajo de alfa 128, y
+                    // eso no son solo los del fondo. Medido en la textura de la
+                    // penca:
+                    //
+                    //     6.601 px semitransparentes en el BORDE  (antialias)
+                    //       195 px semitransparentes en el INTERIOR
+                    //
+                    // Los 195 del interior se convertian en AGUJEROS que
+                    // atraviesan la pieza, y los 6.601 del borde se comian el
+                    // contorno suave: la silueta salia dentada.
+                    //
+                    // Con 0.1 solo se descarta lo verdaderamente transparente
+                    // (el fondo, que esta a alfa 0). Es ademas el umbral que YA
+                    // usa el render del mundo para la vegetacion, asi que el
+                    // item tirado y la planta de la que salio se recortan con
+                    // el mismo criterio.
+                    glEnable(GL_ALPHA_TEST);
+                    glAlphaFunc(GL_GREATER, 0.1f);
+
+                    const float g = semiGrosor * scale;
+
+                    // ====================================================
+                    // ⭐⭐ LA TEXTURA NO SE DEFORMA: MANDA SU PROPORCION
+                    // ====================================================
+                    // PEDIDO: "que no tenga agujeros en la textura y sea
+                    // completa y 3D sin deformar mucho".
+                    //
+                    // Las dos caras planas iban SIEMPRE de -scale a +scale en
+                    // los dos ejes, con la textura entera estirada encima. Para
+                    // un PNG cuadrado da igual; para uno de 1024x1536 --que es
+                    // lo que mide la penca-- el dibujo se achata un 33%: la
+                    // penca salia mas ancha y mas baja de lo que es.
+                    //
+                    // Aqui el cuadro se ajusta a la PROPORCION REAL de la
+                    // imagen. El lado mayor conserva `scale` y el menor se
+                    // encoge a su proporcion, asi que el pixel sigue siendo
+                    // cuadrado y la silueta es la del dibujo.
+                    //
+                    // `mod.ancho`/`mod.alto` los rellena SiluetaItem al leer el
+                    // PNG, asi que no hay que abrir el archivo otra vez ni
+                    // mantener una tabla de tamanos aparte.
+                    float sx = scale, sy = scale;
+                    if (mod.ancho > 0 && mod.alto > 0) {
+                        if (mod.ancho >= mod.alto)
+                            sy = scale * (float)mod.alto / (float)mod.ancho;
+                        else
+                            sx = scale * (float)mod.ancho / (float)mod.alto;
+                    }
+
+                    // La cara plana, a la luz del sitio donde esta el item.
+                    glColor3f(luzIt, luzIt, luzIt);
+
+                    ajusteMano(true);
+                    glBegin(GL_QUADS);
+                    // Cara de delante
+                    glTexCoord2f(0, 0); glVertex3f(-sx, -sy,  g);
+                    glTexCoord2f(1, 0); glVertex3f( sx, -sy,  g);
+                    glTexCoord2f(1, 1); glVertex3f( sx,  sy,  g);
+                    glTexCoord2f(0, 1); glVertex3f(-sx,  sy,  g);
+                    // Cara de detras (al reves, para que mire al otro lado)
+                    glTexCoord2f(0, 1); glVertex3f(-sx,  sy, -g);
+                    glTexCoord2f(1, 1); glVertex3f( sx,  sy, -g);
+                    glTexCoord2f(1, 0); glVertex3f( sx, -sy, -g);
+                    glTexCoord2f(0, 0); glVertex3f(-sx, -sy, -g);
+                    glEnd();
+
+                    // El CANTO: el contorno real, ya calculado y cacheado.
+                    // Se oscurece un poco para que el volumen se lea. El 0.78
+                    // es el sombreado del canto; la luz del entorno se
+                    // multiplica encima, no lo sustituye.
+                    glColor3f(0.78f * luzIt, 0.78f * luzIt, 0.78f * luzIt);
+                    glBegin(GL_QUADS);
+                    for (const SiluetaItem::Vertice& v : mod.canto) {
+                        // La V se invierte porque la silueta se leyo sin
+                        // voltear y la textura si esta volteada en GL.
+                        glTexCoord2f(v.u, 1.0f - v.v);
+                        // ⚠️ EL CANTO USA LOS MISMOS SEMILADOS QUE LAS CARAS.
+                        //
+                        // Si aqui se dejara `scale` en los dos ejes, el
+                        // contorno quedaria MAS GRANDE que la cara plana en el
+                        // eje corto: se veria un reborde desalineado alrededor
+                        // del dibujo, que es peor que la deformacion que se
+                        // acaba de quitar. La Z si va con `scale` porque el
+                        // grosor no depende de la proporcion de la imagen.
+                        glVertex3f(v.x * sx, v.y * sy, v.z * scale);
+                    }
+                    glEnd();
+
+                    glDisable(GL_ALPHA_TEST);
+                    return;   // no dibujar el cubo
+                }
+                // Si el PNG no se pudo leer, cae al camino normal de abajo.
+            }
+
+            if (item3D) {
+                ajusteMano(true);
+                const GLuint tex =
+                    (GLuint)g_itemTextures.resolve((int)item.blockType);
+                if (g_textureManager) g_textureManager->bindForUI(tex);
+
+                // ALPHA TEST: es lo que recorta el fondo transparente del
+                // PNG y deja SOLO la silueta del objeto. Sin esto se veria
+                // un rectangulo con el dibujo dentro, que es justo lo que se
+                // queria quitar.
+                // 0.1 y no 0.5, por lo mismo que el camino de arriba: con
+                // medio alfa se descartan tambien los pixeles del borde
+                // suavizado y los semitransparentes del interior, que salen
+                // como agujeros. Ver la nota larga de `siluetaPNG`.
+                glEnable(GL_ALPHA_TEST);
+                glAlphaFunc(GL_GREATER, 0.1f);
+
+                // Grosor de la pieza: fino, como una lamina con cuerpo. Las
+                // pencas de maguey van mas gruesas (ver FACTOR_GROSOR): son
+                // hojas carnosas, no laminas.
+                const float gr = scale * FACTOR_GROSOR;
+
+                glColor3f(luzIt, luzIt, luzIt);
+                glBegin(GL_QUADS);
+                // Cara de delante
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
+                // Cara de detras (orden invertido para que mire al otro lado)
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
+                glEnd();
+
+                // El CANTO: cuatro tiras que unen las dos caras y le dan el
+                // volumen. Cada tira toma su color del borde de la textura
+                // que le toca, asi que no hay color inventado.
+                glColor3f(0.75f * luzIt, 0.75f * luzIt, 0.75f * luzIt);
+                glBegin(GL_QUADS);
+                // arriba
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
+                // abajo
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
+                // izquierda
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
+                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
+                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
+                // derecha
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
+                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
+                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
+                glEnd();
+
+                glDisable(GL_ALPHA_TEST);
+                return;   // no dibujar el cubo
+            }
+
+            ajusteMano(false);
+            // Dibujar cubo pequeño con texturas del bloque
+            // Face 0 = Top (+Y)
+            GLuint texTop = g_textureManager->getBlockTexture(item.blockType, 0);
+            if (g_textureManager) g_textureManager->bindForUI(texTop);
+            glBegin(GL_QUADS);
+            // El sombreado por cara se CONSERVA y la luz del entorno se
+            // multiplica encima: el cubo sigue teniendo volumen, pero ahora
+            // ademas se apaga en la oscuridad.
+            glColor3f(luzIt, luzIt, luzIt);  // Más brillante
+            glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -scale);
+            glTexCoord2f(0, 1); glVertex3f(-scale,  scale,  scale);
+            glTexCoord2f(1, 1); glVertex3f( scale,  scale,  scale);
+            glTexCoord2f(1, 0); glVertex3f( scale,  scale, -scale);
+            glEnd();
+
+            // Face 1 = Bottom (-Y)
+            GLuint texBottom = g_textureManager->getBlockTexture(item.blockType, 1);
+            if (g_textureManager) g_textureManager->bindForUI(texBottom);
+            glBegin(GL_QUADS);
+            glColor3f(0.5f * luzIt, 0.5f * luzIt, 0.5f * luzIt);  // Más oscuro
+            glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -scale);
+            glTexCoord2f(1, 0); glVertex3f( scale, -scale, -scale);
+            glTexCoord2f(1, 1); glVertex3f( scale, -scale,  scale);
+            glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  scale);
+            glEnd();
+
+            // Face 2 = North (+Z)
+            GLuint texNorth = g_textureManager->getBlockTexture(item.blockType, 2);
+            if (g_textureManager) g_textureManager->bindForUI(texNorth);
+            glBegin(GL_QUADS);
+            glColor3f(0.8f * luzIt, 0.8f * luzIt, 0.8f * luzIt);  // N/S faces
+            glTexCoord2f(0, 0); glVertex3f(-scale, -scale,  scale);
+            glTexCoord2f(1, 0); glVertex3f( scale, -scale,  scale);
+            glTexCoord2f(1, 1); glVertex3f( scale,  scale,  scale);
+            glTexCoord2f(0, 1); glVertex3f(-scale,  scale,  scale);
+            glEnd();
+
+            // Face 3 = South (-Z)
+            GLuint texSouth = g_textureManager->getBlockTexture(item.blockType, 3);
+            if (g_textureManager) g_textureManager->bindForUI(texSouth);
+            glBegin(GL_QUADS);
+            glColor3f(0.8f * luzIt, 0.8f * luzIt, 0.8f * luzIt);  // N/S faces
+            glTexCoord2f(0, 0); glVertex3f( scale, -scale, -scale);
+            glTexCoord2f(1, 0); glVertex3f(-scale, -scale, -scale);
+            glTexCoord2f(1, 1); glVertex3f(-scale,  scale, -scale);
+            glTexCoord2f(0, 1); glVertex3f( scale,  scale, -scale);
+            glEnd();
+
+            // Face 4 = East (+X)
+            GLuint texEast = g_textureManager->getBlockTexture(item.blockType, 4);
+            if (g_textureManager) g_textureManager->bindForUI(texEast);
+            glBegin(GL_QUADS);
+            glColor3f(0.6f * luzIt, 0.6f * luzIt, 0.6f * luzIt);  // E/W faces = más oscuro
+            glTexCoord2f(0, 0); glVertex3f( scale, -scale,  scale);
+            glTexCoord2f(1, 0); glVertex3f( scale, -scale, -scale);
+            glTexCoord2f(1, 1); glVertex3f( scale,  scale, -scale);
+            glTexCoord2f(0, 1); glVertex3f( scale,  scale,  scale);
+            glEnd();
+
+            // Face 5 = West (-X)
+            GLuint texWest = g_textureManager->getBlockTexture(item.blockType, 5);
+            if (g_textureManager) g_textureManager->bindForUI(texWest);
+            glBegin(GL_QUADS);
+            glColor3f(0.6f * luzIt, 0.6f * luzIt, 0.6f * luzIt);  // E/W faces = más oscuro
+            glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -scale);
+            glTexCoord2f(1, 0); glVertex3f(-scale, -scale,  scale);
+            glTexCoord2f(1, 1); glVertex3f(-scale,  scale,  scale);
+            glTexCoord2f(0, 1); glVertex3f(-scale,  scale, -scale);
+            glEnd();
+
+}
 
 // El aviso sobre la hotbar: la tecla F y lo que hace.
 void renderAvisoRecoger(GameState* state, int width, int height) {
@@ -48137,11 +48682,22 @@ int main() {
                     static float yDespegue = 0.0f, yAntes = 0.0f, tEscalon = 9.0f;
                     static bool escSube = true;
                     static int escPierna = 1;
+                    static int varianteSalto = 0;
+                    static float tAire = 0.0f;
+                    static uint32_t azarSalto = 0x2545F491u;
                     const bool suelo = st.onGround || st.isInWater || st.isFlying;
                     const float y = st.position.y;
                     const int piernaDelante =
                         std::fmod(fasePaso, 6.2831853f) < 3.1415927f ? 1 : 0;
-                    if (!suelo && !enAireAntes) { yDespegue = y; salto = st.velocity.y > 1.0f; }
+                    if (!suelo && !enAireAntes) {
+                        yDespegue = y;
+                        salto = st.velocity.y > 1.0f;
+                        tAire = 0.0f;
+                        // Uno de los tres saltos, al azar.
+                        azarSalto = azarSalto * 1664525u + 1013904223u;
+                        varianteSalto = (int)((azarSalto >> 16) % 3u);
+                    }
+                    if (!suelo) tAire += dtc;
                     if (suelo && enAireAntes && !salto) {
                         const float bajo = yDespegue - y;
                         if (bajo > 0.05f && bajo < 0.95f) {
@@ -48162,6 +48718,19 @@ int main() {
                     ea.escalon = tEscalon < 0.35f ? tEscalon / 0.35f : -1.0f;
                     ea.escalonSube = escSube;
                     ea.piernaEscalon = escPierna;
+                    ea.saltoVariante = salto ? varianteSalto : 0;
+                    ea.tAire = tAire;
+                }
+
+                // Recoger con F, andar con sigilo o inspeccionando.
+                {
+                    static int recogidasVistas = 0;
+                    static float tRecoger = 9.0f;
+                    if (g_recogidas != recogidasVistas) { recogidasVistas = g_recogidas; tRecoger = 0.0f; }
+                    tRecoger += dtc;
+                    ea.tRecoger = tRecoger <= ModeloJugador::RECOGER_SEG ? tRecoger : -1.0f;
+                    ea.sigilo = st.isSigilo;
+                    ea.inspeccion = st.isInspeccion;
                 }
 
                 // ⭐ LA HERRAMIENTA, EL BLOQUE Y EL SUELO: QUE ANIMACION TOCA
@@ -48399,6 +48968,47 @@ int main() {
                     glBindBuffer(GL_ARRAY_BUFFER, (GLuint)bufArray);
                     glBindBuffer(BUF_INDICES, (GLuint)bufIndices);
                 }
+
+                // ⭐ LO QUE LLEVA EN LA MANO, CON SU TEXTURA
+                //
+                // PEDIDO: "todos los items, bloques, herramientas etc tengan
+                // su textura en un modelo 3D cuando el jugador lo tiene en la
+                // mano". Es el MISMO modelo que el de los items tirados en el
+                // suelo (dibujarItem3D): silueta con grosor o cubo texturizado.
+                //
+                // El marco del puno (ModeloJugador::agarre) pasa al mundo con
+                // la misma cuenta que los vertices del cuerpo -- giro, cuello,
+                // aplastado y el cuerpo echado atras al mirar abajo --, asi
+                // que el item va pegado a la mano haga lo que haga.
+                if (enMano != BLOCK_AIR && g_textureManager) {
+                    const ModeloJugador::Junta g = ModeloJugador::agarre(esq);
+                    auto aMundo = [&](const ModeloJugador::V& p) -> Vec3 {
+                        const float lx = p.x - cuelloLocal.x;
+                        const float ly = (p.y - baseMalla) * ky;
+                        const float lz = p.z - p.y * atrasPorAlto - cuelloLocal.z;
+                        return Vec3(cuelloX + rx * lx + fx * lz, pieY + ly, cuelloZ + rz * lx + fz * lz);
+                    };
+                    const Vec3 o = aMundo(g.p);
+                    auto eje = [&](ModeloJugador::V d) {
+                        const Vec3 q = aMundo(ModeloJugador::suma(g.p, g.r.aplicar(d)));
+                        return Vec3(q.x - o.x, q.y - o.y, q.z - o.z);
+                    };
+                    // Las herramientas, algo mas pequenas que tiradas en el
+                    // suelo: tan cerca de los ojos, a su tamano tapaban media
+                    // pantalla.
+                    const float tam = (esHerramientaGastable(enMano) || enMano == BLOCK_STICK) ? 0.95f : 1.0f;
+                    const Vec3 ex = eje({ tam, 0, 0 }), ey = eje({ 0, tam, 0 }), ez = eje({ 0, 0, tam });
+                    const GLfloat m[16] = { ex.x, ex.y, ex.z, 0.0f, ey.x, ey.y, ey.z, 0.0f,
+                                            ez.x, ez.y, ez.z, 0.0f, o.x,  o.y,  o.z,  1.0f };
+                    // La luz de la mano: la del pecho.
+                    const float luzMano = luzPecho * 0.92f;
+                    glEnable(GL_TEXTURE_2D);
+                    glPushMatrix();
+                    glMultMatrixf(m);
+                    dibujarItem3D(enMano, luzMano, true);
+                    glPopMatrix();
+                    glDisable(GL_TEXTURE_2D);
+                }
                 glColor3f(1.0f, 1.0f, 1.0f);
             }
 
@@ -48467,510 +49077,7 @@ int main() {
             // Rotación animada basada en tiempo de vida
             glRotatef(item.lifetime * 100.0f, 0, 1, 0);
 
-            // Escala más pequeña (0.2 = 20% del tamaño normal)
-            float scale = 0.2f;
-
-            // ================================================================
-            // ⭐⭐ LA PENCA SUELTA OCUPA SU CASILLA
-            // ================================================================
-            // PEDIDO: "que el bloque de penca de nopal suelto no sea la textura
-            // de imagen solo, quiero que sea del mismo tamano que el espacio y
-            // 3D".
-            //
-            // `scale` es el SEMILADO: con 0.2 el item mide 0.4 bloques, menos
-            // de la mitad de su casilla. Para un pedazo de cobre o un pedernal
-            // esta bien --son objetos pequenos-- pero una penca de nopal es una
-            // pieza grande: tirada en el suelo tiene que leerse como la penca
-            // que era, no como una ficha.
-            //
-            // 0.45 de semilado = 0.9 bloques de lado: llena la celda dejando un
-            // margen minimo para que no se incruste en los bloques de al lado
-            // al rotar (el item gira sobre su eje, y en la diagonal un cuadrado
-            // de lado L barre L*1.41).
-            //
-            // ⚠️ SOLO LAS PENCAS, NO TODO `esCactusSuelto`.
-            //
-            // Ese grupo incluye tambien la BABA, las ESPINAS y las TUNAS, que
-            // son piezas pequenas: una tuna del tamano de la casilla seria una
-            // sandia, y la baba es un charco de mucilago, no una hoja.
-            //
-            // Las CINCO que si son penca --y las cinco tienen que ir juntas, o
-            // lavar una penca la encogeria a la mitad delante del jugador:
-            //
-            //   CLADODIO   la penca recien cortada
-            //   MOJADO     la misma, ya lavada y sin espinas
-            //   SECO       la misma, curada al sol
-            //   SIN_BABA   la misma, desbabada
-            //   TIRAS      la misma, cortada en tiras (sigue siendo el cladodio
-            //              entero: se corta, no se parte en trozos sueltos)
-            //
-            // `esPencaDeNopal` vive en BlockType.h para que esta lista no se
-            // duplique: el grosor de mas abajo pregunta lo mismo.
-            if (esPencaDeNopal(item.blockType)) scale = 0.45f;
-
-            // ================================================================
-            // ITEMS 3D: LA SILUETA DE LA TEXTURA, CON GROSOR
-            // ================================================================
-            // Los items sueltos se dibujaban como un CUBO con la textura
-            // envuelta en las seis caras. Para un bloque eso esta bien, pero
-            // para un pedazo de cobre o un pedernal se veia como un cubo con
-            // el dibujo estampado, no como el objeto.
-            //
-            // Ahora estos items se dibujan como su PROPIA FORMA: la textura
-            // se pone a doble cara (delante y detras) y se le da grosor con
-            // un borde, de modo que se ve como una pieza plana con volumen,
-            // igual que en el genero. La silueta sale sola porque el PNG
-            // lleva su fondo transparente y GL_ALPHA_TEST lo recorta.
-            //
-            // Ventajas frente a construir un modelo por voxeles de la
-            // textura: no hay que analizar la imagen en tiempo de dibujado,
-            // el color es EXACTAMENTE el de la textura (no se recolorea
-            // nada), y no quedan huecos porque la silueta es la del propio
-            // dibujo.
-            //
-            // Solo para los items que se pidieron; los bloques siguen
-            // saliendo como cubos, que es lo correcto para ellos.
-            const bool item3D = (item.blockType == BLOCK_RAW_COPPER ||
-                                 item.blockType == BLOCK_PEDAZO_COBRE ||
-                                 item.blockType == BLOCK_PEDAZO_PEDERNAL ||
-                                 item.blockType == BLOCK_DIRT_POWDER ||
-                                 item.blockType == BLOCK_PEDAZO_TIERRA ||
-                                 item.blockType == BLOCK_PEDAZO_CALIZA ||
-                                 item.blockType == BLOCK_RAW_ZINC ||
-                                 item.blockType == BLOCK_COAL_ITEM ||
-                                 esPencaDeMaguey(item.blockType));
-
-            // ⭐ LAS PENCAS DE MAGUEY SON MAS GRUESAS QUE UN PEDAZO DE MINERAL.
-            //
-            // Una hoja de agave es CARNOSA -- es lo que la distingue de una
-            // hoja cualquiera, y de donde sale el aguamiel. Como lamina fina
-            // no se lee como lo que es.
-            //
-            // 4 px de grosor sobre los 16 de ancho y alto: un cuarto del lado.
-            // `scale` es el SEMILADO (medio ancho), asi que el semigrosor es
-            // scale * 0.25 para dar 4 px de los 16.
-            //
-            // Las PUNTAS van con el mismo cuerpo que la hoja de la que salen:
-            // son la espina terminal de esa misma penca, no una lamina aparte.
-            const bool esCarnosa = esPencaDeMaguey(item.blockType) ||
-                                   item.blockType == BLOCK_AGAVE_AZUL_PENCA ||
-                                   item.blockType == BLOCK_IXTLE_PUNTA ||
-                                   item.blockType == BLOCK_MAGUEY_PUNTA ||
-                                   item.blockType == BLOCK_AGAVE_AZUL_PUNTA;
-
-            // ⭐ EL CACTUS ES LO MAS GRUESO DE TODO.
-            //
-            // Una penca de nopal es una hoja SUCULENTA: guarda agua, y por eso
-            // es visiblemente mas gorda que la hoja fibrosa de un agave. Lo
-            // mismo vale para la tuna (un fruto redondo) y para la biznaga
-            // (un barril). Dibujarlas con el grosor de una hoja las aplanaria.
-            //
-            // 5 px sobre los 16 del lado = 5/16 = 0.3125, frente a los 4 px
-            // (0.25) del agave y los ~3 (0.18) de una herramienta.
-            const bool esCactus = esCactusSuelto(item.blockType);
-            const float FACTOR_GROSOR = esCactus  ? (5.0f / 16.0f)
-                                      : esCarnosa ? 0.25f
-                                                  : 0.18f;
-
-            // ⭐ ITEMS FINOS: el canto sale del CONTORNO, no del borde del cuadro.
-            //
-            // El camino item3D de abajo levanta el canto con cuatro tiras
-            // pegadas al borde de la textura. Eso vale para un item que llena
-            // su cuadro, pero el palo ocupa el 19.5% y es diagonal: de los 64
-            // pixeles del borde solo 5 son opacos. Con aquello el palo saldria
-            // como dos laminas planas con el hueco a la vista por el costado,
-            // mas cinco astillas sueltas flotando en el aire.
-            //
-            // Aqui el canto se levanta pixel a pixel donde la figura toca el
-            // vacio: 86 tiras que siguen el palo de verdad. Queda un solido
-            // cerrado, con su forma y sin nada invisible.
-            //
-            // ------------------------------------------------------------
-            // POR QUE ESTA LISTA CRECIO
-            // ------------------------------------------------------------
-            // Aqui solo estaba el palo, y eso dejaba fuera a dos grupos que
-            // sufren EL MISMO problema, cada uno a su manera:
-            //
-            //   HERRAMIENTAS (hacha, pico, martillo). Caian al cubo del
-            //   final, asi que un hacha tirada al suelo se veia como un dado
-            //   con el hacha estampada en las seis caras. Son objetos
-            //   diagonales que no llenan su cuadro: es exactamente el caso
-            //   del palo.
-            //
-            //   MAGUEY (la penca y la punta). Estas SI entraban en item3D,
-            //   pero su canto salia de las cuatro tiras del borde -- y el
-            //   borde de "Penca de Maguey.png" esta VACIO por los lados: 0 de 16
-            //   pixeles opacos en la columna izquierda y 0 de 16 en la
-            //   derecha (arriba y abajo si tienen 14 de 16). Con el alpha
-            //   test a 0.5, las tiras este y oeste se descartaban ENTERAS y
-            //   la penca quedaba abierta por los dos costados. Ese es el
-            //   "no cargan las caras este y oeste": no faltaba la textura,
-            //   faltaba dibujo opaco donde se iba a muestrear.
-            //
-            // Con el contorno real el problema no se arregla, DESAPARECE: el
-            // canto nace donde hay figura, asi que no puede caer en una
-            // columna transparente.
-            //
-            // La textura del maguey vive en Blocks/ y la de las herramientas
-            // en Items/, por eso la ruta se guarda desde `resourcepacks/`.
-            const char* siluetaPNG = nullptr;
-            switch (item.blockType) {
-                case BLOCK_STICK:
-                    siluetaPNG = "Textures/Items/palo.png"; break;
-
-                // --- Herramientas: las seis, de piedra y de pedernal ---
-                case BLOCK_HACHA_PIEDRA:
-                    siluetaPNG = "Textures/Items/Hacha de piedra.png"; break;
-                case BLOCK_PICO_PIEDRA:
-                    siluetaPNG = "Textures/Items/pico de Piedra.png"; break;
-                case BLOCK_MARTILLO_PIEDRA:
-                    siluetaPNG = "Textures/Items/Martillo de Piedra.png"; break;
-                case BLOCK_HACHA_PEDERNAL:
-                    siluetaPNG = "Textures/Items/Pedernal afilado.png"; break;
-                case BLOCK_PICO_PEDERNAL:
-                    siluetaPNG = "Textures/Items/pico de pedernal afilado.png"; break;
-                case BLOCK_MARTILLO_PEDERNAL:
-                    siluetaPNG = "Textures/Items/Martillo de Pedernal afilado.png"; break;
-
-                // --- Maguey: las piezas que se sueltan como item ---
-                //
-                // La hoja del pulquero y la penca del tequilana son las dos
-                // que el jugador recoge al talar. Las puntas caen al cortar
-                // el quiote. Todas son hojas o espinas: laminas con forma
-                // propia, nunca cubos.
-                case BLOCK_IXTLE_HOJA:
-                    siluetaPNG = "Textures/Blocks/Penca de Maguey.png"; break;
-                case BLOCK_IXTLE_PUNTA:
-                case BLOCK_MAGUEY_PUNTA:
-                    siluetaPNG = "Textures/Blocks/Puntas de Maguey.png"; break;
-                case BLOCK_PENCA_AGAVE_AZUL:
-                case BLOCK_AGAVE_AZUL_PENCA:
-                    siluetaPNG = "Textures/Blocks/Maguey de Tequilana azulado.png"; break;
-                case BLOCK_AGAVE_AZUL_PUNTA:
-                    siluetaPNG = "Textures/Blocks/punta de Maguey de Tequilana azul.png"; break;
-
-                // --- CACTUS: nopal y sus productos, y las tunas ---
-                //
-                // Entran por el mismo motivo que el maguey, y con el mismo
-                // sintoma si no entraran: sus texturas tampoco llenan el
-                // cuadro, asi que el canto de cuatro tiras del camino item3D
-                // se descartaria en las columnas transparentes y la penca
-                // saldria abierta por los costados.
-                //
-                // Con el contorno real el solido se cierra siempre, sea cual
-                // sea la forma del dibujo: es lo que hace que "se rendericen
-                // las caras de todo en 3D".
-                // FRUTO es el item "Nopal de Castilla", lo unico que sueltan los
-                // nopales ademas de las tunas. En el suelo se ve igual que su
-                // icono: ni como tuna (lo que sugiere su nombre de ID) ni como
-                // la penca recortada, que se pidio expresamente que no salga.
-                case BLOCK_NOPAL_FRUTO:
-                    siluetaPNG = "Textures/Blocks/Tallo de Nopal de Castilla.png"; break;
-                case BLOCK_NOPAL_CLADODIO:
-                    siluetaPNG = "Textures/Blocks/Tallo de Nopal de Castilla.png"; break;
-                case BLOCK_NOPAL_MOJADO:
-                    siluetaPNG = "Textures/Blocks/Penca de nopal de castilla mojado sin espinas.png"; break;
-                case BLOCK_NOPAL_SECO:
-                    siluetaPNG = "Textures/Blocks/Penca de nopal de castilla seco sin espinas.png"; break;
-                case BLOCK_NOPAL_TIRAS:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras.png"; break;
-                case BLOCK_NOPAL_SIN_BABA:
-                    siluetaPNG = "Textures/Items/Penca de Nopal de Castilla en tiras mojado.png"; break;
-                case BLOCK_NOPAL_BABA:
-                    siluetaPNG = "Textures/Items/Baba de nopal.png"; break;
-                case BLOCK_ESPINAS_NOPAL:
-                    siluetaPNG = "Textures/Items/Espinas de Nopal de castilla.png"; break;
-
-                // Las tunas: fruto redondo, cada variedad con su color.
-                case BLOCK_TUNA:
-                    siluetaPNG = "Textures/Items/Tuna verde crecida.png"; break;
-                case BLOCK_TUNA_AMARILLA:
-                    siluetaPNG = "Textures/Items/Tuna amarilla crecida.png"; break;
-                case BLOCK_TUNA_ROJA:
-                    siluetaPNG = "Textures/Items/Tuna roja crecida.png"; break;
-
-                default: break;
-            }
-
-            if (siluetaPNG) {
-                // ⭐ EL GROSOR NO ES IGUAL PARA TODOS.
-                //
-                // El palo y las herramientas son laminas finas; una penca de
-                // agave es CARNOSA, y como lamina fina no se lee como lo que
-                // es. Se reutiliza FACTOR_GROSOR (0.25 para las pencas, 0.18
-                // para el resto) en vez del 0.09 fijo que habia, para que la
-                // hoja tenga el mismo cuerpo que ya tenia por el otro camino.
-                //
-                // El modelo se cachea por ruta Y el grosor forma parte de la
-                // geometria, asi que dos items con la misma textura y distinto
-                // grosor compartirian modelo. Hoy no ocurre (cada ruta la usa
-                // un grupo con el mismo grosor), pero conviene saberlo.
-                //
-                // ⚠️ AQUI HABIA UN FACTOR 2 DE MAS, Y HACIA LOS ITEMS LA MITAD
-                // DE GRUESOS DE LO QUE DECIA SU NUMERO.
-                //
-                // La cuenta completa, que es lo que hay que tener delante:
-                //
-                //     lado del item   = 2 * scale          (de -scale a +scale)
-                //     semiGrosor real = semiGrosor * scale (lo que se pasa aqui)
-                //     grosor total    = 2 * semiGrosor * scale
-                //
-                // O sea que grosor/lado == semiGrosor: el valor que se pasa YA
-                // ES la fraccion del lado, y multiplicarlo por 0.5 la partia en
-                // dos. Con el 0.5 la penca de agave salia a 2 px en vez de los
-                // 4 que documenta su constante, y el cactus habria salido a
-                // 2.5 en vez de 5.
-                //
-                // Lo caza el test "Cactus: 5 px de grosor sobre los 16 del lado".
-                const float semiGrosor = FACTOR_GROSOR;
-
-                const std::string ruta =
-                    gamePath("resourcepacks/") + siluetaPNG;
-                const SiluetaItem::Modelo& mod =
-                    SiluetaItem::obtener(ruta, semiGrosor);
-
-                if (mod.valido) {
-                    const GLuint tex =
-                        (GLuint)g_itemTextures.resolve((int)item.blockType);
-                    if (g_textureManager) g_textureManager->bindForUI(tex);
-
-                    // ====================================================
-                    // ⭐⭐ EL UMBRAL DE RECORTE: 0.1, NO 0.5
-                    // ====================================================
-                    // PEDIDO: "que no tenga agujeros en la textura y sea
-                    // completa".
-                    //
-                    // Con 0.5 se descarta TODO pixel por debajo de alfa 128, y
-                    // eso no son solo los del fondo. Medido en la textura de la
-                    // penca:
-                    //
-                    //     6.601 px semitransparentes en el BORDE  (antialias)
-                    //       195 px semitransparentes en el INTERIOR
-                    //
-                    // Los 195 del interior se convertian en AGUJEROS que
-                    // atraviesan la pieza, y los 6.601 del borde se comian el
-                    // contorno suave: la silueta salia dentada.
-                    //
-                    // Con 0.1 solo se descarta lo verdaderamente transparente
-                    // (el fondo, que esta a alfa 0). Es ademas el umbral que YA
-                    // usa el render del mundo para la vegetacion, asi que el
-                    // item tirado y la planta de la que salio se recortan con
-                    // el mismo criterio.
-                    glEnable(GL_ALPHA_TEST);
-                    glAlphaFunc(GL_GREATER, 0.1f);
-
-                    const float g = semiGrosor * scale;
-
-                    // ====================================================
-                    // ⭐⭐ LA TEXTURA NO SE DEFORMA: MANDA SU PROPORCION
-                    // ====================================================
-                    // PEDIDO: "que no tenga agujeros en la textura y sea
-                    // completa y 3D sin deformar mucho".
-                    //
-                    // Las dos caras planas iban SIEMPRE de -scale a +scale en
-                    // los dos ejes, con la textura entera estirada encima. Para
-                    // un PNG cuadrado da igual; para uno de 1024x1536 --que es
-                    // lo que mide la penca-- el dibujo se achata un 33%: la
-                    // penca salia mas ancha y mas baja de lo que es.
-                    //
-                    // Aqui el cuadro se ajusta a la PROPORCION REAL de la
-                    // imagen. El lado mayor conserva `scale` y el menor se
-                    // encoge a su proporcion, asi que el pixel sigue siendo
-                    // cuadrado y la silueta es la del dibujo.
-                    //
-                    // `mod.ancho`/`mod.alto` los rellena SiluetaItem al leer el
-                    // PNG, asi que no hay que abrir el archivo otra vez ni
-                    // mantener una tabla de tamanos aparte.
-                    float sx = scale, sy = scale;
-                    if (mod.ancho > 0 && mod.alto > 0) {
-                        if (mod.ancho >= mod.alto)
-                            sy = scale * (float)mod.alto / (float)mod.ancho;
-                        else
-                            sx = scale * (float)mod.ancho / (float)mod.alto;
-                    }
-
-                    // La cara plana, a la luz del sitio donde esta el item.
-                    glColor3f(luzIt, luzIt, luzIt);
-
-                    glBegin(GL_QUADS);
-                    // Cara de delante
-                    glTexCoord2f(0, 0); glVertex3f(-sx, -sy,  g);
-                    glTexCoord2f(1, 0); glVertex3f( sx, -sy,  g);
-                    glTexCoord2f(1, 1); glVertex3f( sx,  sy,  g);
-                    glTexCoord2f(0, 1); glVertex3f(-sx,  sy,  g);
-                    // Cara de detras (al reves, para que mire al otro lado)
-                    glTexCoord2f(0, 1); glVertex3f(-sx,  sy, -g);
-                    glTexCoord2f(1, 1); glVertex3f( sx,  sy, -g);
-                    glTexCoord2f(1, 0); glVertex3f( sx, -sy, -g);
-                    glTexCoord2f(0, 0); glVertex3f(-sx, -sy, -g);
-                    glEnd();
-
-                    // El CANTO: el contorno real, ya calculado y cacheado.
-                    // Se oscurece un poco para que el volumen se lea. El 0.78
-                    // es el sombreado del canto; la luz del entorno se
-                    // multiplica encima, no lo sustituye.
-                    glColor3f(0.78f * luzIt, 0.78f * luzIt, 0.78f * luzIt);
-                    glBegin(GL_QUADS);
-                    for (const SiluetaItem::Vertice& v : mod.canto) {
-                        // La V se invierte porque la silueta se leyo sin
-                        // voltear y la textura si esta volteada en GL.
-                        glTexCoord2f(v.u, 1.0f - v.v);
-                        // ⚠️ EL CANTO USA LOS MISMOS SEMILADOS QUE LAS CARAS.
-                        //
-                        // Si aqui se dejara `scale` en los dos ejes, el
-                        // contorno quedaria MAS GRANDE que la cara plana en el
-                        // eje corto: se veria un reborde desalineado alrededor
-                        // del dibujo, que es peor que la deformacion que se
-                        // acaba de quitar. La Z si va con `scale` porque el
-                        // grosor no depende de la proporcion de la imagen.
-                        glVertex3f(v.x * sx, v.y * sy, v.z * scale);
-                    }
-                    glEnd();
-
-                    glDisable(GL_ALPHA_TEST);
-                    glPopMatrix();
-                    continue;   // no dibujar el cubo
-                }
-                // Si el PNG no se pudo leer, cae al camino normal de abajo.
-            }
-
-            if (item3D) {
-                const GLuint tex =
-                    (GLuint)g_itemTextures.resolve((int)item.blockType);
-                if (g_textureManager) g_textureManager->bindForUI(tex);
-
-                // ALPHA TEST: es lo que recorta el fondo transparente del
-                // PNG y deja SOLO la silueta del objeto. Sin esto se veria
-                // un rectangulo con el dibujo dentro, que es justo lo que se
-                // queria quitar.
-                // 0.1 y no 0.5, por lo mismo que el camino de arriba: con
-                // medio alfa se descartan tambien los pixeles del borde
-                // suavizado y los semitransparentes del interior, que salen
-                // como agujeros. Ver la nota larga de `siluetaPNG`.
-                glEnable(GL_ALPHA_TEST);
-                glAlphaFunc(GL_GREATER, 0.1f);
-
-                // Grosor de la pieza: fino, como una lamina con cuerpo. Las
-                // pencas de maguey van mas gruesas (ver FACTOR_GROSOR): son
-                // hojas carnosas, no laminas.
-                const float gr = scale * FACTOR_GROSOR;
-
-                glColor3f(luzIt, luzIt, luzIt);
-                glBegin(GL_QUADS);
-                // Cara de delante
-                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
-                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
-                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
-                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
-                // Cara de detras (orden invertido para que mire al otro lado)
-                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
-                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
-                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
-                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
-                glEnd();
-
-                // El CANTO: cuatro tiras que unen las dos caras y le dan el
-                // volumen. Cada tira toma su color del borde de la textura
-                // que le toca, asi que no hay color inventado.
-                glColor3f(0.75f * luzIt, 0.75f * luzIt, 0.75f * luzIt);
-                glBegin(GL_QUADS);
-                // arriba
-                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
-                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
-                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
-                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
-                // abajo
-                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
-                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
-                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
-                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
-                // izquierda
-                glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -gr);
-                glTexCoord2f(0, 1); glVertex3f(-scale, -scale, -gr);
-                glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  gr);
-                glTexCoord2f(0, 0); glVertex3f(-scale,  scale,  gr);
-                // derecha
-                glTexCoord2f(1, 0); glVertex3f( scale,  scale,  gr);
-                glTexCoord2f(1, 1); glVertex3f( scale, -scale,  gr);
-                glTexCoord2f(1, 1); glVertex3f( scale, -scale, -gr);
-                glTexCoord2f(1, 0); glVertex3f( scale,  scale, -gr);
-                glEnd();
-
-                glDisable(GL_ALPHA_TEST);
-                glPopMatrix();
-                continue;   // no dibujar el cubo
-            }
-
-            // Dibujar cubo pequeño con texturas del bloque
-            // Face 0 = Top (+Y)
-            GLuint texTop = g_textureManager->getBlockTexture(item.blockType, 0);
-            if (g_textureManager) g_textureManager->bindForUI(texTop);
-            glBegin(GL_QUADS);
-            // El sombreado por cara se CONSERVA y la luz del entorno se
-            // multiplica encima: el cubo sigue teniendo volumen, pero ahora
-            // ademas se apaga en la oscuridad.
-            glColor3f(luzIt, luzIt, luzIt);  // Más brillante
-            glTexCoord2f(0, 0); glVertex3f(-scale,  scale, -scale);
-            glTexCoord2f(0, 1); glVertex3f(-scale,  scale,  scale);
-            glTexCoord2f(1, 1); glVertex3f( scale,  scale,  scale);
-            glTexCoord2f(1, 0); glVertex3f( scale,  scale, -scale);
-            glEnd();
-
-            // Face 1 = Bottom (-Y)
-            GLuint texBottom = g_textureManager->getBlockTexture(item.blockType, 1);
-            if (g_textureManager) g_textureManager->bindForUI(texBottom);
-            glBegin(GL_QUADS);
-            glColor3f(0.5f * luzIt, 0.5f * luzIt, 0.5f * luzIt);  // Más oscuro
-            glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -scale);
-            glTexCoord2f(1, 0); glVertex3f( scale, -scale, -scale);
-            glTexCoord2f(1, 1); glVertex3f( scale, -scale,  scale);
-            glTexCoord2f(0, 1); glVertex3f(-scale, -scale,  scale);
-            glEnd();
-
-            // Face 2 = North (+Z)
-            GLuint texNorth = g_textureManager->getBlockTexture(item.blockType, 2);
-            if (g_textureManager) g_textureManager->bindForUI(texNorth);
-            glBegin(GL_QUADS);
-            glColor3f(0.8f * luzIt, 0.8f * luzIt, 0.8f * luzIt);  // N/S faces
-            glTexCoord2f(0, 0); glVertex3f(-scale, -scale,  scale);
-            glTexCoord2f(1, 0); glVertex3f( scale, -scale,  scale);
-            glTexCoord2f(1, 1); glVertex3f( scale,  scale,  scale);
-            glTexCoord2f(0, 1); glVertex3f(-scale,  scale,  scale);
-            glEnd();
-
-            // Face 3 = South (-Z)
-            GLuint texSouth = g_textureManager->getBlockTexture(item.blockType, 3);
-            if (g_textureManager) g_textureManager->bindForUI(texSouth);
-            glBegin(GL_QUADS);
-            glColor3f(0.8f * luzIt, 0.8f * luzIt, 0.8f * luzIt);  // N/S faces
-            glTexCoord2f(0, 0); glVertex3f( scale, -scale, -scale);
-            glTexCoord2f(1, 0); glVertex3f(-scale, -scale, -scale);
-            glTexCoord2f(1, 1); glVertex3f(-scale,  scale, -scale);
-            glTexCoord2f(0, 1); glVertex3f( scale,  scale, -scale);
-            glEnd();
-
-            // Face 4 = East (+X)
-            GLuint texEast = g_textureManager->getBlockTexture(item.blockType, 4);
-            if (g_textureManager) g_textureManager->bindForUI(texEast);
-            glBegin(GL_QUADS);
-            glColor3f(0.6f * luzIt, 0.6f * luzIt, 0.6f * luzIt);  // E/W faces = más oscuro
-            glTexCoord2f(0, 0); glVertex3f( scale, -scale,  scale);
-            glTexCoord2f(1, 0); glVertex3f( scale, -scale, -scale);
-            glTexCoord2f(1, 1); glVertex3f( scale,  scale, -scale);
-            glTexCoord2f(0, 1); glVertex3f( scale,  scale,  scale);
-            glEnd();
-
-            // Face 5 = West (-X)
-            GLuint texWest = g_textureManager->getBlockTexture(item.blockType, 5);
-            if (g_textureManager) g_textureManager->bindForUI(texWest);
-            glBegin(GL_QUADS);
-            glColor3f(0.6f * luzIt, 0.6f * luzIt, 0.6f * luzIt);  // E/W faces = más oscuro
-            glTexCoord2f(0, 0); glVertex3f(-scale, -scale, -scale);
-            glTexCoord2f(1, 0); glVertex3f(-scale, -scale,  scale);
-            glTexCoord2f(1, 1); glVertex3f(-scale,  scale,  scale);
-            glTexCoord2f(0, 1); glVertex3f(-scale,  scale, -scale);
-            glEnd();
-
+            dibujarItem3D(item.blockType, luzIt, false);
             glPopMatrix();
         }
         glPopMatrix();

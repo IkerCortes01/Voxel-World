@@ -118,3 +118,65 @@ TEST_CASE("Postura: agachado, el cuello queda detras del ojo aunque el torso se 
     const float ky = escalaVertical(s, 0.86f);
     CHECK(s.cuello.p.y * ky < 0.86f - 0.08f);
 }
+
+TEST_CASE("Postura: CTRL tocado y W anda con sigilo; SHIFT encima, inspecciona") {
+    ControlPostura c;
+    double t = 0.0;
+    auto paso = [&](bool shift, bool espacio, bool ctrl, bool w) {
+        t += 0.05;
+        return c.avanzar(shift, espacio, true, ctrl, w, t);
+    };
+    // Toque de CTRL: pulsar y soltar sin W.
+    paso(false, false, true, false);
+    auto s = paso(false, false, false, false);
+    CHECK(s.sigilo);
+    s = paso(false, false, false, true);            // ahora W: anda despacio
+    CHECK(s.sigilo);
+    CHECK_FALSE(s.correr);
+    // SHIFT en sigilo: inspecciona, no se agacha.
+    paso(true, false, false, true);
+    s = paso(false, false, false, true);
+    CHECK(s.inspeccion);
+    CHECK_FALSE(s.agachar);
+    CHECK(c.postura == Postura::DE_PIE);
+    // ESPACIO: se endereza sin saltar.
+    s = paso(false, true, false, true);
+    CHECK_FALSE(s.inspeccion);
+    CHECK_FALSE(s.saltar);
+    CHECK(s.sigilo);
+    paso(false, false, false, false);
+    // Otro toque de CTRL lo quita.
+    paso(false, false, true, false);
+    s = paso(false, false, false, false);
+    CHECK_FALSE(s.sigilo);
+    // Y fuera del sigilo SHIFT vuelve a agachar.
+    paso(true, false, false, false);
+    s = paso(false, false, false, false);
+    CHECK(s.agachar);
+}
+
+TEST_CASE("Postura: CTRL mantenido con W sigue siendo correr") {
+    ControlPostura c;
+    double t = 0.0;
+    auto paso = [&](bool ctrl, bool w) { t += 0.05; return c.avanzar(false, false, true, ctrl, w, t); };
+    paso(true, false);
+    auto s = paso(true, true);        // CTRL pulsado y luego W, sin soltar
+    CHECK(s.correr);
+    CHECK_FALSE(s.sigilo);
+    paso(false, true);                // suelta CTRL: no era un toque
+    s = paso(false, true);
+    CHECK_FALSE(s.sigilo);
+    // Un CTRL largo (mas de medio segundo) tampoco es un toque.
+    paso(true, false);
+    for (int k = 0; k < 15; ++k) paso(true, false);
+    s = paso(false, false);
+    CHECK_FALSE(s.sigilo);
+}
+
+TEST_CASE("Postura: sigilo e inspeccion, mas lentos que andar") {
+    MovementConfig cfg;
+    CHECK(cfg.sigiloSpeed < cfg.walkSpeed);
+    CHECK(cfg.inspeccionSpeed < cfg.sigiloSpeed);
+    CHECK(cfg.inspeccionEyeHeight < cfg.eyeHeight - 0.2f);
+    CHECK(cfg.inspeccionEyeHeight > cfg.crouchEyeHeight);
+}

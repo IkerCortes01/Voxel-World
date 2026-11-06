@@ -187,8 +187,13 @@ public:
             // si no cabe, sigue agachado
         }
 
-        // Sprint: requiere avanzar y no estar agachado.
-        state.isSprinting = input.sprint && input.moveForward > 0.1f && !state.isCrouching;
+        // Sigilo e inspeccion: de pie, en tierra firme.
+        state.isSigilo = input.sigilo && !state.isFlying && !state.isInWater && !state.isCrouching;
+        state.isInspeccion = state.isSigilo && input.inspeccion;
+
+        // Sprint: requiere avanzar y no estar agachado ni en sigilo.
+        state.isSprinting = input.sprint && input.moveForward > 0.1f && !state.isCrouching &&
+                            !state.isSigilo;
 
         // ---- 4. Timers de salto ----
         jump.updateTimers(state, input, dt);

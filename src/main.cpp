@@ -101,6 +101,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/TeclasDeMenu.h"       // con un menu delante, SHIFT no agacha
 #include "player/PlayerDebug.h"
 #include "player/ModeloJugador.h"   // el cuerpo que se ve al mirar abajo
+#include "player/MallaJugador.h"    // su piel: musculos, tendones y venas
 #include "player/EngineAdapter.h"
 
 // ============================================================================
@@ -47873,12 +47874,16 @@ int main() {
             // arreglar solo uno de los dos deja el archivo peor que antes.
 
             // ================================================================
-            // EL CUERPO DEL JUGADOR (ver player/ModeloJugador.h)
+            // EL CUERPO DEL JUGADOR (ver player/ModeloJugador.h y MallaJugador.h)
             // ================================================================
-            // Al mirar abajo se ve el pecho, los brazos y los pies. Va pegado
-            // al yaw y no al pitch: la cabeza gira, el cuerpo no. Las medidas
-            // estan en la escala del jugador (1.8 de alto, ojo a 1.62).
-            if (g_playerController && !g_gameState->durmiendo) {
+            // Al mirar abajo se ve el pecho, los brazos, las manos con sus
+            // cinco dedos, las piernas y los pies descalzos. La cabeza gira
+            // libre hasta donde da el cuello; pasado eso arrastra el cuerpo
+            // (GiroCuerpo). Las medidas estan en la escala del jugador (1.8 de
+            // alto, ojo a 1.62).
+            //
+            // Mirando hacia arriba no se ve nada del cuerpo: ni se genera.
+            if (g_playerController && !g_gameState->durmiendo && g_gameState->player.pitch < 40.0f) {
                 const auto& st = g_playerController->getState();
                 const Vec3 ojo = ojoDelJugador(g_gameState->player);
                 const float altoOjo = st.isCrouching ? 0.80f : 1.62f;
@@ -47887,6 +47892,8 @@ int main() {
                 // patinan sobre el suelo.
                 static float fasePaso = 0.0f, rapidezSuave = 0.0f, reloj = 0.0f;
                 static float antX = ojo.x, antZ = ojo.z;
+                static ModeloJugador::GiroCuerpo giroCuerpo;
+                static ModeloJugador::Fisiologia fisiologia;
                 const float dx = ojo.x - antX, dz = ojo.z - antZ;
                 antX = ojo.x; antZ = ojo.z;
                 float paso = std::sqrt(dx * dx + dz * dz);
@@ -47896,6 +47903,12 @@ int main() {
                 const float vh = std::sqrt(st.velocity.x * st.velocity.x +
                                            st.velocity.z * st.velocity.z);
                 rapidezSuave += (vh - rapidezSuave) * (dtc * 10.0f > 1.0f ? 1.0f : dtc * 10.0f);
+                const bool golpea = g_gameState->mouseLeftPressed && !g_gameState->inventoryOpen &&
+                                    !g_gameState->isPaused;
+                fisiologia.avanzar(dtc, rapidezSuave, golpea);
+                const float giroCuello = giroCuerpo.avanzar(g_gameState->player.yaw,
+                                                            rapidezSuave > 0.5f, dtc);
+
                 ModeloJugador::Estado ea;
                 if (st.onGround && !st.isFlying) fasePaso = ModeloJugador::avanzarPaso(fasePaso, paso);
                 // Al pararse, la pierna vuelve al centro en vez de congelarse a
@@ -47906,13 +47919,28 @@ int main() {
                 ea.enSuelo = st.onGround || st.isInWater;
                 ea.agachado = st.isCrouching;
                 ea.volando = st.isFlying;
-                ea.golpeando = g_gameState->mouseLeftPressed && !g_gameState->inventoryOpen &&
-                               !g_gameState->isPaused;
+                ea.golpeando = golpea;
                 ea.tiempo = reloj;
+                ea.giroCuello = giroCuello;
+                ea.mirada = g_gameState->player.pitch;
+                ea.faseRespira = fisiologia.faseRespira;
                 const ModeloJugador::Pose pose = ModeloJugador::poseDe(ea);
-                static std::vector<ModeloJugador::Caja> cajas;
-                ModeloJugador::construir(pose, cajas);
-                const float ky = ModeloJugador::escalaVertical(pose, altoOjo);
+                const ModeloJugador::Esqueleto esq =
+                    ModeloJugador::resolver(pose, ea.enSuelo && !ea.volando);
+                const float ky = ModeloJugador::escalaVertical(esq, altoOjo);
+
+                // La piel de este mundo: cada mundo, su dibujo de venas.
+                static int semillaPiel = 0x7fffffff;
+                static ModeloJugador::Piel piel;
+                if (semillaPiel != g_gameState->world.getSeed()) {
+                    semillaPiel = g_gameState->world.getSeed();
+                    piel = ModeloJugador::generarPiel((uint32_t)semillaPiel);
+                }
+                ModeloJugador::Calidad calidad;
+                calidad.detalle = g_opciones[Opciones::DETALLE];
+                calidad.venas = calidad.detalle >= 1;
+                static ModeloJugador::Malla malla;
+                ModeloJugador::generar(esq, pose, piel, fisiologia, calidad, malla);
 
                 // Luz: la de la celda del pecho y la de encima, como los animales.
                 const int bx = (int)std::floor(ojo.x), bz = (int)std::floor(ojo.z);
@@ -47923,9 +47951,14 @@ int main() {
                 if (raw > 1.0f) raw = 1.0f;
                 const float luzCuerpo = 0.18f + 0.82f * brilloDeLuz(raw, luzSolar());
 
-                const float yawR = g_gameState->player.yaw * 3.14159265f / 180.0f;
-                const float fx = -std::sin(yawR), fz = -std::cos(yawR);   // +Z local
-                const float rx = std::cos(yawR),  rz = -std::sin(yawR);   // +X local
+                // El cuerpo gira con su propio yaw; el cuello, que esta detras
+                // del ojo, va donde mira la cabeza.
+                const float yawC = g_gameState->player.yaw * 3.14159265f / 180.0f;
+                const float yawB = giroCuerpo.yaw * 3.14159265f / 180.0f;
+                const float fx = -std::sin(yawB), fz = -std::cos(yawB);   // +Z local
+                const float rx = std::cos(yawB),  rz = -std::sin(yawB);   // +X local
+                const float cuelloX = ojo.x + std::sin(yawC) * ModeloJugador::M::ATRAS;
+                const float cuelloZ = ojo.z + std::cos(yawC) * ModeloJugador::M::ATRAS;
                 const float pieY = ojo.y - altoOjo;
                 // Al mirar abajo una persona dobla el cuello y el ojo se
                 // adelanta sobre el pecho: por eso se ve los pies. Sin esto el
@@ -47936,50 +47969,66 @@ int main() {
                 baja = baja < 0.0f ? 0.0f : (baja > 1.0f ? 1.0f : baja);
                 const float atrasPorAlto = 0.24f * baja / 1.45f;
 
-                static const float COLOR[4][3] = {
-                    { 0.24f, 0.45f, 0.66f },    // camisa
-                    { 0.20f, 0.22f, 0.30f },    // pantalon
-                    { 0.20f, 0.14f, 0.09f },    // zapato
-                    { 0.86f, 0.67f, 0.52f },    // piel
-                };
-                // Las seis caras: normal local y sus cuatro esquinas.
-                static const int CARA[6][4][3] = {
-                    { { 1,-1,-1}, { 1, 1,-1}, { 1, 1, 1}, { 1,-1, 1} },
-                    { {-1,-1, 1}, {-1, 1, 1}, {-1, 1,-1}, {-1,-1,-1} },
-                    { {-1, 1,-1}, {-1, 1, 1}, { 1, 1, 1}, { 1, 1,-1} },
-                    { {-1,-1, 1}, {-1,-1,-1}, { 1,-1,-1}, { 1,-1, 1} },
-                    { {-1,-1, 1}, { 1,-1, 1}, { 1, 1, 1}, {-1, 1, 1} },
-                    { { 1,-1,-1}, {-1,-1,-1}, {-1, 1,-1}, { 1, 1,-1} },
-                };
-                static const float NORMAL[6][3] = {
-                    { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 },
-                };
+                // Al mundo, con la luz por vertice (el motor no usa
+                // GL_LIGHTING): sol desde arriba y algo de lado, como en los
+                // animales.
+                static std::vector<float> pos, col;
+                pos.resize(malla.v.size() * 3);
+                col.resize(malla.v.size() * 3);
+                for (size_t i = 0; i < malla.v.size(); ++i) {
+                    const ModeloJugador::VerticeJ& v = malla.v[i];
+                    const float lx = v.p.x;
+                    const float ly = v.p.y * ky;
+                    const float lz = v.p.z + ModeloJugador::M::ATRAS - v.p.y * atrasPorAlto;
+                    pos[i * 3 + 0] = cuelloX + rx * lx + fx * lz;
+                    pos[i * 3 + 1] = pieY + ly;
+                    pos[i * 3 + 2] = cuelloZ + rz * lx + fz * lz;
+                    const float nx = rx * v.n.x + fx * v.n.z, nz = rz * v.n.x + fz * v.n.z;
+                    float d = nx * 0.35f + v.n.y * 0.90f + nz * 0.25f;
+                    if (d < 0.0f) d = 0.0f;
+                    const float k = luzCuerpo * (0.52f + 0.48f * d);
+                    col[i * 3 + 0] = v.r * k;
+                    col[i * 3 + 1] = v.g * k;
+                    col[i * 3 + 2] = v.b * k;
+                }
 
+                // Con arrays de cliente: son ~10.000 vertices y uno a uno con
+                // glVertex se notaria en la HD 4000. Se guarda y se devuelve el
+                // estado de arrays que esperan los demas (terminarShaderTerreno
+                // deja activos vertice, color y textura, y un array de textura
+                // activo sin puntero leeria memoria cualquiera).
+                const GLboolean teniaVert = glIsEnabled(GL_VERTEX_ARRAY);
+                const GLboolean teniaColor = glIsEnabled(GL_COLOR_ARRAY);
+                const GLboolean teniaTex = glIsEnabled(GL_TEXTURE_COORD_ARRAY);
+                const GLboolean teniaNormal = glIsEnabled(GL_NORMAL_ARRAY);
+                // Las cabeceras de GL 1.1 de Windows no traen estos nombres.
+                constexpr GLenum BUF_INDICES = 0x8893, BUF_ARRAY_ACTUAL = 0x8894,
+                                 BUF_INDICES_ACTUAL = 0x8895;
+                GLint bufArray = 0, bufIndices = 0;
+                if (glBindBuffer) {
+                    glGetIntegerv(BUF_ARRAY_ACTUAL, &bufArray);
+                    glGetIntegerv(BUF_INDICES_ACTUAL, &bufIndices);
+                    glBindBuffer(GL_ARRAY_BUFFER, 0);
+                    glBindBuffer(BUF_INDICES, 0);
+                }
+                glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                glDisableClientState(GL_NORMAL_ARRAY);
+                glEnableClientState(GL_VERTEX_ARRAY);
+                glEnableClientState(GL_COLOR_ARRAY);
                 glDisable(GL_TEXTURE_2D);
                 glDisable(GL_CULL_FACE);
-                glBegin(GL_QUADS);
-                for (const ModeloJugador::Caja& c : cajas) {
-                    const float* col = COLOR[c.material];
-                    for (int f = 0; f < 6; ++f) {
-                        const ModeloJugador::V n = c.rot.aplicar({ NORMAL[f][0], NORMAL[f][1], NORMAL[f][2] });
-                        // Sol desde arriba y algo de lado, como en los animales.
-                        float d = n.x * 0.35f + n.y * 0.90f + n.z * 0.25f;
-                        if (d < 0.0f) d = 0.0f;
-                        const float k = luzCuerpo * (0.55f + 0.45f * d);
-                        glColor3f(col[0] * k, col[1] * k, col[2] * k);
-                        for (int v = 0; v < 4; ++v) {
-                            const ModeloJugador::V lo = c.rot.aplicar(
-                                { CARA[f][v][0] * c.medio.x, CARA[f][v][1] * c.medio.y,
-                                  CARA[f][v][2] * c.medio.z });
-                            const float lx = c.centro.x + lo.x;
-                            const float ly = (c.centro.y + lo.y) * ky;
-                            const float lz = c.centro.z + lo.z - (c.centro.y + lo.y) * atrasPorAlto;
-                            glVertex3f(ojo.x + rx * lx + fx * lz, pieY + ly,
-                                       ojo.z + rz * lx + fz * lz);
-                        }
-                    }
+                glVertexPointer(3, GL_FLOAT, 0, pos.data());
+                glColorPointer(3, GL_FLOAT, 0, col.data());
+                glDrawElements(GL_TRIANGLES, (GLsizei)malla.i.size(), GL_UNSIGNED_INT, malla.i.data());
+                if (!teniaVert) glDisableClientState(GL_VERTEX_ARRAY);
+                if (!teniaColor) glDisableClientState(GL_COLOR_ARRAY);
+                if (teniaTex) glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                if (teniaNormal) glEnableClientState(GL_NORMAL_ARRAY);
+                if (glBindBuffer) {
+                    glBindBuffer(GL_ARRAY_BUFFER, (GLuint)bufArray);
+                    glBindBuffer(BUF_INDICES, (GLuint)bufIndices);
                 }
-                glEnd();
+                glColor3f(1.0f, 1.0f, 1.0f);
             }
 
             // Renderizar items en el mundo (cubitos pequeños con texturas)
@@ -49078,40 +49127,59 @@ int main() {
                 glEnable(GL_DEPTH_TEST);
             }
 
-            // EL PARPADEO (ver ModeloJugador::Parpadeo): dos parpados negros
-            // que se cierran 0.18 s cada 3 a 6 s. Va debajo del HUD, que no
-            // desaparece al parpadear.
+            // EL PARPADEO (ver ModeloJugador::Parpadeo y parpados): los dos
+            // parpados a la vez, el de arriba bajando y el de abajo subiendo,
+            // con el borde en arco y difuminado. 0.18 s cada 3 a 6 s. Va
+            // debajo del HUD, que no desaparece al parpadear.
+            //
+            // ⭐ Antes solo se veia el de arriba: el HUD se dibuja con
+            // GL_CULL_FACE encendido, y el de abajo, con sus vertices en el
+            // otro sentido, se descartaba entero. Aqui se apaga el recorte.
             {
                 static ModeloJugador::Parpadeo parpadeo;
                 const bool activo = !g_gameState->isPaused && !g_gameState->inventoryOpen &&
                                     !g_gameState->durmiendo;
                 const float c = activo ? parpadeo.avanzar(deltaTime) : 0.0f;
                 if (c > 0.0f) {
+                    const ModeloJugador::Parpados pp = ModeloJugador::parpados(c);
+                    const GLboolean teniaCull = glIsEnabled(GL_CULL_FACE);
+                    glDisable(GL_CULL_FACE);
                     glDisable(GL_TEXTURE_2D);
                     glEnable(GL_BLEND);
                     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    // Cada parpado baja hasta la mitad y un poco mas, con el
-                    // borde difuminado para que no parezca una persiana.
-                    const float mitad = height * 0.5f;
-                    const float borde = height * 0.08f;
-                    const float cubre = (mitad + borde) * c;
-                    glBegin(GL_QUADS);
-                    // Arriba.
-                    glColor4f(0, 0, 0, 1); glVertex2f(0, 0); glVertex2f((float)width, 0);
-                    glVertex2f((float)width, cubre - borde); glVertex2f(0, cubre - borde);
-                    glColor4f(0, 0, 0, 1); glVertex2f(0, cubre - borde);
-                    glVertex2f((float)width, cubre - borde);
-                    glColor4f(0, 0, 0, 0); glVertex2f((float)width, cubre); glVertex2f(0, cubre);
-                    // Abajo.
-                    glColor4f(0, 0, 0, 1); glVertex2f(0, (float)height);
-                    glVertex2f((float)width, (float)height);
-                    glVertex2f((float)width, height - cubre + borde); glVertex2f(0, height - cubre + borde);
-                    glColor4f(0, 0, 0, 1); glVertex2f(0, height - cubre + borde);
-                    glVertex2f((float)width, height - cubre + borde);
-                    glColor4f(0, 0, 0, 0); glVertex2f((float)width, height - cubre);
-                    glVertex2f(0, height - cubre);
-                    glEnd();
+                    const float H = (float)height, W = (float)width;
+                    const float borde = H * 0.07f;
+                    constexpr int TRAMOS = 32;
+                    for (int lado = 0; lado < 2; ++lado) {
+                        // El negro del parpado.
+                        glBegin(GL_QUAD_STRIP);
+                        for (int k = 0; k <= TRAMOS; ++k) {
+                            const float u = (float)k / TRAMOS;
+                            const float cubre = H * (lado == 0 ? pp.arriba : pp.abajo) -
+                                                H * ModeloJugador::curvaParpado(u);
+                            const float filo = cubre - borde > 0.0f ? cubre - borde : 0.0f;
+                            glColor4f(0, 0, 0, 1);
+                            glVertex2f(W * u, lado == 0 ? 0.0f : H);
+                            glVertex2f(W * u, lado == 0 ? filo : H - filo);
+                        }
+                        glEnd();
+                        // Y su borde, de negro a transparente.
+                        glBegin(GL_QUAD_STRIP);
+                        for (int k = 0; k <= TRAMOS; ++k) {
+                            const float u = (float)k / TRAMOS;
+                            const float cubre = H * (lado == 0 ? pp.arriba : pp.abajo) -
+                                                H * ModeloJugador::curvaParpado(u);
+                            const float filo = cubre - borde > 0.0f ? cubre - borde : 0.0f;
+                            const float hasta = cubre > 0.0f ? cubre : 0.0f;
+                            glColor4f(0, 0, 0, 1);
+                            glVertex2f(W * u, lado == 0 ? filo : H - filo);
+                            glColor4f(0, 0, 0, 0);
+                            glVertex2f(W * u, lado == 0 ? hasta : H - hasta);
+                        }
+                        glEnd();
+                    }
                     glColor4f(1, 1, 1, 1);
+                    if (teniaCull) glEnable(GL_CULL_FACE);
                 }
             }
 

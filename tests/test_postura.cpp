@@ -81,6 +81,7 @@ TEST_CASE("Postura: tumbado, el cuerpo queda boca abajo con el pecho en el suelo
     using namespace ModeloJugador;
     Estado e;
     e.tumbado = true;
+    e.mirada = -60.0f;                 // mirando al suelo: pegado a el
     const Pose p = poseDe(e);
     CHECK(p.tumbado == 1.0f);
     const Esqueleto s = resolver(p);
@@ -179,4 +180,20 @@ TEST_CASE("Postura: sigilo e inspeccion, mas lentos que andar") {
     CHECK(cfg.inspeccionSpeed < cfg.sigiloSpeed);
     CHECK(cfg.inspeccionEyeHeight < cfg.eyeHeight - 0.2f);
     CHECK(cfg.inspeccionEyeHeight > cfg.crouchEyeHeight);
+}
+
+TEST_CASE("Postura: tumbado y mirando al frente se apoya en los codos") {
+    using namespace ModeloJugador;
+    Estado e;
+    e.tumbado = true;
+    e.mirada = -60.0f;
+    const Esqueleto suelo = resolver(poseDe(e));
+    e.mirada = 15.0f;
+    const Pose p = poseDe(e);
+    const Esqueleto codos = resolver(p);
+    CHECK(p.levantaPecho > 0.6f);
+    CHECK(codos.cuello.p.y > suelo.cuello.p.y + 0.08f);    // el pecho sube
+    // Los codos, debajo de los hombros (mas o menos), no estirados delante.
+    for (int l = 0; l < 2; ++l)
+        CHECK(codos.codo[l].p.z - codos.hombro[l].p.z < suelo.codo[l].p.z - suelo.hombro[l].p.z);
 }

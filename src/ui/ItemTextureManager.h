@@ -75,6 +75,10 @@ private:
     // path -> handle, para no cargar dos veces el mismo PNG.
     std::map<std::string, TextureHandle> pathCache;
 
+    // itemId -> el PNG de donde salio: el modelo 3D del item (ModeloItem3D)
+    // necesita leer su silueta.
+    std::map<int, std::string> rutas;
+
     TextureHandle missingTexture = 0;
 
     void*    ctx      = nullptr;
@@ -140,6 +144,7 @@ public:
     // Se llama en la fase de precarga (prewarm), NUNCA durante el render.
     void registerItem(int itemId, const char* path) {
         if (!loadFn || path == nullptr) return;
+        rutas[itemId] = path;
 
         Entry& e = cache[itemId];
         if (e.resolved) return;   // [G2] ya intentado: no repetir I/O
@@ -175,6 +180,13 @@ public:
     // RESOLVER (ruta caliente: se llama por slot y por frame)
     // ------------------------------------------------------------------------
     // [G1] Nunca toca el disco. [G3] Nunca devuelve 0.
+    // El PNG del item, o "" si no salio de un archivo.
+    const std::string& rutaDe(int itemId) const {
+        static const std::string vacia;
+        auto it = rutas.find(itemId);
+        return it != rutas.end() ? it->second : vacia;
+    }
+
     TextureHandle resolve(int itemId) const {
         auto it = cache.find(itemId);
         if (it != cache.end() && it->second.valid) {

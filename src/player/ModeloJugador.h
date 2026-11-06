@@ -181,6 +181,7 @@ struct Pose {
     float agachado = 0.0f;
     float tumbado = 0.0f;              // 0..1: boca abajo, el torso en el suelo
     float apretar = 0.0f;              // 0..1, cuanto aprieta el puno derecho
+    float levantaPecho = 0.0f;         // tumbado: 0 pegado al suelo .. 1 apoyado en los codos
     uint8_t enMano = 0;                // Herramienta que se dibuja en la derecha
     bool pedernal = false;             // cabeza de pedernal (si no, de piedra)
 };
@@ -219,7 +220,7 @@ inline void limitar(Pose& p) {
 // El suelo bajo los pies (cambia como se agacha).
 enum class Superficie : uint8_t { NATURAL, CONSTRUCCION, LIQUIDO };
 // Lo que hace el brazo.
-enum class Accion : uint8_t { NINGUNA, PICAR, GOLPE_AIRE, GOLPE_ANIMAL };
+enum class Accion : uint8_t { NINGUNA, PICAR, GOLPE_AIRE, GOLPE_ANIMAL, COLOCAR };
 // Lo que lleva en la mano. MANO = nada (o algo que no es herramienta).
 enum class Herramienta : uint8_t { MANO, PICO, HACHA, MARTILLO, AZADA, NUM };
 // Contra que golpea: cada herramienta se usa distinto en cada uno.
@@ -258,6 +259,7 @@ struct Estado {
     float tAire = 0;         // segundos desde que despego
     bool sigilo = false;     // CTRL una vez y W: andar despacio
     bool inspeccion = false; // ...y SHIFT: medio agachado
+    float quieto = 0;        // segundos de pie sin hacer nada (gestos de reposo)
 };
 
 // Avanzar el paso con lo que se ha andado este frame (en bloques).
@@ -323,30 +325,47 @@ struct Golpe {
 
 inline const Golpe& golpeDe(Herramienta h, ClaseBloque c) {
     //                     periodo carga   flex           abd           rot            codo          muneca         torso          incl  2manos
+    // PEDIDO: "haz mas realistas las animaciones del pico, hacha y martillo
+    // para que sean como en la vida real [...] que la animacion del pico sea
+    // de el brazo derecho moviendo y golpeando el bloque con el pico, solo
+    // con el brazo".
+    //
+    //   MANO      romper con las manos: punetazos de verdad, con el puno.
+    //   PICO      a UNA mano, el brazo derecho: sube el pico por encima del
+    //             hombro con el codo doblado y la muneca echada atras, y baja
+    //             estirando codo y muneca a la vez (el latigazo que da la
+    //             fuerza). El torso apenas acompana.
+    //   HACHA     en la madera, el hachazo en diagonal a dos manos con giro de
+    //             cadera; en lo demas, a una mano y mas corto.
+    //   MARTILLO  como se martillea: el hombro casi quieto, el trabajo lo hacen
+    //             el codo y la muneca; en piedra, el mazazo de arriba.
+    //   AZADA     cavar: de arriba a abajo, tirando hacia el cuerpo.
+    //
+    //                     periodo carga   flex           abd           rot            codo          muneca         torso          incl  2manos
     static const Golpe T[(int)Herramienta::NUM][(int)ClaseBloque::NUM] = {
         { // MANO
-            { 0.42f, 0.55f, { 2.10f, 0.70f }, { 0.12f, 0.10f }, { 0.15f, 0.10f }, { 1.60f, 0.35f }, { -0.5f,  0.6f }, { -0.10f, 0.10f }, 0.08f, false }, // tierra: de arriba abajo
-            { 0.40f, 0.55f, { 1.30f, 0.90f }, { 0.90f, 0.20f }, { -0.6f,  0.30f }, { 1.70f, 1.10f }, {  0.0f,  0.3f }, { -0.30f, 0.20f }, 0.04f, false }, // madera: puno de martillo de lado
-            { 0.48f, 0.60f, { 0.80f, 1.45f }, { 0.15f, 0.10f }, { 0.00f, 0.00f }, { 2.00f, 0.15f }, {  0.0f,  0.1f }, { -0.25f, 0.25f }, 0.10f, false }, // piedra: directo
-            { 0.30f, 0.50f, { 1.25f, 1.05f }, { 0.20f, 0.18f }, { 0.10f, 0.10f }, { 1.30f, 0.95f }, { -0.3f,  0.4f }, { -0.05f, 0.05f }, 0.02f, false }, // construido: toques
+            { 0.42f, 0.55f, { 2.00f, 0.95f }, { 0.12f, 0.10f }, { 0.15f, 0.10f }, { 1.90f, 0.55f }, { -0.3f,  0.4f }, { -0.10f, 0.12f }, 0.08f, false }, // tierra: puno de arriba abajo
+            { 0.40f, 0.55f, { 1.20f, 1.05f }, { 0.85f, 0.20f }, { -0.6f,  0.30f }, { 1.80f, 1.00f }, {  0.0f,  0.2f }, { -0.30f, 0.22f }, 0.04f, false }, // madera: puno de martillo de lado
+            { 0.46f, 0.58f, { 0.75f, 1.45f }, { 0.18f, 0.10f }, { 0.00f, 0.00f }, { 2.10f, 0.12f }, {  0.0f,  0.0f }, { -0.28f, 0.28f }, 0.10f, false }, // piedra: directo
+            { 0.30f, 0.50f, { 1.30f, 1.20f }, { 0.20f, 0.18f }, { 0.10f, 0.10f }, { 1.50f, 1.05f }, { -0.2f,  0.3f }, { -0.06f, 0.06f }, 0.02f, false }, // construido: golpecitos
         },
-        { // PICO
-            { 0.62f, 0.62f, { 2.20f, 0.80f }, { 0.15f, 0.10f }, { 0.10f, 0.10f }, { 1.20f, 0.40f }, { -0.6f,  0.5f }, { -0.12f, 0.12f }, 0.18f, true  }, // tierra
-            { 0.60f, 0.60f, { 1.70f, 1.00f }, { 1.00f, 0.25f }, { -0.7f,  0.20f }, { 1.10f, 0.35f }, { -0.3f,  0.4f }, { -0.45f, 0.30f }, 0.10f, true  }, // madera: de lado
-            { 0.70f, 0.64f, { 2.70f, 0.60f }, { 0.10f, 0.08f }, { 0.10f, 0.10f }, { 1.60f, 0.25f }, { -0.7f,  0.6f }, { -0.20f, 0.20f }, 0.28f, true  }, // piedra: desde arriba, con todo
-            { 0.45f, 0.55f, { 1.70f, 1.10f }, { 0.15f, 0.12f }, { 0.10f, 0.10f }, { 1.20f, 0.70f }, { -0.4f,  0.3f }, { -0.08f, 0.08f }, 0.05f, false }, // construido: controlado
+        { // PICO: solo el brazo derecho
+            { 0.60f, 0.62f, { 2.45f, 0.80f }, { 0.25f, 0.12f }, { 0.30f, 0.05f }, { 1.90f, 0.35f }, { -0.85f, 0.50f }, { -0.08f, 0.06f }, 0.08f, false }, // tierra
+            { 0.58f, 0.60f, { 1.90f, 0.95f }, { 1.00f, 0.30f }, { -0.55f, 0.20f }, { 1.85f, 0.40f }, { -0.70f, 0.45f }, { -0.15f, 0.10f }, 0.05f, false }, // madera: en diagonal
+            { 0.66f, 0.64f, { 2.80f, 0.65f }, { 0.20f, 0.10f }, { 0.30f, 0.05f }, { 2.05f, 0.25f }, { -0.95f, 0.60f }, { -0.10f, 0.08f }, 0.12f, false }, // piedra: desde lo alto
+            { 0.46f, 0.56f, { 1.95f, 1.10f }, { 0.20f, 0.14f }, { 0.20f, 0.08f }, { 1.70f, 0.75f }, { -0.55f, 0.30f }, { -0.04f, 0.04f }, 0.03f, false }, // construido: controlado
         },
         { // HACHA
-            { 0.60f, 0.60f, { 2.10f, 0.70f }, { 0.20f, 0.12f }, { 0.20f, 0.10f }, { 1.30f, 0.30f }, { -0.6f,  0.5f }, { -0.15f, 0.15f }, 0.15f, true  }, // tierra
-            { 0.64f, 0.60f, { 1.50f, 1.20f }, { 1.30f, 0.15f }, { -0.9f,  0.40f }, { 1.30f, 0.20f }, { -0.4f,  0.3f }, { -0.55f, 0.40f }, 0.12f, true  }, // madera: hachazo en diagonal
-            { 0.70f, 0.64f, { 2.50f, 0.80f }, { 0.15f, 0.10f }, { 0.10f, 0.10f }, { 1.40f, 0.35f }, { -0.6f,  0.4f }, { -0.15f, 0.15f }, 0.20f, true  }, // piedra
-            { 0.46f, 0.55f, { 1.60f, 1.05f }, { 0.60f, 0.30f }, { -0.3f,  0.10f }, { 1.20f, 0.60f }, { -0.3f,  0.3f }, { -0.20f, 0.10f }, 0.05f, false }, // construido
+            { 0.58f, 0.60f, { 2.30f, 0.80f }, { 0.25f, 0.12f }, { 0.30f, 0.08f }, { 1.80f, 0.35f }, { -0.80f, 0.45f }, { -0.10f, 0.08f }, 0.08f, false }, // tierra
+            { 0.66f, 0.60f, { 1.55f, 1.15f }, { 1.30f, 0.15f }, { -0.95f, 0.40f }, { 1.40f, 0.20f }, { -0.50f, 0.30f }, { -0.60f, 0.45f }, 0.14f, true  }, // madera: hachazo en diagonal
+            { 0.66f, 0.62f, { 2.55f, 0.75f }, { 0.20f, 0.10f }, { 0.30f, 0.08f }, { 1.95f, 0.30f }, { -0.85f, 0.50f }, { -0.10f, 0.08f }, 0.10f, false }, // piedra
+            { 0.46f, 0.55f, { 1.70f, 1.05f }, { 0.60f, 0.30f }, { -0.30f, 0.10f }, { 1.60f, 0.65f }, { -0.50f, 0.30f }, { -0.12f, 0.06f }, 0.03f, false }, // construido
         },
-        { // MARTILLO
-            { 0.55f, 0.60f, { 1.90f, 0.75f }, { 0.12f, 0.10f }, { 0.10f, 0.10f }, { 1.50f, 0.50f }, { -0.5f,  0.5f }, { -0.10f, 0.10f }, 0.14f, false }, // tierra: apisonar
-            { 0.50f, 0.58f, { 1.80f, 1.00f }, { 0.40f, 0.20f }, { -0.2f,  0.10f }, { 1.60f, 0.70f }, { -0.6f,  0.6f }, { -0.15f, 0.10f }, 0.06f, false }, // madera: clavar
-            { 0.62f, 0.62f, { 2.50f, 0.70f }, { 0.12f, 0.10f }, { 0.10f, 0.10f }, { 1.50f, 0.30f }, { -0.7f,  0.6f }, { -0.20f, 0.18f }, 0.22f, true  }, // piedra: mazazo
-            { 0.32f, 0.50f, { 1.40f, 1.05f }, { 0.20f, 0.15f }, { 0.10f, 0.10f }, { 1.70f, 1.20f }, { -0.7f,  0.5f }, { -0.04f, 0.04f }, 0.02f, false }, // construido: golpecitos
+        { // MARTILLO: codo y muneca
+            { 0.48f, 0.58f, { 1.55f, 0.95f }, { 0.15f, 0.10f }, { 0.15f, 0.10f }, { 2.20f, 0.70f }, { -0.85f, 0.45f }, { -0.05f, 0.05f }, 0.08f, false }, // tierra: apisonar
+            { 0.42f, 0.56f, { 1.35f, 1.10f }, { 0.25f, 0.18f }, { 0.10f, 0.05f }, { 2.25f, 0.85f }, { -0.90f, 0.45f }, { -0.03f, 0.03f }, 0.03f, false }, // madera: clavar
+            { 0.62f, 0.62f, { 2.50f, 0.75f }, { 0.15f, 0.10f }, { 0.20f, 0.08f }, { 1.90f, 0.35f }, { -0.90f, 0.55f }, { -0.12f, 0.10f }, 0.14f, false }, // piedra: mazazo
+            { 0.30f, 0.50f, { 1.25f, 1.12f }, { 0.20f, 0.16f }, { 0.10f, 0.08f }, { 2.10f, 1.25f }, { -0.75f, 0.35f }, { -0.02f, 0.02f }, 0.01f, false }, // construido: golpecitos
         },
         { // AZADA
             { 0.66f, 0.62f, { 2.40f, 0.50f }, { 0.15f, 0.10f }, { 0.10f, 0.10f }, { 1.30f, 0.30f }, { -0.5f,  0.7f }, { -0.10f, 0.10f }, 0.30f, true  }, // tierra: cavar
@@ -372,7 +391,10 @@ inline float faseGolpe(float u, float carga) {
 }
 
 // La pose del brazo derecho (y del izquierdo si va a dos manos) en un golpe.
-inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo) {
+// `apunta` (radianes, + arriba) es hacia donde mira: el golpe va ahi. Un
+// bloque a los pies se golpea con el brazo mas bajo y el cuerpo inclinado; uno
+// por encima de la cabeza, con el brazo alto.
+inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo, float apunta = 0.0f) {
     float u = tiempo / g.periodo;
     u -= std::floor(u);
     const float k = faseGolpe(u, g.carga);       // 0 cargado .. 1 impacto
@@ -389,6 +411,9 @@ inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo) {
     p.giroTorso += mezcla(g.torso);
     p.inclinacion += g.inclina * k;
     p.apretar = 1.0f;
+    // Hacia la mirada: el impacto entero; la carga, la mitad.
+    b.flex += apunta * (0.45f + 0.45f * k);
+    if (apunta < 0.0f) p.inclinacion += -apunta * 0.25f * k;
     if (g.dosManos) {
         // La izquierda agarra el mango mas abajo: sigue al brazo derecho,
         // un poco por detras y mas cerrada.
@@ -426,7 +451,15 @@ inline float faseDisparo(float t, float cargar, float golpear, float volver) {
 //   ANIMAL 1   gancho de izquierda: el codo sale de lado y el torso gira al
 //              reves.
 //   ANIMAL 2   gancho de abajo arriba, con el brazo que toque (`lado`).
-inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t) {
+//
+// PEDIDO (despues): "2 animaciones de golpear al aire, que extiende su brazo
+// derecho y luego el izquierdo y viceversa y que se adapte a la mirada, o
+// sea, si ves arriba, golpeas arriba".
+//
+//   AIRE 0 / 1  directo de derecha / de izquierda, alternando. El hombro
+//               apunta a donde se mira: arriba, al frente o abajo (con el
+//               cuerpo inclinado).
+inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t, float apunta = 0.0f) {
     const bool animal = a == Accion::GOLPE_ANIMAL;
     const float f = faseDisparo(t, animal ? 0.10f : 0.07f, animal ? 0.12f : 0.10f, 0.20f);
     if (f < -1.5f) return;
@@ -438,11 +471,28 @@ inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t) {
         b.dedo[4][0] = 0.75f; b.dedo[4][1] = 0.70f; b.dedo[4][2] = 0.60f;
         b.prono = 1.1f;                          // nudillos arriba
     };
-    if (!animal || variante == 0) {
+    if (!animal) {
+        const int l = variante % 2 == 0 ? 1 : 0;   // 0: derecha, 1: izquierda
+        const float s = l == 1 ? 1.0f : -1.0f;
+        Brazo& b = p.brazo[l];
+        puno(b);
+        b.flex = 0.55f + 0.25f * c + (1.0f + apunta) * g;
+        b.abd = 0.15f + 0.10f * c;
+        b.codo = 0.5f + 1.5f * c - 0.45f * g;
+        b.munFlex = 0.0f;
+        p.giroTorso += s * (-0.18f * c + 0.28f * g);
+        p.inclinacion += 0.08f * g + (apunta < 0.0f ? -apunta * 0.35f * g : 0.0f);
+        p.apretar = l == 1 ? 1.0f : p.apretar;
+        Brazo& o = p.brazo[1 - l];               // la otra, en guardia
+        puno(o);
+        o.flex = 0.9f; o.codo = 1.9f; o.abd = 0.15f;
+        return;
+    }
+    if (variante == 0) {
         Brazo& b = p.brazo[1];
         puno(b);
         const float fuerza = animal ? 1.0f : 0.7f;
-        b.flex = 0.55f + 0.25f * c + 1.0f * g;
+        b.flex = 0.55f + 0.25f * c + (1.0f + apunta) * g;
         b.abd = 0.15f + 0.10f * c;
         b.codo = 0.5f + 1.5f * c - 0.45f * g;
         b.munFlex = 0.0f;
@@ -491,25 +541,34 @@ inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t) {
 //   LIQUIDO       los brazos se abren para no perder el equilibrio y las
 //                 manos rozan el agua, con las munecas meciendose.
 inline void aplicarAgachado(Pose& p, Superficie s, float tiempo) {
+    // Las manos de una persona agachada no quedan rigidas: la muneca cae, los
+    // dedos se curvan solos y el antebrazo descansa sobre el muslo.
     switch (s) {
         case Superficie::NATURAL: {
+            // La izquierda se apoya en el suelo con las yemas y la base de la
+            // palma, los dedos abiertos y algo doblados (asi se apoya uno).
             Brazo& i = p.brazo[0];
-            i.flex = 1.10f; i.abd = 0.25f; i.codo = 0.25f;
-            i.munFlex = -0.95f;                   // la palma plana en el suelo
-            i.prono = 1.3f;
+            i.flex = 1.05f; i.abd = 0.30f; i.codo = 0.20f;
+            i.munFlex = -1.05f;
+            i.prono = 1.35f;
             manoRelajada(i, 0.0f);
-            for (int d = 0; d < 4; ++d) { i.dedo[d][0] = 0.0f; i.dedo[d][1] = 0.1f; i.abre[d] = 0.3f; }
+            for (int d = 0; d < 4; ++d) { i.dedo[d][0] = 0.25f; i.dedo[d][1] = 0.35f; i.dedo[d][2] = 0.20f; i.abre[d] = 0.28f; }
+            // La derecha: el antebrazo sobre el muslo y la mano colgando.
             Brazo& d = p.brazo[1];
-            d.flex = 0.75f; d.abd = 0.15f; d.codo = 0.90f; d.prono = 1.0f;
-            p.giroTorso += 0.06f * std::sin(tiempo * 0.5f);
+            d.flex = 0.95f; d.abd = 0.12f; d.codo = 0.75f; d.prono = 1.25f; d.munFlex = 0.65f;
+            manoRelajada(d, 0.25f);
+            p.giroTorso += 0.05f * std::sin(tiempo * 0.5f);
             break;
         }
         case Superficie::CONSTRUCCION:
+            // Los dos antebrazos sobre los muslos, las manos sueltas por
+            // delante de las rodillas.
             for (Brazo& b : p.brazo) {
-                b.flex = 0.70f; b.abd = 0.12f; b.codo = 1.00f; b.prono = 1.1f; b.munFlex = 0.2f;
-                manoRelajada(b, 0.2f);
+                b.flex = 0.95f; b.abd = 0.14f; b.codo = 0.70f; b.prono = 1.25f; b.munFlex = 0.70f;
+                manoRelajada(b, 0.30f);
             }
-            p.inclinacion -= 0.15f;
+            p.brazo[0].munFlex += 0.08f * std::sin(tiempo * 0.7f);
+            p.inclinacion -= 0.10f;
             break;
         case Superficie::LIQUIDO: {
             const float m = std::sin(tiempo * 1.6f);
@@ -524,6 +583,142 @@ inline void aplicarAgachado(Pose& p, Superficie s, float tiempo) {
             break;
         }
     }
+}
+
+// ============================================================================
+// COLOCAR UN BLOQUE O UN ITEM
+// ============================================================================
+// PEDIDO: "una animacion para todos los bloques e items de colocarlos [...]
+// con el brazo derecho". El brazo va hacia donde se mira, la mano se abre y
+// deja la pieza con un giro de muneca, y vuelve. COLOCAR_SEG en total.
+constexpr float COLOCAR_SEG = 0.36f;
+
+inline void aplicarColocar(Pose& p, float t, float apunta) {
+    if (t < 0.0f || t > COLOCAR_SEG) return;
+    const float u = t / COLOCAR_SEG;
+    const float k = std::sin(PI * u);
+    Brazo& b = p.brazo[1];
+    auto hacia = [k](float& v, float meta) { v += (meta - v) * k; };
+    hacia(b.flex, 1.20f + apunta * 0.85f);
+    hacia(b.codo, 0.30f);
+    hacia(b.abd, 0.12f);
+    hacia(b.prono, 1.35f);                     // la palma hacia abajo
+    b.munFlex = b.munFlex + ((-0.35f + 0.6f * u) - b.munFlex) * k;   // la deja con la muneca
+    manoRelajada(b, 0.15f * (1.0f - k));
+    // Al soltar, la mano se abre y los dedos casi se estiran.
+    for (int d = 0; d < 5; ++d)
+        for (int f = 0; f < 3; ++f) b.dedo[d][f] *= 1.0f - 0.7f * k;
+    for (int d = 0; d < 4; ++d) b.abre[d] = 0.12f * k;
+    p.giroTorso += 0.08f * k;
+    if (apunta < 0.0f) p.inclinacion += -apunta * 0.25f * k;
+}
+
+// ============================================================================
+// DE PIE SIN HACER NADA: LOS GESTOS DE REPOSO
+// ============================================================================
+// PEDIDO: "si estas parado, movera y acomodara como en la vida real sus
+// brazos, piernas, se estirara". Nadie se queda como una estatua: tras unos
+// segundos quieto el cuerpo va encadenando gestos, cada uno de unos 7 s, que
+// entran y salen suaves:
+//
+//   0  CARGA EL PESO en una pierna: la otra rodilla se afloja y la cadera cae.
+//   1  SE ESTIRA: los brazos arriba, los dedos abiertos, de puntillas.
+//   2  MANOS EN LA CINTURA.
+//   3  SE MIRA LAS MANOS y se las frota.
+//   4  SACUDE LOS BRAZOS, sueltos, como para desentumirlos.
+//   5  CRUZA LOS BRAZOS.
+//
+// El gesto sale de un hash del tramo, asi que no se repite siempre el mismo
+// orden pero tampoco salta de uno a otro en cada frame.
+constexpr float REPOSO_INICIO = 3.0f, REPOSO_TRAMO = 7.0f;
+
+inline int gestoDeReposo(float quieto) {
+    if (quieto < REPOSO_INICIO) return -1;
+    uint32_t h = (uint32_t)((quieto - REPOSO_INICIO) / REPOSO_TRAMO) * 2654435761u + 0x9E37u;
+    h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+    return (int)(h % 6u);
+}
+
+inline void aplicarReposo(Pose& p, float quieto, float tiempo) {
+    const int gesto = gestoDeReposo(quieto);
+    if (gesto < 0) return;
+    float u = (quieto - REPOSO_INICIO) / REPOSO_TRAMO;
+    u -= std::floor(u);
+    const float k = suave(u / 0.18f) * suave((1.0f - u) / 0.18f);   // entra y sale
+    auto hacia = [k](float& v, float meta) { v += (meta - v) * k; };
+    switch (gesto) {
+        case 0: {
+            const int l = ((int)((quieto - REPOSO_INICIO) / REPOSO_TRAMO)) % 2;
+            hacia(p.pierna[l].rodilla, 0.35f);
+            hacia(p.pierna[l].flex, 0.12f);
+            hacia(p.pierna[l].tobillo, 0.12f);
+            p.giroPelvis += (l == 0 ? 0.06f : -0.06f) * k;
+            break;
+        }
+        case 1: {
+            const float alto = std::sin(PI * u);              // sube y baja dentro del gesto
+            for (Brazo& b : p.brazo) {
+                hacia(b.flex, 0.4f + 2.5f * alto);
+                hacia(b.codo, 0.15f);
+                hacia(b.abd, 0.30f);
+                hacia(b.munFlex, -0.5f * alto);
+                for (int d = 0; d < 4; ++d) { hacia(b.dedo[d][0], -0.2f * alto); hacia(b.dedo[d][1], 0.0f); hacia(b.abre[d], 0.3f); }
+            }
+            p.inclinacion -= 0.15f * alto * k;
+            for (Pierna& g : p.pierna) g.tobillo -= 0.25f * alto * k;
+            break;
+        }
+        case 2:
+            for (Brazo& b : p.brazo) {
+                hacia(b.flex, 0.15f); hacia(b.abd, 0.75f); hacia(b.rot, -0.55f);
+                hacia(b.codo, 1.90f); hacia(b.prono, 1.45f); hacia(b.munFlex, 0.30f);
+            }
+            break;
+        case 3: {
+            const float frota = std::sin(tiempo * 7.0f) * 0.18f;
+            for (int l = 0; l < 2; ++l) {
+                Brazo& b = p.brazo[l];
+                hacia(b.flex, 0.85f + (l == 0 ? frota : -frota));
+                hacia(b.abd, -0.15f);
+                hacia(b.codo, 1.75f);
+                hacia(b.prono, 0.05f);           // palmas enfrentadas
+                manoRelajada(b, 0.25f);
+            }
+            p.cuelloFlex += 0.3f * k;
+            break;
+        }
+        case 4: {
+            const float sacude = std::sin(tiempo * 9.0f);
+            for (int l = 0; l < 2; ++l) {
+                Brazo& b = p.brazo[l];
+                hacia(b.flex, 0.25f * (l == 0 ? sacude : -sacude));
+                hacia(b.abd, 0.20f + 0.10f * sacude);
+                hacia(b.codo, 0.25f);
+                hacia(b.munFlex, 0.6f * sacude);
+                manoRelajada(b, 0.1f);
+            }
+            break;
+        }
+        case 5:
+            for (int l = 0; l < 2; ++l) {
+                Brazo& b = p.brazo[l];
+                hacia(b.flex, 0.75f); hacia(b.abd, -0.15f); hacia(b.rot, 0.70f);
+                hacia(b.codo, 2.20f); hacia(b.prono, 0.6f);
+                manoRelajada(b, 0.35f);
+            }
+            break;
+    }
+}
+
+// La respiracion de una persona: se toma aire mas deprisa de lo que se suelta
+// (algo menos de la mitad del ciclo inspirando) y al final de soltarlo hay una
+// pausa. Devuelve -1 (vacio) .. 1 (lleno).
+inline float ondaRespira(float fase) {
+    float u = fase / (2.0f * PI);
+    u -= std::floor(u);
+    if (u < 0.40f) return -1.0f + 2.0f * suave(u / 0.40f);            // inspira
+    if (u < 0.90f) return 1.0f - 2.0f * suave((u - 0.40f) / 0.50f);   // espira
+    return -1.0f;                                                      // pausa
 }
 
 // PEDIDO: "los niveles al bajar o subirlos tendran animacion propia de como
@@ -671,7 +866,7 @@ inline Pose poseDe(const Estado& e) {
     float ritmo = e.rapidez / 4.3f;              // 4.3 = andar
     if (ritmo > 1.4f) ritmo = 1.4f;
     const float corre = suave((e.rapidez - 4.6f) / 1.0f);
-    const float respira = std::sin(e.faseRespira);
+    const float respira = ondaRespira(e.faseRespira);
     p.respira = respira;
 
     // El ciclo de cada pierna: 0 = el talon toca el suelo. La derecha va
@@ -688,16 +883,24 @@ inline Pose poseDe(const Estado& e) {
         p.tumbado = 1.0f;
         const float amp = sujetar(e.rapidez / 0.75f, 0.0f, 1.0f);
         const float c = std::sin(e.fasePaso);
+        // PEDIDO: "que las animaciones al estar tirado se adapten a la
+        // posicion". Mirando al frente o arriba se apoya en los codos y
+        // levanta el pecho (los antebrazos planos, los codos bajo los
+        // hombros); mirando abajo se deja caer con los brazos delante. Al
+        // arrastrarse, el pecho baja.
+        const float levanta = sujetar((e.mirada + 25.0f) / 45.0f, 0.0f, 1.0f) * (1.0f - 0.6f * amp);
+        p.levantaPecho = levanta;
         for (int l = 0; l < 2; ++l) {
             const float lado = l == 0 ? c : -c;
             Brazo& b = p.brazo[l];
-            b.flex = 2.30f + 0.35f * amp * lado;      // el brazo hacia la cabeza
-            b.codo = 0.60f + 0.35f * amp * lado;
-            b.abd = 0.35f;
-            b.prono = 1.20f;                          // palmas al suelo
-            b.munFlex = -0.25f;
-            manoRelajada(b, 0.0f);
-            for (int d = 0; d < 4; ++d) b.abre[d] = 0.15f;
+            b.flex = 2.30f - 0.55f * levanta + 0.35f * amp * lado;
+            b.codo = 0.60f + 0.85f * levanta + 0.35f * amp * lado;
+            b.abd = 0.35f - 0.10f * levanta;
+            b.prono = 1.35f;                          // palmas al suelo
+            // La palma plana: la muneca compensa lo que se inclina el antebrazo.
+            b.munFlex = -0.35f + 0.25f * levanta;
+            manoRelajada(b, 0.12f);
+            for (int d = 0; d < 4; ++d) { b.abre[d] = 0.18f; b.dedo[d][0] = 0.12f + 0.04f * d; }
             Pierna& g = p.pierna[l];
             const float sube = std::fmax(0.0f, -lado) * amp;
             g.flex = 0.02f + 0.45f * sube;
@@ -708,6 +911,7 @@ inline Pose poseDe(const Estado& e) {
         p.respira = respira;
         p.giroTorso = e.giroCuello * 0.35f;
         aplicarRecoger(p, e.tRecoger, false, true);
+        aplicarColocar(p, e.accion == Accion::COLOCAR ? e.tAccion : -1.0f, e.mirada * PI / 180.0f);
         limitar(p);
         return p;
     }
@@ -798,13 +1002,24 @@ inline Pose poseDe(const Estado& e) {
         aplicarAgachado(p, e.superficie, e.tiempo);
     }
 
+    // Quieto mucho rato: los gestos de reposo; y siempre, el balanceo minimo
+    // de quien esta de pie (nadie esta del todo quieto).
+    if (e.enSuelo && !e.volando && !e.agachado && !e.sigilo && e.rapidez < 0.3f &&
+        e.accion == Accion::NINGUNA && !e.golpeando && e.tRecoger < 0.0f) {
+        p.inclinacion += 0.012f * std::sin(e.tiempo * 0.43f);
+        p.giroPelvis += 0.010f * std::sin(e.tiempo * 0.31f + 1.0f);
+        aplicarReposo(p, e.quieto, e.tiempo);
+    }
+
     // Lo que hace el brazo va lo ultimo: manda sobre andar y agacharse.
     // `golpeando` sin accion es el picar de siempre, con la mano.
     const Accion accion = (e.accion == Accion::NINGUNA && e.golpeando) ? Accion::PICAR : e.accion;
     if (accion == Accion::PICAR)
-        aplicarGolpe(p, golpeDe(e.herramienta, e.bloque), e.tiempo);
+        aplicarGolpe(p, golpeDe(e.herramienta, e.bloque), e.tiempo, e.mirada * PI / 180.0f);
     else if (accion == Accion::GOLPE_AIRE || accion == Accion::GOLPE_ANIMAL)
-        aplicarDisparo(p, accion, e.variante, e.ladoGolpe, e.tAccion);
+        aplicarDisparo(p, accion, e.variante, e.ladoGolpe, e.tAccion, e.mirada * PI / 180.0f);
+    else if (accion == Accion::COLOCAR)
+        aplicarColocar(p, e.tAccion, e.mirada * PI / 180.0f);
 
     // Recoger manda sobre todo lo demas: dura medio segundo.
     aplicarRecoger(p, e.tRecoger, e.agachado, false);
@@ -1043,7 +1258,7 @@ inline Esqueleto resolver(const Pose& p, bool apoyar = true) {
     detalle::resolver(p, 0.0f, s);
     if (p.tumbado > 0.0f) {
         // Con giro en X negativo la cabeza va hacia +Z y el pecho mira al suelo.
-        detalle::mover(s, Rot::enX(-GIRO_TUMBADO * p.tumbado), s.pelvis.p, 0.0f);
+        detalle::mover(s, Rot::enX(-(GIRO_TUMBADO - 0.30f * p.levantaPecho) * p.tumbado), s.pelvis.p, 0.0f);
         if (apoyar) detalle::mover(s, Rot::identidad(), s.pelvis.p, -detalle::apoyoTumbado(s));
         return s;
     }

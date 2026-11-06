@@ -342,8 +342,11 @@ inline void dibujarVena(Malla& m, const T& tb, const Vena& v, Color piel, float 
                         float latido, int muestras) {
     if (visible <= 0.01f || muestras < 2) return;
     const Color colorVena = v.arteria ? tinte(piel, 1.0f, 0.68f, 0.68f) : tinte(piel, 0.55f, 0.68f, 0.95f);
-    const float fuerza = v.arteria ? 0.22f : 0.55f;
-    const float alto = v.arteria ? v.alto + 0.0005f * latido : v.alto;
+    // PEDIDO: "venas no tan visibles, pero realistas igual". A traves de la
+    // piel una vena es un tono apenas azulado y un relieve suave, no una
+    // linea pintada: poco color y poco alto.
+    const float fuerza = v.arteria ? 0.12f : 0.28f;
+    const float alto = (v.arteria ? v.alto + 0.0004f * latido : v.alto) * 0.6f;
 
     std::vector<V> P(muestras + 1), N(muestras + 1);
     for (int k = 0; k <= muestras; ++k) {
@@ -471,7 +474,20 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         const float c = std::cos(a);
         return tinte(P, 1.0f - 0.22f * c * c, 1.0f - 0.25f * c * c, 1.0f - 0.25f * c * c);
     };
-    const float visibleBase = piel.prominencia * (0.7f + 0.5f * fis.calor + 0.2f * fis.esfuerzo);
+    const float visibleBase = piel.prominencia * (0.55f + 0.35f * fis.calor + 0.15f * fis.esfuerzo);
+    // La piel no es de un solo color: manchas suaves y grandes, mas rojiza
+    // por la cara interna (donde es fina y la sangre esta cerca), y nada que
+    // se repita a simple vista.
+    auto pielCon = [P](float semilla, float rojizo) {
+        return [P, semilla, rojizo](float t, float a) {
+            const float n = 0.030f * std::sin(a * 3.0f + t * 9.0f + semilla) +
+                            0.020f * std::sin(a * 7.0f - t * 17.0f + semilla * 1.7f) +
+                            0.012f * std::sin(t * 31.0f + a * 2.0f + semilla * 0.3f);
+            const float rojo = rojizo * (0.5f + 0.5f * std::cos(a - PI * 0.5f));   // cara de delante
+            return Color{ P.r * (1.0f + n + 0.03f * rojo), P.g * (1.0f + n * 0.9f - 0.01f * rojo),
+                          P.b * (1.0f + n * 0.8f - 0.015f * rojo) };
+        };
+    };
     const float latido = fis.latido();
 
     auto plano = [](Color c) { return [c](float, float) { return c; }; };
@@ -540,7 +556,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         const EjeRecto ejeBrazo{ s.hombro[l].p, s.hombro[l].r, M::BRAZO };
         auto secBrazo = [=](float t, float a, float& dx, float& dz) { seccionBrazo(t, a, sx, flexN, dx, dz); };
         const auto brazo = tubo(ejeBrazo, secBrazo, 0.38f, 1.0f);
-        dibujarTubo(m, brazo, N(10), N(22), plano(P), false, false);
+        dibujarTubo(m, brazo, N(10), N(22), pielCon(1.3f + l, 0.6f), false, false);
         auto secManga = [=](float t, float a, float& dx, float& dz) {
             seccionBrazo(t, a, sx, flexN, dx, dz);
             const float k = 1.0f + 0.008f / 0.045f + 0.003f * std::sin(a * 5.0f + t * 9.0f);
@@ -564,7 +580,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         };
         auto secAnte = [=](float t, float a, float& dx, float& dz) { seccionAntebrazo(t, a, sx, puno, dx, dz); };
         const auto ante = tubo(ejeAnte, secAnte);
-        dibujarTubo(m, ante, N(18), N(28), plano(P), false, false);
+        dibujarTubo(m, ante, N(18), N(28), pielCon(2.9f + l, 0.8f), false, false);
 
         // Muneca.
         const Mano& mano = s.mano[l];
@@ -650,7 +666,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         const EjeRecto ejeMuslo{ s.cadera[l].p, s.cadera[l].r, M::MUSLO };
         auto secMuslo = [=](float t, float a, float& dx, float& dz) { seccionMuslo(t, a, sx, dx, dz); };
         const auto muslo = tubo(ejeMuslo, secMuslo, 0.55f, 1.0f);
-        dibujarTubo(m, muslo, N(8), N(24), plano(P), false, false);
+        dibujarTubo(m, muslo, N(8), N(24), pielCon(4.1f + l, 0.3f), false, false);
         auto secShort = [=](float t, float a, float& dx, float& dz) {
             seccionMuslo(t, a, sx, dx, dz);
             const float k = 1.0f + 0.009f / 0.07f + 0.004f * std::sin(a * 4.0f + t * 7.0f);
@@ -671,7 +687,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         const EjeRecto ejePierna{ s.rodilla[l].p, s.rodilla[l].r, M::PIERNA };
         auto secPierna = [=](float t, float a, float& dx, float& dz) { seccionPierna(t, a, sx, punta, dx, dz); };
         const auto pierna = tubo(ejePierna, secPierna);
-        dibujarTubo(m, pierna, N(18), N(26), plano(P), false, false);
+        dibujarTubo(m, pierna, N(18), N(26), pielCon(5.7f + l, 0.2f), false, false);
 
         // Tobillo y maleolos: el de dentro mas alto que el de fuera.
         const Pie& pie = s.pie[l];

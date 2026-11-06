@@ -48,10 +48,14 @@ TEST_CASE("Animaciones: el pico en piedra carga desde arriba y descarga con todo
         CHECK(p.enMano == (uint8_t)Herramienta::PICO);
     }
     CHECK(hi - lo > 1.8f);
-    CHECK(inclMax > 0.2f);
-    // A dos manos: la izquierda sigue a la derecha.
+    CHECK(inclMax > 0.1f);
+    // A UNA mano, como se pidio: la izquierda no sigue al pico.
     const Pose p = poseDe(picando(Herramienta::PICO, ClaseBloque::PIEDRA, 0.1f));
-    CHECK(p.brazo[0].flex > 0.5f);
+    CHECK(std::fabs(p.brazo[0].flex) < 0.4f);
+    for (int c = 0; c < (int)ClaseBloque::NUM; ++c)
+        CHECK_FALSE(golpeDe(Herramienta::PICO, (ClaseBloque)c).dosManos);
+    // El hacha si va a dos manos en la madera.
+    CHECK(golpeDe(Herramienta::HACHA, ClaseBloque::MADERA).dosManos);
     // En lo construido, toques cortos: mucho menos recorrido.
     lo = 9; hi = -9;
     const Golpe& c = golpeDe(Herramienta::PICO, ClaseBloque::CONSTRUIDO);
@@ -59,7 +63,93 @@ TEST_CASE("Animaciones: el pico en piedra carga desde arriba y descarga con todo
         const float f = poseDe(picando(Herramienta::PICO, ClaseBloque::CONSTRUIDO, c.periodo * k / 100.0f)).brazo[1].flex;
         lo = std::fmin(lo, f); hi = std::fmax(hi, f);
     }
-    CHECK(hi - lo < 0.8f);
+    CHECK(hi - lo < 1.0f);
+}
+
+TEST_CASE("Animaciones: el golpe va hacia donde se mira") {
+    const Golpe& g = golpeDe(Herramienta::PICO, ClaseBloque::PIEDRA);
+    const float tImpacto = g.periodo * (g.carga + (1.0f - g.carga) * 0.6f);
+    Estado e = picando(Herramienta::PICO, ClaseBloque::PIEDRA, tImpacto);
+    e.mirada = 0.0f;
+    const float frente = poseDe(e).brazo[1].flex;
+    e.mirada = 45.0f;
+    const float arriba = poseDe(e).brazo[1].flex;
+    e.mirada = -60.0f;
+    const Pose abajo = poseDe(e);
+    CHECK(arriba > frente + 0.4f);
+    CHECK(abajo.brazo[1].flex < frente - 0.5f);
+    CHECK(abajo.inclinacion > 0.15f);
+}
+
+TEST_CASE("Animaciones: punetazos al aire alternos que apuntan a la mirada") {
+    Estado e;
+    e.accion = Accion::GOLPE_AIRE;
+    e.tAccion = 0.17f;                  // impacto
+    e.variante = 0;
+    const Pose d = poseDe(e);
+    CHECK(d.brazo[1].codo < 0.15f);     // derecha estirada
+    CHECK(d.brazo[0].codo > 1.5f);      // izquierda en guardia
+    e.variante = 1;
+    const Pose i = poseDe(e);
+    CHECK(i.brazo[0].codo < 0.15f);     // ahora la izquierda
+    CHECK(i.brazo[1].codo > 1.5f);
+    e.variante = 0;
+    e.mirada = 50.0f;
+    CHECK(poseDe(e).brazo[1].flex > d.brazo[1].flex + 0.6f);   // golpea arriba
+}
+
+TEST_CASE("Animaciones: colocar estira el brazo derecho con la mano abierta") {
+    Estado e;
+    e.accion = Accion::COLOCAR;
+    e.tAccion = COLOCAR_SEG * 0.5f;
+    const Pose p = poseDe(e);
+    CHECK(p.brazo[1].flex > 1.0f);
+    CHECK(p.brazo[1].codo < 0.4f);
+    CHECK(p.brazo[1].dedo[1][1] < 0.4f);        // abierta
+    e.tAccion = COLOCAR_SEG + 0.1f;
+    CHECK(poseDe(e).brazo[1].flex < 0.4f);      // ya termino
+    // Tambien tumbado.
+    e.tumbado = true;
+    e.tAccion = COLOCAR_SEG * 0.5f;
+    Estado sin = e;
+    sin.accion = Accion::NINGUNA;
+    CHECK(std::fabs(poseDe(e).brazo[1].codo - poseDe(sin).brazo[1].codo) > 0.1f);
+}
+
+TEST_CASE("Animaciones: quieto, el cuerpo cambia de gesto y respira de verdad") {
+    Estado e;
+    e.quieto = 1.0f;
+    const Pose al = poseDe(e);
+    // A los pocos segundos empieza a hacer cosas, y cosas distintas.
+    int gestos[6] = {};
+    for (int k = 0; k < 60; ++k) {
+        const int g = gestoDeReposo(REPOSO_INICIO + k * REPOSO_TRAMO + 1.0f);
+        REQUIRE(g >= 0);
+        ++gestos[g];
+    }
+    for (int g = 0; g < 6; ++g) CHECK(gestos[g] > 0);
+    CHECK(gestoDeReposo(1.0f) == -1);
+    // A mitad de un gesto la pose no es la de estar quieto.
+    bool cambia = false;
+    for (int k = 0; k < 6 && !cambia; ++k) {
+        e.quieto = REPOSO_INICIO + k * REPOSO_TRAMO + REPOSO_TRAMO * 0.5f;
+        const Pose p = poseDe(e);
+        cambia = std::fabs(p.brazo[0].flex - al.brazo[0].flex) > 0.3f ||
+                 std::fabs(p.pierna[0].rodilla - al.pierna[0].rodilla) > 0.2f ||
+                 std::fabs(p.pierna[1].rodilla - al.pierna[1].rodilla) > 0.2f;
+    }
+    CHECK(cambia);
+    // Respirar: se toma aire mas deprisa de lo que se suelta, y hay pausa.
+    int subiendo = 0, bajando = 0, pausa = 0;
+    float antes = ondaRespira(0.0f);
+    for (int k = 1; k <= 1000; ++k) {
+        const float r = ondaRespira(2.0f * PI * k / 1000.0f);
+        if (r > antes + 1e-5f) ++subiendo; else if (r < antes - 1e-5f) ++bajando; else ++pausa;
+        CHECK(r >= -1.0f); CHECK(r <= 1.0f);
+        antes = r;
+    }
+    CHECK(subiendo < bajando);
+    CHECK(pausa > 50);
 }
 
 TEST_CASE("Animaciones: el golpe acelera hacia el impacto") {

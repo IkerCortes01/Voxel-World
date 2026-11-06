@@ -308,6 +308,7 @@ struct Vec3i {
 // Dormir con Z: acostarse, el fundido a negro y las reglas del refugio.
 #include "Dormir.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
+#include "ModeloItem3D.h"  // y su forma de verdad: la silueta inflada
 #include "render/MallaChunk.h"  // geometria de chunk SIN OpenGL (movible entre hilos)
 #include "render/PerfilRendimiento.h"  // que maquina es esta y cuanto aguanta
 #include "render/BordeVecinos.h"       // copia del borde de los 4 chunks vecinos
@@ -325,6 +326,9 @@ struct Vec3i {
 #include "render/PencaDelJugador.h"    // ¿la penca la puso el jugador o un nopal?
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
+#include "render/PaseSaturacion.h"     // la saturacion, sobre la imagen entera
+// La saturacion de las opciones, aplicada a todo al final del frame.
+inline Render::PaseSaturacion g_paseSaturacion;
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
 #include "BloqueCompuesto.h" // bloques con estado y varias partes en un voxel
 #include "WorldName.h"
@@ -29762,7 +29766,8 @@ public:
             Render::pglUniform1f(g_progTerreno.uLuzMin, l.luzMinima);
             Render::pglUniform1f(g_progTerreno.uGamma, l.gamma);
             Render::pglUniform1f(g_progTerreno.uIntensidad, l.intensidad);
-            Render::pglUniform1f(g_progTerreno.uSaturacion, l.saturacion);
+            // Con el pase final activo, el terreno no la aplica dos veces.
+            Render::pglUniform1f(g_progTerreno.uSaturacion, g_paseSaturacion.listo() ? 1.0f : l.saturacion);
         }
 
         // El agua se desplaza; el terreno no. Antes esto era una matriz de
@@ -34379,6 +34384,23 @@ void recogerPedazoMirado(GameState* state) {
 void renderText(const char* text, float x, float y, float size);
 void renderChar(char c, float x, float y, float size);
 
+// El modelo inflado de cada textura (ver ModeloItem3D.h), hecho una vez.
+const ModeloItem3D::Malla& modeloInflado(const std::string& ruta, ModeloItem3D::Forma forma) {
+    static std::unordered_map<std::string, ModeloItem3D::Malla> cache;
+    const std::string clave = ruta + "#" + std::to_string((int)forma);
+    auto it = cache.find(clave);
+    if (it != cache.end()) return it->second;
+    std::vector<unsigned char> opaco;
+    int w = 0, h = 0;
+    ModeloItem3D::Malla m;
+    if (SiluetaItem::leerAlpha(ruta.c_str(), opaco, w, h)) {
+        int rw = 0, rh = 0;
+        const std::vector<unsigned char> chica = ModeloItem3D::reducir(opaco, w, h, 32, rw, rh);
+        m = ModeloItem3D::construir(chica, rw, rh, ModeloItem3D::radioPara(forma, rw > rh ? rw : rh));
+    }
+    return cache.emplace(clave, std::move(m)).first->second;
+}
+
 // ============================================================================
 // UN ITEM EN 3D, CON SU TEXTURA
 // ============================================================================
@@ -34632,6 +34654,72 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
                     siluetaPNG = "Textures/Items/Tuna roja crecida.png"; break;
 
                 default: break;
+            }
+
+            // ⭐⭐ LA FORMA DE VERDAD: LA SILUETA INFLADA (ModeloItem3D.h)
+            //
+            // Todo lo que tiene su dibujo en un PNG -- herramientas, palos,
+            // pencas, tunas, pedacitos -- se dibuja abombado: lo estrecho
+            // sale redondo (el mango es una vara) y lo ancho, con cuerpo. Los
+            // bloques macizos siguen siendo cubos con sus seis caras.
+            {
+                std::string ruta = siluetaPNG ? gamePath("resourcepacks/") + siluetaPNG
+                                              : g_itemTextures.rutaDe((int)item.blockType);
+                if (!ruta.empty() && (siluetaPNG || item3D || !isBlockSolid(item.blockType))) {
+                    using ModeloItem3D::Forma;
+                    const BlockType t = item.blockType;
+                    const Forma forma =
+                        (esHerramientaGastable(t) || t == BLOCK_STICK) ? Forma::HERRAMIENTA
+                        : (esPencaDeNopal(t) || esPencaDeMaguey(t) || t == BLOCK_ESPINAS_NOPAL ||
+                           t == BLOCK_PENCA_AGAVE_AZUL || t == BLOCK_AGAVE_AZUL_PENCA)
+                              ? Forma::PLACA
+                              : Forma::REDONDO;
+                    const ModeloItem3D::Malla& mi = modeloInflado(ruta, forma);
+                    if (mi.valido) {
+                        const GLuint tex = (GLuint)g_itemTextures.resolve((int)t);
+                        if (g_textureManager) g_textureManager->bindForUI(tex);
+                        glEnable(GL_ALPHA_TEST);
+                        glAlphaFunc(GL_GREATER, 0.1f);
+                        float sx = scale, sy = scale;
+                        if (mi.ancho > mi.alto) sy = scale * (float)mi.alto / (float)mi.ancho;
+                        else if (mi.alto > mi.ancho) sx = scale * (float)mi.ancho / (float)mi.alto;
+                        if (enMano && forma == Forma::HERRAMIENTA) {
+                            // El mango en el puno: el eje de la figura (de la
+                            // punta fina a la cabeza) va hacia el pulgar, y el
+                            // final del mango asoma un poco por debajo del puno.
+                            const float ex = mi.ejeX * sx, ey = mi.ejeY * sy;
+                            const float l = std::sqrt(ex * ex + ey * ey);
+                            const float gx = mi.agarreX * sx, gy = mi.agarreY * sy;
+                            const float ux = l > 0 ? ex / l : 1.0f, uy = l > 0 ? ey / l : 0.0f;
+                            const float a = gx * ux + gy * uy;         // el agarre sobre el eje
+                            const float b = -gx * uy + gy * ux;        // y de lado
+                            // (En OpenGL lo que se llama primero se aplica lo
+                            // ultimo: primero girar, luego llevar al puno.)
+                            glTranslatef(-(a + scale * 0.30f), -b, 0.0f);
+                            glRotatef(-std::atan2(ey, ex) * 57.29578f, 0, 0, 1);
+                        } else if (enMano) {
+                            // Lo demas, en la palma: un poco por delante y mas
+                            // pequeno.
+                            glTranslatef(0.0f, 0.0f, scale * 0.35f);
+                            glScalef(0.6f, 0.6f, 0.6f);
+                        }
+                        // Luz desde arriba y de frente, en el espacio del item.
+                        const float lx = 0.30f, ly = 0.55f, lz = 0.78f;
+                        glBegin(GL_TRIANGLES);
+                        for (uint32_t k : mi.i) {
+                            const ModeloItem3D::Vert& v = mi.v[k];
+                            float d = v.nx * lx + v.ny * ly + std::fabs(v.nz) * lz;
+                            if (d < 0.0f) d = 0.0f;
+                            const float f = luzIt * (0.50f + 0.50f * d);
+                            glColor3f(f, f, f);
+                            glTexCoord2f(v.u, v.v);
+                            glVertex3f(v.x * sx, v.y * sy, v.z * scale);
+                        }
+                        glEnd();
+                        glDisable(GL_ALPHA_TEST);
+                        return;
+                    }
+                }
             }
 
             if (siluetaPNG) {
@@ -48730,6 +48818,12 @@ int main() {
                     tRecoger += dtc;
                     ea.tRecoger = tRecoger <= ModeloJugador::RECOGER_SEG ? tRecoger : -1.0f;
                     ea.sigilo = st.isSigilo;
+                    // Cuanto lleva de pie sin hacer nada: los gestos de reposo.
+                    static float quieto = 0.0f;
+                    const bool haceAlgo = rapidezSuave > 0.3f || golpea || !st.onGround ||
+                                          st.isCrouching || st.isSigilo || tRecoger < 1.0f;
+                    quieto = haceAlgo ? 0.0f : quieto + dtc;
+                    ea.quieto = quieto;
                     ea.inspeccion = st.isInspeccion;
                 }
 
@@ -48793,12 +48887,25 @@ int main() {
                         varDisparo = (g_golpesAAnimal - 1) % 3;
                         ladoDisparo = ((g_golpesAAnimal - 1) / 3) % 2 == 0 ? 1 : 0;
                     } else if (golpea && !clicAntes && !rr.hit) {
+                        // Al aire: derecha, izquierda, derecha... (ver aplicarDisparo)
+                        static int golpesAlAire = 0;
                         disparo = Accion::GOLPE_AIRE;
                         tDisparo = 0.0f;
+                        varDisparo = golpesAlAire++ % 2;
                     }
                     clicAntes = golpea;
                     tDisparo += dtc;
-                    if (disparo != Accion::NINGUNA && tDisparo < 0.45f) {
+                    // ⭐ COLOCAR: toda colocacion que sale bien pone el
+                    // placeCooldown a 0.25 (son una veintena de salidas en
+                    // placeBlock); el salto de ese contador es la senal.
+                    static float cooldownAntes = 0.0f;
+                    if (g_gameState->placeCooldown > cooldownAntes + 0.1f && disparo == Accion::NINGUNA) {
+                        disparo = Accion::COLOCAR;
+                        tDisparo = 0.0f;
+                    }
+                    cooldownAntes = g_gameState->placeCooldown;
+                    const float duracion = disparo == Accion::COLOCAR ? ModeloJugador::COLOCAR_SEG : 0.45f;
+                    if (disparo != Accion::NINGUNA && tDisparo < duracion) {
                         ea.accion = disparo;
                         ea.tAccion = tDisparo;
                         ea.variante = varDisparo;
@@ -48926,7 +49033,10 @@ int main() {
                     // como los lados.
                     float h = (v.p.y - baseMalla) / altoFigura;
                     h = h < 0.0f ? 0.0f : (h > 1.0f ? 1.0f : h);
-                    const float k = (luzPies + (luzPecho - luzPies) * h) * (0.60f + 0.40f * d);
+                    // Un brillo leve donde la luz da de lleno: la piel y la
+                    // tela no son mates del todo.
+                    const float d2 = d * d, brillo = d2 * d2 * d2 * 0.06f;
+                    const float k = (luzPies + (luzPecho - luzPies) * h) * (0.58f + 0.40f * d + brillo);
                     col[i * 3 + 0] = v.r * k;
                     col[i * 3 + 1] = v.g * k;
                     col[i * 3 + 2] = v.b * k;
@@ -50479,6 +50589,17 @@ int main() {
             // refresco del monitor, TODO el tiempo sobrante aparece aqui y no
             // en fisica, chunks ni render. Sin medirlo por separado, un motor
             // que espera y un motor saturado se ven exactamente igual.
+            // La saturacion de las opciones, sobre TODO: mundo, cuerpo,
+            // items, hotbar, inventario y menus (ver PaseSaturacion.h).
+            {
+                const float sat = g_opciones[Opciones::SATURACION] / 100.0f;
+                if (std::fabs(sat - 1.0f) > 0.01f) {
+                    int fw = 0, fh = 0;
+                    glfwGetFramebufferSize(window, &fw, &fh);
+                    if (g_paseSaturacion.aplicar(fw, fh, sat) && g_textureManager)
+                        g_textureManager->invalidateBindCache();
+                }
+            }
             {
                 const auto tSwap = std::chrono::high_resolution_clock::now();
                 glfwSwapBuffers(window);

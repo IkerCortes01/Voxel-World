@@ -140,7 +140,7 @@ TEST_CASE("Jugador: picar cierra el puno derecho y deja la izquierda relajada") 
         const float f = poseDe(e).brazo[1].flex;
         lo = std::fmin(lo, f); hi = std::fmax(hi, f);
     }
-    CHECK(hi - lo > 1.2f);
+    CHECK(hi - lo > 0.9f);
 }
 
 TEST_CASE("Jugador: 5 dedos con el pulgar del lado de fuera y las yemas hacia la palma") {

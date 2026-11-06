@@ -754,6 +754,10 @@ std::set<GLuint> g_texturasGirables;
 // animacion de caida de la penca lo necesita y va antes en el archivo.
 double g_tiempoJugadoSegundos = 0.0;
 
+// Los golpes a un animal, para que el brazo elija su animacion (ver
+// ModeloJugador::aplicarDisparo). Los cuenta updateMining al acertar.
+int g_golpesAAnimal = 0;
+
 // ============================================================================
 // CICLO DE DIA Y NOCHE
 // ============================================================================
@@ -1194,6 +1198,25 @@ struct PencaSecandose {
 };
 std::vector<PencaSecandose> g_pencasSecandose;
 constexpr double PENCA_SECAR_SEG = 20.0;
+
+// ============================================================================
+// ⭐ LA PENCA PLANTADA CRECE HASTA SER UN NOPAL ADULTO
+// ============================================================================
+// PEDIDO: "que el nopal suelte un item de Penca de Nopal y al plantarlo, tarde
+// 3 dias del juego en poco a poco crecer a un adulto".
+//
+// La penca puesta sobre tierra, pasto o arena se vuelve la BASE de un nopal
+// nuevo. El adulto que va a ser es el mismo que sembraria la generacion del
+// mundo en esa casilla (generarNopal con `plan`, que apunta en vez de poner),
+// y sus piezas se van colocando en orden -- primero el tallo, luego las
+// pencas de los lados -- repartidas en 3 dias de juego (72 minutos).
+//
+// Se guarda en nopales.dat del mundo: salir y volver no le quita lo crecido,
+// porque lo que manda es el reloj de juego, que tambien se guarda.
+struct CeldaNopal { int x, y, z; BlockType b; };
+struct NopalCreciendo { int x, y, z; double t0; };
+std::vector<NopalCreciendo> g_nopalesCreciendo;
+constexpr double NOPAL_CRECER_SEG = 3.0 * SEGUNDOS_POR_DIA;
 
 // ============================================================================
 // EL AGUAMIEL DEL MAGUEY CAPADO
@@ -17409,7 +17432,23 @@ public:
     // distinta (recta, L, T, Y, enrollada, escalera...). Asi ningun nopal se
     // parece a otro, que es lo que hace a esta planta reconocible, sin perder
     // la esencia cubica: todo cae en la rejilla de bloques.
-    void generarNopal(int worldX, int baseY, int worldZ) {
+    // Con `plan` no toca el mundo: apunta, en orden, lo que pondria. Asi una
+    // penca plantada sabe en que adulto se va a convertir (ver
+    // NopalCreciendo). Las piezas de nopal que ya estan se leen como aire,
+    // para que la planta a medio crecer no se estorbe a si misma.
+    void generarNopal(int worldX, int baseY, int worldZ,
+                      std::vector<CeldaNopal>* plan = nullptr) {
+        auto leerN = [&](int x, int y, int z) -> BlockType {
+            if (!plan) return getBlock(x, y, z);
+            for (auto it = plan->rbegin(); it != plan->rend(); ++it)
+                if (it->x == x && it->y == y && it->z == z) return it->b;
+            const BlockType b = getBlock(x, y, z);
+            return (isNopal(b) || esTuna(b)) ? BLOCK_AIR : b;
+        };
+        auto ponerN = [&](int x, int y, int z, BlockType b) {
+            if (plan) plan->push_back({ x, y, z, b });
+            else setBlock(x, y, z, b);
+        };
         // Hash determinista: el mismo nopal en la misma posicion, siempre.
         const int h = worldX * 6421 + worldZ * 9187 + 3313;
         auto rnd = [&](int salt, int mod) {
@@ -17418,10 +17457,10 @@ public:
             return mod > 0 ? (int)(v % (unsigned)mod) : 0;
         };
 
-        if (getBlock(worldX, baseY, worldZ) != BLOCK_AIR) return;
+        if (leerN(worldX, baseY, worldZ) != BLOCK_AIR) return;
 
         // --- BASE: hereda el terreno sobre el que crece ---
-        const BlockType suelo = getBlock(worldX, baseY - 1, worldZ);
+        const BlockType suelo = leerN(worldX, baseY - 1, worldZ);
 
         // ⭐ NADA DE NOPALES EN LA ROCA
         //
@@ -17452,10 +17491,10 @@ public:
         BlockType sueloFinal = suelo;
         if (esNivelParcial(suelo)) {
             sueloFinal = bloqueBaseDe(suelo);
-            setBlock(worldX, baseY - 1, worldZ, sueloFinal);
+            ponerN(worldX, baseY - 1, worldZ, sueloFinal);
         }
 
-        setBlock(worldX, baseY, worldZ, baseParaSuelo(sueloFinal));
+        ponerN(worldX, baseY, worldZ, baseParaSuelo(sueloFinal));
 
         // ====================================================================
         // EL EJE ES UNA CADENA DE PENCAS, NO UN TRONCO
@@ -17544,15 +17583,15 @@ public:
                 // El enlace va a la altura del eje ANTERIOR (y-1), pegado a el
                 // por el costado. Solo si cabe: si no, se sigue recto en vez
                 // de cortar la planta por la mitad.
-                if (getBlock(lx, y - 1, lz) == BLOCK_AIR &&
-                    getBlock(lx, y,     lz) == BLOCK_AIR) {
-                    setBlock(lx, y - 1, lz, BLOCK_NOPAL_CLADODIO);
+                if (leerN(lx, y - 1, lz) == BLOCK_AIR &&
+                    leerN(lx, y,     lz) == BLOCK_AIR) {
+                    ponerN(lx, y - 1, lz, BLOCK_NOPAL_CLADODIO);
                     nx = lx; nz = lz;
                 }
             }
-            if (getBlock(nx, y, nz) != BLOCK_AIR) break;
+            if (leerN(nx, y, nz) != BLOCK_AIR) break;
 
-            setBlock(nx, y, nz, BLOCK_NOPAL_CLADODIO);
+            ponerN(nx, y, nz, BLOCK_NOPAL_CLADODIO);
             ejeX = nx; ejeZ = nz;
             if (i - 1 < MAX_EJE) { ejeXPorPiso[i-1] = nx; ejeZPorPiso[i-1] = nz; }
             topeTallo = y;
@@ -17568,8 +17607,8 @@ public:
         // Coloca un cladodio si el hueco esta libre. Devuelve si lo puso.
         auto poner = [&](int px, int py, int pz) {
             if (py < 1 || py >= CHUNK_HEIGHT - 1) return false;
-            if (getBlock(px, py, pz) != BLOCK_AIR) return false;
-            setBlock(px, py, pz, BLOCK_NOPAL_CLADODIO);
+            if (leerN(px, py, pz) != BLOCK_AIR) return false;
+            ponerN(px, py, pz, BLOCK_NOPAL_CLADODIO);
             return true;
         };
 
@@ -17747,14 +17786,14 @@ public:
             for (int dx = -4; dx <= 4; ++dx) {
                 for (int dz = -4; dz <= 4; ++dz) {
                     const int cx = worldX + dx, cz = worldZ + dz;
-                    if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+                    if (leerN(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
                     // Solo las de la punta: si tiene penca encima, esta
                     // sujeta y se queda recta.
-                    if (esCladodio(getBlock(cx, y + 1, cz))) continue;
+                    if (esCladodio(leerN(cx, y + 1, cz))) continue;
                     // Un tercio se dobla: el resto sigue erecto, que es lo
                     // predominante a pleno sol.
                     if (rnd(cx * 53 + y * 31 + cz * 17, 100) >= 34) continue;
-                    setBlock(cx, y, cz, BLOCK_NOPAL_CLADODIO_DIAG);
+                    ponerN(cx, y, cz, BLOCK_NOPAL_CLADODIO_DIAG);
                 }
             }
         }
@@ -17771,14 +17810,14 @@ public:
             for (int dx = -4; dx <= 4; ++dx) {
                 for (int dz = -4; dz <= 4; ++dz) {
                     const int cx = worldX + dx, cz = worldZ + dz;
-                    if (getBlock(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
+                    if (leerN(cx, y, cz) != BLOCK_NOPAL_CLADODIO) continue;
 
                     // Cuantas pencas la rodean: mide si esta "dentro" de la mata.
                     int vecinas = 0;
-                    if (esCladodio(getBlock(cx - 1, y, cz))) ++vecinas;
-                    if (esCladodio(getBlock(cx + 1, y, cz))) ++vecinas;
-                    if (esCladodio(getBlock(cx, y, cz - 1))) ++vecinas;
-                    if (esCladodio(getBlock(cx, y, cz + 1))) ++vecinas;
+                    if (esCladodio(leerN(cx - 1, y, cz))) ++vecinas;
+                    if (esCladodio(leerN(cx + 1, y, cz))) ++vecinas;
+                    if (esCladodio(leerN(cx, y, cz - 1))) ++vecinas;
+                    if (esCladodio(leerN(cx, y, cz + 1))) ++vecinas;
                     if (vecinas < 2) continue;   // esta en el borde: se queda sola
 
                     const int r = rnd(cx * 71 + y * 43 + cz * 29, 100);
@@ -17787,10 +17826,10 @@ public:
                     // El eje sigue al vecino: si la mata se extiende en X, las
                     // pencas se apilan en X, y asi el grupo queda alineado con
                     // la planta en vez de cruzado.
-                    const bool enX = esCladodio(getBlock(cx - 1, y, cz)) ||
-                                     esCladodio(getBlock(cx + 1, y, cz));
+                    const bool enX = esCladodio(leerN(cx - 1, y, cz)) ||
+                                     esCladodio(leerN(cx + 1, y, cz));
                     const bool tres = (r < 15);   // un tercio de los grupos, de 3
-                    setBlock(cx, y, cz,
+                    ponerN(cx, y, cz,
                              tres ? (enX ? BLOCK_NOPAL_CLADODIO_X3
                                          : BLOCK_NOPAL_CLADODIO_Z3)
                                   : (enX ? BLOCK_NOPAL_CLADODIO_X2
@@ -17848,15 +17887,15 @@ public:
                 for (int dx = -4; dx <= 4 && nPend < 96; ++dx) {
                     for (int dz = -4; dz <= 4 && nPend < 96; ++dz) {
                         const int cx = worldX + dx, cz = worldZ + dz;
-                        if (getBlock(cx, y, cz) != BLOCK_AIR) continue;
+                        if (leerN(cx, y, cz) != BLOCK_AIR) continue;
 
                         int alrededor = 0;
-                        if (esCladodio(getBlock(cx - 1, y, cz))) ++alrededor;
-                        if (esCladodio(getBlock(cx + 1, y, cz))) ++alrededor;
-                        if (esCladodio(getBlock(cx, y, cz - 1))) ++alrededor;
-                        if (esCladodio(getBlock(cx, y, cz + 1))) ++alrededor;
-                        if (esCladodio(getBlock(cx, y - 1, cz))) ++alrededor;
-                        if (esCladodio(getBlock(cx, y + 1, cz))) ++alrededor;
+                        if (esCladodio(leerN(cx - 1, y, cz))) ++alrededor;
+                        if (esCladodio(leerN(cx + 1, y, cz))) ++alrededor;
+                        if (esCladodio(leerN(cx, y, cz - 1))) ++alrededor;
+                        if (esCladodio(leerN(cx, y, cz + 1))) ++alrededor;
+                        if (esCladodio(leerN(cx, y - 1, cz))) ++alrededor;
+                        if (esCladodio(leerN(cx, y + 1, cz))) ++alrededor;
 
                         // Con 0 o 1 vecino no es un hueco, es el exterior de la
                         // planta: rellenarlo la hincharia y le comeria la
@@ -17883,8 +17922,8 @@ public:
                 const Hueco& hc = pendientes[i];
                 // Se vuelve a comprobar que sigue vacio: dos huecos de la lista
                 // no pueden solaparse, pero el aire pudo ocuparlo otra cosa.
-                if (getBlock(hc.x, hc.y, hc.z) != BLOCK_AIR) continue;
-                setBlock(hc.x, hc.y, hc.z, BLOCK_NOPAL_CLADODIO);
+                if (leerN(hc.x, hc.y, hc.z) != BLOCK_AIR) continue;
+                ponerN(hc.x, hc.y, hc.z, BLOCK_NOPAL_CLADODIO);
             }
 
             // MEDIDO EN EL JUEGO (49 nopales de Mundo 1, con un diagnostico
@@ -17917,7 +17956,7 @@ public:
             // sus seis caras: eso garantiza que queda soldada a la planta.
             auto tocaCladodio = [&](int fx, int fy, int fz) {
                 for (int c = 0; c < 6; ++c) {
-                    if (esCladodio(getBlock(fx + caras[c][0], fy + caras[c][1],
+                    if (esCladodio(leerN(fx + caras[c][0], fy + caras[c][1],
                                             fz + caras[c][2])))
                         return true;
                 }
@@ -17936,7 +17975,7 @@ public:
                 for (int dx = -4; dx <= 4 && pencas < maxPencas; ++dx) {
                     for (int dz = -4; dz <= 4 && pencas < maxPencas; ++dz) {
                         const int cx = worldX + dx, cz = worldZ + dz;
-                        if (!esCladodio(getBlock(cx, y, cz))) continue;
+                        if (!esCladodio(leerN(cx, y, cz))) continue;
 
                         for (int c = 0; c < 6 && pencas < maxPencas; ++c) {
                             // La penca crece del borde, nunca colgando por
@@ -17977,12 +18016,12 @@ public:
                             const int fy = y  + caras[c][1];
                             const int fz = cz + caras[c][2];
                             if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
-                            if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
+                            if (leerN(fx, fy, fz) != BLOCK_AIR) continue;
                             // Redundante aqui (viene de un cladodio), pero deja
                             // explicita la condicion: nada suelto en el aire.
                             if (!tocaCladodio(fx, fy, fz)) continue;
 
-                            setBlock(fx, fy, fz, BLOCK_NOPAL_FRUTO);
+                            ponerN(fx, fy, fz, BLOCK_NOPAL_FRUTO);
                             ++pencas;
                         }
                     }
@@ -17997,16 +18036,16 @@ public:
                     for (int dx = -4; dx <= 4 && pencas == 0; ++dx) {
                         for (int dz = -4; dz <= 4 && pencas == 0; ++dz) {
                             const int cx = worldX + dx, cz = worldZ + dz;
-                            if (!esCladodio(getBlock(cx, y, cz))) continue;
+                            if (!esCladodio(leerN(cx, y, cz))) continue;
                             for (int c = 0; c < 6 && pencas == 0; ++c) {
                                 if (c == 3) continue;
                                 const int fx = cx + caras[c][0];
                                 const int fy = y  + caras[c][1];
                                 const int fz = cz + caras[c][2];
                                 if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
-                                if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
+                                if (leerN(fx, fy, fz) != BLOCK_AIR) continue;
                                 if (!tocaCladodio(fx, fy, fz)) continue;
-                                setBlock(fx, fy, fz, BLOCK_NOPAL_FRUTO);
+                                ponerN(fx, fy, fz, BLOCK_NOPAL_FRUTO);
                                 ++pencas;
                             }
                         }
@@ -18057,9 +18096,9 @@ public:
                     for (int dx = -4; dx <= 4; ++dx) {
                         for (int dz = -4; dz <= 4; ++dz) {
                             const int fx = worldX + dx, fz = worldZ + dz;
-                            if (getBlock(fx, y, fz) != BLOCK_NOPAL_FRUTO) continue;
+                            if (leerN(fx, y, fz) != BLOCK_NOPAL_FRUTO) continue;
                             if (tocaCladodio(fx, y, fz)) continue;
-                            setBlock(fx, y, fz, BLOCK_AIR);
+                            ponerN(fx, y, fz, BLOCK_AIR);
                             ++huerfanas;
                         }
                     }
@@ -18110,7 +18149,7 @@ public:
                     for (int dz = -4; dz <= 4 && tunas < maxTunas; ++dz) {
                         const int cx = worldX + dx, cz = worldZ + dz;
                         // SOLO sobre PENCA, no sobre cladodio.
-                        if (getBlock(cx, y, cz) != BLOCK_NOPAL_FRUTO) continue;
+                        if (leerN(cx, y, cz) != BLOCK_NOPAL_FRUTO) continue;
 
                         // Una misma penca puede dar VARIAS tunas, repartidas
                         // por sus seis caras y de forma aleatoria.
@@ -18119,14 +18158,14 @@ public:
                             const int fy = y  + SITIOS[s][1];
                             const int fz = cz + SITIOS[s][2];
                             if (fy < 1 || fy >= CHUNK_HEIGHT - 1) continue;
-                            if (getBlock(fx, fy, fz) != BLOCK_AIR) continue;
+                            if (leerN(fx, fy, fz) != BLOCK_AIR) continue;
 
                             // UNA SOLA TUNA POR CARA: si ese hueco ya tiene un
                             // fruto pegado a otra penca, no se pone otro. Cada
                             // cara da fruto una vez y ya no admite mas.
                             bool ocupada = false;
                             for (int v = 0; v < 6 && !ocupada; ++v) {
-                                if (esTuna(getBlock(fx + SITIOS[v][0],
+                                if (esTuna(leerN(fx + SITIOS[v][0],
                                                     fy + SITIOS[v][1],
                                                     fz + SITIOS[v][2])))
                                     ocupada = true;
@@ -18139,7 +18178,7 @@ public:
                             if (rnd(cx * 31 + y * 17 + cz * 13 + s * 7, 100) >= prob)
                                 continue;
 
-                            setBlock(fx, fy, fz, variedad);
+                            ponerN(fx, fy, fz, variedad);
                             ++tunas;
                         }
                     }
@@ -33137,6 +33176,7 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
     if (Compuesto::Nopal::esNopal(blockType)) {
         const int pencas = 1 + (int)Compuesto::Nopal::extrasDe(blockType);
         drops.push_back({BLOCK_NOPAL_FRUTO, pencas, 1.0f});
+        drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});   // la penca que se planta
         return drops;
     }
 
@@ -33322,25 +33362,32 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         case BLOCK_NOPAL_BASE_T_ARCILLA:
         case BLOCK_NOPAL_BASE_A_ARCILLA:
         case BLOCK_NOPAL_TALLO:
-            // La base y el tallo son ANCLAJE, no cosecha: la penca que se
-            // llevan es la que crecia ahi, una sola.
-            drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});
+            // La base y el tallo son ANCLAJE, no cosecha: sueltan la PENCA
+            // DE NOPAL, la que se vuelve a plantar. Solo esa: si soltaran
+            // tambien Nopal de Castilla, plantar y arrancar la base al
+            // instante seria una fuente infinita.
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
             break;
 
+        // Cada pieza de la planta suelta lo que se come (Nopal de Castilla)
+        // y una PENCA DE NOPAL para plantar.
         case BLOCK_NOPAL_CLADODIO:
         case BLOCK_NOPAL_CLADODIO_DIAG:
             drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
             break;
 
         // Dos y tres pencas juntas: sueltan las que se ven.
         case BLOCK_NOPAL_CLADODIO_X2:
         case BLOCK_NOPAL_CLADODIO_Z2:
             drops.push_back({BLOCK_NOPAL_FRUTO, 2, 1.0f});
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
             break;
 
         case BLOCK_NOPAL_CLADODIO_X3:
         case BLOCK_NOPAL_CLADODIO_Z3:
             drops.push_back({BLOCK_NOPAL_FRUTO, 3, 1.0f});
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
             break;
 
         // La penca colocada o generada se suelta a si misma. Con caso propio
@@ -33529,6 +33576,7 @@ void updateMining(GameState* state, float deltaTime) {
             state->pecaries->marcarHerida(idTocado, origin.x, origin.y, origin.z,
                                           direction.x, direction.y, direction.z,
                                           cacheFauna());
+            ++g_golpesAAnimal;     // el brazo elige golpe (ver el cuerpo)
 
             const bool murio = state->pecaries->recibirDano(
                 idTocado, dano,
@@ -35997,6 +36045,31 @@ void actualizarVida(GameState* state, float deltaTime) {
     // acceso al GameState: se refleja aqui, que es donde el reloj avanza.
     g_tiempoJugadoSegundos = state->tiempoJugadoSegundos;
 
+    // ⭐ EL MAGUEY BEBE SE PISA
+    //
+    // PEDIDO: "si estas atrapado en una hitbox de un bloque como el maguey
+    // [...] al pisar un maguey bebe [...] desaparezca si esta justo encima; si
+    // es adulto o joven, no se aplicara la regla".
+    //
+    // Solo el BROTE (una celda de alto): el jugador encima de su nucleo, o
+    // dentro de el, lo aplasta. Si estaba en el agua, deja el agua.
+    {
+        const Vec3& pp = state->player.position;
+        const int px = (int)std::floor(pp.x), pz = (int)std::floor(pp.z);
+        for (const float off : { 0.02f, -0.06f }) {
+            const int py = (int)std::floor(pp.y + off);
+            const BlockType b = state->world.getBlock(px, py, pz);
+            const BlockType seca = plantaSeca(b);
+            if (Compuesto::esCompuesto(seca) &&
+                Compuesto::familiaDe(seca) == Compuesto::FAM_MAGUEY &&
+                Compuesto::Maguey::etapaDe(seca) == Compuesto::Maguey::BROTE) {
+                state->world.setBlock(px, py, pz,
+                    esPlantaEnAgua(b) ? Compuesto::Agua::nuevo((uint16_t)nivelDePlantaEnAgua(b))
+                                      : BLOCK_AIR);
+            }
+        }
+    }
+
     // --- TIRAS EN REMOJO: A LOS 10 SEGUNDOS SUELTAN LA BABA ---
     // Cada tira da UNA desbabada y DOS babas. Las tiras se quedan en su sitio
     // ya limpias, y la baba sale como item para recogerla.
@@ -36140,6 +36213,63 @@ void actualizarVida(GameState* state, float deltaTime) {
             >= BIZNAGA_CRECER_SEG) {
         g_ultimoCrecerBiznagas = state->tiempoJugadoSegundos;
         state->world.crecerBiznagas();
+    }
+
+    // --- LAS PENCAS PLANTADAS CRECEN HASTA NOPAL ADULTO EN 3 DIAS ---
+    //
+    // Cada 2 s se mira cuanto del plazo ha pasado y se ponen las piezas que
+    // tocan, en el orden en que las sembraria el mundo. Una pieza que el
+    // jugador haya roto vuelve a salir: la planta sigue creciendo.
+    {
+        static double ultimoCrecer = -1e9;
+        const double ahora = state->tiempoJugadoSegundos;
+        if (!g_nopalesCreciendo.empty() &&
+            (ahora - ultimoCrecer >= 2.0 || ahora < ultimoCrecer)) {
+            ultimoCrecer = ahora;
+            auto esBase = [](BlockType b) {
+                b = plantaSeca(b);
+                return b == BLOCK_NOPAL_BASE_PASTO || b == BLOCK_NOPAL_BASE_TIERRA ||
+                       b == BLOCK_NOPAL_BASE_ARENA || b == BLOCK_NOPAL_BASE_T_ARCILLA ||
+                       b == BLOCK_NOPAL_BASE_A_ARCILLA;
+            };
+            std::vector<CeldaNopal> plan, orden;
+            for (size_t i = 0; i < g_nopalesCreciendo.size(); ) {
+                const NopalCreciendo n = g_nopalesCreciendo[i];
+                if (!esBase(state->world.getBlock(n.x, n.y, n.z))) {
+                    g_nopalesCreciendo[i] = g_nopalesCreciendo.back();
+                    g_nopalesCreciendo.pop_back();
+                    continue;
+                }
+                double f = (ahora - n.t0) / NOPAL_CRECER_SEG;
+                f = f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f);
+                plan.clear();
+                state->world.generarNopal(n.x, n.y, n.z, &plan);
+                // Cada casilla una vez, en el orden en que aparece, con lo
+                // ultimo que se puso en ella (las pasadas de remate cambian
+                // pencas sueltas por diagonales o dobles).
+                orden.clear();
+                for (const CeldaNopal& c : plan) {
+                    if (c.y <= n.y && c.x == n.x && c.z == n.z) continue;   // base y suelo
+                    if (c.y < n.y) continue;
+                    bool vista = false;
+                    for (CeldaNopal& o : orden)
+                        if (o.x == c.x && o.y == c.y && o.z == c.z) { o.b = c.b; vista = true; break; }
+                    if (!vista) orden.push_back(c);
+                }
+                const size_t k = (size_t)(f * (double)orden.size() + 1e-6);
+                for (size_t j = 0; j < k && j < orden.size(); ++j) {
+                    const CeldaNopal& c = orden[j];
+                    if (state->world.getBlock(c.x, c.y, c.z) == BLOCK_AIR)
+                        state->world.setBlock(c.x, c.y, c.z, c.b);
+                }
+                if (f >= 1.0) {
+                    g_nopalesCreciendo[i] = g_nopalesCreciendo.back();
+                    g_nopalesCreciendo.pop_back();
+                } else {
+                    ++i;
+                }
+            }
+        }
     }
 
     // --- LA PENCA LIMPIA SE SECA A LOS 20 SEGUNDOS ---
@@ -38591,6 +38721,19 @@ void placeBlock(GameState* state) {
                 g_pencasSecandose.push_back({ placePos.x, placePos.y,
                                               placePos.z,
                                               g_tiempoJugadoSegundos });
+            }
+
+            // ⭐ LA PENCA DE NOPAL SE PLANTA (ver NopalCreciendo)
+            //
+            // Solo en un suelo donde crece un nopal; en cualquier otro sitio
+            // no se coloca. Puesta suelta seria una pieza de planta que al
+            // romperla daria Nopal de Castilla de la nada.
+            if (blockToPlace == BLOCK_NOPAL_CLADODIO) {
+                const BlockType suelo = state->world.getBlock(placePos.x, placePos.y - 1, placePos.z);
+                if (!esSueloParaNopal(suelo)) return;
+                blockToPlace = World::baseParaSuelo(esNivelParcial(suelo) ? bloqueBaseDe(suelo) : suelo);
+                g_nopalesCreciendo.push_back({ placePos.x, placePos.y, placePos.z,
+                                               g_tiempoJugadoSegundos });
             }
 
             // ====================================================================
@@ -44053,6 +44196,21 @@ void saveWorld(GameState* state, bool isAutoSave) {
         return;
     }
 
+    // Las pencas plantadas que siguen creciendo (ver NopalCreciendo).
+    {
+        std::ofstream f(worldPath / "nopales.dat", std::ios::binary);
+        if (f.is_open()) {
+            const uint32_t n = (uint32_t)g_nopalesCreciendo.size();
+            f.write(reinterpret_cast<const char*>(&n), sizeof(n));
+            for (const NopalCreciendo& c : g_nopalesCreciendo) {
+                f.write(reinterpret_cast<const char*>(&c.x), sizeof(int));
+                f.write(reinterpret_cast<const char*>(&c.y), sizeof(int));
+                f.write(reinterpret_cast<const char*>(&c.z), sizeof(int));
+                f.write(reinterpret_cast<const char*>(&c.t0), sizeof(double));
+            }
+        }
+    }
+
     // ⭐ PASO 1: Guardar datos del jugador
     std::cout << "📍 Guardando jugador..." << std::endl;
     std::filesystem::path playerPath = worldPath / "player.dat";
@@ -44328,6 +44486,24 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
         std::cout << "   ✅ Configuración cargada" << std::endl;
     } else {
         std::cout << "   ⚠️ No se encontró configuración, usando valores por defecto" << std::endl;
+    }
+
+    // Las pencas plantadas de este mundo (y ninguna del anterior).
+    g_nopalesCreciendo.clear();
+    {
+        std::ifstream f(worldPath / "nopales.dat", std::ios::binary);
+        uint32_t n = 0;
+        if (f.is_open() && f.read(reinterpret_cast<char*>(&n), sizeof(n)) && n < 100000u) {
+            for (uint32_t i = 0; i < n; ++i) {
+                NopalCreciendo c{};
+                f.read(reinterpret_cast<char*>(&c.x), sizeof(int));
+                f.read(reinterpret_cast<char*>(&c.y), sizeof(int));
+                f.read(reinterpret_cast<char*>(&c.z), sizeof(int));
+                f.read(reinterpret_cast<char*>(&c.t0), sizeof(double));
+                if (!f) break;
+                g_nopalesCreciendo.push_back(c);
+            }
+        }
     }
 
     // ⭐ PASO 2: Cargar datos del jugador con validación
@@ -47937,15 +48113,136 @@ int main() {
                 if (rapidezSuave < 0.3f) fasePaso *= 0.85f;
                 ea.fasePaso = fasePaso;
                 ea.rapidez = rapidezSuave;
-                ea.enSuelo = st.onGround || st.isInWater;
                 ea.agachado = st.isCrouching && !st.isProne;
                 ea.tumbado = st.isProne;
                 ea.volando = st.isFlying;
-                ea.golpeando = golpea;
                 ea.tiempo = reloj;
                 ea.giroCuello = giroCuello;
                 ea.mirada = g_gameState->player.pitch;
                 ea.faseRespira = fisiologia.faseRespira;
+
+                // ⭐ EN EL AIRE SOLO SI SE CAE DE VERDAD
+                //
+                // PEDIDO: "la animacion de cuando caes de un bloque, solo se
+                // vea cuando el jugador tiene 1 o 2 en adelante de bloques
+                // completos, niveles no". Al bajar un nivel el jugador esta
+                // en el aire una decima de segundo, y el cuerpo pasaba a la
+                // pose de salto. Ahora esa pose solo sale si salto, si ya ha
+                // caido un bloque entero o si cae rapido.
+                //
+                // Y los niveles tienen la suya: subir o bajar uno levanta la
+                // pierna de delante (ModeloJugador::aplicarEscalon).
+                {
+                    static bool enAireAntes = false, salto = false;
+                    static float yDespegue = 0.0f, yAntes = 0.0f, tEscalon = 9.0f;
+                    static bool escSube = true;
+                    static int escPierna = 1;
+                    const bool suelo = st.onGround || st.isInWater || st.isFlying;
+                    const float y = st.position.y;
+                    const int piernaDelante =
+                        std::fmod(fasePaso, 6.2831853f) < 3.1415927f ? 1 : 0;
+                    if (!suelo && !enAireAntes) { yDespegue = y; salto = st.velocity.y > 1.0f; }
+                    if (suelo && enAireAntes && !salto) {
+                        const float bajo = yDespegue - y;
+                        if (bajo > 0.05f && bajo < 0.95f) {
+                            tEscalon = 0.0f; escSube = false; escPierna = piernaDelante;
+                        }
+                    }
+                    if (suelo && !enAireAntes) {
+                        const float subio = y - yAntes;
+                        if (subio > 0.05f && subio < 0.95f) {
+                            tEscalon = 0.0f; escSube = true; escPierna = piernaDelante;
+                        }
+                    }
+                    enAireAntes = !suelo;
+                    yAntes = y;
+                    tEscalon += dtc;
+                    const bool caeDeVerdad = salto || yDespegue - y >= 0.95f || st.velocity.y < -7.0f;
+                    ea.enSuelo = suelo || !caeDeVerdad;
+                    ea.escalon = tEscalon < 0.35f ? tEscalon / 0.35f : -1.0f;
+                    ea.escalonSube = escSube;
+                    ea.piernaEscalon = escPierna;
+                }
+
+                // ⭐ LA HERRAMIENTA, EL BLOQUE Y EL SUELO: QUE ANIMACION TOCA
+                const BlockType enMano = g_gameState->inventory.getSelectedBlock();
+                using ModeloJugador::Herramienta;
+                using ModeloJugador::ClaseBloque;
+                using ModeloJugador::Accion;
+                ea.herramienta = esPico(enMano) ? Herramienta::PICO
+                               : esHacha(enMano) ? Herramienta::HACHA
+                               : esMartillo(enMano) ? Herramienta::MARTILLO
+                               : enMano == BLOCK_HOE ? Herramienta::AZADA
+                               : Herramienta::MANO;
+                ea.pedernal = enMano == BLOCK_HACHA_PEDERNAL || enMano == BLOCK_PICO_PEDERNAL ||
+                              enMano == BLOCK_MARTILLO_PEDERNAL;
+                auto esConstruido = [](BlockType b) {
+                    b = bloqueBaseDe(plantaSeca(b));
+                    return b == BLOCK_PLANKS || b == BLOCK_PLANKS_ENCINO || b == BLOCK_PLANKS_OYAMEL ||
+                           b == BLOCK_COBBLESTONE || b == BLOCK_BRICKS;
+                };
+                auto claseDe = [&](BlockType b) {
+                    if (esConstruido(b)) return ClaseBloque::CONSTRUIDO;
+                    if (esOrganicoParaHacha(b) || esTroncoDeArbol(b) || esHojaDeArbol(b))
+                        return ClaseBloque::MADERA;
+                    if (blockToStepMaterial(bloqueBaseDe(b)) == Audio::StepMaterial::Stone ||
+                        esRocaParaPico(b) && blockToStepMaterial(bloqueBaseDe(b)) != Audio::StepMaterial::Grass &&
+                        blockToStepMaterial(bloqueBaseDe(b)) != Audio::StepMaterial::Sand &&
+                        blockToStepMaterial(bloqueBaseDe(b)) != Audio::StepMaterial::Gravel &&
+                        blockToStepMaterial(bloqueBaseDe(b)) != Audio::StepMaterial::Snow)
+                        return ClaseBloque::PIEDRA;
+                    return ClaseBloque::TIERRA;
+                };
+
+                // Agachado, segun lo que se pisa.
+                {
+                    const int cx = (int)std::floor(st.position.x), cz = (int)std::floor(st.position.z);
+                    const BlockType pies = g_gameState->world.getBlock(cx, (int)std::floor(st.position.y + 0.1f), cz);
+                    const BlockType bajo = g_gameState->world.getBlock(cx, (int)std::floor(st.position.y - 0.05f), cz);
+                    ea.superficie = (st.isInWater || esAguaCualquiera(pies) || esAguaCualquiera(bajo))
+                                        ? ModeloJugador::Superficie::LIQUIDO
+                                  : esConstruido(bajo) ? ModeloJugador::Superficie::CONSTRUCCION
+                                                       : ModeloJugador::Superficie::NATURAL;
+                }
+
+                // Golpes: al animal (lo cuenta updateMining), al aire (clic sin
+                // nada delante) o picar un bloque mientras se mantiene.
+                {
+                    static int golpesVistos = 0;
+                    static Accion disparo = Accion::NINGUNA;
+                    static float tDisparo = 9.0f;
+                    static int varDisparo = 0, ladoDisparo = 1;
+                    static bool clicAntes = false;
+                    RaycastResult rr{};
+                    rr.hit = false;
+                    if (golpea)
+                        rr = raycastBlock(g_gameState->world, ojo, g_gameState->player.getForward(), 5.0f);
+                    if (g_golpesAAnimal != golpesVistos) {
+                        golpesVistos = g_golpesAAnimal;
+                        disparo = Accion::GOLPE_ANIMAL;
+                        tDisparo = 0.0f;
+                        varDisparo = (g_golpesAAnimal - 1) % 3;
+                        ladoDisparo = ((g_golpesAAnimal - 1) / 3) % 2 == 0 ? 1 : 0;
+                    } else if (golpea && !clicAntes && !rr.hit) {
+                        disparo = Accion::GOLPE_AIRE;
+                        tDisparo = 0.0f;
+                    }
+                    clicAntes = golpea;
+                    tDisparo += dtc;
+                    if (disparo != Accion::NINGUNA && tDisparo < 0.45f) {
+                        ea.accion = disparo;
+                        ea.tAccion = tDisparo;
+                        ea.variante = varDisparo;
+                        ea.ladoGolpe = ladoDisparo;
+                    } else {
+                        disparo = Accion::NINGUNA;
+                        if (golpea && rr.hit) {
+                            ea.accion = Accion::PICAR;
+                            ea.bloque = claseDe(g_gameState->world.getBlock(rr.blockPos.x, rr.blockPos.y,
+                                                                            rr.blockPos.z));
+                        }
+                    }
+                }
                 const ModeloJugador::Pose pose = ModeloJugador::poseDe(ea);
                 const ModeloJugador::Esqueleto esq =
                     ModeloJugador::resolver(pose, ea.enSuelo && !ea.volando);

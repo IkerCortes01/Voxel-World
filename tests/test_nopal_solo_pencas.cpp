@@ -77,7 +77,7 @@ TEST_CASE("Nopal: getBlockDrops tiene caso propio para cada pieza") {
                     "se quito el caso del nopal: volveria a soltar tallos "
                     "y bases al talarlo");
 
-    const std::string bloque = src.substr(m, 3200);
+    const std::string bloque = src.substr(m, 4800);
 
     // Las cinco bases y el tallo.
     CHECK(bloque.find("case BLOCK_NOPAL_BASE_PASTO:") != std::string::npos);
@@ -97,16 +97,20 @@ TEST_CASE("Nopal: getBlockDrops tiene caso propio para cada pieza") {
 
 TEST_CASE("Nopal: lo unico que sueltan es la penca") {
     // Ni tallos, ni bases, ni espinas, ni baba: en todo el bloque del arreglo
-    // el UNICO item que se empuja es BLOCK_NOPAL_FRUTO.
+    // solo se empuja BLOCK_NOPAL_FRUTO (lo que se come) y la penca que se
+    // planta.
     const std::string src = fuente();
     REQUIRE(!src.empty());
 
     const size_t m = src.find("EL NOPAL SOLO DA PENCAS. NUNCA OTRA COSA.");
     REQUIRE(m != std::string::npos);
-    const std::string bloque = src.substr(m, 3200);
+    const std::string bloque = src.substr(m, 4800);
 
-    // Ningun push_back de otra cosa dentro del bloque del nopal.
-    CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_CLADODIO") == std::string::npos);
+    // Ningun push_back de otra cosa dentro del bloque del nopal. La unica
+    // excepcion es la PENCA DE NOPAL (BLOCK_NOPAL_CLADODIO como item), que se
+    // pidio despues: "que el nopal suelte un item de Penca de Nopal y al
+    // plantarlo [...] crecer a un adulto". Es la que se planta.
+    CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});") != std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_TALLO") == std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_ESPINAS_NOPAL") == std::string::npos);
     CHECK(bloque.find("drops.push_back({BLOCK_NOPAL_BABA") == std::string::npos);
@@ -138,7 +142,7 @@ TEST_CASE("Nopal: la cuenta de pencas es la que se ve en la planta") {
 
     const size_t m = src.find("EL NOPAL SOLO DA PENCAS. NUNCA OTRA COSA.");
     REQUIRE(m != std::string::npos);
-    const std::string bloque = src.substr(m, 3200);
+    const std::string bloque = src.substr(m, 4800);
 
     // Suelto y diagonal: una penca.
     CHECK(bloque.find("{BLOCK_NOPAL_FRUTO, 1, 1.0f}") != std::string::npos);

@@ -463,7 +463,14 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
     const Color camisa = piel.camisa, pantalon = piel.pantalon;
     const Color articulacion = tinte(P, 1.04f, 0.93f, 0.92f);   // nudillos, codos, rodillas
     const Color palma = tinte(P, 1.06f, 1.00f, 0.97f);
-    const Color una = mezclaC(tinte(P, 1.08f, 1.0f, 1.0f), Color{ 0.95f, 0.80f, 0.78f }, 0.5f);
+    // Unas claras: es lo que mas separa un dedo de otro vistos desde arriba.
+    const Color una = mezclaC(tinte(P, 1.12f, 1.04f, 1.04f), Color{ 0.98f, 0.88f, 0.86f }, 0.65f);
+    // Los pliegues entre dedos, algo mas oscuros: dibujan el contorno de cada
+    // uno contra el de al lado.
+    auto contornoDedo = [P](float, float a) {
+        const float c = std::cos(a);
+        return tinte(P, 1.0f - 0.22f * c * c, 1.0f - 0.25f * c * c, 1.0f - 0.25f * c * c);
+    };
     const float visibleBase = piel.prominencia * (0.7f + 0.5f * fis.calor + 0.2f * fis.esfuerzo);
     const float latido = fis.latido();
 
@@ -590,8 +597,10 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         dibujarTubo(m, palmaT, N(10), N(24), colorPalma, false, true);
 
         // Los cinco dedos: tres falanges, cada una con su articulacion, la
-        // yema y la una.
-        static const float RAD[5] = { 0.0098f, 0.0102f, 0.0095f, 0.0082f, 0.0145f };
+        // yema y la una. Un poco mas gruesos que los de una mano real (x1.25):
+        // a la distancia a la que se miran en primera persona, con el grosor
+        // real se veian como una sola paleta.
+        static const float RAD[5] = { 0.0122f, 0.0127f, 0.0119f, 0.0103f, 0.0175f };
         static const float AFINA[5][3] = { { 1.0f, 0.90f, 0.82f }, { 1.0f, 0.90f, 0.82f },
                                            { 1.0f, 0.90f, 0.82f }, { 1.0f, 0.90f, 0.82f },
                                            { 1.0f, 0.81f, 0.74f } };
@@ -607,16 +616,63 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
                     if (yema) extra += 0.15f * r * bulto(t - 0.7f, 0.35f) * bulto(difAng(a, DELANTE), 1.2f);
                     elipse(a, rx, rx * 0.88f, extra, dx, dz);
                 };
-                dibujarTubo(m, tubo(EjeRecto{ j.p, j.r, L }, secDedo), N(4), N(10), plano(P), false, false);
+                dibujarTubo(m, tubo(EjeRecto{ j.p, j.r, L }, secDedo), N(4), N(10), contornoDedo, false, false);
                 if (!(d == 4 && f == 0))
-                    elipsoide(m, j.p, j.r, { r * 1.03f, r * 1.03f, r * 0.95f }, N(4), N(8), articulacion);
+                    elipsoide(m, j.p, j.r, { r * 1.03f, r * 1.03f, r * 0.95f }, N(4), N(8),
+                              tinte(articulacion, 0.95f, 0.92f, 0.92f));
                 if (yema) {
                     const float rf = r * 0.92f;
                     elipsoide(m, mano.dedo[d][3].p, j.r, { rf, rf * 0.9f, rf * 0.83f }, N(4), N(8), P);
                     // La una, en el dorso (-Z).
-                    elipsoide(m, suma(j.p, j.r.aplicar({ 0, -L * 0.62f, -rf * 0.78f })), j.r,
-                              { rf * 0.78f, L * 0.34f, rf * 0.26f }, N(3), N(8), una);
+                    elipsoide(m, suma(j.p, j.r.aplicar({ 0, -L * 0.62f, -rf * 0.80f })), j.r,
+                              { rf * 0.82f, L * 0.36f, rf * 0.28f }, N(3), N(8), una);
                 }
+            }
+        }
+
+        // La herramienta, en el puno derecho: el mango cruza la mano y la
+        // cabeza sale por el lado del pulgar, como se agarra de verdad.
+        if (l == 1 && p.enMano != (uint8_t)Herramienta::MANO) {
+            const Rot& RM = mano.muneca.r;
+            const V eje = RM.aplicar({ lado, 0, 0 });
+            const V puno = suma(mano.muneca.p, RM.aplicar({ 0, -0.070f, 0.022f }));
+            const Rot rMango = RM.por(Rot::enZ(lado * PI * 0.5f));
+            const Color madera{ 0.55f, 0.38f, 0.22f };
+            const Color cabeza = p.pedernal ? Color{ 0.30f, 0.28f, 0.31f } : Color{ 0.56f, 0.55f, 0.52f };
+            auto secMango = [](float t, float a, float& dx, float& dz) {
+                const float r = 0.0135f - 0.002f * t;
+                elipse(a, r, r, 0.0f, dx, dz);
+            };
+            dibujarTubo(m, tubo(EjeRecto{ suma(puno, escala(eje, -0.07f)), rMango, 0.47f }, secMango),
+                        N(6), N(10), plano(madera), true, true);
+            const V h = suma(puno, escala(eje, 0.37f));
+            const V ejeCabeza = rMango.aplicar({ 1, 0, 0 });
+            switch ((Herramienta)p.enMano) {
+                case Herramienta::PICO: {
+                    auto secPico = [](float t, float a, float& dx, float& dz) {
+                        const float u = std::fabs(2.0f * t - 1.0f);
+                        const float r = 0.004f + 0.015f * (1.0f - u * std::sqrt(u));
+                        elipse(a, r, r * 0.8f, 0.0f, dx, dz);
+                    };
+                    const Rot rCab = rMango.por(Rot::enZ(PI * 0.5f));
+                    dibujarTubo(m, tubo(EjeRecto{ suma(h, escala(ejeCabeza, -0.18f)), rCab, 0.36f }, secPico),
+                                N(8), N(8), plano(cabeza), false, false);
+                    break;
+                }
+                case Herramienta::HACHA:
+                    elipsoide(m, suma(h, escala(ejeCabeza, 0.055f)), rMango, { 0.065f, 0.055f, 0.012f },
+                              N(5), N(10), cabeza);
+                    elipsoide(m, suma(h, escala(ejeCabeza, -0.02f)), rMango, { 0.025f, 0.03f, 0.022f },
+                              N(4), N(8), cabeza);
+                    break;
+                case Herramienta::MARTILLO:
+                    elipsoide(m, h, rMango, { 0.060f, 0.036f, 0.036f }, N(5), N(10), cabeza);
+                    break;
+                case Herramienta::AZADA:
+                    elipsoide(m, suma(h, escala(ejeCabeza, 0.065f)), rMango, { 0.070f, 0.030f, 0.006f },
+                              N(4), N(10), cabeza);
+                    break;
+                default: break;
             }
         }
 
@@ -704,7 +760,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
 
         // Los cinco dedos del pie: dos tramos, articulacion, punta y una.
         for (int d = 0; d < 5; ++d) {
-            const float r = d == 0 ? 0.0125f : 0.0088f - d * 0.0006f;
+            const float r = radioDedoPie(d);
             const float L = M::DEDO_PIE[d];
             for (int f = 0; f < 2; ++f) {
                 const Junta& j = pie.dedo[d][f];
@@ -713,7 +769,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
                 auto secDedo = [=](float t, float a, float& dx, float& dz) {
                     elipse(a, rf * (1.0f - 0.05f * t), rf * 0.85f, 0.05f * rf * bulto(t, 0.2f), dx, dz);
                 };
-                dibujarTubo(m, tubo(EjeDelante{ j.p, j.r, Lf }, secDedo), N(3), N(8), plano(P), false, false);
+                dibujarTubo(m, tubo(EjeDelante{ j.p, j.r, Lf }, secDedo), N(3), N(8), contornoDedo, false, false);
                 elipsoide(m, j.p, j.r, { rf, rf * 0.86f, rf }, N(3), N(8), f == 0 ? P : articulacion);
             }
             const Junta& punta2 = pie.dedo[d][2];

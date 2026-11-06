@@ -118,8 +118,9 @@ namespace M {
         { 0.034f, 0.021f, 0.018f },
         { 0.046f, 0.032f, 0.026f },
     };
-    // Los dedos del pie, del gordo al pequeno: dos tramos cada uno.
-    constexpr float DEDO_PIE[5] = { 0.034f, 0.027f, 0.024f, 0.021f, 0.018f };
+    // Los dedos del pie, del gordo al pequeno: dos tramos cada uno. Algo mas
+    // largos que los reales para que se lean desde los ojos, a 1.6 de altura.
+    constexpr float DEDO_PIE[5] = { 0.040f, 0.032f, 0.029f, 0.025f, 0.021f };
 }
 
 // ----------------------------------------------------------------------------
@@ -180,6 +181,8 @@ struct Pose {
     float agachado = 0.0f;
     float tumbado = 0.0f;              // 0..1: boca abajo, el torso en el suelo
     float apretar = 0.0f;              // 0..1, cuanto aprieta el puno derecho
+    uint8_t enMano = 0;                // Herramienta que se dibuja en la derecha
+    bool pedernal = false;             // cabeza de pedernal (si no, de piedra)
 };
 
 inline void limitar(Pose& p) {
@@ -211,6 +214,18 @@ inline void limitar(Pose& p) {
 }
 
 // ----------------------------------------------------------------------------
+// LO QUE HACE EL JUGADOR, PARA ELEGIR LA ANIMACION
+// ----------------------------------------------------------------------------
+// El suelo bajo los pies (cambia como se agacha).
+enum class Superficie : uint8_t { NATURAL, CONSTRUCCION, LIQUIDO };
+// Lo que hace el brazo.
+enum class Accion : uint8_t { NINGUNA, PICAR, GOLPE_AIRE, GOLPE_ANIMAL };
+// Lo que lleva en la mano. MANO = nada (o algo que no es herramienta).
+enum class Herramienta : uint8_t { MANO, PICO, HACHA, MARTILLO, AZADA, NUM };
+// Contra que golpea: cada herramienta se usa distinto en cada uno.
+enum class ClaseBloque : uint8_t { TIERRA, MADERA, PIEDRA, CONSTRUIDO, NUM };
+
+// ----------------------------------------------------------------------------
 // EL ESTADO QUE LA ANIMA
 // ----------------------------------------------------------------------------
 struct Estado {
@@ -225,6 +240,19 @@ struct Estado {
     float giroCuello = 0;    // radianes: cabeza menos pelvis (ver GiroCuerpo)
     float mirada = 0;        // pitch de la camara en grados (- = abajo)
     float faseRespira = 0;   // radianes (ver Fisiologia)
+
+    // --- Las animaciones de cada cosa ---
+    Superficie superficie = Superficie::NATURAL;
+    Accion accion = Accion::NINGUNA;
+    Herramienta herramienta = Herramienta::MANO;
+    ClaseBloque bloque = ClaseBloque::TIERRA;
+    int variante = 0;        // cual de los 3 golpes a un animal
+    int ladoGolpe = 1;       // el brazo del gancho de abajo
+    float tAccion = 0;       // segundos desde el clic (golpes de un disparo)
+    float escalon = -1;      // 0..1 subiendo o bajando un nivel; <0 nada
+    bool escalonSube = true;
+    int piernaEscalon = 1;
+    bool pedernal = false;   // la herramienta es de pedernal
 };
 
 // Avanzar el paso con lo que se ha andado este frame (en bloques).
@@ -252,15 +280,273 @@ inline void manoRelajada(Brazo& b, float cierre) {
         b.dedo[d][0] = 0.30f + 0.08f * d + cierre * 1.15f;
         b.dedo[d][1] = 0.45f + 0.10f * d + cierre * 1.30f;
         b.dedo[d][2] = 0.25f + 0.05f * d + cierre * 0.65f;
-        b.abre[d] = 0.06f * (1.0f - cierre);
+        b.abre[d] = 0.12f * (1.0f - cierre);    // un hueco entre dedo y dedo
     }
     b.dedo[4][0] = 0.30f + cierre * 0.45f;
     b.dedo[4][1] = 0.25f + cierre * 0.45f;
     b.dedo[4][2] = 0.20f + cierre * 0.45f;
 }
 
+
+// ============================================================================
+// LOS GOLPES: 5 HERRAMIENTAS x 4 CLASES DE BLOQUE = 20 MANERAS DE PICAR
+// ============================================================================
+// PEDIDO: "con cada herramienta tenga 4 animaciones dependiendo del bloque
+// para romper y golpear".
+//
+// Cada golpe es un ciclo: CARGAR (del final del golpe anterior a la pose
+// cargada, despacio), GOLPEAR (de la cargada a la de impacto, rapido y
+// acelerando) y RECOGER. Los valores son los giros del brazo derecho y del
+// torso en cada pose; el izquierdo acompana si el golpe es a dos manos.
+//
+// Por que se parecen y por que no: una persona pica piedra desde arriba y con
+// todo el cuerpo, la tierra con golpes cortos hacia abajo, la madera de lado
+// (el hachazo entra en diagonal) y lo construido con toques controlados para
+// no romper lo de al lado.
+struct Golpe {
+    float periodo;         // segundos por golpe
+    float carga;           // fraccion del ciclo cargando
+    float flex[2];         // hombro: cargado, impacto
+    float abd[2];
+    float rot[2];
+    float codo[2];
+    float muneca[2];       // + hacia la palma
+    float torso[2];        // giro de los hombros
+    float inclina;         // el cuerpo acompana hacia delante en el impacto
+    bool dosManos;
+};
+
+inline const Golpe& golpeDe(Herramienta h, ClaseBloque c) {
+    //                     periodo carga   flex           abd           rot            codo          muneca         torso          incl  2manos
+    static const Golpe T[(int)Herramienta::NUM][(int)ClaseBloque::NUM] = {
+        { // MANO
+            { 0.42f, 0.55f, { 2.10f, 0.70f }, { 0.12f, 0.10f }, { 0.15f, 0.10f }, { 1.60f, 0.35f }, { -0.5f,  0.6f }, { -0.10f, 0.10f }, 0.08f, false }, // tierra: de arriba abajo
+            { 0.40f, 0.55f, { 1.30f, 0.90f }, { 0.90f, 0.20f }, { -0.6f,  0.30f }, { 1.70f, 1.10f }, {  0.0f,  0.3f }, { -0.30f, 0.20f }, 0.04f, false }, // madera: puno de martillo de lado
+            { 0.48f, 0.60f, { 0.80f, 1.45f }, { 0.15f, 0.10f }, { 0.00f, 0.00f }, { 2.00f, 0.15f }, {  0.0f,  0.1f }, { -0.25f, 0.25f }, 0.10f, false }, // piedra: directo
+            { 0.30f, 0.50f, { 1.25f, 1.05f }, { 0.20f, 0.18f }, { 0.10f, 0.10f }, { 1.30f, 0.95f }, { -0.3f,  0.4f }, { -0.05f, 0.05f }, 0.02f, false }, // construido: toques
+        },
+        { // PICO
+            { 0.62f, 0.62f, { 2.20f, 0.80f }, { 0.15f, 0.10f }, { 0.10f, 0.10f }, { 1.20f, 0.40f }, { -0.6f,  0.5f }, { -0.12f, 0.12f }, 0.18f, true  }, // tierra
+            { 0.60f, 0.60f, { 1.70f, 1.00f }, { 1.00f, 0.25f }, { -0.7f,  0.20f }, { 1.10f, 0.35f }, { -0.3f,  0.4f }, { -0.45f, 0.30f }, 0.10f, true  }, // madera: de lado
+            { 0.70f, 0.64f, { 2.70f, 0.60f }, { 0.10f, 0.08f }, { 0.10f, 0.10f }, { 1.60f, 0.25f }, { -0.7f,  0.6f }, { -0.20f, 0.20f }, 0.28f, true  }, // piedra: desde arriba, con todo
+            { 0.45f, 0.55f, { 1.70f, 1.10f }, { 0.15f, 0.12f }, { 0.10f, 0.10f }, { 1.20f, 0.70f }, { -0.4f,  0.3f }, { -0.08f, 0.08f }, 0.05f, false }, // construido: controlado
+        },
+        { // HACHA
+            { 0.60f, 0.60f, { 2.10f, 0.70f }, { 0.20f, 0.12f }, { 0.20f, 0.10f }, { 1.30f, 0.30f }, { -0.6f,  0.5f }, { -0.15f, 0.15f }, 0.15f, true  }, // tierra
+            { 0.64f, 0.60f, { 1.50f, 1.20f }, { 1.30f, 0.15f }, { -0.9f,  0.40f }, { 1.30f, 0.20f }, { -0.4f,  0.3f }, { -0.55f, 0.40f }, 0.12f, true  }, // madera: hachazo en diagonal
+            { 0.70f, 0.64f, { 2.50f, 0.80f }, { 0.15f, 0.10f }, { 0.10f, 0.10f }, { 1.40f, 0.35f }, { -0.6f,  0.4f }, { -0.15f, 0.15f }, 0.20f, true  }, // piedra
+            { 0.46f, 0.55f, { 1.60f, 1.05f }, { 0.60f, 0.30f }, { -0.3f,  0.10f }, { 1.20f, 0.60f }, { -0.3f,  0.3f }, { -0.20f, 0.10f }, 0.05f, false }, // construido
+        },
+        { // MARTILLO
+            { 0.55f, 0.60f, { 1.90f, 0.75f }, { 0.12f, 0.10f }, { 0.10f, 0.10f }, { 1.50f, 0.50f }, { -0.5f,  0.5f }, { -0.10f, 0.10f }, 0.14f, false }, // tierra: apisonar
+            { 0.50f, 0.58f, { 1.80f, 1.00f }, { 0.40f, 0.20f }, { -0.2f,  0.10f }, { 1.60f, 0.70f }, { -0.6f,  0.6f }, { -0.15f, 0.10f }, 0.06f, false }, // madera: clavar
+            { 0.62f, 0.62f, { 2.50f, 0.70f }, { 0.12f, 0.10f }, { 0.10f, 0.10f }, { 1.50f, 0.30f }, { -0.7f,  0.6f }, { -0.20f, 0.18f }, 0.22f, true  }, // piedra: mazazo
+            { 0.32f, 0.50f, { 1.40f, 1.05f }, { 0.20f, 0.15f }, { 0.10f, 0.10f }, { 1.70f, 1.20f }, { -0.7f,  0.5f }, { -0.04f, 0.04f }, 0.02f, false }, // construido: golpecitos
+        },
+        { // AZADA
+            { 0.66f, 0.62f, { 2.40f, 0.50f }, { 0.15f, 0.10f }, { 0.10f, 0.10f }, { 1.30f, 0.30f }, { -0.5f,  0.7f }, { -0.10f, 0.10f }, 0.30f, true  }, // tierra: cavar
+            { 0.58f, 0.60f, { 1.60f, 1.00f }, { 0.90f, 0.20f }, { -0.6f,  0.20f }, { 1.20f, 0.40f }, { -0.3f,  0.4f }, { -0.35f, 0.25f }, 0.10f, true  }, // madera
+            { 0.66f, 0.62f, { 2.30f, 0.80f }, { 0.12f, 0.10f }, { 0.10f, 0.10f }, { 1.40f, 0.40f }, { -0.6f,  0.4f }, { -0.15f, 0.15f }, 0.18f, true  }, // piedra
+            { 0.44f, 0.55f, { 1.50f, 1.00f }, { 0.20f, 0.15f }, { 0.10f, 0.10f }, { 1.20f, 0.70f }, { -0.4f,  0.4f }, { -0.06f, 0.06f }, 0.04f, false }, // construido
+        },
+    };
+    const int hi = (int)h < (int)Herramienta::NUM ? (int)h : 0;
+    const int ci = (int)c < (int)ClaseBloque::NUM ? (int)c : 0;
+    return T[hi][ci];
+}
+
+// Donde esta el ciclo de un golpe (0..1 = de cargado a impacto) en el tiempo
+// `u` (0..1 del periodo). Cargar es suave; golpear acelera (como un brazo de
+// verdad, que llega al impacto a toda velocidad); despues se queda un momento
+// y vuelve a cargar.
+inline float faseGolpe(float u, float carga) {
+    if (u < carga) return 1.0f - suave(u / carga);                 // impacto -> cargado
+    const float g = (1.0f - carga) * 0.45f;
+    if (u < carga + g) { const float k = (u - carga) / g; return k * k; }   // cargado -> impacto
+    return 1.0f;                                                    // impacto, se sostiene
+}
+
+// La pose del brazo derecho (y del izquierdo si va a dos manos) en un golpe.
+inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo) {
+    float u = tiempo / g.periodo;
+    u -= std::floor(u);
+    const float k = faseGolpe(u, g.carga);       // 0 cargado .. 1 impacto
+    auto mezcla = [k](const float v[2]) { return v[0] + (v[1] - v[0]) * k; };
+    Brazo& b = p.brazo[1];
+    b.flex = mezcla(g.flex);
+    b.abd = mezcla(g.abd);
+    b.rot = mezcla(g.rot);
+    b.codo = mezcla(g.codo);
+    b.munFlex = mezcla(g.muneca);
+    b.prono = 0.55f;
+    manoRelajada(b, 1.0f);
+    b.dedo[4][0] = 0.75f; b.dedo[4][1] = 0.65f; b.dedo[4][2] = 0.55f;
+    p.giroTorso += mezcla(g.torso);
+    p.inclinacion += g.inclina * k;
+    p.apretar = 1.0f;
+    if (g.dosManos) {
+        // La izquierda agarra el mango mas abajo: sigue al brazo derecho,
+        // un poco por detras y mas cerrada.
+        Brazo& i = p.brazo[0];
+        i.flex = b.flex * 0.85f;
+        i.abd = 0.25f;
+        i.rot = -0.3f;
+        i.codo = b.codo * 0.9f + 0.25f;
+        i.munFlex = b.munFlex;
+        i.prono = 0.55f;
+        manoRelajada(i, 1.0f);
+    }
+}
+
+// Los golpes de un solo disparo (al aire y a un animal): `t` son los
+// segundos desde el clic. Devuelve 0..1 de la pose cargada a la de impacto,
+// o -1 si ya termino.
+inline float faseDisparo(float t, float cargar, float golpear, float volver) {
+    if (t < 0.0f) return -1.0f;
+    if (t < cargar) return -suave(t / cargar);                       // 0 -> -1: recoge el brazo
+    t -= cargar;
+    if (t < golpear) { const float k = t / golpear; return -1.0f + 2.0f * k * k; }  // -1 -> 1
+    t -= golpear;
+    if (t < volver) return 1.0f - suave(t / volver);                 // 1 -> 0
+    return -2.0f;
+}
+
+// PEDIDO: "una animacion de golpear al pegarle al aire y animales, pero con
+// los animales que sean 3 animaciones donde una es un golpe directo a la
+// derecha, otro a la izquierda y uno de abajo a la derecha o izquierda".
+//
+//   AIRE       un directo de derecha, rapido y sin cargar el cuerpo.
+//   ANIMAL 0   directo de derecha con todo el cuerpo: gira el torso y se
+//              inclina hacia el golpe.
+//   ANIMAL 1   gancho de izquierda: el codo sale de lado y el torso gira al
+//              reves.
+//   ANIMAL 2   gancho de abajo arriba, con el brazo que toque (`lado`).
+inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t) {
+    const bool animal = a == Accion::GOLPE_ANIMAL;
+    const float f = faseDisparo(t, animal ? 0.10f : 0.07f, animal ? 0.12f : 0.10f, 0.20f);
+    if (f < -1.5f) return;
+    // c: cuanto esta recogido (0..1); g: cuanto esta en el impacto (0..1).
+    const float c = f < 0.0f ? -f : 0.0f;
+    const float g = f > 0.0f ? f : 0.0f;
+    auto puno = [](Brazo& b) {
+        manoRelajada(b, 1.0f);
+        b.dedo[4][0] = 0.75f; b.dedo[4][1] = 0.70f; b.dedo[4][2] = 0.60f;
+        b.prono = 1.1f;                          // nudillos arriba
+    };
+    if (!animal || variante == 0) {
+        Brazo& b = p.brazo[1];
+        puno(b);
+        const float fuerza = animal ? 1.0f : 0.7f;
+        b.flex = 0.55f + 0.25f * c + 1.0f * g;
+        b.abd = 0.15f + 0.10f * c;
+        b.codo = 0.5f + 1.5f * c - 0.45f * g;
+        b.munFlex = 0.0f;
+        p.giroTorso += (-0.20f * c + 0.30f * g) * fuerza;
+        p.inclinacion += 0.10f * g * fuerza;
+        p.apretar = 1.0f;
+        // La otra mano se queda en guardia.
+        Brazo& o = p.brazo[0];
+        puno(o);
+        o.flex = 0.9f; o.codo = 1.9f; o.abd = 0.15f;
+    } else if (variante == 1) {
+        Brazo& b = p.brazo[0];
+        puno(b);
+        b.flex = 0.6f + 0.6f * g;
+        b.abd = 0.4f + 0.9f * g + 0.2f * c;
+        b.rot = -0.2f - 0.7f * g;
+        b.codo = 1.7f - 0.2f * g;
+        p.giroTorso += 0.25f * c - 0.40f * g;
+        p.inclinacion += 0.06f * g;
+        Brazo& o = p.brazo[1];
+        puno(o);
+        o.flex = 0.9f; o.codo = 1.9f; o.abd = 0.15f;
+    } else {
+        Brazo& b = p.brazo[lado];
+        puno(b);
+        b.flex = -0.25f * c + 1.95f * g + 0.3f * (1.0f - c - g);
+        b.abd = 0.25f;
+        b.codo = 1.6f - 0.4f * g;
+        b.prono = 0.0f;                          // palma hacia el cuerpo
+        const float s = lado == 1 ? 1.0f : -1.0f;
+        p.giroTorso += s * (-0.25f * c + 0.20f * g);
+        p.inclinacion += 0.25f * c - 0.05f * g;
+        Brazo& o = p.brazo[1 - lado];
+        puno(o);
+        o.flex = 0.9f; o.codo = 1.9f; o.abd = 0.15f;
+    }
+}
+
+// PEDIDO: "cuando estas agachado crea 3 [animaciones] que se haran
+// dependiendo del terreno".
+//
+//   NATURAL       la mano izquierda baja al suelo y se apoya con la palma,
+//                 los dedos abiertos; la derecha descansa en la rodilla.
+//   CONSTRUCCION  erguido y recogido: las dos manos sobre las rodillas, como
+//                 quien se agacha en un suelo hecho.
+//   LIQUIDO       los brazos se abren para no perder el equilibrio y las
+//                 manos rozan el agua, con las munecas meciendose.
+inline void aplicarAgachado(Pose& p, Superficie s, float tiempo) {
+    switch (s) {
+        case Superficie::NATURAL: {
+            Brazo& i = p.brazo[0];
+            i.flex = 1.10f; i.abd = 0.25f; i.codo = 0.25f;
+            i.munFlex = -0.95f;                   // la palma plana en el suelo
+            i.prono = 1.3f;
+            manoRelajada(i, 0.0f);
+            for (int d = 0; d < 4; ++d) { i.dedo[d][0] = 0.0f; i.dedo[d][1] = 0.1f; i.abre[d] = 0.3f; }
+            Brazo& d = p.brazo[1];
+            d.flex = 0.75f; d.abd = 0.15f; d.codo = 0.90f; d.prono = 1.0f;
+            p.giroTorso += 0.06f * std::sin(tiempo * 0.5f);
+            break;
+        }
+        case Superficie::CONSTRUCCION:
+            for (Brazo& b : p.brazo) {
+                b.flex = 0.70f; b.abd = 0.12f; b.codo = 1.00f; b.prono = 1.1f; b.munFlex = 0.2f;
+                manoRelajada(b, 0.2f);
+            }
+            p.inclinacion -= 0.15f;
+            break;
+        case Superficie::LIQUIDO: {
+            const float m = std::sin(tiempo * 1.6f);
+            for (int l = 0; l < 2; ++l) {
+                Brazo& b = p.brazo[l];
+                b.flex = 0.55f; b.abd = 0.95f; b.codo = 0.30f;
+                b.prono = 1.2f + 0.25f * (l == 0 ? m : -m);
+                b.munFlex = 0.25f * (l == 0 ? m : -m);
+                manoRelajada(b, 0.0f);
+                for (int d = 0; d < 4; ++d) b.abre[d] = 0.2f;
+            }
+            break;
+        }
+    }
+}
+
+// PEDIDO: "los niveles al bajar o subirlos tendran animacion propia de como
+// elevacion de pies mientras caminas". Al subir, la pierna que va delante se
+// levanta (cadera y rodilla) y apoya; al bajar, se estira hacia abajo con la
+// punta por delante. `k` 0..1 es el avance del escalon.
+inline void aplicarEscalon(Pose& p, float k, bool sube, int pierna) {
+    if (k < 0.0f || k > 1.0f) return;
+    const float a = std::sin(PI * k);
+    Pierna& g = p.pierna[pierna];
+    if (sube) {
+        g.flex += 0.55f * a;
+        g.rodilla += 1.00f * a;
+        g.tobillo += 0.20f * a;
+        p.pierna[1 - pierna].tobillo -= 0.25f * a;   // la otra empuja con la punta
+    } else {
+        g.flex += 0.25f * a;
+        g.rodilla += 0.15f * a;
+        g.tobillo -= 0.45f * a;                       // la punta busca el suelo
+        p.pierna[1 - pierna].rodilla += 0.45f * a;   // la de atras se dobla
+    }
+    p.inclinacion += (sube ? 0.06f : -0.03f) * a;
+}
+
 inline Pose poseDe(const Estado& e) {
     Pose p;
+    p.enMano = (uint8_t)e.herramienta;
+    p.pedernal = e.pedernal;
     float ritmo = e.rapidez / 4.3f;              // 4.3 = andar
     if (ritmo > 1.4f) ritmo = 1.4f;
     const float corre = suave((e.rapidez - 4.6f) / 1.0f);
@@ -372,37 +658,26 @@ inline Pose poseDe(const Estado& e) {
     // Respirar: los hombros suben un poco y los brazos se mecen.
     for (Brazo& b : p.brazo) b.flex += respira * 0.02f;
 
-    // Picar con el brazo derecho: cargar despacio, golpear rapido y volver.
-    // El puno se cierra sobre la herramienta y la muneca remata el golpe.
-    if (e.golpeando) {
-        Brazo& b = p.brazo[1];
-        const float u = e.tiempo * 2.4f - std::floor(e.tiempo * 2.4f);
-        float flex, codo, mun;
-        if (u < 0.55f) {
-            const float s = suave(u / 0.55f);
-            flex = 1.2f + 1.1f * s; codo = 0.7f + 0.9f * s; mun = -0.5f * s;
-        } else if (u < 0.75f) {
-            const float k = suave((u - 0.55f) / 0.20f);
-            flex = 2.3f - 1.6f * k; codo = 1.6f - 1.2f * k; mun = -0.5f + 1.1f * k;
-        } else {
-            const float k = suave((u - 0.75f) / 0.25f);
-            flex = 0.7f + 0.5f * k; codo = 0.4f + 0.3f * k; mun = 0.6f - 1.1f * k;
-        }
-        b.flex = flex; b.codo = codo; b.munFlex = mun;
-        b.abd = 0.12f; b.prono = 0.55f; b.rot = 0.15f;
-        manoRelajada(b, 1.0f);
-        b.dedo[4][0] = 0.75f; b.dedo[4][1] = 0.65f; b.dedo[4][2] = 0.55f;
-        p.apretar = 1.0f;
-        p.giroTorso += -0.10f * std::sin(u * 2.0f * PI);
-    }
+    // Subir o bajar un nivel: la pierna de delante se levanta o se estira.
+    if (e.enSuelo && !e.volando) aplicarEscalon(p, e.escalon, e.escalonSube, e.piernaEscalon);
 
     if (e.agachado) {
-        // Agachado: la pelvis baja sola al ajustar los pies al suelo.
+        // Agachado: la pelvis baja sola al ajustar los pies al suelo. Los
+        // brazos, segun lo que se pisa.
         p.agachado = 1.0f;
         for (Pierna& g : p.pierna) { g.flex += 1.20f; g.rodilla += 2.00f; g.tobillo += 0.30f; }
         p.inclinacion += 0.45f;
         for (Brazo& b : p.brazo) { b.flex += 0.35f; b.codo += 0.25f; }
+        aplicarAgachado(p, e.superficie, e.tiempo);
     }
+
+    // Lo que hace el brazo va lo ultimo: manda sobre andar y agacharse.
+    // `golpeando` sin accion es el picar de siempre, con la mano.
+    const Accion accion = (e.accion == Accion::NINGUNA && e.golpeando) ? Accion::PICAR : e.accion;
+    if (accion == Accion::PICAR)
+        aplicarGolpe(p, golpeDe(e.herramienta, e.bloque), e.tiempo);
+    else if (accion == Accion::GOLPE_AIRE || accion == Accion::GOLPE_ANIMAL)
+        aplicarDisparo(p, accion, e.variante, e.ladoGolpe, e.tAccion);
 
     // La cabeza: los hombros acompanan un tercio del giro del cuello, que asi
     // nunca pasa de su limite. Al mirar abajo, el cuello se dobla hasta su
@@ -481,6 +756,9 @@ struct Esqueleto {
     Pie pie[2];
     float ojo = M::OJO;    // altura del ojo de la figura en esta pose
 };
+
+// El grosor de cada dedo del pie (del gordo al pequeno).
+inline float radioDedoPie(int d) { return d == 0 ? 0.0160f : 0.0112f - d * 0.0007f; }
 
 namespace detalle {
 inline void resolver(const Pose& p, float subir, Esqueleto& s) {
@@ -563,9 +841,10 @@ inline void resolver(const Pose& p, float subir, Esqueleto& s) {
         const float dentro = -sx;
         const Rot rDedos = rPie.por(Rot::enX(g.dedos));
         for (int d = 0; d < 5; ++d) {
-            const float rad = d == 0 ? 0.0125f : 0.0088f - d * 0.0006f;
-            V base = suma(tobillo, rPie.aplicar({ dentro * (0.028f - d * 0.0158f),
-                                                  -0.070f + rad, 0.150f - d * 0.010f }));
+            const float rad = radioDedoPie(d);
+            // Separados lo justo para que se vea el hueco entre ellos.
+            V base = suma(tobillo, rPie.aplicar({ dentro * (0.030f - d * 0.0178f),
+                                                  -0.070f + rad, 0.150f - d * 0.011f }));
             const float L = M::DEDO_PIE[d];
             pie.dedo[d][0] = { base, rDedos };
             base = suma(base, rDedos.aplicar({ 0, 0, L * 0.55f }));

@@ -136,18 +136,13 @@ struct MovementConfig {
     float buoyancy         = 3.6f;   // Empuje hacia arriba en agua
 
     // ---- ESCALONES ----
-    // 1.05, no 0.6.
-    //
-    // En un mundo de voxeles un bloque ocupa el intervalo [y, y+1), asi que
-    // su SUPERFICIE esta exactamente 1.0 unidades por encima del suelo
-    // anterior. El requisito "subir bloques de 1 bloque de altura" exige por
-    // tanto stepHeight > 1.0; con 0.6 (valor tipico de motores de terreno
-    // continuo tipo Unity/Unreal) el jugador choca contra cada bloque suelto
-    // y hay que saltar para todo.
-    //
-    // El margen de 0.05 absorbe el error de coma flotante al comparar contra
-    // el limite exacto del voxel.
-    float stepHeight       = 1.05f;  // Altura maxima a subir automaticamente
+    // Era 1.05, para subir bloques completos andando. Ya no: los bloques
+    // completos se saltan, como se pidio, y solo se sube andando lo que es
+    // un escalon de verdad (los niveles parciales).
+    // PEDIDO: "elimina la mecanica de cuando tocas un bloque mas alto del
+    // suelo subes al instante". 0.85 sube cualquier nivel (el mas alto, el 7,
+    // mide 13/16 = 0.81) pero NO un bloque completo: ese hay que saltarlo.
+    float stepHeight       = 0.85f;  // Altura maxima a subir automaticamente
     float maxStepUpSpeed   = 0.0f;   // 0 = instantaneo (sin animacion vertical)
 
     // ---- COLISIONES ----

@@ -144,6 +144,7 @@ public:
         if (state.isSubmerged)  return "SUMERGIDO";
         if (state.isInWater)    return "EN AGUA";
         if (!state.onGround)    return state.velocity.y > 0.0f ? "SALTANDO" : "CAYENDO";
+        if (state.isProne)      return "TUMBADO";
         if (state.isCrouching)  return "AGACHADO";
         if (state.isSprinting)  return "CORRIENDO";
         if (state.velocity.lengthSqXZ() > 0.01f) return "CAMINANDO";

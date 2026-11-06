@@ -178,6 +178,7 @@ struct Pose {
     float respira = 0.0f;              // -1..1
     float cuelloFlex = 0.0f;           // la cabeza hacia el pecho
     float agachado = 0.0f;
+    float tumbado = 0.0f;              // 0..1: boca abajo, el torso en el suelo
     float apretar = 0.0f;              // 0..1, cuanto aprieta el puno derecho
 };
 
@@ -217,6 +218,7 @@ struct Estado {
     float rapidez = 0;       // bloques/s en horizontal
     bool  enSuelo = true;
     bool  agachado = false;
+    bool  tumbado = false;   // boca abajo (SHIFT dos veces, ver Postura.h)
     bool  volando = false;
     bool  golpeando = false; // clic izquierdo mantenido: el brazo derecho pica
     float tiempo = 0;        // segundos
@@ -269,6 +271,38 @@ inline Pose poseDe(const Estado& e) {
     // medio ciclo detras de la izquierda.
     const float t0 = e.fasePaso / (2.0f * PI);
     const float tPierna[2] = { t0 - std::floor(t0), t0 + 0.5f - std::floor(t0 + 0.5f) };
+
+    // TUMBADO: boca abajo, con los antebrazos delante en el suelo y las
+    // piernas estiradas con el empeine apoyado. Al moverse, se arrastra: el
+    // codo de un lado avanza con la rodilla del otro, que se recoge hacia
+    // fuera, como gatea un soldado. El giro que tumba el cuerpo lo pone
+    // `resolver`; aqui las articulaciones van respecto al torso.
+    if (e.tumbado && !e.volando) {
+        p.tumbado = 1.0f;
+        const float amp = sujetar(e.rapidez / 0.75f, 0.0f, 1.0f);
+        const float c = std::sin(e.fasePaso);
+        for (int l = 0; l < 2; ++l) {
+            const float lado = l == 0 ? c : -c;
+            Brazo& b = p.brazo[l];
+            b.flex = 2.30f + 0.35f * amp * lado;      // el brazo hacia la cabeza
+            b.codo = 0.60f + 0.35f * amp * lado;
+            b.abd = 0.35f;
+            b.prono = 1.20f;                          // palmas al suelo
+            b.munFlex = -0.25f;
+            manoRelajada(b, 0.0f);
+            for (int d = 0; d < 4; ++d) b.abre[d] = 0.15f;
+            Pierna& g = p.pierna[l];
+            const float sube = std::fmax(0.0f, -lado) * amp;
+            g.flex = 0.02f + 0.45f * sube;
+            g.abd = 0.08f + 0.35f * sube;
+            g.rodilla = 0.08f + 0.90f * sube;
+            g.tobillo = -0.80f;                       // el empeine en el suelo
+        }
+        p.respira = respira;
+        p.giroTorso = e.giroCuello * 0.35f;
+        limitar(p);
+        return p;
+    }
 
     if (e.volando) {
         // Volando: piernas sueltas, un poco recogidas, que se mecen.
@@ -554,12 +588,56 @@ inline float plantaMasBaja(const Esqueleto& s) {
 }
 } // namespace detalle
 
+namespace detalle {
+// Mueve el esqueleto entero: girar alrededor de `piv` y luego subir `dy`.
+inline void mover(Esqueleto& s, const Rot& R, V piv, float dy) {
+    auto P = [&](V& p) { p = suma(piv, R.aplicar(resta(p, piv))); p.y += dy; };
+    auto J = [&](Junta& j) { P(j.p); j.r = R.por(j.r); };
+    J(s.pelvis); J(s.pecho); J(s.cuello);
+    for (int l = 0; l < 2; ++l) {
+        J(s.hombro[l]); J(s.codo[l]); J(s.cadera[l]); J(s.rodilla[l]);
+        J(s.mano[l].muneca);
+        for (auto& dedo : s.mano[l].dedo) for (Junta& j : dedo) J(j);
+        Pie& pie = s.pie[l];
+        J(pie.tobillo); P(pie.talon); P(pie.bola);
+        for (auto& dedo : pie.dedo) for (Junta& j : dedo) J(j);
+    }
+    s.ojo = s.cuello.p.y + M::OJO_SOBRE_CUELLO;
+}
+// Lo que toca el suelo estando tumbado: pecho, pelvis, codos, rodillas,
+// manos y pies, cada uno con su grosor.
+inline float apoyoTumbado(const Esqueleto& s) {
+    float y = suma(s.pelvis.p, s.pecho.r.aplicar({ 0, 0.36f, 0.115f })).y;
+    y = std::fmin(y, suma(s.pelvis.p, s.pelvis.r.aplicar({ 0, -0.02f, 0.105f })).y);
+    for (int l = 0; l < 2; ++l) {
+        y = std::fmin(y, s.codo[l].p.y - 0.037f);
+        y = std::fmin(y, s.rodilla[l].p.y - 0.050f);
+        y = std::fmin(y, s.mano[l].muneca.p.y - 0.020f);
+        for (int d = 0; d < 5; ++d) y = std::fmin(y, s.mano[l].dedo[d][3].p.y - 0.009f);
+        y = std::fmin(y, s.pie[l].tobillo.p.y - 0.035f);
+        for (int d = 0; d < 5; ++d) y = std::fmin(y, s.pie[l].dedo[d][2].p.y - 0.009f);
+    }
+    return y;
+}
+} // namespace detalle
+
+// Cuanto se tumba el cuerpo: casi horizontal (85 grados).
+constexpr float GIRO_TUMBADO = 1.48f;
+
 // `apoyar`: con los pies en el suelo, la figura sube o baja hasta que lo mas
 // bajo de la planta toca y=0. Es lo que hace que agacharse baje el cuerpo y
 // que al andar se bote sobre el pie que apoya, sin inventar el bote.
+// Tumbado, el cuerpo entero gira sobre la pelvis hasta quedar boca abajo y
+// lo que se apoya es el pecho, los codos y las rodillas.
 inline Esqueleto resolver(const Pose& p, bool apoyar = true) {
     Esqueleto s;
     detalle::resolver(p, 0.0f, s);
+    if (p.tumbado > 0.0f) {
+        // Con giro en X negativo la cabeza va hacia +Z y el pecho mira al suelo.
+        detalle::mover(s, Rot::enX(-GIRO_TUMBADO * p.tumbado), s.pelvis.p, 0.0f);
+        if (apoyar) detalle::mover(s, Rot::identidad(), s.pelvis.p, -detalle::apoyoTumbado(s));
+        return s;
+    }
     if (apoyar) {
         const float baja = detalle::plantaMasBaja(s);
         detalle::resolver(p, -baja, s);

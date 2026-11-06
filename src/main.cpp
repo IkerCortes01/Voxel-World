@@ -102,6 +102,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/PlayerDebug.h"
 #include "player/ModeloJugador.h"   // el cuerpo que se ve al mirar abajo
 #include "player/MallaJugador.h"    // su piel: musculos, tendones y venas
+#include "player/Postura.h"         // SHIFT y ESPACIO: de pie, agachado, tumbado
 #include "player/EngineAdapter.h"
 
 // ============================================================================
@@ -31469,7 +31470,7 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime,
     im.setBack   (!durmiendo && keys[(unsigned char)'s']);
     im.setLeft   (!durmiendo && keys[(unsigned char)'a']);
     im.setRight  (!durmiendo && keys[(unsigned char)'d']);
-    im.setJump   (!durmiendo && keys[(unsigned char)' ']);
+    const bool espacioPulsado = !durmiendo && keys[(unsigned char)' '];
 
     // SHIFT y CTRL se consultan directamente porque no estan en keys[].
     GLFWwindow* win = glfwGetCurrentContext();
@@ -31518,7 +31519,21 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime,
     // CTRL = correr, SHIFT = agacharse (convencion estandar de sandbox voxel).
     // En vuelo, SHIFT desciende.
     im.setSprint(!durmiendo && ctrlDown);
-    im.setCrouch(!durmiendo && shiftDown);
+
+    // SHIFT y ESPACIO como interruptores de postura (ver player/Postura.h):
+    // SHIFT de pie -> agachado -> tumbado; ESPACIO tumbado -> agachado -> de
+    // pie, y solo salta si ya esta de pie. Volando, nadando o en la escalera
+    // SHIFT se mantiene, como siempre, para bajar.
+    {
+        static PlayerSys::ControlPostura postura;
+        const PlayerSys::MovementState& ms = g_playerController->getState();
+        const bool libre = !player.isFlying && !ms.isInWater && !ms.isOnLadder;
+        const PlayerSys::ControlPostura::Salida sal =
+            postura.avanzar(!durmiendo && shiftDown, espacioPulsado, libre);
+        im.setJump(sal.saltar);
+        im.setCrouch(sal.agachar);
+        im.setProne(sal.tumbar);
+    }
 
     // ---- MANTENER SINCRONIZADO EL MODO VUELO ----
     // La tecla V la gestiona keyCallback sobre player.isFlying.
@@ -37346,7 +37361,8 @@ void placeBlock(GameState* state) {
         if (g_playerController) {
             const PlayerSys::MovementConfig& mc = g_playerController->getConfig();
             ancho = mc.width;
-            alto  = g_playerController->getState().isCrouching ? mc.crouchHeight
+            alto  = g_playerController->getState().isProne ? mc.proneHeight
+                  : g_playerController->getState().isCrouching ? mc.crouchHeight
                                                                : mc.height;
         }
 
@@ -38298,7 +38314,8 @@ void placeBlock(GameState* state) {
         if (g_playerController) {
             const PlayerSys::MovementConfig& mc = g_playerController->getConfig();
             anchoJug = mc.width;
-            altoJug  = g_playerController->getState().isCrouching
+            altoJug  = g_playerController->getState().isProne ? mc.proneHeight
+                     : g_playerController->getState().isCrouching
                      ? mc.crouchHeight : mc.height;
         }
         const Render::CajaJugador cajaJug = Render::cajaDelJugador(
@@ -47886,7 +47903,9 @@ int main() {
             if (g_playerController && !g_gameState->durmiendo && g_gameState->player.pitch < 40.0f) {
                 const auto& st = g_playerController->getState();
                 const Vec3 ojo = ojoDelJugador(g_gameState->player);
-                const float altoOjo = st.isCrouching ? 0.80f : 1.62f;
+                // La altura real del ojo, la que la camara va suavizando.
+                const float altoOjo = st.alturaOjo > 0.0f ? st.alturaOjo
+                    : (st.isProne ? 0.42f : (st.isCrouching ? 0.86f : 1.62f));
 
                 // El paso avanza con lo andado, no con el tiempo: los pies no
                 // patinan sobre el suelo.
@@ -47910,14 +47929,17 @@ int main() {
                                                             rapidezSuave > 0.5f, dtc);
 
                 ModeloJugador::Estado ea;
-                if (st.onGround && !st.isFlying) fasePaso = ModeloJugador::avanzarPaso(fasePaso, paso);
+                // Arrastrandose, cada "zancada" es mucho mas corta.
+                if (st.onGround && !st.isFlying)
+                    fasePaso = ModeloJugador::avanzarPaso(fasePaso, paso * (st.isProne ? 2.6f : 1.0f));
                 // Al pararse, la pierna vuelve al centro en vez de congelarse a
                 // medio paso.
                 if (rapidezSuave < 0.3f) fasePaso *= 0.85f;
                 ea.fasePaso = fasePaso;
                 ea.rapidez = rapidezSuave;
                 ea.enSuelo = st.onGround || st.isInWater;
-                ea.agachado = st.isCrouching;
+                ea.agachado = st.isCrouching && !st.isProne;
+                ea.tumbado = st.isProne;
                 ea.volando = st.isFlying;
                 ea.golpeando = golpea;
                 ea.tiempo = reloj;
@@ -47942,14 +47964,49 @@ int main() {
                 static ModeloJugador::Malla malla;
                 ModeloJugador::generar(esq, pose, piel, fisiologia, calidad, malla);
 
-                // Luz: la de la celda del pecho y la de encima, como los animales.
+                // ⭐ LA LUZ DE ALREDEDOR, CON LA CURVA DEL TERRENO
+                //
+                // La misma regla que los bloques y los items sueltos
+                // (brilloDeNivel de LuzCielo.h): asi el cuerpo se ve igual de
+                // iluminado que el suelo que pisa, de dia, de noche, en una
+                // cueva o junto a una antorcha. Antes se usaba la curva de los
+                // animales sobre una sola celda, y el cuerpo podia quedar mas
+                // claro o mas oscuro que lo que lo rodea.
+                //
+                // Se mide a dos alturas (pies y pecho), cada una con su celda
+                // y las 8 de alrededor que esten libres: una pared al lado no
+                // es oscuridad, es una pared. Cada vertice mezcla las dos
+                // segun su altura, y el valor se suaviza en el tiempo para que
+                // cruzar una sombra no cambie el brillo de golpe.
+                const float solCuerpo = luzSolar();
+                auto luzEn = [&](int cx, int cy, int cz) -> float {
+                    float suma = 0.0f, peso = 0.0f;
+                    for (int ox = -1; ox <= 1; ++ox)
+                        for (int oz = -1; oz <= 1; ++oz) {
+                            const int x = cx + ox, z = cz + oz;
+                            const bool centro = ox == 0 && oz == 0;
+                            int nivel;
+                            if (cy >= CHUNK_HEIGHT) nivel = 18;
+                            else if (cy < 0) nivel = 0;
+                            else {
+                                if (!centro && isBlockSolid(g_gameState->world.getBlock(x, cy, z))) continue;
+                                nivel = g_gameState->world.getLightLevel(x, cy, z);
+                            }
+                            const float w = centro ? 3.0f : 1.0f;
+                            suma += brilloDeNivel(nivel, solCuerpo) * w;
+                            peso += w;
+                        }
+                    return peso > 0.0f ? suma / peso : 0.0f;
+                };
+                const float pieY0 = ojo.y - altoOjo;
                 const int bx = (int)std::floor(ojo.x), bz = (int)std::floor(ojo.z);
-                const int by = (int)std::floor(ojo.y - 0.6f);
-                const int nv = g_gameState->world.getLightAt(bx, by, bz) * 2 +
-                               g_gameState->world.getLightAt(bx, by + 1, bz);
-                float raw = (float)nv / 3.0f / 18.0f;
-                if (raw > 1.0f) raw = 1.0f;
-                const float luzCuerpo = 0.18f + 0.82f * brilloDeLuz(raw, luzSolar());
+                const float luzPiesAhora = luzEn(bx, (int)std::floor(pieY0 + 0.3f), bz);
+                const float luzPechoAhora = luzEn(bx, (int)std::floor(pieY0 + altoOjo * 0.75f), bz);
+                static float luzPies = -1.0f, luzPecho = -1.0f;
+                const float kLuz = 1.0f - std::exp(-8.0f * dtc);
+                if (luzPies < 0.0f || paso > 1.5f) { luzPies = luzPiesAhora; luzPecho = luzPechoAhora; }
+                luzPies += (luzPiesAhora - luzPies) * kLuz;
+                luzPecho += (luzPechoAhora - luzPecho) * kLuz;
 
                 // El cuerpo gira con su propio yaw; el cuello, que esta detras
                 // del ojo, va donde mira la cabeza.
@@ -47957,8 +48014,13 @@ int main() {
                 const float yawB = giroCuerpo.yaw * 3.14159265f / 180.0f;
                 const float fx = -std::sin(yawB), fz = -std::cos(yawB);   // +Z local
                 const float rx = std::cos(yawB),  rz = -std::sin(yawB);   // +X local
+                // ⭐ El cuerpo se ancla por SU cuello, no por el origen. Al
+                // agacharse el torso se inclina y el cuello avanza: anclado
+                // por el origen, el cuello y los hombros quedaban delante del
+                // ojo y la camara los atravesaba.
                 const float cuelloX = ojo.x + std::sin(yawC) * ModeloJugador::M::ATRAS;
                 const float cuelloZ = ojo.z + std::cos(yawC) * ModeloJugador::M::ATRAS;
+                const ModeloJugador::V cuelloLocal = esq.cuello.p;
                 const float pieY = ojo.y - altoOjo;
                 // Al mirar abajo una persona dobla el cuello y el ojo se
                 // adelanta sobre el pecho: por eso se ve los pies. Sin esto el
@@ -47967,7 +48029,15 @@ int main() {
                 // los hombros retroceden hasta 0.24.
                 float baja = (-g_gameState->player.pitch - 20.0f) / 60.0f;
                 baja = baja < 0.0f ? 0.0f : (baja > 1.0f ? 1.0f : baja);
-                const float atrasPorAlto = 0.24f * baja / 1.45f;
+                const float atrasPorAlto = 0.24f * baja / 1.45f * (1.0f - pose.tumbado);
+                // Tumbado, lo que se apoya es la malla entera (pecho, codos):
+                // se ajusta al suelo por su punto mas bajo.
+                float baseMalla = 0.0f;
+                if (pose.tumbado > 0.0f && ea.enSuelo) {
+                    baseMalla = 1e9f;
+                    for (const ModeloJugador::VerticeJ& v : malla.v) baseMalla = std::fmin(baseMalla, v.p.y);
+                }
+                const float altoFigura = esq.ojo > 0.3f ? esq.ojo : 1.62f;
 
                 // Al mundo, con la luz por vertice (el motor no usa
                 // GL_LIGHTING): sol desde arriba y algo de lado, como en los
@@ -47977,16 +48047,20 @@ int main() {
                 col.resize(malla.v.size() * 3);
                 for (size_t i = 0; i < malla.v.size(); ++i) {
                     const ModeloJugador::VerticeJ& v = malla.v[i];
-                    const float lx = v.p.x;
-                    const float ly = v.p.y * ky;
-                    const float lz = v.p.z + ModeloJugador::M::ATRAS - v.p.y * atrasPorAlto;
+                    const float lx = v.p.x - cuelloLocal.x;
+                    const float ly = (v.p.y - baseMalla) * ky;
+                    const float lz = v.p.z - v.p.y * atrasPorAlto - cuelloLocal.z;
                     pos[i * 3 + 0] = cuelloX + rx * lx + fx * lz;
                     pos[i * 3 + 1] = pieY + ly;
                     pos[i * 3 + 2] = cuelloZ + rz * lx + fz * lz;
                     const float nx = rx * v.n.x + fx * v.n.z, nz = rz * v.n.x + fz * v.n.z;
                     float d = nx * 0.35f + v.n.y * 0.90f + nz * 0.25f;
                     if (d < 0.0f) d = 0.0f;
-                    const float k = luzCuerpo * (0.52f + 0.48f * d);
+                    // Arriba como la cara de arriba de un bloque; los lados,
+                    // como los lados.
+                    float h = (v.p.y - baseMalla) / altoFigura;
+                    h = h < 0.0f ? 0.0f : (h > 1.0f ? 1.0f : h);
+                    const float k = (luzPies + (luzPecho - luzPies) * h) * (0.60f + 0.40f * d);
                     col[i * 3 + 0] = v.r * k;
                     col[i * 3 + 1] = v.g * k;
                     col[i * 3 + 2] = v.b * k;

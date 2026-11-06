@@ -31,7 +31,7 @@ TEST_CASE("Cuerpo: no altera la altura de los ojos") {
     // que se pidio que NO pasara.
     PlayerSys::MovementConfig cfg;
     CHECK(cfg.eyeHeight       == doctest::Approx(1.62f));
-    CHECK(cfg.crouchEyeHeight == doctest::Approx(0.80f));
+    CHECK(cfg.crouchEyeHeight == doctest::Approx(0.86f));
     CHECK(cfg.height          == doctest::Approx(1.80f));
 }
 

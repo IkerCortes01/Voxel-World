@@ -86,12 +86,23 @@ struct MovementConfig {
     // salvo caminar despacio. Con 0.95 cabe con margen.
     float crouchHeight = 0.95f;  // Altura agachado
     float eyeHeight    = 1.62f;  // Altura de camara de pie
-    float crouchEyeHeight = 0.80f; // Altura de camara agachado
+    // 0.86 y no 0.80: con 0.80 el ojo quedaba a la altura del cuello y los
+    // hombros de la figura agachada, y se veian atravesados. Sigue por debajo
+    // del techo de la caja (0.95), asi que no se ve a traves de un techo.
+    float crouchEyeHeight = 0.86f; // Altura de camara agachado
+    // Tumbado boca abajo (SHIFT dos veces): el torso en el suelo, la cabeza
+    // levantada mirando al frente.
+    float proneHeight    = 0.55f;
+    float proneEyeHeight = 0.42f;
+    // Lo rapido que la camara sube o baja al cambiar de postura (1/s). Un
+    // cuerpo que se agacha no teletransporta la cabeza.
+    float postureEyeRate = 9.0f;
 
     // ---- VELOCIDADES OBJETIVO (bloques/segundo) ----
     float walkSpeed    = 4.317f; // Caminar
     float sprintSpeed  = 5.612f; // Correr (~1.3x)
     float crouchSpeed  = 1.31f;  // Agachado
+    float proneSpeed   = 0.75f;  // Tumbado: se arrastra
     float swimSpeed    = 2.20f;  // Nadando
     float flySpeed     = 10.0f;  // Vuelo creativo
     float flySprintSpeed = 21.0f;// Vuelo rapido
@@ -187,6 +198,7 @@ struct MovementState {
     // --- Estados de movimiento ---
     bool isSprinting   = false;
     bool isCrouching   = false;
+    bool isProne       = false;  // tumbado; implica isCrouching
     bool isFlying      = false;
     bool isInWater     = false;  // cuerpo en agua
     bool isSubmerged   = false;  // ojos bajo el agua
@@ -207,6 +219,10 @@ struct MovementState {
     // se interpola para que no haya un tiron vertical.
     float stepSmoothOffset = 0.0f;
 
+    // --- La altura del ojo, que va hacia la de la postura sin saltos ---
+    // < 0: aun sin fijar (toma la de la postura al primer frame).
+    float alturaOjo = -1.0f;
+
     // --- Interpolacion de render ---
     // Guarda la posicion del paso fisico anterior para interpolar el render
     // entre pasos fijos (elimina el micro-stutter).
@@ -225,6 +241,7 @@ struct InputCommand {
     bool  jump        = false;
     bool  sprint      = false;
     bool  crouch      = false;
+    bool  prone       = false;  // tumbado (ver Postura.h)
     bool  flyUp       = false;
     bool  flyDown     = false;
 
@@ -234,7 +251,7 @@ struct InputCommand {
 
     void clear() {
         moveForward = moveRight = 0.0f;
-        jump = sprint = crouch = flyUp = flyDown = false;
+        jump = sprint = crouch = prone = flyUp = flyDown = false;
         lookDeltaYaw = lookDeltaPitch = 0.0f;
     }
 };

@@ -49,6 +49,7 @@ private:
     bool keyJump    = false;
     bool keySprint  = false;
     bool keyCrouch  = false;
+    bool keyProne   = false;
 
     bool inputEnabled = true;
 
@@ -111,6 +112,7 @@ public:
     void setJump(bool v)    { keyJump    = v; }
     void setSprint(bool v)  { keySprint  = v; }
     void setCrouch(bool v)  { keyCrouch  = v; }
+    void setProne(bool v)   { keyProne   = v; }
 
     // El motor inyecta su reloj: asi el modulo no depende de GLFW y los
     // tests pueden avanzar el tiempo de forma determinista.
@@ -149,7 +151,7 @@ public:
     // cancelDoubleTapSprint().
     void reset() {
         keyForward = keyBack = keyLeft = keyRight = false;
-        keyJump = keySprint = keyCrouch = false;
+        keyJump = keySprint = keyCrouch = keyProne = false;
         pendingMouseDX = pendingMouseDY = 0.0f;
     }
 
@@ -176,6 +178,7 @@ public:
         // doble toque desaparece aunque el flag no se hubiera limpiado aun.
         cmd.sprint  = keySprint || (doubleTapSprint && keyForward);
         cmd.crouch  = keyCrouch;
+        cmd.prone   = keyProne;
 
         // En vuelo, salto/agacharse controlan la altura.
         cmd.flyUp   = keyJump;

@@ -346,6 +346,10 @@ public:
     bool canStandUp(const MoveVec3& pos) const {
         return !overlapsSolid(makeBox(pos, cfg->height));
     }
+    // Para pasar de tumbado a agachado.
+    bool cabeCon(const MoveVec3& pos, float altura) const {
+        return !overlapsSolid(makeBox(pos, altura));
+    }
 };
 
 } // namespace PlayerSys

@@ -49,6 +49,7 @@ private:
     float getTargetSpeed(const MovementState& s) const {
         if (s.isFlying)   return s.isSprinting ? cfg->flySprintSpeed : cfg->flySpeed;
         if (s.isInWater)  return cfg->swimSpeed;
+        if (s.isProne && s.onGround) return cfg->proneSpeed;
         if (s.isCrouching && s.onGround) return cfg->crouchSpeed;
         if (s.isSprinting && s.onGround) return cfg->sprintSpeed;
         return cfg->walkSpeed;

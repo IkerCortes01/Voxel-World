@@ -145,26 +145,40 @@ public:
     // Salto ANTES que gravedad para que el primer paso tras saltar conserve
     // la velocidad inicial completa; al reves, la gravedad recortaria la
     // altura del salto en un paso y esta dejaria de coincidir con jumpHeight.
+    float alturaCaja(const MovementState& s) const {
+        if (s.isProne) return cfg->proneHeight;
+        return s.isCrouching ? cfg->crouchHeight : cfg->height;
+    }
+
     void fixedUpdate(MovementState& state, const InputCommand& input, float dt) {
 
         // ---- 1. Posicion previa (interpolacion de render) ----
         state.previousPosition = state.position;
         state.wasOnGround = state.onGround;
 
-        const float curHeight = state.isCrouching ? cfg->crouchHeight : cfg->height;
+        const float curHeight = alturaCaja(state);
 
         // ---- 2. Deteccion de medio ----
         state.isInWater = collision.isInWater(state.position, curHeight);
         state.isOnLadder = collision.isOnLadder(state.position, curHeight);
 
         MoveVec3 eye = state.position;
-        eye.y += state.isCrouching ? cfg->crouchEyeHeight : cfg->eyeHeight;
+        eye.y += state.isProne ? cfg->proneEyeHeight
+               : (state.isCrouching ? cfg->crouchEyeHeight : cfg->eyeHeight);
         state.isSubmerged = collision.isPointInLiquid(eye);
 
         // ---- 3. Agachado ----
         // Solo se puede dejar de estar agachado si hay hueco para erguirse:
         // si no, el jugador atravesaria el techo al levantarse.
-        if (input.crouch && !state.isFlying) {
+        // Tumbado: solo se sale a agachado si cabe la caja agachada.
+        if (input.prone && !state.isFlying && !state.isInWater && !state.isOnLadder) {
+            state.isProne = true;
+        } else if (state.isProne) {
+            if (collision.cabeCon(state.position, cfg->crouchHeight)) state.isProne = false;
+        }
+        if (state.isProne) {
+            state.isCrouching = true;
+        } else if (input.crouch && !state.isFlying) {
             state.isCrouching = true;
         } else if (state.isCrouching) {
             if (collision.canStandUp(state.position)) {
@@ -189,7 +203,7 @@ public:
         gravity.apply(state, dt);
 
         // ---- 8. Integracion + colisiones ----
-        const float height = state.isCrouching ? cfg->crouchHeight : cfg->height;
+        const float height = alturaCaja(state);
 
         MoveVec3 delta(state.velocity.x * dt,
                        state.velocity.y * dt,

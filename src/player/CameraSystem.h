@@ -74,7 +74,12 @@ public:
     // ALTURA DE OJO
     // ========================================================================
     float getEyeHeight(const MovementState& state) const {
+        if (state.isProne) return cfg->proneEyeHeight;
         return state.isCrouching ? cfg->crouchEyeHeight : cfg->eyeHeight;
+    }
+    // La que usa la camara: va hacia la de la postura a postureEyeRate.
+    float getSmoothedEyeHeight(const MovementState& state) const {
+        return state.alturaOjo < 0.0f ? getEyeHeight(state) : state.alturaOjo;
     }
 
     // ========================================================================
@@ -94,7 +99,7 @@ public:
             p = state.position;
         }
 
-        p.y += getEyeHeight(state);
+        p.y += getSmoothedEyeHeight(state);
 
         // Compensacion del escalon: se resta el offset pendiente, que decae
         // a cero en stepSmoothTime segundos.
@@ -109,6 +114,11 @@ public:
     // Se llama una vez por FRAME DE RENDER (no por paso de fisica), porque es
     // un efecto puramente visual.
     void updateStepSmoothing(MovementState& state, float frameDt) const {
+        // La altura del ojo sigue a la postura sin saltar.
+        const float objetivo = getEyeHeight(state);
+        if (state.alturaOjo < 0.0f) state.alturaOjo = objetivo;
+        else state.alturaOjo = MathUtil::damp(state.alturaOjo, objetivo, cfg->postureEyeRate, frameDt);
+
         if (state.stepSmoothOffset == 0.0f) return;
 
         if (cfg->stepSmoothTime <= 0.0f) {

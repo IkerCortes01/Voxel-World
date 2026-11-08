@@ -1036,6 +1036,7 @@ ClimaFrame g_clima;
 // Uno para todo el juego, como las opciones: se guarda en avatar.txt junto a
 // opciones.txt. El pelo, la barba y las unas crecen con los dias del mundo.
 Avatar::Datos g_avatar;
+int g_subMenuPrincipal = 0;      // 1 Opciones, 2 Avatar abiertos desde el menu principal
 double g_ruedaAvatar = 0.0;       // la rueda del raton en la pantalla de avatar
 
 void guardarAvatar() {
@@ -24188,7 +24189,34 @@ public:
                             auto ladoAgua = [&](float ax, float az,
                                                 float bx, float bz,
                                                 int dx, int dz) {
-                                if (vecinoEsAgua(dx, 0, dz)) return;
+                                // ⭐ EL ESCALON ENTRE DOS NIVELES DE AGUA.
+                                //
+                                // BUG REPORTADO: "bug de texturas con los
+                                // niveles de agua", una reja de lineas claras.
+                                // Antes, con agua al lado no habia pared NUNCA:
+                                // entre un 5/8 y un 4/8 quedaba una rendija de
+                                // 1/8 sin dibujar por la que se veia el fondo,
+                                // y el agua que fluye baja un nivel por celda,
+                                // asi que las rendijas cubrian todos los bordes.
+                                // Ahora la celda MAS ALTA pone la pared, desde
+                                // la superficie de la vecina hasta la suya.
+                                //
+                                // Y contra un bloque macizo no hay pared de agua:
+                                // quedaba en el mismo plano que la cara del
+                                // bloque y las dos se peleaban en diagonal.
+                                float desde = 0.0f;
+                                {
+                                    const BlockType vec =
+                                        getNeighborBlockCached(x, y, z, dx, 0, dz);
+                                    if (esAguaCualquiera(vec)) {
+                                        float hVec = Compuesto::Agua::alturaVisual(vec);
+                                        if (vecinoEsAgua(dx, 1, dz)) hVec = 1.0f;
+                                        if (hVec >= altoAgua - 1e-4f) return;
+                                        desde = hVec;
+                                    } else if (llenaSuVoxelFrenteALiquido(vec)) {
+                                        return;
+                                    }
+                                }
 
                                 const float lf =
                                     faceLightFactor(x, y, z, dx, 0, dz);
@@ -24201,7 +24229,7 @@ public:
 
                                 const float PX4[4] = { ax, bx, bx, ax };
                                 const float PZ4[4] = { az, bz, bz, az };
-                                const float PY4[4] = { 0.0f, 0.0f,
+                                const float PY4[4] = { desde, desde,
                                                        altoAgua, altoAgua };
                                 const float U4[4]  = { U0, U1, U1, U0 };
 
@@ -24210,7 +24238,7 @@ public:
                                 // estirarse. Misma regla que los niveles de
                                 // terreno, y por el mismo motivo.
                                 const float vTope = U1;
-                                const float vBase = U1 - (U1 - U0) * altoAgua;
+                                const float vBase = U1 - (U1 - U0) * (altoAgua - desde);
                                 const float V4[4]  = { vBase, vBase,
                                                        vTope, vTope };
 
@@ -41847,7 +41875,8 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     if (!g_gameState) return;
 
     // En la pantalla de AVATAR la rueda acerca el personaje o desplaza el panel.
-    if (g_gameState->isPaused && g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
+    if ((g_gameState->isPaused || (g_gameState->screenState == SCREEN_MAIN_MENU && g_subMenuPrincipal == 2)) &&
+        g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
         g_ruedaAvatar += yoffset;
         return;
     }
@@ -42196,6 +42225,9 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
             glfwGetWindowSize(window, &width, &height);
 
             if (g_gameState->screenState == SCREEN_MAIN_MENU) {
+                // Dentro de Opciones o Avatar, el clic es suyo.
+                if (g_subMenuPrincipal == 1) { clicOpciones((float)xpos, (float)ypos, width, height); return; }
+                if (g_subMenuPrincipal == 2) return;   // renderAvatar lee el raton
                 handleMainMenuClick(g_gameState, (float)xpos, (float)ypos, width, height);
                 return;
             } else if (g_gameState->screenState == SCREEN_WORLD_SELECT) {
@@ -43485,6 +43517,28 @@ void renderMainMenu(GameState* state, int screenWidth, int screenHeight, GLFWwin
     glVertex2f(0, screenHeight);
     glEnd();
 
+    // ⭐ OPCIONES O AVATAR ABIERTOS DESDE AQUI: se dibujan sobre el fondo y
+    // nada mas. Al pulsar VOLVER ellas ponen PAUSE_MENU_MAIN y se cierra.
+    if (g_subMenuPrincipal == 1 && state->pauseMenuState != PAUSE_MENU_GRAPHICS) g_subMenuPrincipal = 0;
+    if (g_subMenuPrincipal == 2 && state->pauseMenuState != PAUSE_MENU_SENSITIVITY) g_subMenuPrincipal = 0;
+    if (g_subMenuPrincipal != 0) {
+        double mx = 0.0, my = 0.0;
+        glfwGetCursorPos(window, &mx, &my);
+        int ww = screenWidth, wh = screenHeight;
+        glfwGetWindowSize(window, &ww, &wh);
+        // Esas pantallas piensan en coordenadas de ventana, como el raton.
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrtho(0, ww, wh, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        if (g_subMenuPrincipal == 1) renderOpciones(ww, wh, (float)mx, (float)my);
+        else renderAvatar(window, ww, wh, (float)mx, (float)my);
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+        glPopMatrix();
+        return;
+    }
     // Sombra del título
     float titleY = 80;
     float titleWidth = 450;
@@ -45258,7 +45312,17 @@ void handleMainMenuClick(GameState* state, float mouseX, float mouseY, int scree
         // Señal para cerrar el juego
         glfwSetWindowShouldClose(glfwGetCurrentContext(), GLFW_TRUE);
     }
-    // TODO: Manejar btnOpciones y btnAvatar
+    // ⭐ OPCIONES Y AVATAR DESDE EL MENU PRINCIPAL: las mismas pantallas que
+    // en la pausa. Se marcan con pauseMenuState, que es lo que esas pantallas
+    // miran (y ponen a PAUSE_MENU_MAIN al pulsar VOLVER).
+    else if (state->btnOpciones.contains(mouseX, mouseY)) {
+        g_subMenuPrincipal = 1;
+        state->pauseMenuState = PAUSE_MENU_GRAPHICS;
+    }
+    else if (state->btnAvatar.contains(mouseX, mouseY)) {
+        g_subMenuPrincipal = 2;
+        state->pauseMenuState = PAUSE_MENU_SENSITIVITY;
+    }
 }
 
 // Manejar clic en selección de mundos
@@ -49644,6 +49708,17 @@ int main() {
 
         // Pasar posición del jugador para near plane culling
         { MedirTramo m_(T_MUNDO); g_gameState->world.render(g_gameState->player.position); }
+
+        // ⭐ LA NIEBLA TAMBIEN PARA LO QUE NO ES TERRENO.
+        //
+        // BUG REPORTADO: los pecaris lejanos se veian como siluetas NEGRAS en
+        // medio de la niebla. world.render() apaga GL_FOG al terminar (para
+        // que no toque el HUD), y los animales, los items, los bloques que
+        // caen, las hojas y el cuerpo se dibujan DESPUES, sin niebla: el
+        // terreno de su alrededor se fundia en gris y ellos no. Se enciende
+        // aqui, con los mismos parametros que acaba de usar el terreno, y se
+        // apaga antes del contorno del bloque apuntado y del HUD.
+        glEnable(GL_FOG);
         t2 = std::chrono::high_resolution_clock::now();
         render_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
 
@@ -51071,6 +51146,8 @@ int main() {
         // La mano de cubos de antes ya no se dibuja: lo que se lleva en la
         // mano lo dibuja el cuerpo del jugador, con su modelo 3D
         // (dibujarItem3D), y con las dos a la vez el item salia duplicado.
+
+        glDisable(GL_FOG);
 
         // Renderizar outline del bloque apuntado
         Vec3 rayOrigin = ojoDelJugador(g_gameState->player);

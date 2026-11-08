@@ -82,3 +82,18 @@ TEST_CASE("Item 3D: sabe por donde se agarra (el extremo fino) y se reduce si es
     CHECK(rh == 32);
     CHECK(chica.size() == 32u * 32u);
 }
+
+TEST_CASE("Item 3D: sabe de que lado del mango cae el filo de un hacha") {
+    // Mango de abajo-derecha a arriba-izquierda y una hoja que sale hacia
+    // abajo-izquierda de la cabeza, como en las texturas del hacha.
+    const auto m = mascara(32, 32, [](int x, int y) {
+        const bool mango = std::abs(x - y) <= 1 && x > 6 && x < 30;
+        const bool hoja = x >= 1 && x < 10 && y >= 4 && y < 16 && (x + y) > 8;
+        return mango || hoja;
+    });
+    const Malla malla = construir(m, 32, 32, radioPara(Forma::HERRAMIENTA, 32));
+    REQUIRE(malla.valido);
+    // La perpendicular (-ejeY, ejeX) del eje hacia arriba-izquierda apunta
+    // abajo-izquierda: el lado de la hoja.
+    CHECK(malla.ladoCabeza > 0.0f);
+}

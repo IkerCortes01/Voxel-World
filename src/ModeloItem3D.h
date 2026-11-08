@@ -51,6 +51,10 @@ struct Malla {
     // herramienta, el final del mango) y la direccion hacia el otro extremo
     // (la cabeza). En el cuadro [-1,1], sin corregir la proporcion.
     float agarreX = 0.0f, agarreY = 0.0f, ejeX = 1.0f, ejeY = 0.0f;
+    // De que lado del eje cae la cabeza (el filo de un hacha, la boca de un
+    // martillo): +1 a la izquierda del eje (girandolo 90 grados), -1 a la
+    // derecha. Es el lado que tiene que ir por delante al golpear.
+    float ladoCabeza = 0.0f;
 };
 
 // Reduce una mascara grande a otra de como mucho `maximo` de lado: la forma
@@ -199,6 +203,18 @@ inline Malla construir(const std::vector<unsigned char>& opaco, int w, int h, fl
         m.agarreY = (float)gy;
         m.ejeX = (float)(finoAbajo ? ex : -ex);
         m.ejeY = (float)(finoAbajo ? ey : -ey);
+        // En el tercio de la cabeza, hacia que lado del eje hay mas figura.
+        const double px_ = -m.ejeY, py_ = m.ejeX;          // la perpendicular
+        double lado = 0;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+                if (op(x, y)) {
+                    const double qx = -1.0 + 2.0 * (x + 0.5) / w - cx, qy = 1.0 - 2.0 * (y + 0.5) / h - cy;
+                    const double a = qx * m.ejeX + qy * m.ejeY;          // a lo largo, hacia la cabeza
+                    const double tLo = finoAbajo ? lo : -hi, tHi = finoAbajo ? hi : -lo;
+                    if (a >= tLo + (tHi - tLo) * 0.65) lado += qx * px_ + qy * py_;
+                }
+        m.ladoCabeza = lado > 0 ? 1.0f : (lado < 0 ? -1.0f : 0.0f);
     }
     return m;
 }

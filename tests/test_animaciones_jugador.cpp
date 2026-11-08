@@ -121,17 +121,19 @@ TEST_CASE("Animaciones: quieto, el cuerpo cambia de gesto y respira de verdad") 
     e.quieto = 1.0f;
     const Pose al = poseDe(e);
     // A los pocos segundos empieza a hacer cosas, y cosas distintas.
-    int gestos[6] = {};
-    for (int k = 0; k < 60; ++k) {
+    int gestos[NUM_GESTOS] = {};
+    for (int k = 0; k < 400; ++k) {
         const int g = gestoDeReposo(REPOSO_INICIO + k * REPOSO_TRAMO + 1.0f);
         REQUIRE(g >= 0);
+        REQUIRE(g < NUM_GESTOS);
         ++gestos[g];
     }
-    for (int g = 0; g < 6; ++g) CHECK(gestos[g] > 0);
+    for (int g = 0; g < NUM_GESTOS; ++g) CHECK(gestos[g] > 0);
+    CHECK(NUM_GESTOS >= 13);
     CHECK(gestoDeReposo(1.0f) == -1);
     // A mitad de un gesto la pose no es la de estar quieto.
     bool cambia = false;
-    for (int k = 0; k < 6 && !cambia; ++k) {
+    for (int k = 0; k < 20 && !cambia; ++k) {
         e.quieto = REPOSO_INICIO + k * REPOSO_TRAMO + REPOSO_TRAMO * 0.5f;
         const Pose p = poseDe(e);
         cambia = std::fabs(p.brazo[0].flex - al.brazo[0].flex) > 0.3f ||
@@ -373,4 +375,109 @@ TEST_CASE("Dedos: mas gruesos y separados que antes, sin chocar entre ellos") {
         }
     }
     CHECK(radioDedoPie(0) > 0.015f);
+}
+
+TEST_CASE("Transiciones: cada articulacion llega con inercia, sin saltos") {
+    SuavizadoPose s;
+    Estado e;
+    const Pose dePie = poseDe(e);
+    s.avanzar(dePie, 1.0f / 60.0f, false);
+    // Agacharse: el objetivo cambia de golpe, la pose no.
+    e.agachado = true;
+    const Pose agachado = poseDe(e);
+    const Pose& p1 = s.avanzar(agachado, 1.0f / 60.0f, false);
+    CHECK(p1.pierna[0].rodilla < agachado.pierna[0].rodilla - 0.5f);   // no salta
+    for (int k = 0; k < 120; ++k) s.avanzar(agachado, 1.0f / 60.0f, false);
+    CHECK(s.actual.pierna[0].rodilla == doctest::Approx(agachado.pierna[0].rodilla).epsilon(0.02));
+    CHECK(s.actual.agachado == doctest::Approx(1.0f).epsilon(0.02));
+    // Un brazo que se para en seco se pasa un poco y vuelve (follow-through).
+    SuavizadoPose b;
+    Pose a = dePie, z = dePie;
+    z.brazo[1].flex = 1.5f;
+    b.avanzar(a, 1.0f / 60.0f, false);
+    float maximo = 0.0f;
+    for (int k = 0; k < 120; ++k) maximo = std::fmax(maximo, b.avanzar(z, 1.0f / 60.0f, false).brazo[1].flex);
+    CHECK(maximo > 1.5f);            // se pasa
+    CHECK(maximo < 1.75f);           // pero poco
+    CHECK(b.actual.brazo[1].flex == doctest::Approx(1.5f).epsilon(0.01));
+    // Estable aunque el frame tarde mucho.
+    SuavizadoPose lento;
+    lento.avanzar(a, 0.1f, true);
+    for (int k = 0; k < 50; ++k) lento.avanzar((k % 2) ? z : a, 0.1f, true);
+    CHECK(std::isfinite(lento.actual.brazo[1].flex));
+    CHECK(std::fabs(lento.actual.brazo[1].flex) < 3.1f);
+}
+
+TEST_CASE("Variacion: los golpes de una serie no son todos iguales") {
+    const Golpe& g = golpeDe(Herramienta::PICO, ClaseBloque::PIEDRA);
+    Estado e;
+    e.accion = Accion::PICAR;
+    e.herramienta = Herramienta::PICO;
+    e.bloque = ClaseBloque::PIEDRA;
+    // El mismo instante de dos golpes seguidos.
+    e.tiempo = g.periodo * 0.30f;
+    const float a = poseDe(e).brazo[1].flex;
+    e.tiempo = g.periodo * 1.30f;
+    const float b = poseDe(e).brazo[1].flex;
+    e.tiempo = g.periodo * 2.30f;
+    const float c = poseDe(e).brazo[1].flex;
+    CHECK((std::fabs(a - b) > 0.01f || std::fabs(b - c) > 0.01f));
+    CHECK(std::fabs(a - b) < 0.6f);   // pero el mismo movimiento
+}
+
+TEST_CASE("Variacion: cuatro punetazos al aire distintos, con los dos brazos") {
+    Estado e;
+    e.accion = Accion::GOLPE_AIRE;
+    e.tAccion = 0.17f;
+    Pose p[8];
+    for (int v = 0; v < 8; ++v) { e.variante = v; p[v] = poseDe(e); }
+    CHECK(p[4].brazo[1].abd > p[0].brazo[1].abd + 0.5f);     // gancho: el codo de lado
+    CHECK(std::fabs(p[2].giroTorso) > std::fabs(p[0].giroTorso) + 0.05f);   // cruzado: mas cuerpo
+    CHECK(p[5].brazo[0].abd > 0.8f);                          // gancho con la izquierda
+    e.tAccion = 0.05f;                                        // uppercut cargando: rodillas dobladas
+    e.variante = 6;
+    CHECK(poseDe(e).pierna[0].rodilla > 0.2f);
+}
+
+TEST_CASE("Reacciones: aterrizar, acelerar y girar sobre si mismo") {
+    Estado e;
+    const Pose base = poseDe(e);
+    e.aterrizaje = 0.10f;
+    e.fuerzaCaida = 1.0f;
+    CHECK(poseDe(e).pierna[0].rodilla > base.pierna[0].rodilla + 0.6f);
+    e.fuerzaCaida = 0.2f;
+    CHECK(poseDe(e).pierna[0].rodilla < base.pierna[0].rodilla + 0.3f);
+    e.aterrizaje = 2.0f;
+    CHECK(poseDe(e).pierna[0].rodilla == doctest::Approx(base.pierna[0].rodilla));
+    Estado a;
+    a.aceleracion = 6.0f;
+    CHECK(poseDe(a).inclinacion > base.inclinacion + 0.1f);
+    a.aceleracion = -6.0f;
+    CHECK(poseDe(a).inclinacion < base.inclinacion - 0.08f);
+    Estado g;
+    g.giroVel = 120.0f;
+    g.faseGiro = 1.5708f;
+    const Pose gp = poseDe(g);
+    CHECK(std::fmax(gp.pierna[0].rodilla, gp.pierna[1].rodilla) > base.pierna[0].rodilla + 0.3f);
+}
+
+TEST_CASE("Marcha: la cadera se balancea y cada personaje anda a su manera") {
+    Estado e;
+    e.rapidez = 4.3f;
+    e.fasePaso = PI * 0.5f;
+    const Pose p = poseDe(e);
+    CHECK(std::fabs(p.pelvisLado) > 0.03f);
+    // La caida de la cadera no despega los huesos.
+    const Esqueleto s = resolver(p);
+    CHECK(largo(resta(s.cadera[0].p, s.rodilla[0].p)) == doctest::Approx(M::MUSLO).epsilon(0.001));
+    // Dos estilos, dos maneras de mover los brazos (medido con el brazo en
+    // lo mas alto del balanceo).
+    e.fasePaso = 0.0f;
+    float lo = 9, hi = -9;
+    for (uint32_t k = 0; k < 10; ++k) {
+        e.estilo = k * 7919u + 1u;
+        const float f = poseDe(e).brazo[0].flex;
+        lo = std::fmin(lo, f); hi = std::fmax(hi, f);
+    }
+    CHECK(hi - lo > 0.02f);
 }

@@ -327,6 +327,29 @@ struct Vec3i {
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "render/PaseSaturacion.h"     // la saturacion, sobre la imagen entera
+
+// ⭐ FILTRADO ANISOTROPICO
+//
+// Con solo trilineal, el suelo visto en angulo (que es casi siempre: el
+// jugador mira hacia delante, no hacia abajo) se emborrona a pocos metros,
+// porque la GPU elige el mipmap por la direccion en la que la textura se
+// comprime MAS. El anisotropico toma varias muestras a lo largo de esa
+// direccion y deja la textura nitida hasta lejos. 8x es donde la mejora se
+// deja de ver y lo que la HD 4000 sostiene sin notarse.
+//
+// Es una extension (GL_EXT_texture_filter_anisotropic); si el driver no la
+// tiene no se hace nada. Solo tiene sentido en texturas con mipmaps.
+inline void aplicarAnisotropia(GLenum destino) {
+    static float maximo = -1.0f;
+    if (maximo < 0.0f) {
+        maximo = 0.0f;
+        const char* ext = (const char*)glGetString(GL_EXTENSIONS);
+        if (ext && std::strstr(ext, "GL_EXT_texture_filter_anisotropic"))
+            glGetFloatv(0x84FF /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT */, &maximo);
+    }
+    if (maximo > 1.0f)
+        glTexParameterf(destino, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, maximo < 8.0f ? maximo : 8.0f);
+}
 // La saturacion de las opciones, aplicada a todo al final del frame.
 inline Render::PaseSaturacion g_paseSaturacion;
 #include "BlockCompat.h"   // traduce IDs de mundos guardados con el orden viejo
@@ -5805,9 +5828,12 @@ private:
     // que en total son 256 capas * 64*64*4 = 4 MB. Despreciable frente a los
     // 16 MB que ocupa UNA SOLA textura de 2048x2048.
     //
-    // Subirlo mas no compensa: a la distancia en la que el motor funde chunks,
-    // un texel de 64 ya cae por debajo de un pixel de pantalla.
-    static constexpr int LADO_CAPA = 64;
+    // ⭐ 128 Y NO 64. Con el filtrado anisotropico el suelo de media distancia
+    // se ve en angulo y con todo su detalle, y ahi 64 texeles por bloque ya se
+    // notaban (las texturas de los bloques son de 256 a 1254 de lado). 256
+    // capas de 128x128 son 16 MB (21 con mipmaps): asumible incluso en la
+    // HD 4000, que comparte la RAM.
+    static constexpr int LADO_CAPA = 128;
     GLuint arrayTex = 0;
     int capasUsadas = 0;
     int capaPorHandle[MAX_HANDLE];
@@ -5977,6 +6003,7 @@ public:
             if (glGetError() == GL_NO_ERROR) {
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER,
                                 GL_LINEAR_MIPMAP_LINEAR);
+                aplicarAnisotropia(GL_TEXTURE_2D_ARRAY);
             }
             glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
         }
@@ -6196,6 +6223,7 @@ public:
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                         conMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST);
+        if (conMipmaps) aplicarAnisotropia(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
         // Wrap mode - REPEAT para texturas repetidas (compatible con OpenGL 1.1)
@@ -7346,6 +7374,7 @@ public:
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                         tunaConMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST);
+        if (tunaConMipmaps) aplicarAnisotropia(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -8621,6 +8650,7 @@ private:
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                         conMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST);
+        if (conMipmaps) aplicarAnisotropia(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -8851,7 +8881,16 @@ static UI::TextureHandle uiCreateTextureCB(void* ctx, const unsigned char* rgba,
 
     glBindTexture(GL_TEXTURE_2D, id);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    // ⭐ Con mipmaps: estas texturas se dibujan mucho mas pequenas de lo que
+    // miden (iconos de la hotbar), y sin ellos salian con dientes de sierra y
+    // centelleaban al moverse.
+    bool iconoConMipmaps = false;
+    if (Render::pglGenerateMipmap) {
+        Render::pglGenerateMipmap(GL_TEXTURE_2D);
+        iconoConMipmaps = (glGetError() == GL_NO_ERROR);
+    }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                    iconoConMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     // GL_CLAMP (1.1) en vez de GL_CLAMP_TO_EDGE (1.2): los headers de
     // OpenGL de Windows solo declaran hasta 1.1. Para una textura 16x16
@@ -34590,7 +34629,10 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
                 case BLOCK_MARTILLO_PIEDRA:
                     siluetaPNG = "Textures/Items/Martillo de Piedra.png"; break;
                 case BLOCK_HACHA_PEDERNAL:
-                    siluetaPNG = "Textures/Items/Pedernal afilado.png"; break;
+                    // El hacha de pedernal, no el pedernal suelto: con la
+                    // silueta del pedernal el modelo 3D salia con su forma y
+                    // la textura del hacha encima.
+                    siluetaPNG = "Textures/Items/Hacha de Pedernal afilado.png"; break;
                 case BLOCK_PICO_PEDERNAL:
                     siluetaPNG = "Textures/Items/pico de pedernal afilado.png"; break;
                 case BLOCK_MARTILLO_PEDERNAL:
@@ -34693,9 +34735,15 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
                             const float ux = l > 0 ? ex / l : 1.0f, uy = l > 0 ? ey / l : 0.0f;
                             const float a = gx * ux + gy * uy;         // el agarre sobre el eje
                             const float b = -gx * uy + gy * ux;        // y de lado
+                            // La cabeza (el filo del hacha, la boca del
+                            // martillo) va por delante del golpe: hacia los
+                            // nudillos (-Y de la mano), no hacia el codo. Si
+                            // la textura la tiene del otro lado, se voltea.
+                            const float espejo = mi.ladoCabeza > 0.0f ? -1.0f : 1.0f;
                             // (En OpenGL lo que se llama primero se aplica lo
-                            // ultimo: primero girar, luego llevar al puno.)
-                            glTranslatef(-(a + scale * 0.30f), -b, 0.0f);
+                            // ultimo: girar, voltear y luego llevar al puno.)
+                            glTranslatef(-(a + scale * 0.30f), -b * espejo, 0.0f);
+                            glScalef(1.0f, espejo, 1.0f);
                             glRotatef(-std::atan2(ey, ex) * 57.29578f, 0, 0, 1);
                         } else if (enMano) {
                             // Lo demas, en la palma: un poco por delante y mas
@@ -48786,6 +48834,17 @@ int main() {
                         varianteSalto = (int)((azarSalto >> 16) % 3u);
                     }
                     if (!suelo) tAire += dtc;
+                    // ⭐ ATERRIZAR: lo fuerte del golpe sale de lo rapido que
+                    // caia justo antes de tocar el suelo. Un nivel no cuenta.
+                    static float velCaida = 0.0f, tAterrizaje = 9.0f, fuerzaCaida = 0.0f;
+                    if (!suelo) velCaida = st.velocity.y;
+                    if (suelo && enAireAntes && (salto || yDespegue - y >= 0.95f)) {
+                        tAterrizaje = 0.0f;
+                        fuerzaCaida = ModeloJugador::sujetar((-velCaida - 3.0f) / 12.0f, 0.15f, 1.0f);
+                    }
+                    tAterrizaje += dtc;
+                    ea.aterrizaje = tAterrizaje < 0.6f ? tAterrizaje : -1.0f;
+                    ea.fuerzaCaida = fuerzaCaida;
                     if (suelo && enAireAntes && !salto) {
                         const float bajo = yDespegue - y;
                         if (bajo > 0.05f && bajo < 0.95f) {
@@ -48919,7 +48978,28 @@ int main() {
                         }
                     }
                 }
-                const ModeloJugador::Pose pose = ModeloJugador::poseDe(ea);
+                // ⭐ Lo que el cuerpo nota: si acelera o frena, si gira en el
+                // sitio, y su manera propia de moverse (del mundo).
+                {
+                    static float rapAntes = 0.0f, acel = 0.0f, yawAntes = 0.0f, giroV = 0.0f, faseG = 0.0f;
+                    const float kS = 1.0f - std::exp(-6.0f * dtc);
+                    if (dtc > 0.0f) acel += ((rapidezSuave - rapAntes) / dtc - acel) * kS;
+                    rapAntes = rapidezSuave;
+                    const float dYaw = ModeloJugador::GiroCuerpo::envolver(giroCuerpo.yaw - yawAntes);
+                    yawAntes = giroCuerpo.yaw;
+                    if (dtc > 0.0f) giroV += (dYaw / dtc - giroV) * kS;
+                    faseG += std::fabs(dYaw) * 3.1415927f / 30.0f;     // un paso cada 30 grados
+                    ea.aceleracion = acel;
+                    ea.giroVel = giroV;
+                    ea.faseGiro = faseG;
+                    ea.estilo = (uint32_t)g_gameState->world.getSeed() * 2654435761u + 17u;
+                }
+                // ⭐ Las transiciones: cada articulacion llega con inercia a su
+                // pose (ModeloJugador::SuavizadoPose). Con una accion rapida en
+                // marcha los brazos se endurecen para no perder el golpe.
+                static ModeloJugador::SuavizadoPose suavizado;
+                const ModeloJugador::Pose pose = suavizado.avanzar(ModeloJugador::poseDe(ea), dtc,
+                                                                    ea.accion != ModeloJugador::Accion::NINGUNA);
                 const ModeloJugador::Esqueleto esq =
                     ModeloJugador::resolver(pose, ea.enSuelo && !ea.volando);
                 const float ky = ModeloJugador::escalaVertical(esq, altoOjo);

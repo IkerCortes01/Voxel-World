@@ -298,6 +298,7 @@ struct Vec3i {
 // Fisica de caida (densidades reales, gravedad, arrastre del aire).
 // Va aqui arriba porque la lista de bloques cayendo se declara pronto.
 #include "FisicaCaida.h"
+#include "NivelesCubiertos.h"
 #include "LuzCielo.h"
 // Los cristales que salen de la roca: su forma por especie y la ley del
 // bloque (cuanto mineral da al picarlo).
@@ -1113,6 +1114,10 @@ inline bool consumirNivelDelJugador(int x, int y, int z) {
     g_nivelesDelJugador.erase(it);
     return true;
 }
+
+// Los niveles tapados por un bloque entero: siguen ahi, sin verse, y vuelven
+// al romper el bloque (ver NivelesCubiertos.h).
+NivelesCubiertos::Registro g_nivelesCubiertos;
 
 // --- Recarga manual de chunks (tecla R) ---
 // El mallado va repartido en varios frames, así que el resultado no se puede
@@ -34316,8 +34321,10 @@ void updateMining(GameState* state, float deltaTime) {
             return;
         }
 
-        // Romper el bloque
-        state->world.setBlock(bx, by, bz, BLOCK_AIR);
+        // Romper el bloque. Si tapaba un nivel, el nivel vuelve a verse (ver
+        // g_nivelesCubiertos); si no, la celda queda vacia.
+        state->world.setBlock(bx, by, bz,
+                              g_nivelesCubiertos.destapar(bx, by, bz, celdaAntes));
 
         // ⭐ LO QUE HABIA ENCIMA SE CAE
         //
@@ -38406,7 +38413,11 @@ BlockType pegarEncimaDeCapas(BlockType enMano, BlockType tocado) {
 // el en la misma celda (pegarEncimaDeCapas) o se repartia por la columna
 // (depositarEnColumna): la celda quedaba partida en capas de dos materiales y,
 // segun el camino, aparecia otro bloque arriba. Ahora es simple: el bloque
-// entero ocupa la celda del nivel y el nivel desaparece.
+// entero ocupa la celda del nivel.
+//
+// ⭐ EL NIVEL NO SE PIERDE: queda GUARDADO DEBAJO, sin verse, en
+// g_nivelesCubiertos. Al romper el bloque entero, la celda vuelve a ser el
+// nivel que tapo (ver NivelesCubiertos.h).
 //
 // Solo con BLOQUES ENTEROS. Un nivel puesto sobre otro nivel se sigue
 // apilando como siempre, y lo que no es un cubo (plantas, pencas, ramas,
@@ -38909,6 +38920,8 @@ void placeBlock(GameState* state) {
                     // enteroQueSustituyeNivel).
                     if (const BlockType entero = enteroQueSustituyeNivel(enMano, tocado);
                         entero != BLOCK_AIR) {
+                        g_nivelesCubiertos.cubrir(result.blockPos.x, result.blockPos.y,
+                                                  result.blockPos.z, tocado, entero);
                         state->world.setBlock(result.blockPos.x, result.blockPos.y,
                                               result.blockPos.z, entero);
                         state->inventory.consumeSelected();
@@ -40150,6 +40163,8 @@ void placeBlock(GameState* state) {
                         // encima ni se reparte por la columna.
                         if (const BlockType entero = enteroQueSustituyeNivel(blockToPlace, ocupante);
                             entero != BLOCK_AIR) {
+                            g_nivelesCubiertos.cubrir(placePos.x, placePos.y, placePos.z,
+                                                      ocupante, entero);
                             state->world.setBlock(placePos.x, placePos.y, placePos.z, entero);
                             state->inventory.consumeSelected();
                             state->placeCooldown = 0.25f;
@@ -45214,6 +45229,12 @@ void saveWorld(GameState* state, bool isAutoSave) {
         }
     }
 
+    // Los niveles tapados por bloques enteros (ver g_nivelesCubiertos).
+    {
+        std::ofstream f(worldPath / "niveles_cubiertos.dat", std::ios::binary);
+        if (f.is_open()) g_nivelesCubiertos.guardar(f);
+    }
+
     // ⭐ PASO 1: Guardar datos del jugador
     std::cout << "📍 Guardando jugador..." << std::endl;
     std::filesystem::path playerPath = worldPath / "player.dat";
@@ -45507,6 +45528,13 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
                 g_nopalesCreciendo.push_back(c);
             }
         }
+    }
+
+    // Los niveles tapados de este mundo (y ninguno del anterior).
+    g_nivelesCubiertos.clear();
+    {
+        std::ifstream f(worldPath / "niveles_cubiertos.dat", std::ios::binary);
+        if (f.is_open()) g_nivelesCubiertos.cargar(f);
     }
 
     // ⭐ PASO 2: Cargar datos del jugador con validación

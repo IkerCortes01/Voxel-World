@@ -106,6 +106,7 @@ add_executable(voxel_tests
     test_viento_cielo.cpp
     test_maguey_colocable.cpp
     test_tablones_niveles.cpp
+    test_niveles_cubiertos.cpp
     test_alineacion_bloques.cpp
     test_techo_pilar.cpp
     test_raiz_palos.cpp

@@ -194,6 +194,10 @@ struct BatchCPU {
 struct MallaChunk {
     std::vector<BatchCPU> batches;
 
+    // Con que luz del sol se horneo (luzSolar() al mallar). El shader corrige
+    // con ella la luz del chunk a la de ahora: ver uSolMalla en TerrenoGL.h.
+    float sol = 1.0f;
+
     // Si el mesher no pudo resolver alguna textura. El hilo principal lo usa
     // para decidir si reintentar mas tarde en vez de dar la malla por buena.
     bool texturasFaltantes = false;

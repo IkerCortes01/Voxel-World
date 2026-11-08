@@ -985,30 +985,21 @@ inline float luzSolar() {
     return (float)((NOCHE - h) / (NOCHE - ATARDECE));
 }
 
-// Color del cielo a esta hora. Va del azul claro del mediodia al azul casi
-// negro de la noche, pasando por un naranja en el amanecer y el atardecer.
-inline void colorDelCielo(float& r, float& g, float& b) {
-    const float l = luzSolar();
+// ============================================================================
+// LA ATMOSFERA DE ESTE FRAME
+// ============================================================================
+// Se calcula UNA vez por frame, al dibujar el cielo --que va antes que el
+// terreno--, y la leen la niebla, el color de fondo y el shader del terreno.
+// Antes cada uno pedia cieloPara() por su cuenta, y el fondo usaba incluso una
+// paleta distinta (colorDelCielo, retirada).
+struct AtmosferaFrame {
+    Atmosfera::Cielo cielo = Atmosfera::cieloPara(1.0f);
+    float solOjo[3] = { 0.0f, 0.0f, -1.0f };   // el sol en espacio de ojo
+    // Bajo el agua o en lava la niebla es la del liquido, sin brillo del sol.
+    bool nieblaDelCielo = true;
+};
+AtmosferaFrame g_atmosfera;
 
-    // Azul de dia y azul de noche.
-    constexpr float DR = 0.53f, DG = 0.81f, DB = 0.92f;   // el de siempre
-    constexpr float NR = 0.02f, NG = 0.03f, NB = 0.09f;   // noche cerrada
-
-    r = NR + (DR - NR) * l;
-    g = NG + (DG - NG) * l;
-    b = NB + (DB - NB) * l;
-
-    // Tinte calido en el amanecer y el atardecer, cuando el sol esta bajo.
-    // Es maximo a media transicion (l = 0.5) y nulo en pleno dia o de noche,
-    // que es cuando el sol no roza el horizonte.
-    const float rozaHorizonte = 1.0f - fabsf(l - 0.5f) * 2.0f;
-    if (rozaHorizonte > 0.0f) {
-        const float t = rozaHorizonte * 0.55f;
-        r += (0.95f - r) * t;
-        g += (0.55f - g) * t * 0.7f;
-        b += (0.30f - b) * t * 0.5f;
-    }
-}
 
 // ============================================================================
 // PENCAS CAYENDO
@@ -4192,6 +4183,8 @@ class SoundManager {
 private:
     std::string soundPath;
     std::map<std::string, std::string> soundFiles;
+    // Si el archivo de cada sonido existe. Se mira una vez, no en cada uso.
+    std::map<std::string, bool> existe;
     float masterVolume;
     bool enabled;
 
@@ -4233,21 +4226,30 @@ public:
     void playSound(const std::string& soundName, bool async = true) {
         if (!enabled) return;
 
+        // ====================================================================
+        // ⭐ EL CONGELON AL COLOCAR BLOQUES ERA ESTO
+        // ====================================================================
+        // Aqui se abria el .wav con un ifstream en CADA llamada, y si no
+        // existia se tocaba `Beep(440, 50)` como respaldo. Beep es SINCRONO:
+        // no vuelve hasta que acaba el pitido. Y `place_block.wav` no existe
+        // en el juego, asi que cada bloque colocado paraba el hilo principal
+        // 50 ms -- seis frames a 120 FPS --, ademas de una consulta al disco.
+        //
+        // Ahora la existencia se mira UNA vez, al primer uso de cada sonido,
+        // y un sonido sin archivo simplemente no suena. Nada en este camino
+        // puede bloquear el frame.
         auto it = soundFiles.find(soundName);
         if (it == soundFiles.end()) return;
 
-        std::string filepath = it->second;
+        const std::string& filepath = it->second;
 
-        // Verificar si el archivo existe
-        std::ifstream file(filepath);
-        if (!file.good()) {
-            // Archivo no existe, generar beep simple como fallback
-            #ifdef _WIN32
-            Beep(440, 50); // Beep simple de 440Hz por 50ms
-            #endif
-            return;
+        auto ex = existe.find(soundName);
+        if (ex == existe.end()) {
+            std::error_code ec;
+            ex = existe.emplace(soundName,
+                                std::filesystem::exists(filepath, ec)).first;
         }
-        file.close();
+        if (!ex->second) return;
 
         // Reproducir sonido
         #ifdef _WIN32
@@ -9089,6 +9091,9 @@ struct Chunk {
 
     std::vector<TextureBatch*> batches;  // Un rango por cada textura usada
 
+    // La luz del sol con la que se horneo la malla que se esta dibujando.
+    float solMallado = 1.0f;
+
     // El buffer con TODA la geometria del chunk. 0 = todavia no hay malla.
     // Solo lo tocan el hilo principal y solo con contexto de GL.
     GLuint vboUnico = 0;
@@ -13167,7 +13172,8 @@ private:
     //
     // Devuelve true si cambio algo, para que el llamante sepa si hay que
     // remallar.
-    bool coserLuzEntre(Chunk* a, Chunk* b, int dx, int dz) {
+    bool coserLuzEntre(Chunk* a, Chunk* b, int dx, int dz,
+                       int yDesde = 0, int yHasta = CHUNK_HEIGHT - 1) {
         // ⭐ Interruptor para medir el coste de la costura, por el mismo motivo
         // que VOXELWORLD_HOJAS: comparar dos versiones
         // recompilando da numeros que no se pueden comparar, porque el jugador
@@ -13251,9 +13257,16 @@ private:
             // que derramar: se sale sin tocar nada.
             if (masHondo >= CHUNK_HEIGHT) return false;
         }
+        // La franja pedida (ver costurasPendientes): solo se siembra en ella.
+        // El derrame de despues no se acota -- la luz que entra puede bajar o
+        // subir por un hueco fuera de la franja, y eso si tiene que llegar.
+        if (yDesde > yMin) yMin = yDesde;
+        int yTope = CHUNK_HEIGHT - 1;
+        if (yHasta < yTope) yTope = yHasta;
+        if (yTope < yMin) return false;
 
         for (int t = 0; t < CHUNK_SIZE; ++t) {
-            for (int y = yMin; y < CHUNK_HEIGHT; ++y) {
+            for (int y = yMin; y <= yTope; ++y) {
                 // Coordenadas de la celda de `a` en su borde, y de la de `b`
                 // pegada a ella por el otro lado.
                 int ax, az, bx, bz;
@@ -13400,7 +13413,10 @@ private:
     // frontera que ese bloque toca -- y solo si esta pegado a ella. Un bloque en
     // el centro del chunk no afecta a ninguna: son 4,2 ms de trabajo cuyo
     // resultado es siempre "no ha cambiado nada".
-    void coserLuzConVecinos(const Vec3i& pos, int soloLado = -1) {
+    // `yDesde..yHasta` acota las alturas de la pared que se recorren. Por
+    // defecto, todas (un chunk nuevo hay que coserlo entero).
+    void coserLuzConVecinos(const Vec3i& pos, int soloLado = -1,
+                            int yDesde = 0, int yHasta = CHUNK_HEIGHT - 1) {
         Chunk* c = getChunk(pos);
         if (!c || !c->isGenerated) return;
 
@@ -13414,9 +13430,9 @@ private:
             if (!v || !v->isGenerated) continue;
 
             // El vecino le da luz a este...
-            if (coserLuzEntre(c, v, d[0], d[1])) c->needsRebuild = true;
+            if (coserLuzEntre(c, v, d[0], d[1], yDesde, yHasta)) c->needsRebuild = true;
             // ...y este al vecino.
-            if (coserLuzEntre(v, c, -d[0], -d[1])) v->needsRebuild = true;
+            if (coserLuzEntre(v, c, -d[0], -d[1], yDesde, yHasta)) v->needsRebuild = true;
         }
     }
 
@@ -13917,10 +13933,24 @@ public:
     // `setBlock` significa pagarlo en el frame en que el jugador coloca el
     // bloque -- justo cuando mas importa la respuesta.
     //
-    // Es un `set`, asi que construir veinte bloques seguidos en el mismo chunk
-    // produce UNA costura, no veinte. Eso solo ya es la mayor parte del ahorro
-    // cuando el jugador esta construyendo de verdad.
-    std::set<Vec3i> costurasPendientes;
+    // Es un mapa por chunk, asi que construir veinte bloques seguidos en el
+    // mismo chunk produce UNA costura, no veinte. Eso solo ya es la mayor
+    // parte del ahorro cuando el jugador esta construyendo de verdad.
+    //
+    // ⭐ Y GUARDA LA FRANJA DE ALTURAS QUE SE TOCO (ver FranjaCostura).
+    struct FranjaCostura { int yDesde, yHasta; };
+    std::map<Vec3i, FranjaCostura> costurasPendientes;
+
+    // Apunta una costura pendiente, ensanchando la franja si ya habia una.
+    void apuntarCostura(const Vec3i& pos, int yDesde, int yHasta) {
+        auto it = costurasPendientes.find(pos);
+        if (it == costurasPendientes.end()) {
+            costurasPendientes.emplace(pos, FranjaCostura{ yDesde, yHasta });
+        } else {
+            if (yDesde < it->second.yDesde) it->second.yDesde = yDesde;
+            if (yHasta > it->second.yHasta) it->second.yHasta = yHasta;
+        }
+    }
 
     bool   recargaUrgente     = false;
     double urgenciaHasta      = 0.0;
@@ -18479,27 +18509,48 @@ public:
     // Entre abrirLote() y cerrarLote() los setBlock solo APUNTAN que chunk
     // hay que rehacer; al cerrar se hace una pasada por chunk tocado.
     bool lotePendiente = false;
-    std::set<Vec3i> chunksDelLote;
+    // Por chunk, la franja de alturas que el lote toco (ver cerrarLote).
+    std::map<Vec3i, FranjaCostura> chunksDelLote;
 
     void abrirLote() {
         lotePendiente = true;
         chunksDelLote.clear();
     }
 
+    // Para no anidar: quien encuentra un lote ya abierto se suma a el. Abrir
+    // otro vaciaria la lista del de fuera y su luz no se recalcularia nunca.
+    bool enLote() const { return lotePendiente; }
+
     void cerrarLote() {
         lotePendiente = false;
-        // Primero TODOS los skylight locales, y solo despues las costuras.
+        // ====================================================================
+        // ⭐ UNA PASADA DE LUZ POR CHUNK, Y SOLO DONDE HACE FALTA
+        // ====================================================================
+        // Antes se rehacia la luz del chunk ENTERO (computeSkylight) y se
+        // cosian sus cuatro paredes completas aqui mismo: unos 7 ms por chunk
+        // pagados en el frame de talar el arbol.
         //
-        // El orden importa: coser un chunk contra un vecino que todavia no ha
-        // recalculado su luz propagaria un valor viejo, que la pasada del
-        // vecino borraria acto seguido. Dos bucles separados garantizan que
-        // toda costura ve luz ya definitiva.
-        for (const Vec3i& cp : chunksDelLote) {
-            Chunk* c = getChunk(cp);
-            if (c) c->computeSkylight();
-        }
-        for (const Vec3i& cp : chunksDelLote) {
-            coserLuzConVecinos(cp);
+        // Si todo lo que toco el lote cabe en la franja que rehace la luz
+        // local (36 alturas: el radio de derrame a cada lado), basta con
+        // ella, centrada en la franja -- que es lo que pasa al talar un arbol
+        // normal o al caer un trozo de techo. Si no cabe, el recalculo
+        // completo de siempre.
+        //
+        // Y la costura NO se hace aqui: se apunta, con su franja, igual que
+        // al colocar un bloque. La resuelve updateChunks el frame siguiente,
+        // repartida, y fuera del frame en que el jugador dio el golpe.
+        for (const auto& par : chunksDelLote) {
+            Chunk* c = getChunk(par.first);
+            if (!c) continue;
+            const FranjaCostura& f = par.second;
+            if (f.yHasta - f.yDesde <= 36) {
+                c->recalcularLuzLocal(CHUNK_SIZE / 2, (f.yDesde + f.yHasta) / 2,
+                                      CHUNK_SIZE / 2);
+                apuntarCostura(par.first, f.yDesde - 19, f.yHasta + 19);
+            } else {
+                c->computeSkylight();
+                apuntarCostura(par.first, 0, CHUNK_HEIGHT - 1);
+            }
         }
         chunksDelLote.clear();
     }
@@ -18617,7 +18668,13 @@ public:
         // En lote solo se APUNTA que hay que rehacerla, y quien abrio el lote
         // la recalcula UNA vez al cerrarlo.
         if (lotePendiente) {
-            chunksDelLote.insert(chunkPos);
+            auto it = chunksDelLote.find(chunkPos);
+            if (it == chunksDelLote.end()) {
+                chunksDelLote.emplace(chunkPos, FranjaCostura{ y, y });
+            } else {
+                if (y < it->second.yDesde) it->second.yDesde = y;
+                if (y > it->second.yHasta) it->second.yHasta = y;
+            }
         } else {
             // ⭐ RECALCULO LOCAL, NO DEL CHUNK ENTERO.
             //
@@ -18663,7 +18720,21 @@ public:
             // frame, fuera del camino critico de colocar el bloque. Lo que el
             // jugador nota -- que el bloque aparezca -- no depende de esto: lo
             // hace el remallado, que sigue siendo urgente.
-            costurasPendientes.insert(chunkPos);
+            //
+            // ⭐ SOLO EN LA FRANJA QUE SE RECALCULO.
+            //
+            // recalcularLuzLocal rehace las celdas a menos de 18 alturas del
+            // bloque (el radio de derrame), y ni una mas. Fuera de esa franja
+            // la luz del borde no cambio, asi que coser la pared entera --512
+            // de alto, cuatro vecinos, dos sentidos: los 4,2 ms medidos-- era
+            // repasar casi todo para nada. Se apunta la franja, con un bloque
+            // de margen, y la costura solo recorre esas alturas.
+            //
+            // Siguen siendo LOS CUATRO LADOS, aunque el bloque este en el
+            // centro: la caja de recalculo cubre el chunk entero de ancho, asi
+            // que borra en esa franja la luz que habian metido los cuatro
+            // vecinos, y hay que devolversela.
+            apuntarCostura(chunkPos, y - 19, y + 19);
             (void)t0Cos;
         }
 
@@ -27687,6 +27758,7 @@ public:
             std::move(uvsByTexture),
             texturasTransparentes, texturasRecortadas, texturasFaltantes,
             bordeIncompleto);
+        mallaCPU.sol = sol;       // con que luz del dia se horneo (ver uSolMalla)
 
         // ⭐ La capa de cada batch en el array de texturas, antes de
         // entrelazar: entrelazar() la escribe en cada vertice. Es una lectura
@@ -27990,6 +28062,7 @@ public:
         auto oldBatches = chunk->batches;
         const GLuint oldVbo = chunk->vboUnico;
         chunk->batches = newBatches;
+        chunk->solMallado = mallaCPU.sol;
         chunk->vboUnico = nuevoVbo;
 
         // ⭐ CRÍTICO: Usar memory fence para garantizar que el swap es visible
@@ -28392,9 +28465,10 @@ public:
             constexpr int MAX_COSTURAS_POR_FRAME = 2;
             int hechas = 0;
             while (hechas < MAX_COSTURAS_POR_FRAME && !costurasPendientes.empty()) {
-                const Vec3i p = *costurasPendientes.begin();
+                const Vec3i p = costurasPendientes.begin()->first;
+                const FranjaCostura f = costurasPendientes.begin()->second;
                 costurasPendientes.erase(costurasPendientes.begin());
-                coserLuzConVecinos(p);
+                coserLuzConVecinos(p, -1, f.yDesde, f.yHasta);
                 ++hechas;
             }
         }
@@ -29750,6 +29824,31 @@ public:
     // Asi el shader pinta exactamente la misma niebla que el resto del motor
     // (cielo, agua, mano) sin que haya dos sitios donde ajustarla: el sistema
     // de niebla sigue llamando a glFog* como siempre y esto lo copia.
+    // ⭐ LA LUZ DEL DIA, IGUAL EN TODOS LOS CHUNKS
+    //
+    // La luz del sol se hornea en los vertices al mallar, y al cambiar la hora
+    // los chunks se remallan de poco en poco (actualizarLuzDelCielo). Mientras
+    // tanto, cada chunk se veia con la luz de cuando se mallo: al anochecer el
+    // mundo quedaba a parches, unos chunks mas claros que otros.
+    //
+    // Ahora el shader recibe, por chunk, el cielo con el que se horneo y el
+    // de ahora, y corrige la luz de lo que esta al cielo (ver uSolMalla en
+    // TerrenoGL.h). Todos los chunks se ven con la luz de este instante, y la
+    // transicion es continua aunque el remallado vaya por detras.
+    void pasarSolMalla(const Chunk* c) {
+        if (g_progTerreno.uSolMalla < 0) return;
+        auto cielo = [](float sol) {
+            sol = sol < 0.0f ? 0.0f : (sol > 1.0f ? 1.0f : sol);
+            return LUZ_DE_LUNA_CIELO + (1.0f - LUZ_DE_LUNA_CIELO) * sol;
+        };
+        static const Chunk* ultimo = nullptr;
+        static float ultimoAhora = -1.0f;
+        const float ahora = cielo(luzSolar());
+        if (c == ultimo && ahora == ultimoAhora) return;
+        ultimo = c; ultimoAhora = ahora;
+        Render::pglUniform2f(g_progTerreno.uSolMalla, cielo(c->solMallado), ahora);
+    }
+
     void prepararShaderTerreno(bool agua, float scrollU = 0.0f, float scrollV = 0.0f) {
         // ⚠️ SIN ARRAY DE TEXTURAS NO SE ENCIENDE EL SHADER.
         //
@@ -29807,6 +29906,30 @@ public:
             Render::pglUniform1f(g_progTerreno.uIntensidad, l.intensidad);
             // Con el pase final activo, el terreno no la aplica dos veces.
             Render::pglUniform1f(g_progTerreno.uSaturacion, g_paseSaturacion.listo() ? 1.0f : l.saturacion);
+        }
+
+        // LA ATMOSFERA: la niebla toma el color del cielo que hay detras (con
+        // el brillo del sol al atardecer) y la luz del cielo se tine con el
+        // color del sol. La MEJORA ATMOSFERICA escala las dos cosas, igual que
+        // escala la boveda: al 0 % la niebla es plana y la luz, blanca.
+        {
+            const AtmosferaFrame& at = g_atmosfera;
+            const float mejora = g_opciones[Opciones::ATMOSFERA] / 100.0f;
+            const float brilla = at.nieblaDelCielo ? mejora : 0.0f;
+            Render::pglUniform3f(g_progTerreno.uSolOjo,
+                                 at.solOjo[0], at.solOjo[1], at.solOjo[2]);
+            Render::pglUniform3f(g_progTerreno.uResplandor,
+                                 at.cielo.resplandor[0] * brilla,
+                                 at.cielo.resplandor[1] * brilla,
+                                 at.cielo.resplandor[2] * brilla);
+            Render::pglUniform3f(g_progTerreno.uContraluz,
+                                 at.cielo.contraluz[0] * brilla,
+                                 at.cielo.contraluz[1] * brilla,
+                                 at.cielo.contraluz[2] * brilla);
+            Render::pglUniform3f(g_progTerreno.uLuzSol,
+                                 1.0f + (at.cielo.luzSol[0] - 1.0f) * mejora,
+                                 1.0f + (at.cielo.luzSol[1] - 1.0f) * mejora,
+                                 1.0f + (at.cielo.luzSol[2] - 1.0f) * mejora);
         }
 
         // El agua se desplaza; el terreno no. Antes esto era una matriz de
@@ -30455,6 +30578,7 @@ public:
                         g_textureManager->bindOptimized(batch->texture);
                     }
 
+                    if (porCapa) pasarSolMalla(c);
                     glDrawArrays(GL_QUADS, batch->primerVertice, batch->vertexCount);
 
                     facesRendered += batch->vertexCount / 4;
@@ -30642,6 +30766,7 @@ public:
                     // agujero.
                     if (!porCapa) g_textureManager->bindOptimized(batch->texture);
 
+                    if (porCapa) pasarSolMalla(c);
                     glDrawArrays(GL_QUADS, batch->primerVertice, batch->vertexCount);
 
                     // ⭐ LAS ESTADISTICAS SOLO LAS CUENTA LA PASADA DE COLOR.
@@ -32364,6 +32489,36 @@ struct GameState {
     // que conservar. Solo el jugador tirando una herramienta de la mano pasa
     // un valor aqui (ver dropSelectedItem).
     void spawnItem(Vec3 position, BlockType blockType, int vidaMedios = 0) {
+        // ⭐ EL CADAVER CAE COMO CUERPO, NO COMO ITEM.
+        //
+        // Todo lo que tira un item al mundo pasa por aqui (Q, soltar fuera
+        // del inventario...), asi que es el unico sitio donde hace falta.
+        // Sale lanzado hacia donde mira el jugador, lo bastante flojo para
+        // que caiga a sus pies y no salga volando.
+        if (blockType == BLOCK_CADAVER_PECARI && pecaries) {
+            const Vec3 f = player.getForward();
+            float hx = f.x, hz = f.z;
+            const float l = std::sqrt(hx * hx + hz * hz);
+            if (l > 1e-4f) { hx /= l; hz /= l; } else { hx = 0.0f; hz = 1.0f; }
+            // Si el punto de salida cae dentro de un bloque (tirarlo contra
+            // una pared), sale de los pies del jugador.
+            // `position` llega a la altura del ojo: el cuerpo sale algo mas
+            // abajo, a la altura del pecho, y cae desde ahi.
+            Vec3 pie = position;
+            pie.y -= 0.4f;
+            if (isBlockSolid(world.getBlock((int)std::floor(pie.x),
+                                            (int)std::floor(pie.y),
+                                            (int)std::floor(pie.z)))) {
+                pie = player.position;
+                pie.y += 0.3f;
+            }
+            // Atravesado: el cuerpo cae de lado respecto a la mirada.
+            const float orientacion = std::atan2(hx, hz) + 1.5707963f;
+            pecaries->soltarCadaver(pie.x, pie.y, pie.z, orientacion,
+                                    hx * 2.0f, hz * 2.0f, (uint32_t)rand());
+            return;
+        }
+
         // ⭐ Determinar qué item debe caer
         BlockType droppedItem = getDroppedItem(blockType);
 
@@ -32581,6 +32736,24 @@ struct GameState {
                                     player.position.z,
                                     RADIO_JUGADOR, ALTURA_JUGADOR,
                                     0.85f);
+
+            // 3. ⭐ Y A LOS MUERTOS.
+            //
+            // El ragdoll se empuja punto a punto: el cuerpo se arrastra, gira
+            // si se le pisa la cabeza y se dobla contra lo que tenga detras.
+            // El reparto es por la masa del animal que era, y lo que no cede
+            // el cuerpo lo cede el jugador, con el mismo suavizado de arriba:
+            // un cadaver de 18 kg estorba, no se atraviesa como humo.
+            float devueltoX = 0.0f, devueltoZ = 0.0f;
+            if (pecaries->jugadorEmpujaCadaveres(player.position.x,
+                                                 player.position.y,
+                                                 player.position.z,
+                                                 RADIO_JUGADOR, ALTURA_JUGADOR,
+                                                 devueltoX, devueltoZ) > 0) {
+                constexpr float SUAVIZADO = 0.25f;
+                player.position.x += devueltoX * SUAVIZADO;
+                player.position.z += devueltoZ * SUAVIZADO;
+            }
         }
     }
 
@@ -33665,8 +33838,9 @@ void updateMining(GameState* state, float deltaTime) {
             result.hit = true;
             result.blockPos = Vec3i(headBlockX, headBlockY, headBlockZ);
             result.distance = 0.5f;
-
-            std::cout << "🔨 Rompiendo bloque sobre la cabeza en (" << headBlockX << ", " << headBlockY << ", " << headBlockZ << ")" << std::endl;
+            // (Aqui habia un std::cout que se escribia en CADA frame mientras
+            // se picaba: la salida va sin bufer a un archivo, asi que eran
+            // varias escrituras a disco por frame. Retirado.)
         } else {
             // No hay nada que romper
             state->isMining = false;
@@ -34396,8 +34570,49 @@ bool pedazoMirado(GameState* state, Vec3i& pos) {
     return true;
 }
 
+// ============================================================================
+// EL CADAVER DEL PECARI TAMBIEN SE RECOGE CON F
+// ============================================================================
+// PEDIDO: "que si le presionas F, te de un nuevo item llamado Cadaver de
+// Pecari".
+//
+// Indice del cadaver mirado, o -1. Se recoge el cuerpo solo si esta MAS CERCA
+// que el primer bloque macizo de la mirada: a traves de una pared no se coge
+// nada. La hierba y las plantas no tapan: el cuerpo suele estar tirado
+// encima de ellas.
+int cadaverMirado(GameState* state) {
+    if (!state->pecaries) return -1;
+    const Vec3 ojo = ojoDelJugador(state->player);
+    const Vec3 dir = state->player.getForward();
+    constexpr float ALCANCE = 5.0f;
+    float distancia = ALCANCE;
+    const int i = state->pecaries->cadaverApuntado(ojo.x, ojo.y, ojo.z,
+                                                   dir.x, dir.y, dir.z,
+                                                   ALCANCE, distancia);
+    if (i < 0) return -1;
+    const RaycastResult r = raycastBlock(state->world, ojo, dir, ALCANCE);
+    if (r.hit && r.distance < distancia &&
+        isBlockSolid(state->world.getBlock(r.blockPos.x, r.blockPos.y, r.blockPos.z)))
+        return -1;
+    return i;
+}
+
+// El cuerpo sale del mundo y entra al inventario. Si no cabe, se queda donde
+// esta: dejarlo caer "como item" seria tirarlo al suelo otra vez.
+bool recogerCadaverMirado(GameState* state) {
+    const int i = cadaverMirado(state);
+    if (i < 0) return false;
+    if (!state->inventory.addItem(BLOCK_CADAVER_PECARI, 1)) return true;
+    state->pecaries->retirarCadaver(i);
+    return true;
+}
+
 // Lo que suelta va directo al inventario. Si no cabe, cae al suelo.
 void recogerPedazoMirado(GameState* state) {
+    // El cuerpo va primero: esta tirado encima del suelo, asi que si se le
+    // mira, se le mira a el y no al pedacito que tenga debajo.
+    if (recogerCadaverMirado(state)) { ++g_recogidas; return; }
+
     Vec3i p;
     if (!pedazoMirado(state, p)) return;
     ++g_recogidas;       // el cuerpo hace el gesto de recoger
@@ -35055,7 +35270,7 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
 // El aviso sobre la hotbar: la tecla F y lo que hace.
 void renderAvisoRecoger(GameState* state, int width, int height) {
     Vec3i p;
-    if (!pedazoMirado(state, p)) return;
+    if (cadaverMirado(state) < 0 && !pedazoMirado(state, p)) return;
 
     // Las medidas de la hotbar (ver renderHotbar): la tecla va centrada sobre
     // el quinto slot, que es el del medio.
@@ -35463,12 +35678,16 @@ void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
     //
     // La malla se pide prestada al mismo cache que usa el mundo, en su LOD
     // mas bajo: un icono de 32 px no da para mas detalle.
-    if (esHuevoDeSpawn(blockType)) {
+    //
+    // El cadaver usa el mismo modelo, tumbado sobre el costado: se distingue
+    // del huevo a simple vista y sigue siendo el animal.
+    if (esHuevoDeSpawn(blockType) || blockType == BLOCK_CADAVER_PECARI) {
         static Fauna::CacheMallas cacheIconos;
         UI::dibujarIconoAnimal3D(cacheIconos,
                                  Fauna::EspecieAnimal::PECARI_COLLAR,
                                  (int)Fauna::EtapaPecari::ADULTO,
-                                 cx, cy, size);
+                                 cx, cy, size,
+                                 blockType == BLOCK_CADAVER_PECARI);
         return;
     }
 
@@ -35864,6 +36083,15 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
     // items. Dos beneficios de paso: el pico de crear cientos de entidades no
     // cae dentro del flood fill, y el tope MAX_SUELTAS_PENDIENTES protege el
     // frame si alguien derriba un bosque.
+    //
+    // ⭐ EN LOTE: UNA PASADA DE LUZ, NO UNA POR BLOQUE.
+    //
+    // Cada setBlock suelto recalcula la luz local (~1,1 ms MEDIDO en partida).
+    // Un arbol de 150 bloques eran 150 recalculos en el frame del hachazo:
+    // del orden de 160 ms con la pantalla parada. En lote se apuntan y se
+    // recalcula una vez por chunk al cerrar.
+    const bool abroLote = !world.enLote();
+    if (abroLote) world.abrirLote();
     for (const Vec3i& p : encontrados) {
         const BlockType t = world.getBlock(p.x, p.y, p.z);
 
@@ -35873,6 +36101,7 @@ bool desprenderEstructura(World& world, int x, int y, int z) {
 
         world.setBlock(p.x, p.y, p.z, BLOCK_AIR);
     }
+    if (abroLote) world.cerrarLote();
 
     // Se consume la direccion del golpe: ya no la usa nadie para volcar, pero
     // dejarla puesta haria que el SIGUIENTE desprendimiento heredara un rumbo
@@ -37245,7 +37474,74 @@ void renderCorazones(GameState* state, int width, int height) {
     if (g_textureManager) g_textureManager->invalidateBindCache();
 }
 
+void renderHotbarDirecto(Inventory* inventory, int width, int height);
+
+// ============================================================================
+// ⭐ LA HOTBAR SE DIBUJA SIEMPRE, PERO SE REHACE SOLO SI CAMBIA
+// ============================================================================
+// PEDIDO: "la hotbar siempre se estara renderizando pero se actualizara solo
+// cuando un item tengas".
+//
+// Dibujarla son nueve fondos, nueve iconos (algunos cubos 3D), los numeros y
+// las barras de vida: cientos de llamadas en modo inmediato, cada frame, para
+// pintar lo mismo. Ahora se graba en una lista de OpenGL (display list) y se
+// repite tal cual; solo se vuelve a grabar cuando cambia algo de lo que
+// muestra: que item hay en cada casilla, cuantos, su desgaste, cual esta
+// seleccionada o el tamano de la ventana.
+//
+// Dos cuidados:
+//   - El frame en que cambia se dibuja SIN grabar, y se graba al siguiente: si
+//     un icono crea su textura la primera vez, esa carga no puede quedar
+//     metida dentro de la lista (se repetiria en cada frame).
+//   - La lista repite sus propios glBindTexture, asi que despues hay que
+//     olvidar la cache de "textura atada" del gestor.
+// Con la depuracion de la hotbar (F6) no se graba: muestra datos que cambian.
+// Y por si una textura llega tarde, se regraba igualmente cada pocos segundos.
 void renderHotbar(Inventory* inventory, int width, int height) {
+    static GLuint lista = 0;
+    static uint64_t firmaGrabada = 0, firmaVista = 0;
+    static int framesIgual = 0;
+    static double grabadaEn = -1e9;
+    if (DEBUG_HOTBAR || !inventory) { renderHotbarDirecto(inventory, width, height); return; }
+
+    uint64_t f = 1469598103934665603ull;
+    auto mezclar = [&f](uint64_t v) { f ^= v; f *= 1099511628211ull; };
+    for (int i = 0; i < 9; ++i) {
+        const auto& sl = inventory->slots[(size_t)i];
+        mezclar((uint64_t)(uint32_t)sl.blockType);
+        mezclar((uint64_t)(uint32_t)sl.count);
+        mezclar((uint64_t)(uint32_t)sl.vidaMedios);
+    }
+    mezclar((uint64_t)(uint32_t)inventory->selectedSlot);
+    mezclar((uint64_t)(uint32_t)width);
+    mezclar((uint64_t)(uint32_t)height);
+
+    framesIgual = (f == firmaVista) ? framesIgual + 1 : 0;
+    firmaVista = f;
+    const double ahora = glfwGetTime();
+    const bool vigente = lista != 0 && f == firmaGrabada && ahora - grabadaEn < 5.0;
+    if (vigente) {
+        glCallList(lista);
+    } else if (framesIgual >= 1) {
+        // Lleva un frame igual: las texturas ya existen. Se graba.
+        if (lista == 0) lista = glGenLists(1);
+        if (g_textureManager) g_textureManager->resetBindCache();
+        if (lista != 0) {
+            glNewList(lista, GL_COMPILE_AND_EXECUTE);
+            renderHotbarDirecto(inventory, width, height);
+            glEndList();
+            firmaGrabada = f;
+            grabadaEn = ahora;
+        } else {
+            renderHotbarDirecto(inventory, width, height);
+        }
+    } else {
+        renderHotbarDirecto(inventory, width, height);
+    }
+    if (g_textureManager) g_textureManager->resetBindCache();
+}
+
+void renderHotbarDirecto(Inventory* inventory, int width, int height) {
     // ========================================================================
     // ESTADO GL COMPLETO Y EXPLÍCITO (no heredar NADA del render del mundo)
     // ========================================================================
@@ -37524,13 +37820,20 @@ void renderItemInHand(Inventory* inventory, int width, int height) {
     glVertex2f(x - 5, y + itemSize + 5);
     glEnd();
 
+    // Los animales (huevo y cadaver) no tienen PNG: su icono es el modelo 3D,
+    // igual que en la hotbar. Sin esto salia un cuadro de color liso.
+    const bool esAnimal = esHuevoDeSpawn(heldItem) ||
+                          heldItem == BLOCK_CADAVER_PECARI;
+
     // Renderizar el item con textura
     GLuint texture = 0;
-    if (g_textureManager != nullptr) {
+    if (g_textureManager != nullptr && !esAnimal) {
         texture = g_textureManager->getItemTexture(heldItem); // ⭐ Usar textura de item
     }
 
-    if (texture != 0) {
+    if (esAnimal) {
+        drawItemIcon(heldItem, x + itemSize * 0.5f, y + itemSize * 0.5f, itemSize);
+    } else if (texture != 0) {
         glEnable(GL_TEXTURE_2D);
         g_textureManager->bindForUI(texture);
 
@@ -38082,6 +38385,10 @@ bool isPlaceableItem(BlockType type) {
         // pecari no llegaria a aparecer nunca. Su uso real se maneja en
         // placeBlock(), ANTES de llegar a esta comprobacion.
         case BLOCK_HUEVO_PECARI:
+            return false;
+
+        // El cadaver tampoco: se tira con Q y cae como ragdoll.
+        case BLOCK_CADAVER_PECARI:
             return false;
 
         case BLOCK_AIR:          // Aire no es colocable
@@ -45769,11 +46076,29 @@ void dibujarCieloYAstros() {
         const float luz = luzSolar();
         const Atmosfera::Cielo cielo = Atmosfera::cieloPara(luz);
 
+        // Publicar la atmosfera del frame. El sol pasa a espacio de ojo con la
+        // rotacion de la camara, que es lo unico que hay en la matriz ahora
+        // (la traslacion al ojo va despues): asi el shader del terreno puede
+        // comparar cada pixel con el sol sin saber nada de la camara. Es UNA
+        // lectura de matriz por frame.
+        g_atmosfera.cielo = cielo;
+        {
+            GLfloat m[16];
+            glGetFloatv(GL_MODELVIEW_MATRIX, m);
+            const float wx = (float)sx, wy = (float)sy, wz = (float)sz;
+            g_atmosfera.solOjo[0] = m[0] * wx + m[4] * wy + m[8]  * wz;
+            g_atmosfera.solOjo[1] = m[1] * wx + m[5] * wy + m[9]  * wz;
+            g_atmosfera.solOjo[2] = m[2] * wx + m[6] * wy + m[10] * wz;
+        }
+
         constexpr float RADIO_BOVEDA = 110.0f;
-        constexpr int SECTORES = 24;
+        // Mas anillos y sectores que antes: el halo del sol y la franja del
+        // horizonte son degradados finos, y con 6 anillos se veian a tramos.
+        constexpr int SECTORES = 64;
         // Altura de cada anillo, en seno. El ultimo tramo va bajo el horizonte
         // para que no asome el color de limpieza entre el terreno y el cielo.
-        static const float ANILLOS[] = { -0.40f, 0.0f, 0.08f, 0.22f, 0.50f, 1.0f };
+        static const float ANILLOS[] = { -0.40f, 0.0f, 0.02f, 0.05f, 0.09f, 0.14f, 0.20f,
+                                         0.28f, 0.38f, 0.50f, 0.64f, 0.80f, 1.0f };
         constexpr int N_ANILLOS = (int)(sizeof(ANILLOS) / sizeof(ANILLOS[0]));
 
         glDisable(GL_TEXTURE_2D);
@@ -45819,9 +46144,18 @@ void dibujarCieloYAstros() {
             glRotatef((float)(h * 15.0), 0.0f, 0.0f, 1.0f);
             glPointSize(1.5f);
             glBegin(GL_POINTS);
+            // Titilan: cada una a su ritmo y con su fase, poco (un 25 %), que
+            // es lo que hace la turbulencia del aire. Las brillantes un poco
+            // mas despacio, como se ve a simple vista.
+            const float tTitilar = (float)glfwGetTime();
             for (int i = 0; i < N_ESTRELLAS; ++i) {
                 const float* e = estrellas[i];
-                glColor4f(1.0f, 1.0f, 1.0f, brillo * e[3]);
+                const float titila = 0.75f + 0.25f *
+                    sinf(tTitilar * (3.5f - 2.0f * e[3]) + (float)i * 2.399f);
+                // Un leve tinte por estrella: unas azuladas, otras calidas.
+                const float tono = (float)(i % 7) / 6.0f - 0.5f;
+                glColor4f(1.0f - 0.10f * tono, 1.0f, 1.0f + 0.12f * tono,
+                          brillo * e[3] * titila);
                 glVertex3f(e[0] * RADIO_BOVEDA * 0.97f, e[1] * RADIO_BOVEDA * 0.97f,
                            e[2] * RADIO_BOVEDA * 0.97f);
             }
@@ -45838,7 +46172,8 @@ void dibujarCieloYAstros() {
 
     // Emite un astro en el punto del cielo que le toca a ese angulo horario.
     auto astro = [&](GLuint tex, double angH, float r, float g, float b,
-                     float a) {
+                     float a, float tam = 1.0f) {
+        const float RADIO = 9.0f * tam;
         if (tex == 0 || a <= 0.01f) return;
 
         // Direccion real en el cielo, de las ecuaciones de posicion solar.
@@ -45894,6 +46229,53 @@ void dibujarCieloYAstros() {
     };
 
     // ------------------------------------------------------------------
+    // EL HALO
+    // ------------------------------------------------------------------
+    // La luz que el aire dispersa alrededor del astro. Sin el, el sol era
+    // una pegatina sobre un cielo liso; con el, el cielo se aclara a su
+    // alrededor como pasa de verdad. Es un abanico de 17 vertices, del color
+    // del astro en el centro a transparente en el borde, sumado al cielo
+    // (GL_ONE): solo aclara, nunca tapa.
+    //
+    // Va ANTES que el astro, para que la textura quede encima.
+    const float mejoraCielo = g_opciones[Opciones::ATMOSFERA] / 100.0f;
+    auto halo = [&](double angH, float radio, float r, float g, float b,
+                    float a) {
+        if (a <= 0.01f) return;
+        double ddx, ddy, ddz;
+        direccionAstro(angH, ddx, ddy, ddz);
+        const float dx = (float)ddx, dy = (float)ddy, dz = (float)ddz;
+        float rx = -dz, rz = dx;
+        const float rl = sqrtf(rx * rx + rz * rz);
+        if (rl < 1e-3f) { rx = 1.0f; rz = 0.0f; } else { rx /= rl; rz /= rl; }
+        const float ux = dy * rz, uy = dz * rx - dx * rz, uz = -dy * rx;
+        const float d = DIST * 1.01f;     // detras del astro
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        glDisable(GL_TEXTURE_2D);
+        glBegin(GL_TRIANGLE_FAN);
+        glColor4f(r, g, b, a);
+        glVertex3f(dx * d, dy * d, dz * d);
+        constexpr int LADOS = 16;
+        for (int k = 0; k <= LADOS; ++k) {
+            const float ang = (float)k / LADOS * 6.2831853f;
+            const float cs = cosf(ang) * radio, sn = sinf(ang) * radio;
+            glColor4f(r, g, b, 0.0f);
+            glVertex3f(dx * d + rx * cs + ux * sn,
+                       dy * d + uy * sn,
+                       dz * d + rz * cs + uz * sn);
+        }
+        glEnd();
+        glEnable(GL_TEXTURE_2D);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    };
+
+    // Las texturas de los astros no cambian: se buscan una vez, no con una
+    // cadena y un candado en cada frame.
+    static GLuint texSol = 0, texLuna = 0;
+    if (texSol == 0)  texSol  = g_textureManager->getTexture("Objetos cosmicos/Sol.png");
+    if (texLuna == 0) texLuna = g_textureManager->getTexture("Objetos cosmicos/Luna llena.png");
+
+    // ------------------------------------------------------------------
     // EL SOL
     // ------------------------------------------------------------------
     // Se desvanece al rozar el horizonte, igual que en la realidad: no
@@ -45909,12 +46291,20 @@ void dibujarCieloYAstros() {
         // mas atmosfera y se filtran los azules. Es el mismo motivo por el
         // que el cielo se tine de naranja a esas horas.
         const float bajo = 1.0f - fminf(altSol / 0.25f, 1.0f);
-        astro(g_textureManager->getTexture("Objetos cosmicos/Sol.png"),
+        // El halo crece y se calienta al bajar: al atardecer la luz cruza
+        // mucho mas aire y se dispersa en un resplandor ancho y naranja; a
+        // mediodia queda un aro blanco y discreto.
+        halo(angSol, RADIO * (3.0f + 3.5f * bajo),
+             1.0f, 0.92f - 0.35f * bajo, 0.75f - 0.55f * bajo,
+             (0.28f + 0.30f * bajo) * vis * mejoraCielo);
+        // La textura del sol (Sol.png, de "Sol total") lleva su propio
+        // resplandor alrededor: el cuadro es mas grande que el disco.
+        astro(texSol,
               angSol,
               1.0f,
               1.0f - bajo * 0.25f,
               1.0f - bajo * 0.55f,
-              vis);
+              vis, 1.6f);
     }
 
     // ------------------------------------------------------------------
@@ -45930,12 +46320,17 @@ void dibujarCieloYAstros() {
         // La luna baja tambien se ve mas calida, pero mucho menos marcada
         // que el sol: su luz es reflejada y mucho mas tenue.
         const float bajo = 1.0f - fminf(altLuna / 0.25f, 1.0f);
-        astro(g_textureManager->getTexture("Objetos cosmicos/Luna llena.png"),
+        // La luna tambien tiene halo, frio y tenue: solo se ve de noche,
+        // cuando no hay cielo claro que lo tape.
+        halo(angLuna, RADIO * 2.6f, 0.62f, 0.72f, 1.0f,
+             0.16f * vis * (1.0f - luzSolar()) * mejoraCielo);
+        // La luna (Luna llena.png, de "Luna Llena") es solo el disco.
+        astro(texLuna,
               angLuna,
               1.0f,
               1.0f - bajo * 0.10f,
               1.0f - bajo * 0.20f,
-              vis);
+              vis, 0.62f);
     }
 
     glPopAttrib();
@@ -46491,6 +46886,18 @@ int main() {
                           << "'" << std::endl;
                 loadWorld(g_gameState, idx, (float)glfwGetTime());
 
+                // ⭐ HORA FIJA: VOXELWORLD_BENCH_HORA=18.2 arranca a esa hora.
+                // Sin ella el cielo sale el que tuviera el mundo guardado, y no
+                // se puede comparar un atardecer con otro. Va despues de cargar
+                // porque loadWorld pone la hora del mundo.
+                if (const char* hora = getenv("VOXELWORLD_BENCH_HORA")) {
+                    const double hh = atof(hora);
+                    if (hh >= 0.0 && hh < 24.0) {
+                        g_horaDelMundoSegundos = hh / 24.0 * SEGUNDOS_POR_DIA;
+                        std::cout << "[BENCH] Hora clavada en " << hh << std::endl;
+                    }
+                }
+
                 // ⭐ POSICION Y ORIENTACION FIJAS.
                 //
                 // Sin esto cada arranque deja al jugador donde lo dejo la
@@ -46840,10 +47247,16 @@ int main() {
         // EL CIELO CAMBIA CON LA HORA: del azul del mediodia al casi negro de
         // la noche, con naranja al amanecer y al atardecer. Se aplica al color
         // de limpieza, que es el fondo sobre el que se dibuja todo.
+        //
+        // Es el horizonte de la misma atmosfera que pinta la boveda y la
+        // niebla (la del frame anterior: el cielo de este aun no se dibujo).
+        // Antes salia de otra paleta, y donde asomaba el fondo --bajo el
+        // ultimo anillo de la boveda-- se veia una franja de otro azul.
+        // Fuera de la partida (menus, carga) no sopla nada.
+        if (g_gameState->screenState != SCREEN_IN_GAME) g_audioMixer.setViento(0.0f);
         if (g_gameState->screenState == SCREEN_IN_GAME) {
-            float cr, cg, cb;
-            colorDelCielo(cr, cg, cb);
-            glClearColor(cr, cg, cb, 1.0f);
+            const float* h = g_atmosfera.cielo.horizonte;
+            glClearColor(h[0], h[1], h[2], 1.0f);
         }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -47204,6 +47617,9 @@ int main() {
                     // maguey de aqui arriba para no verse como un cubo verde
                     // mas.
                     ponerEnCreativo(BLOCK_HUEVO_PECARI);
+                    // Y el cadaver, para poder tirarlo y probar el ragdoll
+                    // sin tener que cazar un pecari antes.
+                    ponerEnCreativo(BLOCK_CADAVER_PECARI);
 
                     std::cout << "Inventario creativo: " << creativeCount
                               << " objetos en " << g_gameState->inventory.total()
@@ -47509,6 +47925,21 @@ int main() {
                         g_footsteps.update(dx, dz, g_gameState->player.onGround,
                                            mat, sprinting, crouching);
                     }
+                }
+
+                // ⭐ EL VIENTO DE FONDO (audio/Viento.h): mas fuerte en lo alto
+                // y a cielo abierto, casi nada bajo techo o en una cueva. La
+                // luz del cielo en la celda de la cabeza dice cuanto cielo hay.
+                {
+                    const Vec3 cabeza = ojoDelJugador(g_gameState->player);
+                    const int cy = (int)std::floor(cabeza.y);
+                    int nivel = 18;
+                    if (cy < CHUNK_HEIGHT && cy >= 0)
+                        nivel = g_gameState->world.getLightLevel((int)std::floor(cabeza.x), cy,
+                                                                 (int)std::floor(cabeza.z));
+                    const bool callado = g_gameState->isPaused || g_gameState->durmiendo;
+                    g_audioMixer.setViento(callado ? 0.0f
+                        : Audio::intensidadViento(cabeza.y, (float)nivel / 18.0f));
                 }
 
                 // ⭐⭐⭐ ACTUALIZAR ESTADO DE NIEBLA SEGÚN JUGADOR
@@ -48051,8 +48482,9 @@ int main() {
             // Fuera del agua y la lava, el color del horizonte a esta hora: asi
             // el terreno lejano se funde con el cielo en vez de recortarse. Y de
             // noche la niebla ya no se queda azul claro.
-            if (!fogConfig.isUnderwater && !fogConfig.isInLava) {
-                const Atmosfera::Cielo cielo = Atmosfera::cieloPara(luzSolar());
+            g_atmosfera.nieblaDelCielo = !fogConfig.isUnderwater && !fogConfig.isInLava;
+            if (g_atmosfera.nieblaDelCielo) {
+                const Atmosfera::Cielo& cielo = g_atmosfera.cielo;
                 finalFogColor[0] = cielo.horizonte[0];
                 finalFogColor[1] = cielo.horizonte[1];
                 finalFogColor[2] = cielo.horizonte[2];
@@ -49532,12 +49964,9 @@ int main() {
         g_gameState->particles.render();
         glDisable(GL_BLEND);
 
-        // ⭐ RENDERIZAR MANO DEL JUGADOR con bloque seleccionado
-        if (!g_gameState->isPaused && !g_gameState->inventoryOpen) {
-            BlockType heldBlock = g_gameState->inventory.getSelectedBlock();
-            float swingProgress = g_gameState->isMining ? g_gameState->miningProgress : 0.0f;
-            renderPlayerHand(heldBlock, swingProgress, deltaTime);
-        }
+        // La mano de cubos de antes ya no se dibuja: lo que se lleva en la
+        // mano lo dibuja el cuerpo del jugador, con su modelo 3D
+        // (dibujarItem3D), y con las dos a la vez el item salia duplicado.
 
         // Renderizar outline del bloque apuntado
         Vec3 rayOrigin = ojoDelJugador(g_gameState->player);
@@ -49861,8 +50290,9 @@ int main() {
             renderAvisoRecoger(g_gameState, width, height);
 
 
-            // ⭐ Renderizar item en la mano (esquina inferior derecha)
-            renderItemInHand(&g_gameState->inventory, width, height);
+            // (El recuadro con el icono plano del item en la esquina de
+            // abajo a la derecha ya no se dibuja: el item se ve en 3D en la
+            // mano del cuerpo. Era el cuadro vacio que quedaba en pantalla.)
 
             // ================================================================
             // ⭐ DORMIR: LA PANTALLA SE VA A NEGRO

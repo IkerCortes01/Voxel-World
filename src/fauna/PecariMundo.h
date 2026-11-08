@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <unordered_set>
+#include <unordered_map>
 #include <cstdint>
 #include <cmath>
 #include <limits>      // el centinela NaN de soltarUno/soltarManada
@@ -149,6 +150,21 @@ private:
     // El cuerpo del que acaba de morir pasa a ser un ragdoll. El golpe lo
     // empuja en la direccion contraria a quien lo dio.
     void crearCadaver(const PecariAgente& v, float desdeX, float desdeZ) {
+        float ex = v.x - desdeX, ez = v.z - desdeZ;
+        const float l = std::sqrt(ex * ex + ez * ez);
+        if (l > 1e-4f) { ex = ex / l * 3.0f; ez = ez / l * 3.0f; } else { ex = ez = 0.0f; }
+
+        Ragdoll& r = nuevoCadaver((int)v.etapa);
+        r.semilla = v.semilla;
+        r.erizado = v.erizado;
+        r.lodActual = v.lodActual;
+        r.heridas = v.heridas;
+        r.iniciar(esqueletoDeEtapa(r.etapa), v.escala, v.x, v.y, v.z,
+                  v.orientacion, v.vx, v.vz, ex, ez);
+    }
+
+    // Hueco para un cadaver mas. Si ya estan todos, se va el mas viejo.
+    Ragdoll& nuevoCadaver(int etapa) {
         if (cadaveres.size() >= MAX_CADAVERES) {
             size_t viejo = 0;
             for (size_t i = 1; i < cadaveres.size(); ++i)
@@ -156,21 +172,18 @@ private:
             cadaveres[viejo] = cadaveres.back();
             cadaveres.pop_back();
         }
-        float ex = v.x - desdeX, ez = v.z - desdeZ;
-        const float l = std::sqrt(ex * ex + ez * ez);
-        if (l > 1e-4f) { ex = ex / l * 3.0f; ez = ez / l * 3.0f; } else { ex = ez = 0.0f; }
+        cadaveres.emplace_back();
+        cadaveres.back().etapa = etapa;
+        return cadaveres.back();
+    }
 
-        const int etapa = (int)v.etapa;
-        const EsqueletoReposo esq = EsqueletoDePecari(
+    static EsqueletoReposo esqueletoDeEtapa(int etapa) {
+        return EsqueletoDePecari(
             Especies::aplicarEdad(Especies::pecariDeCollar(), etapa));
-        Ragdoll r;
-        r.etapa = etapa;
-        r.semilla = v.semilla;
-        r.erizado = v.erizado;
-        r.lodActual = v.lodActual;
-        r.heridas = v.heridas;
-        r.iniciar(esq, v.escala, v.x, v.y, v.z, v.orientacion, v.vx, v.vz, ex, ez);
-        cadaveres.push_back(r);
+    }
+
+    static float radioDeCadaver(const Ragdoll& r) {
+        return RadioCuerpoBloques((EtapaPecari)r.etapa, r.escala);
     }
 
     int siguienteId = 0;
@@ -181,6 +194,12 @@ private:
     // liberar ahi seria el tipo de coste que 01_ARQUITECTURA pide evitar.
     mutable std::vector<const PecariAgente*> bufVecinos;
     mutable std::vector<int> manadasVistas;
+    // Los animales agrupados por manada (ver actualizar): para cada manada,
+    // su tramo [inicioManada[g], inicioManada[g+1]) dentro de `miembrosManada`.
+    std::unordered_map<int, int> grupoDeManada;
+    std::vector<int> grupoDeAnimal, inicioManada, miembrosManada, cursorManada;
+    // El radio de cada animal, para la separacion entre ellos.
+    std::vector<float> radioAnimal;
 
 public:
     // Tope de seguridad. 01_ARQUITECTURA lo exige explicitamente como una de
@@ -420,44 +439,69 @@ public:
         actualizarCadaveres(dt, mundo);
         if (pecaries.empty()) return;
 
-        // Centros de manada: se calculan UNA vez por manada, no por individuo.
-        // Sin esto seria O(n^2) por frame.
+        // ====================================================================
+        // ⭐ AGRUPAR POR MANADA, UNA VEZ POR FRAME
+        // ====================================================================
+        // Antes, por cada manada se recorria la lista ENTERA buscando a sus
+        // miembros, y por cada animal otra vez la lista entera buscando
+        // vecinos: O(manadas x animales) mas O(animales^2). Con unos cientos
+        // cargados se llevaba ~1 ms por frame MEDIDO en partida (tramo
+        // "fauna" del log), mas que todo el resto de la logica junta.
+        //
+        // Ahora se reparten una vez (O(n)) y cada animal solo mira a los de
+        // su manada. EL ORDEN SE CONSERVA a proposito -- manadas por orden de
+        // aparicion y miembros por indice creciente -- porque el bucle mueve
+        // a cada animal antes de buscar los vecinos del siguiente: con otro
+        // orden el resultado cambiaria. Asi es identico al de antes.
+        //
+        // Es valido porque idManada no cambia durante la actualizacion: solo
+        // se asigna al crear el animal.
+        const int nAnimales = (int)pecaries.size();
         manadasVistas.clear();
-        for (const PecariAgente& p : pecaries) {
-            bool visto = false;
-            for (int id : manadasVistas) if (id == p.idManada) { visto = true; break; }
-            if (!visto) manadasVistas.push_back(p.idManada);
+        grupoDeManada.clear();
+        inicioManada.clear();
+        grupoDeAnimal.resize((size_t)nAnimales);
+        for (int i = 0; i < nAnimales; ++i) {
+            const int id = pecaries[(size_t)i].idManada;
+            auto it = grupoDeManada.find(id);
+            int g;
+            if (it == grupoDeManada.end()) {
+                g = (int)manadasVistas.size();
+                grupoDeManada.emplace(id, g);
+                manadasVistas.push_back(id);
+                inicioManada.push_back(0);
+            } else {
+                g = it->second;
+            }
+            grupoDeAnimal[(size_t)i] = g;
+            ++inicioManada[(size_t)g];          // de momento, cuantos tiene
         }
+        // De conteos a posiciones de inicio, con un centinela al final.
+        int acumulado = 0;
+        for (int& v : inicioManada) { const int c = v; v = acumulado; acumulado += c; }
+        inicioManada.push_back(acumulado);
+        // Rellenar en orden de indice: cada manada queda en orden creciente.
+        miembrosManada.resize((size_t)nAnimales);
+        cursorManada.assign(inicioManada.begin(), inicioManada.end() - 1);
+        for (int i = 0; i < nAnimales; ++i)
+            miembrosManada[(size_t)cursorManada[(size_t)grupoDeAnimal[(size_t)i]]++] = i;
 
-        for (int idManada : manadasVistas) {
-            const CentroManada centro = CalcularCentro(pecaries, idManada);
-
-            for (size_t i = 0; i < pecaries.size(); ++i) {
-                if (pecaries[i].idManada != idManada) continue;
-
-                BuscarVecinos(pecaries, i, bufVecinos);
+        for (size_t g = 0; g < manadasVistas.size(); ++g) {
+            const int* miembros = miembrosManada.data() + inicioManada[g];
+            const int nMiembros = inicioManada[g + 1] - inicioManada[g];
+            // El centro, una vez por manada (antes de mover a ninguno).
+            const CentroManada centro =
+                CalcularCentroDeMiembros(pecaries, miembros, nMiembros);
+            for (int k = 0; k < nMiembros; ++k) {
+                const size_t i = (size_t)miembros[k];
+                BuscarVecinosEnManada(pecaries, miembros, nMiembros, i, bufVecinos);
                 ActualizarPecari(pecaries[i], centro, bufVecinos, dt);
-
-                // ⭐ MOVER COMPROBANDO EL MUNDO.
-                //
-                // ActualizarPecari solo deja la INTENCION (vx, vz); quien
-                // mueve de verdad es esto, que si tiene el mundo delante y
-                // puede negarse a atravesar una pared.
                 moverConColision(pecaries[i], mundo, dt);
-
-                // Posar sobre el terreno. Sin esto el animal caminaria a
-                // altura constante y atravesaria colinas.
                 posarEnSuelo(pecaries[i], mundo, dt);
-
-                // Y sondear el suelo bajo CADA PATA, para que en una cuesta no
-                // queden todas a la misma altura.
                 muestrearSueloPatas(pecaries[i], mundo, dt);
             }
         }
 
-        // Resolver penetraciones al final: contra bloques y entre animales.
-        // Va DESPUES de mover a todos, no dentro del bucle, para que el
-        // resultado no dependa del orden en que se actualizaron.
         resolverColisiones(mundo);
     }
 
@@ -951,22 +995,10 @@ public:
 
             // --- Cuanto cede el animal, segun su masa ---
             //
-            // Masas MEDIDAS: 0.5 kg al nacer, 18.7 kg adulto. Las intermedias
-            // salen de la escala al cubo, que es como va la masa con la
-            // longitud.
-            float masaKg = 18.7f;
-            switch (a.etapa) {
-                case EtapaPecari::NEONATO:    masaKg =  0.5f; break;   // MEDIDO
-                case EtapaPecari::JUVENIL:    masaKg =  2.6f; break;   // DERIVADO
-                case EtapaPecari::SUBADULTO:  masaKg =  8.9f; break;   // DERIVADO
-                case EtapaPecari::ADULTO:     masaKg = 18.7f; break;   // MEDIDO
-                case EtapaPecari::SENESCENTE: masaKg = 17.1f; break;   // DERIVADO
-            }
-
-            // Un jugador ronda los 70 kg. Cuanto mas ligero el animal, mas
-            // cede: un bebe sale casi despedido, un adulto apenas se aparta.
-            constexpr float MASA_JUGADOR = 70.0f;
-            const float cesion = MASA_JUGADOR / (MASA_JUGADOR + masaKg);
+            // Masas MEDIDAS: 0.5 kg al nacer, 18.7 kg adulto (MasaKgDeEtapa).
+            // Cuanto mas ligero el animal, mas cede: un bebe sale casi
+            // despedido, un adulto apenas se aparta.
+            const float cesion = CesionAnteJugador(a.etapa);
 
             const float penetracion = rSuma - d;
             const float desplaza = penetracion * cesion * fuerza;
@@ -982,6 +1014,76 @@ public:
             ++empujados;
         }
         return empujados;
+    }
+
+    // ------------------------------------------------------------------------
+    // EL JUGADOR EMPUJA A LOS MUERTOS
+    // ------------------------------------------------------------------------
+    // Lo mismo que jugadorEmpuja, pero contra el ragdoll: el choque se
+    // resuelve punto a punto (ver Ragdoll::empujarCon), asi que el cuerpo
+    // gira, se arrastra y se dobla segun donde se le pise. El reparto es por
+    // masa, con la del animal que era.
+    //
+    // (outX, outZ) acumula lo que el cuerpo devuelve al jugador.
+    int jugadorEmpujaCadaveres(float px, float py, float pz,
+                               float radioJugador, float alturaJugador,
+                               float& outX, float& outZ) {
+        outX = 0.0f; outZ = 0.0f;
+        int tocados = 0;
+        for (Ragdoll& r : cadaveres) {
+            const float radio = radioDeCadaver(r);
+            const V3 c = r.centro();
+            // Descarte barato: el cuerpo entero cabe en dos metros.
+            const float dx = c.x - px, dz = c.z - pz;
+            if (dx * dx + dz * dz > 16.0f) continue;
+            if (r.empujarCon(px, py, pz, radioJugador, alturaJugador, radio,
+                             CesionAnteJugador((EtapaPecari)r.etapa),
+                             outX, outZ) > 0)
+                ++tocados;
+        }
+        return tocados;
+    }
+
+    // ------------------------------------------------------------------------
+    // RECOGER EL CADAVER (tecla F)
+    // ------------------------------------------------------------------------
+    // Indice del cadaver mas cercano que toca el rayo, o -1. `distancia` sale
+    // en bloques, para que quien llama lo compare con el bloque que mira: un
+    // cuerpo detras de una pared no se recoge.
+    int cadaverApuntado(float ojoX, float ojoY, float ojoZ,
+                        float dirX, float dirY, float dirZ,
+                        float alcance, float& distancia) const {
+        int mejor = -1;
+        distancia = alcance;
+        for (size_t i = 0; i < cadaveres.size(); ++i) {
+            const float t = cadaveres[i].tocaRayo(ojoX, ojoY, ojoZ,
+                                                  dirX, dirY, dirZ, alcance,
+                                                  radioDeCadaver(cadaveres[i]));
+            if (t >= 0.0f && t <= distancia) { distancia = t; mejor = (int)i; }
+        }
+        return mejor;
+    }
+
+    // El cadaver sale del mundo (para ir al inventario).
+    bool retirarCadaver(int indice) {
+        if (indice < 0 || indice >= (int)cadaveres.size()) return false;
+        cadaveres[indice] = cadaveres.back();
+        cadaveres.pop_back();
+        return true;
+    }
+
+    // El item vuelve a ser cuerpo: tirarlo lo deja caer como ragdoll, no
+    // como un cubo flotando. Sale ADULTO, que es lo que es el item (no
+    // guarda la etapa), y sin heridas.
+    //
+    // (x, y, z) es donde quedan las pezunas, como en el animal vivo, y
+    // (vx, vz) con que velocidad sale lanzado, en bloques/s.
+    void soltarCadaver(float x, float y, float z, float orientacion,
+                       float vx, float vz, uint32_t semilla) {
+        Ragdoll& r = nuevoCadaver((int)EtapaPecari::ADULTO);
+        r.semilla = semilla | 1u;
+        r.iniciar(esqueletoDeEtapa(r.etapa), 1.0f, x, y, z, orientacion,
+                  vx, vz, 0.0f, 0.0f);
     }
 
     // ------------------------------------------------------------------------
@@ -1030,18 +1132,22 @@ public:
         // La separacion de boids ya los mantiene apartados en condiciones
         // normales, pero al apretarse contra un obstaculo pueden solaparse.
         // Esto lo resuelve geometricamente, sin fuerzas.
+        // ⭐ EL RADIO DE CADA ANIMAL, UNA VEZ: no cambia al moverse, y antes
+        // se recalculaban las dos hitbox en CADA pareja (n^2/2 veces). Con el
+        // descarte por X de abajo, una pareja lejana cuesta una resta y una
+        // comparacion. Mismo resultado, mismas parejas, mismo orden.
+        radioAnimal.resize(pecaries.size());
+        for (size_t i = 0; i < pecaries.size(); ++i) {
+            const HitboxPecari h = HitboxDe(pecaries[i]);
+            radioAnimal[i] = (h.semiLargo > h.semiAncho) ? h.semiLargo : h.semiAncho;
+        }
         for (size_t i = 0; i < pecaries.size(); ++i) {
             for (size_t j = i + 1; j < pecaries.size(); ++j) {
                 PecariAgente& a = pecaries[i];
                 PecariAgente& b = pecaries[j];
-
-                const HitboxPecari ha = HitboxDe(a);
-                const HitboxPecari hb = HitboxDe(b);
-                const float ra = (ha.semiLargo > ha.semiAncho) ? ha.semiLargo : ha.semiAncho;
-                const float rb = (hb.semiLargo > hb.semiAncho) ? hb.semiLargo : hb.semiAncho;
-                const float rSuma = (ra + rb) * 0.80f;   // se admite algo de roce
-
+                const float rSuma = (radioAnimal[i] + radioAnimal[j]) * 0.80f;   // se admite algo de roce
                 const float dx = b.x - a.x;
+                if (dx >= rSuma || dx <= -rSuma) continue;   // lejos en X: no se tocan
                 const float dz = b.z - a.z;
                 const float d2 = dx*dx + dz*dz;
                 if (d2 >= rSuma * rSuma || d2 < 1e-6f) continue;

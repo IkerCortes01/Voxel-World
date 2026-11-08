@@ -62,7 +62,8 @@ constexpr float ICONO_CONTRASTE = 0.55f;
 inline void dibujarIconoAnimal3D(Fauna::CacheMallas& cache,
                                  Fauna::EspecieAnimal especie,
                                  int etapa,
-                                 float cx, float cy, float tam) {
+                                 float cx, float cy, float tam,
+                                 bool tumbado = false) {
     // LOD mas bajo: es un icono, no el animal a dos metros. El caché ya lo
     // tiene si el mundo ha dibujado alguno.
     const Fauna::MallaAnimal* malla = cache.obtener(especie, etapa, 3);
@@ -120,9 +121,18 @@ inline void dibujarIconoAnimal3D(Fauna::CacheMallas& cache,
             const Fauna::VerticeAnimal& v = malla->vertices[malla->indices[t + k]];
 
             // Centrar
-            const float x0 = v.pos.x - mediaX;
-            const float y0 = v.pos.y - mediaY;
+            float x0 = v.pos.x - mediaX;
+            float y0 = v.pos.y - mediaY;
             const float z0 = v.pos.z - mediaZ;
+            float nx0 = v.normal.x, ny0 = v.normal.y;
+            const float nz0 = v.normal.z;
+
+            // Tumbado sobre el costado (el cadaver): un cuarto de vuelta
+            // alrededor del eje largo, con las patas hacia un lado.
+            if (tumbado) {
+                const float x = x0;  x0 = -y0;  y0 = x;
+                const float n = nx0; nx0 = -ny0; ny0 = n;
+            }
 
             // Girar en Y (dejarlo de tres cuartos)
             const float x1 =  x0 * cosY + z0 * sinY;
@@ -132,7 +142,6 @@ inline void dibujarIconoAnimal3D(Fauna::CacheMallas& cache,
             const float y2 = y0 * cosX - z1 * sinX;
 
             // Lo mismo con la normal, para que la luz siga al modelo.
-            const float nx0 = v.normal.x, ny0 = v.normal.y, nz0 = v.normal.z;
             const float nx1 =  nx0 * cosY + nz0 * sinY;
             const float nz1 = -nx0 * sinY + nz0 * cosY;
             const float ny2 = ny0 * cosX - nz1 * sinX;

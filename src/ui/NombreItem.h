@@ -225,6 +225,7 @@ inline const char* nombreDeBase(BlockType t) {
 
         // --- Fauna ---
         case BLOCK_HUEVO_PECARI:       return "HUEVO DE PECARI";
+        case BLOCK_CADAVER_PECARI:     return "CADAVER DE PECARI";
 
         default:                       return nullptr;
     }

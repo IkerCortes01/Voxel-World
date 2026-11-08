@@ -809,7 +809,24 @@ enum BlockType {
     // Las hojas de maguey COLOCADAS: una losa acostada, como el nopal. Sus items
     // son BLOCK_IXTLE_HOJA y BLOCK_PENCA_AGAVE_AZUL, y al romperse vuelven a serlo.
     BLOCK_MAGUEY_PUESTO,            // 224
-    BLOCK_AGAVE_AZUL_PUESTO         // 225
+    BLOCK_AGAVE_AZUL_PUESTO,        // 225
+
+    // ========================================================================
+    // CADAVER DE PECARI
+    // ========================================================================
+    // PEDIDO: "que si le presionas F, te de un nuevo item llamado Cadaver de
+    // Pecari".
+    //
+    // Es un ITEM, no un bloque: no se coloca. Se obtiene mirando el ragdoll
+    // de un pecari muerto y pulsando F, y al tirarlo (Q, o soltarlo fuera del
+    // inventario) vuelve a caer al mundo como ragdoll, no como un cubo: ver
+    // GameState::spawnItem.
+    //
+    // Su icono es el modelo 3D del animal, como el del huevo de spawn.
+    //
+    // ⚠️ AL FINAL DEL ENUM, como todo lo nuevo: insertar en medio correria
+    // los IDs y los mundos guardados leerian otro bloque.
+    BLOCK_CADAVER_PECARI            // 226
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -3241,7 +3258,7 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // ve hasta que alguien recarga un mundo. Por eso hay un test que ata este
 // valor al ultimo del enum (test_agave_azul.cpp), para que la proxima vez que
 // se olvide falle el build de tests en vez de salir a produccion.
-constexpr int BLOCK_TYPE_MAX = BLOCK_AGAVE_AZUL_PUESTO;
+constexpr int BLOCK_TYPE_MAX = BLOCK_CADAVER_PECARI;
 
 // ============================================================================
 //  CARAS OCULTAS Y VISION DEL INTERIOR

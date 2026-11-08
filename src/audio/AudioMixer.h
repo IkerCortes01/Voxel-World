@@ -44,6 +44,8 @@
 //     entre pisadas sin necesidad de N archivos distintos.
 // ============================================================================
 
+#include "Viento.h"
+
 namespace Audio {
 
 // Un sonido cargado en memoria (PCM mono 16-bit).
@@ -79,6 +81,11 @@ private:
 
     std::atomic<bool> running{false};
     float masterVolume = 0.6f;
+
+    // El viento de fondo (ver Viento.h): se sintetiza aqui, en el hilo de
+    // audio. El juego solo dice cuanto viento hay.
+    GeneradorViento viento;
+    std::atomic<float> intensidadViento{0.0f};
 
     // Callback de waveOut: se invoca al terminar cada bloque.
     static void CALLBACK waveCallback(HWAVEOUT, UINT uMsg, DWORD_PTR dwInstance,
@@ -124,6 +131,8 @@ private:
                 }
             }
         }
+
+        viento.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, intensidadViento.load());
 
         // Volcado con clipping suave.
         const float mv = masterVolume;
@@ -186,6 +195,9 @@ public:
     }
 
     bool isReady() const { return hWaveOut != nullptr; }
+
+    // Cuanto viento se oye, 0..1. Se suaviza dentro: se puede llamar cada frame.
+    void setViento(float v) { intensidadViento.store(v); }
 
     void setMasterVolume(float v) {
         masterVolume = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);

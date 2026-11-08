@@ -150,7 +150,7 @@ in float aCapa;
 out vec2 vUV;
 out vec3 vColor;
 flat out float vCapa;
-out float vDist;
+out vec3 vOjo;
 
 void main() {
     // Se usan las matrices de la tuberia fija: el resto del motor las sigue
@@ -161,7 +161,7 @@ void main() {
     vUV    = aUV;
     vColor = aColor;
     vCapa  = aCapa;
-    vDist  = length(ojo.xyz);
+    vOjo   = ojo.xyz;
 }
 )";
 
@@ -183,11 +183,20 @@ uniform float uLuzMin;
 uniform float uGamma;
 uniform float uIntensidad;
 uniform float uSaturacion;
+// La atmosfera (ver render/Atmosfera.h): el sol en espacio de ojo, los dos
+// brillos del horizonte y el color de la luz del sol.
+uniform vec3  uSolOjo;
+uniform vec3  uResplandor;
+uniform vec3  uContraluz;
+uniform vec3  uLuzSol;
+// x: el cielo con el que se horneo este chunk, y: el de ahora (ver
+// pasarSolMalla en main.cpp). 0,0 sin fijar: no corrige nada.
+uniform vec2  uSolMalla;
 
 in vec2 vUV;
 in vec3 vColor;
 flat in float vCapa;
-in float vDist;
+in vec3 vOjo;
 
 out vec4 colorSalida;
 
@@ -203,13 +212,31 @@ void main() {
 
     // La luz horneada, con las opciones: intensidad, un suelo para las
     // sombras y una curva que las hunde. Luego el brillo y la saturacion.
-    vec3 luz = max(vColor * uIntensidad, vec3(uLuzMin));
+    // La luz del dia de ESTE instante, no la de cuando se mallo el chunk: lo
+    // que esta al cielo se escala de la una a la otra (brilloDeLuz es lineal
+    // en el cielo: 0.10 + 0.90 * cielo a la intemperie). Lo cerrado no cambia.
+    float lumHorneada = dot(vColor, vec3(0.333));
+    float exteriorAlMallar = 0.10 + 0.90 * uSolMalla.x;
+    float alCieloMalla = smoothstep(0.11, max(0.12, 0.55 * exteriorAlMallar), lumHorneada);
+    float corrige = (0.10 + 0.90 * uSolMalla.y) / max(0.10 + 0.90 * uSolMalla.x, 0.001);
+    vec3 horneada = vColor * mix(1.0, corrige, alCieloMalla);
+
+    vec3 luz = max(horneada * uIntensidad, vec3(uLuzMin));
     luz = pow(luz, vec3(uGamma));
+
+    // El color del sol solo tine lo que recibe cielo. La luz horneada ya lo
+    // dice: el minimo ambiente (0.10) es lo que llega a un sitio cerrado, y
+    // la intemperie de noche ronda 0.21. Entre los dos se reparte el tinte:
+    // de noche la calle sale azulada y una cueva sigue igual de oscura.
+    float alCielo = smoothstep(0.10, 0.20, dot(horneada, vec3(0.333)));
+    luz *= mix(vec3(1.0), uLuzSol, alCielo);
+
     vec3 c = t.rgb * luz * uBrillo;
     float gris = dot(c, vec3(0.299, 0.587, 0.114));
     c = mix(vec3(gris), c, uSaturacion);
 
     // La misma niebla que aplicaba GL_FOG, en sus tres modos.
+    float vDist = length(vOjo);
     float f = 0.0;
     if (uNieblaModo == 0) {
         f = (vDist - uNieblaIni) / max(uNieblaFin - uNieblaIni, 0.001);
@@ -220,7 +247,16 @@ void main() {
         f = 1.0 - exp(-d * d);
     }
     f = clamp(f, 0.0, 1.0);
-    colorSalida = vec4(mix(c, uNieblaColor, f), t.a);
+
+    // Y del color del cielo que hay DETRAS, no de uno solo: mirando al sol
+    // poniente la niebla se vuelve naranja, y de espaldas, rosada. Es la
+    // cuenta de Atmosfera::colorEn en el horizonte (s al cubo, e al cuadrado).
+    float haciaSol = dot(vOjo / max(vDist, 0.001), uSolOjo);
+    float s = max(haciaSol, 0.0);
+    float e = max(-haciaSol, 0.0);
+    vec3 niebla = min(uNieblaColor + uResplandor * (s * s * s) + uContraluz * (e * e),
+                      vec3(1.0));
+    colorSalida = vec4(mix(c, niebla, f), t.a);
 }
 )";
 
@@ -233,6 +269,8 @@ struct ProgramaTerreno {
     GLint uNieblaColor = -1, uNieblaIni = -1, uNieblaFin = -1;
     GLint uNieblaModo = -1, uNieblaDensidad = -1;
     GLint uBrillo = -1, uLuzMin = -1, uGamma = -1, uIntensidad = -1, uSaturacion = -1;
+    GLint uSolOjo = -1, uResplandor = -1, uContraluz = -1, uLuzSol = -1;
+    GLint uSolMalla = -1;
 
     bool valido() const { return id != 0; }
 };
@@ -346,6 +384,11 @@ inline ProgramaTerreno crearPrograma() {
     p.uGamma       = pglGetUniformLocation(prog, "uGamma");
     p.uIntensidad  = pglGetUniformLocation(prog, "uIntensidad");
     p.uSaturacion  = pglGetUniformLocation(prog, "uSaturacion");
+    p.uSolOjo      = pglGetUniformLocation(prog, "uSolOjo");
+    p.uResplandor  = pglGetUniformLocation(prog, "uResplandor");
+    p.uContraluz   = pglGetUniformLocation(prog, "uContraluz");
+    p.uLuzSol      = pglGetUniformLocation(prog, "uLuzSol");
+    p.uSolMalla    = pglGetUniformLocation(prog, "uSolMalla");
     return p;
 }
 

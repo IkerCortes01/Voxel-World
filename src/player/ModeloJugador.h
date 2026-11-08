@@ -611,14 +611,14 @@ inline void aplicarAgachado(Pose& p, Superficie s, float tiempo) {
     // dedos se curvan solos y el antebrazo descansa sobre el muslo.
     switch (s) {
         case Superficie::NATURAL: {
-            // La izquierda se apoya en el suelo con las yemas y la base de la
-            // palma, los dedos abiertos y algo doblados (asi se apoya uno).
+            // La izquierda cuelga suelta por fuera de la rodilla, baja, con la
+            // muneca caida y los dedos relajados rozando el suelo. (Antes se
+            // apoyaba en el suelo con la palma y quedaba demasiado arriba.)
             Brazo& i = p.brazo[0];
-            i.flex = 1.05f; i.abd = 0.30f; i.codo = 0.20f;
-            i.munFlex = -1.05f;
-            i.prono = 1.35f;
-            manoRelajada(i, 0.0f);
-            for (int d = 0; d < 4; ++d) { i.dedo[d][0] = 0.25f; i.dedo[d][1] = 0.35f; i.dedo[d][2] = 0.20f; i.abre[d] = 0.28f; }
+            i.flex = 0.62f; i.abd = 0.22f; i.codo = 0.30f;
+            i.munFlex = 0.35f;
+            i.prono = 0.9f;
+            manoRelajada(i, 0.2f);
             // La derecha: el antebrazo sobre el muslo y la mano colgando.
             Brazo& d = p.brazo[1];
             d.flex = 0.95f; d.abd = 0.12f; d.codo = 0.75f; d.prono = 1.25f; d.munFlex = 0.65f;
@@ -626,16 +626,19 @@ inline void aplicarAgachado(Pose& p, Superficie s, float tiempo) {
             p.giroTorso += 0.05f * std::sin(tiempo * 0.5f);
             break;
         }
-        case Superficie::CONSTRUCCION:
-            // Los dos antebrazos sobre los muslos, las manos sueltas por
-            // delante de las rodillas.
-            for (Brazo& b : p.brazo) {
-                b.flex = 0.95f; b.abd = 0.14f; b.codo = 0.70f; b.prono = 1.25f; b.munFlex = 0.70f;
-                manoRelajada(b, 0.30f);
-            }
-            p.brazo[0].munFlex += 0.08f * std::sin(tiempo * 0.7f);
+        case Superficie::CONSTRUCCION: {
+            // El antebrazo derecho sobre el muslo y la mano suelta delante de
+            // la rodilla; la izquierda, baja y colgando entre las rodillas.
+            Brazo& d = p.brazo[1];
+            d.flex = 0.95f; d.abd = 0.14f; d.codo = 0.70f; d.prono = 1.25f; d.munFlex = 0.70f;
+            manoRelajada(d, 0.30f);
+            Brazo& i = p.brazo[0];
+            i.flex = 0.70f; i.abd = 0.05f; i.codo = 0.40f; i.prono = 1.1f; i.munFlex = 0.45f;
+            manoRelajada(i, 0.25f);
+            i.munFlex += 0.08f * std::sin(tiempo * 0.7f);
             p.inclinacion -= 0.10f;
             break;
+        }
         case Superficie::LIQUIDO: {
             const float m = std::sin(tiempo * 1.6f);
             for (int l = 0; l < 2; ++l) {
@@ -707,10 +710,16 @@ constexpr int NUM_GESTOS = 13;
 inline uint32_t tramoDeReposo(float quieto) {
     return (uint32_t)((quieto - REPOSO_INICIO) / REPOSO_TRAMO);
 }
+// PEDIDO: "que las animaciones al estar parado aparezcan aleatoriamente, no
+// continuas". Algo mas de la mitad de los tramos no hay gesto: el cuerpo se
+// queda respirando y balanceandose, y de vez en cuando hace algo.
+constexpr float REPOSO_PROBABILIDAD = 0.42f;
+
 inline int gestoDeReposo(float quieto) {
     if (quieto < REPOSO_INICIO) return -1;
     uint32_t h = tramoDeReposo(quieto) * 2654435761u + 0x9E37u;
     h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+    if ((h >> 8 & 0xFFFFu) / 65535.0f > REPOSO_PROBABILIDAD) return -1;   // este tramo, nada
     return (int)(h % (uint32_t)NUM_GESTOS);
 }
 
@@ -1203,6 +1212,7 @@ inline Pose poseDe(const Estado& e) {
     // Lo que hace el brazo va lo ultimo: manda sobre andar y agacharse.
     // `golpeando` sin accion es el picar de siempre, con la mano.
     const Accion accion = (e.accion == Accion::NINGUNA && e.golpeando) ? Accion::PICAR : e.accion;
+    const Pose antes = p;
     if (accion == Accion::PICAR)
         aplicarGolpe(p, golpeDe(e.herramienta, e.bloque), e.tiempo, e.mirada * PI / 180.0f,
                      (uint32_t)e.herramienta * 31u + (uint32_t)e.bloque + e.estilo);
@@ -1210,6 +1220,28 @@ inline Pose poseDe(const Estado& e) {
         aplicarDisparo(p, accion, e.variante, e.ladoGolpe, e.tAccion, e.mirada * PI / 180.0f);
     else if (accion == Accion::COLOCAR)
         aplicarColocar(p, e.tAccion, e.mirada * PI / 180.0f);
+
+    // ⭐ GOLPEAR NO MUEVE TODO EL CUERPO
+    //
+    // PEDIDO: "cuando golpeas o usas una herramienta, no se mueva todo el
+    // cuerpo, solo el brazo derecho y un poco del pecho". Lo que las acciones
+    // cambiaron fuera del brazo que golpea se deshace: las piernas, la
+    // cadera, la inclinacion y el otro brazo vuelven a lo que estaban
+    // haciendo (andar, estar quieto...); del giro del pecho queda un tercio.
+    // El brazo que golpea es el derecho, salvo en los punetazos de izquierda.
+    if (accion != Accion::NINGUNA) {
+        const bool izquierda = (accion == Accion::GOLPE_AIRE && (e.variante & 1) == 1) ||
+                               (accion == Accion::GOLPE_ANIMAL && (e.variante == 1 ||
+                                                                   (e.variante == 2 && e.ladoGolpe == 0)));
+        const int brazo = izquierda ? 0 : 1;
+        p.pierna[0] = antes.pierna[0];
+        p.pierna[1] = antes.pierna[1];
+        p.giroPelvis = antes.giroPelvis;
+        p.pelvisLado = antes.pelvisLado;
+        p.inclinacion = antes.inclinacion;
+        p.giroTorso = antes.giroTorso + (p.giroTorso - antes.giroTorso) * 0.33f;
+        p.brazo[1 - brazo] = antes.brazo[1 - brazo];
+    }
 
     // Recoger manda sobre todo lo demas: dura medio segundo.
     aplicarRecoger(p, e.tRecoger, e.agachado, false);

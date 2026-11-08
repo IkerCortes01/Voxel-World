@@ -21,6 +21,10 @@ struct Cielo {
     float cenit[3];
     float horizonte[3];
     float resplandor[3];   // suma, solo en la parte baja y mirando al sol
+    float contraluz[3];    // suma, en la parte baja y DE ESPALDAS al sol
+    float luzSol[3];       // color de la luz que cae sobre el terreno
+    float halo[3];         // suma: el resplandor alrededor del sol (dispersion de Mie)
+    float brilloNocturno[3]; // suma: la franja tenue sobre el horizonte de noche
 };
 
 inline float mezcla(float a, float b, float t) { return a + (b - a) * t; }
@@ -29,10 +33,14 @@ inline Cielo cieloPara(float luz) {
     if (luz < 0.0f) luz = 0.0f;
     if (luz > 1.0f) luz = 1.0f;
 
-    static const float DIA_CENIT[3]  = { 0.27f, 0.51f, 0.86f };
+    // Un azul mas hondo en lo alto: mirando arriba se atraviesa poco aire y
+    // el azul de la dispersion de Rayleigh queda puro, sin el blanco de abajo.
+    static const float DIA_CENIT[3]  = { 0.20f, 0.43f, 0.84f };
     static const float DIA_HOR[3]    = { 0.72f, 0.85f, 0.95f };
     static const float NOCHE_CENIT[3]= { 0.008f, 0.012f, 0.045f };
-    static const float NOCHE_HOR[3]  = { 0.035f, 0.05f, 0.11f };
+    // Algo mas azul que antes: de noche el horizonte no es negro, es el
+    // azul de la luz de luna dispersada. Sigue por debajo de 0.15.
+    static const float NOCHE_HOR[3]  = { 0.035f, 0.055f, 0.125f };
     static const float OCASO_HOR[3]  = { 0.93f, 0.55f, 0.32f };
 
     // Maximo a media transicion, nulo en pleno dia y de noche cerrada.
@@ -44,9 +52,52 @@ inline Cielo cieloPara(float luz) {
         c.horizonte[i] = mezcla(mezcla(NOCHE_HOR[i], DIA_HOR[i], luz),
                                 OCASO_HOR[i], ocaso * 0.75f);
     }
+    // En el ocaso el cenit se vuelve violeta: el azul de arriba se mezcla con
+    // el rojo que llega rasante.
+    c.cenit[0] += 0.07f * ocaso;
+    c.cenit[2] += 0.04f * ocaso;
+
+    // EL HALO DEL SOL. El aire desvia hacia delante parte de la luz del sol
+    // (dispersion de Mie, la de las particulas grandes): alrededor del disco
+    // el cielo es mas claro. Blanco calido de dia, naranja al atardecer.
+    for (int i = 0; i < 3; ++i) c.halo[i] = 0.0f;
+    static const float HALO_DIA[3] = { 1.00f, 0.95f, 0.82f };
+    static const float HALO_OCASO[3] = { 1.00f, 0.55f, 0.22f };
+    for (int i = 0; i < 3; ++i)
+        c.halo[i] = HALO_DIA[i] * 0.32f * luz * (1.0f - ocaso) + HALO_OCASO[i] * 0.55f * ocaso;
+
+    // EL BRILLO NOCTURNO DEL AIRE: de noche cerrada, una franja muy tenue,
+    // entre verde y azul, justo por encima del horizonte.
+    const float noche = 1.0f - luz / 0.3f > 0.0f ? 1.0f - luz / 0.3f : 0.0f;
+    c.brilloNocturno[0] = 0.006f * noche;
+    c.brilloNocturno[1] = 0.016f * noche;
+    c.brilloNocturno[2] = 0.020f * noche;
     c.resplandor[0] = 0.55f * ocaso;
     c.resplandor[1] = 0.22f * ocaso;
     c.resplandor[2] = 0.02f * ocaso;
+
+    // EL CINTURON DE VENUS: en el ocaso, el cielo bajo del lado CONTRARIO al
+    // sol se tine de rosa y violeta. Es la sombra de la Tierra proyectada
+    // sobre la atmosfera, con la franja iluminada por el sol rojo encima.
+    // Sin esto, mirar de espaldas al atardecer daba un horizonte naranja
+    // plano, igual en todas direcciones.
+    c.contraluz[0] = 0.16f * ocaso;
+    c.contraluz[1] = 0.05f * ocaso;
+    c.contraluz[2] = 0.20f * ocaso;
+
+    // EL COLOR DE LA LUZ DEL SOL. Blanca a mediodia (el terreno se ve con
+    // sus colores de siempre), dorada cuando el sol esta bajo y azulada de
+    // noche, que es como el ojo ve la luz de luna. Multiplica la luz del
+    // cielo del terreno, no su brillo: de dia y a pleno sol da (1, 1, 1).
+    //
+    // Los dos tonos van compensados para que su luminancia ronde 1 (0.94 y
+    // 0.92): cambian el COLOR de la luz, no cuanta hay. La noche ya la
+    // oscurece LuzCielo.h; oscurecerla aqui otra vez la dejaba negra.
+    static const float LUZ_LUNA[3]  = { 0.85f, 0.95f, 1.15f };
+    static const float LUZ_OCASO[3] = { 1.08f, 0.88f, 0.66f };
+    for (int i = 0; i < 3; ++i)
+        c.luzSol[i] = mezcla(mezcla(LUZ_LUNA[i], 1.0f, luz),
+                             LUZ_OCASO[i], ocaso * 0.8f);
     return c;
 }
 
@@ -59,13 +110,38 @@ inline void colorEn(const Cielo& c, float senAlt, float haciaSol, float out[3]) 
 
     float s = haciaSol > 0.0f ? haciaSol : 0.0f;
     s = s * s * s;
+    float e = haciaSol < 0.0f ? -haciaSol : 0.0f;
+    e = e * e;
     const float bajo = 1.0f - t;
 
+    // Lo que solo existe POR ENCIMA del horizonte: el halo del sol y el brillo
+    // nocturno. En el horizonte mismo valen 0, que es lo que mantiene igual el
+    // color de la niebla (el shader del terreno repite esa cuenta).
+    const float sobre = senAlt > 0.0f ? (senAlt * 12.0f < 1.0f ? senAlt * 12.0f : 1.0f) : 0.0f;
+    const float m = haciaSol > 0.0f ? haciaSol : 0.0f;
+    const float m2 = m * m, m4 = m2 * m2, m8 = m4 * m4, m32 = m8 * m8 * m8 * m8;
+    const float halo = (0.12f * m4 + 0.45f * m32) * sobre;
+    float banda = (senAlt - 0.06f) / 0.14f;
+    banda = banda < -1.0f || banda > 1.0f ? 0.0f : (1.0f - banda * banda);
+    banda *= sobre;
+
     for (int i = 0; i < 3; ++i) {
-        const float v = mezcla(c.horizonte[i], c.cenit[i], t) +
-                        c.resplandor[i] * s * bajo;
-        out[i] = v > 1.0f ? 1.0f : v;
+        float v = mezcla(c.horizonte[i], c.cenit[i], t) +
+                  (c.resplandor[i] * s + c.contraluz[i] * e) * bajo +
+                  c.halo[i] * halo + c.brilloNocturno[i] * banda;
+        out[i] = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
     }
+}
+
+// EL COLOR DE LA NIEBLA EN UNA DIRECCION: el del cielo en el horizonte de esa
+// misma direccion. Es lo que hace que el terreno lejano se FUNDA con el cielo
+// que tiene detras -- tambien al atardecer, mirando al sol, donde una niebla
+// de un solo color dejaba una raya entre el monte gris y el cielo naranja.
+//
+// El shader del terreno repite esta cuenta (TerrenoGL.h); el test comprueba
+// que la de aqui coincide con el cielo.
+inline void colorNiebla(const Cielo& c, float haciaSol, float out[3]) {
+    colorEn(c, 0.0f, haciaSol, out);
 }
 
 // Las estrellas salen al anochecer, cuando ya no queda luz que las tape.

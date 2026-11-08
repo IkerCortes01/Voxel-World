@@ -571,6 +571,37 @@ inline HitboxPecari HitboxDe(const PecariAgente& p) {
     return h;
 }
 
+// Masa del animal por etapa vital. Las intermedias salen de la escala al
+// cubo, que es como va la masa con la longitud. La usan los empujones, vivo
+// o muerto: un cadaver pesa lo mismo que el animal que era.
+inline float MasaKgDeEtapa(EtapaPecari e) {
+    switch (e) {
+        case EtapaPecari::NEONATO:    return  0.5f;   // MEDIDO
+        case EtapaPecari::JUVENIL:    return  2.6f;   // DERIVADO
+        case EtapaPecari::SUBADULTO:  return  8.9f;   // DERIVADO
+        case EtapaPecari::ADULTO:     return 18.7f;   // MEDIDO
+        case EtapaPecari::SENESCENTE: return 17.1f;   // DERIVADO
+    }
+    return 18.7f;
+}
+
+// Un jugador ronda los 70 kg. ESTIMADO: el motor no tiene masa del jugador.
+constexpr float MASA_JUGADOR_KG = 70.0f;
+
+// Cuanto cede el animal en un choque con el jugador: 1 = todo, 0 = nada.
+// Una cria sale casi despedida; un adulto cede el 79 %.
+inline float CesionAnteJugador(EtapaPecari e) {
+    return MASA_JUGADOR_KG / (MASA_JUGADOR_KG + MasaKgDeEtapa(e));
+}
+
+// Medio grosor del tronco en bloques, con la misma regla que HitboxDe. El
+// ragdoll lo usa como radio de cada uno de sus puntos: el cuerpo tirado
+// ocupa lo que ocupaba de pie.
+inline float RadioCuerpoBloques(EtapaPecari e, float escala) {
+    using namespace ::Pecari;
+    return aBloques(Externo::TRONCO.hx * 1.4f) * EscalaDeEtapa(e) * escala;
+}
+
 // ============================================================================
 // SIMULACION DE MOVIMIENTO
 // ============================================================================
@@ -600,6 +631,22 @@ inline CentroManada CalcularCentro(const std::vector<PecariAgente>& todos, int i
     CentroManada c;
     for (const PecariAgente& p : todos) {
         if (p.idManada != idManada) continue;
+        c.x += p.x; c.z += p.z; ++c.miembros;
+    }
+    if (c.miembros > 0) {
+        c.x /= (float)c.miembros;
+        c.z /= (float)c.miembros;
+    }
+    return c;
+}
+
+// El centro desde la lista de miembros: misma suma en el mismo orden que
+// CalcularCentro, sin recorrer las demas manadas.
+inline CentroManada CalcularCentroDeMiembros(const std::vector<PecariAgente>& todos,
+                                             const int* miembros, int nMiembros) {
+    CentroManada c;
+    for (int k = 0; k < nMiembros; ++k) {
+        const PecariAgente& p = todos[(size_t)miembros[k]];
         c.x += p.x; c.z += p.z; ++c.miembros;
     }
     if (c.miembros > 0) {
@@ -994,6 +1041,56 @@ inline void BuscarVecinos(const std::vector<PecariAgente>& todos,
         if (i == indicePropio) continue;
         const PecariAgente& o = todos[i];
         if (o.idManada != yo.idManada) continue;
+
+        const float dx = o.x - yo.x;
+        const float dz = o.z - yo.z;
+        const float d2 = dx*dx + dz*dz;
+
+        if (n < PecariMovimiento::K_VECINOS) {
+            int j = n++;
+            while (j > 0 && mejoresD2[j-1] > d2) {
+                mejoresD2[j] = mejoresD2[j-1]; mejores[j] = mejores[j-1]; --j;
+            }
+            mejoresD2[j] = d2; mejores[j] = &o;
+        } else if (d2 < mejoresD2[n-1]) {
+            int j = n-1;
+            while (j > 0 && mejoresD2[j-1] > d2) {
+                mejoresD2[j] = mejoresD2[j-1]; mejores[j] = mejores[j-1]; --j;
+            }
+            mejoresD2[j] = d2; mejores[j] = &o;
+        }
+    }
+
+    for (int i = 0; i < n; ++i) salida.push_back(mejores[i]);
+}
+
+// ----------------------------------------------------------------------------
+// LO MISMO, RECORRIENDO SOLO LA MANADA
+// ----------------------------------------------------------------------------
+// BuscarVecinos mira a TODOS los pecaries para quedarse con los de su manada:
+// llamada una vez por animal, el frame entero es O(n^2). Con unos cientos de
+// animales cargados era el grueso del milisegundo que la fauna gastaba en
+// cada frame.
+//
+// Aqui se recibe la lista de MIEMBROS de la manada (indices en `todos`, en
+// orden creciente) y solo se recorre esa. El resultado es IDENTICO, no una
+// aproximacion: son los mismos candidatos, en el mismo orden, con la misma
+// insercion -- asi que hasta los empates se resuelven igual.
+inline void BuscarVecinosEnManada(const std::vector<PecariAgente>& todos,
+                                  const int* miembros, int nMiembros,
+                                  size_t indicePropio,
+                                  std::vector<const PecariAgente*>& salida) {
+    salida.clear();
+    const PecariAgente& yo = todos[indicePropio];
+
+    float mejoresD2[PecariMovimiento::K_VECINOS];
+    const PecariAgente* mejores[PecariMovimiento::K_VECINOS];
+    int n = 0;
+
+    for (int k = 0; k < nMiembros; ++k) {
+        const size_t i = (size_t)miembros[k];
+        if (i == indicePropio) continue;
+        const PecariAgente& o = todos[i];
 
         const float dx = o.x - yo.x;
         const float dz = o.z - yo.z;

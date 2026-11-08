@@ -97,10 +97,13 @@ add_executable(voxel_tests
     test_pecari_heridas.cpp
     test_pecari_cara.cpp
     test_pecari_cuerpo_vivo.cpp
+    test_pecari_cadaver.cpp
+    test_pecari_rendimiento.cpp
     test_modelo_jugador.cpp
     test_postura.cpp
     test_animaciones_jugador.cpp
     test_modelo_item3d.cpp
+    test_viento_cielo.cpp
     test_maguey_colocable.cpp
     test_tablones_niveles.cpp
     test_alineacion_bloques.cpp

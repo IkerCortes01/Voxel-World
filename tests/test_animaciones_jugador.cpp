@@ -48,7 +48,7 @@ TEST_CASE("Animaciones: el pico en piedra carga desde arriba y descarga con todo
         CHECK(p.enMano == (uint8_t)Herramienta::PICO);
     }
     CHECK(hi - lo > 1.8f);
-    CHECK(inclMax > 0.1f);
+    CHECK(inclMax < 0.02f);          // el cuerpo no se mueve: solo el brazo
     // A UNA mano, como se pidio: la izquierda no sigue al pico.
     const Pose p = poseDe(picando(Herramienta::PICO, ClaseBloque::PIEDRA, 0.1f));
     CHECK(std::fabs(p.brazo[0].flex) < 0.4f);
@@ -78,7 +78,7 @@ TEST_CASE("Animaciones: el golpe va hacia donde se mira") {
     const Pose abajo = poseDe(e);
     CHECK(arriba > frente + 0.4f);
     CHECK(abajo.brazo[1].flex < frente - 0.5f);
-    CHECK(abajo.inclinacion > 0.15f);
+    CHECK(abajo.inclinacion < 0.02f);    // apunta el brazo, no el cuerpo
 }
 
 TEST_CASE("Animaciones: punetazos al aire alternos que apuntan a la mirada") {
@@ -88,11 +88,11 @@ TEST_CASE("Animaciones: punetazos al aire alternos que apuntan a la mirada") {
     e.variante = 0;
     const Pose d = poseDe(e);
     CHECK(d.brazo[1].codo < 0.15f);     // derecha estirada
-    CHECK(d.brazo[0].codo > 1.5f);      // izquierda en guardia
+    CHECK(d.brazo[0].codo < 0.6f);      // la izquierda sigue suelta, no se mueve
     e.variante = 1;
     const Pose i = poseDe(e);
     CHECK(i.brazo[0].codo < 0.15f);     // ahora la izquierda
-    CHECK(i.brazo[1].codo > 1.5f);
+    CHECK(i.brazo[1].codo < 0.6f);
     e.variante = 0;
     e.mirada = 50.0f;
     CHECK(poseDe(e).brazo[1].flex > d.brazo[1].flex + 0.6f);   // golpea arriba
@@ -121,19 +121,23 @@ TEST_CASE("Animaciones: quieto, el cuerpo cambia de gesto y respira de verdad") 
     e.quieto = 1.0f;
     const Pose al = poseDe(e);
     // A los pocos segundos empieza a hacer cosas, y cosas distintas.
-    int gestos[NUM_GESTOS] = {};
-    for (int k = 0; k < 400; ++k) {
+    // Al azar: hay tramos sin gesto (no es una cadena continua) y, entre los
+    // que tienen, salen todos.
+    int gestos[NUM_GESTOS] = {}, nada = 0;
+    for (int k = 0; k < 2000; ++k) {
         const int g = gestoDeReposo(REPOSO_INICIO + k * REPOSO_TRAMO + 1.0f);
-        REQUIRE(g >= 0);
         REQUIRE(g < NUM_GESTOS);
+        if (g < 0) { ++nada; continue; }
         ++gestos[g];
     }
     for (int g = 0; g < NUM_GESTOS; ++g) CHECK(gestos[g] > 0);
+    CHECK(nada > 800);
+    CHECK(nada < 1500);
     CHECK(NUM_GESTOS >= 13);
     CHECK(gestoDeReposo(1.0f) == -1);
     // A mitad de un gesto la pose no es la de estar quieto.
     bool cambia = false;
-    for (int k = 0; k < 20 && !cambia; ++k) {
+    for (int k = 0; k < 200 && !cambia; ++k) {
         e.quieto = REPOSO_INICIO + k * REPOSO_TRAMO + REPOSO_TRAMO * 0.5f;
         const Pose p = poseDe(e);
         cambia = std::fabs(p.brazo[0].flex - al.brazo[0].flex) > 0.3f ||
@@ -184,11 +188,12 @@ TEST_CASE("Animaciones: tres golpes distintos a un animal") {
     e.variante = 0;
     const Pose directo = poseDe(e);
     CHECK(directo.brazo[1].flex > 1.4f);
-    CHECK(directo.giroTorso > 0.15f);
+    CHECK(directo.giroTorso > 0.05f);       // un poco de pecho
+    CHECK(directo.giroTorso < 0.15f);       // pero no todo el cuerpo
     e.variante = 1;
     const Pose gancho = poseDe(e);
     CHECK(gancho.brazo[0].abd > 1.0f);       // de izquierda, el codo de lado
-    CHECK(gancho.giroTorso < -0.2f);         // el torso gira al reves
+    CHECK(gancho.giroTorso < -0.05f);        // el pecho gira al reves, un poco
     e.variante = 2;
     e.ladoGolpe = 0;
     const Pose abajoI = poseDe(e);
@@ -206,10 +211,13 @@ TEST_CASE("Animaciones: agachado distinto en suelo natural, construido y agua") 
     e.agachado = true;
     e.superficie = Superficie::NATURAL;
     const Pose n = poseDe(e);
-    CHECK(n.brazo[0].munFlex < -0.8f);       // la palma plana en el suelo
+    // La izquierda, baja y colgando: el brazo casi abajo y la muneca caida.
+    CHECK(n.brazo[0].flex < 0.8f + 0.36f);
+    CHECK(n.brazo[0].munFlex > 0.0f);
     e.superficie = Superficie::CONSTRUCCION;
     const Pose c = poseDe(e);
-    CHECK(std::fabs(c.brazo[0].codo - c.brazo[1].codo) < 0.01f);   // las dos en las rodillas
+    CHECK(c.brazo[1].codo > 0.6f);           // el antebrazo derecho sobre el muslo
+    CHECK(c.brazo[0].codo < c.brazo[1].codo); // la izquierda cuelga
     CHECK(c.inclinacion < n.inclinacion);
     e.superficie = Superficie::LIQUIDO;
     const Pose l = poseDe(e);
@@ -434,9 +442,9 @@ TEST_CASE("Variacion: cuatro punetazos al aire distintos, con los dos brazos") {
     CHECK(p[4].brazo[1].abd > p[0].brazo[1].abd + 0.5f);     // gancho: el codo de lado
     CHECK(std::fabs(p[2].giroTorso) > std::fabs(p[0].giroTorso) + 0.05f);   // cruzado: mas cuerpo
     CHECK(p[5].brazo[0].abd > 0.8f);                          // gancho con la izquierda
-    e.tAccion = 0.05f;                                        // uppercut cargando: rodillas dobladas
+    e.tAccion = 0.05f;                                        // uppercut: las piernas no se mueven
     e.variante = 6;
-    CHECK(poseDe(e).pierna[0].rodilla > 0.2f);
+    CHECK(poseDe(e).pierna[0].rodilla < 0.15f);
 }
 
 TEST_CASE("Reacciones: aterrizar, acelerar y girar sobre si mismo") {

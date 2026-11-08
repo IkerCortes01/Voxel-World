@@ -195,6 +195,77 @@ public:
     // Centro del torso, en bloques: para la luz, el culling y la distancia.
     V3 centro() const { return centroTorso(p); }
 
+    // --------------------------------------------------------------------
+    // EL JUGADOR EMPUJA EL CUERPO
+    // --------------------------------------------------------------------
+    // PEDIDO: "que puedas empujarlo con la hitbox del jugador de forma
+    // realista".
+    //
+    // El jugador es un cilindro vertical (pies en `py`); cada punto del
+    // ragdoll, una esfera de `radioPunto`. El punto que queda dentro se saca
+    // en horizontal, moviendo `p` y no `prev`: en Verlet eso ES darle
+    // velocidad. Asi el cuerpo sigue el empujon, arrastra por las
+    // restricciones lo que tiene unido y lo frena el roce con el suelo.
+    // Empujar la cabeza lo gira; empujar el torso lo arrastra entero.
+    //
+    // `cesion` reparte el choque por masas (CesionAnteJugador): el cuerpo se
+    // lleva esa fraccion del solape y el resto se devuelve en (outX, outZ)
+    // para el jugador. Un cadaver de 18 kg estorba; no es humo.
+    int empujarCon(float px, float py, float pz,
+                   float radioJugador, float alturaJugador,
+                   float radioPunto, float cesion,
+                   float& outX, float& outZ) {
+        int tocados = 0;
+        const float rSuma = radioJugador + radioPunto;
+        for (int i = 0; i < N; ++i) {
+            // Pisandolo por encima o pasando por debajo no hay choque.
+            if (p[i].y + radioPunto < py) continue;
+            if (p[i].y - radioPunto > py + alturaJugador) continue;
+            const float dx = p[i].x - px, dz = p[i].z - pz;
+            const float d2 = dx * dx + dz * dz;
+            if (d2 >= rSuma * rSuma || d2 < 1e-8f) continue;
+            const float d = std::sqrt(d2);
+            const float pen = rSuma - d;
+            const float ux = dx / d, uz = dz / d;
+            p[i].x += ux * pen * cesion;
+            p[i].z += uz * pen * cesion;
+            outX -= ux * pen * (1.0f - cesion);
+            outZ -= uz * pen * (1.0f - cesion);
+            ++tocados;
+        }
+        // Un cuerpo dormido no se simula: el empujon lo despierta.
+        if (tocados > 0) { dormido = false; quietoSeg = 0.0f; }
+        return tocados;
+    }
+
+    // --------------------------------------------------------------------
+    // ¿LO TOCA UN RAYO?
+    // --------------------------------------------------------------------
+    // Distancia a lo largo del rayo hasta el cuerpo, o -1 si no lo toca en
+    // `alcance`. `d` va normalizada. Cada punto es una esfera de `radioPunto`,
+    // y se anade el centro del torso: es donde mas cuerpo hay y ningun punto
+    // cae justo ahi.
+    float tocaRayo(float ox, float oy, float oz,
+                   float dx, float dy, float dz,
+                   float alcance, float radioPunto) const {
+        float mejor = -1.0f;
+        const auto esfera = [&](const V3& c) {
+            const float cx = c.x - ox, cy = c.y - oy, cz = c.z - oz;
+            const float t = cx * dx + cy * dy + cz * dz;
+            if (t < 0.0f) return;
+            const float dist2 = cx * cx + cy * cy + cz * cz - t * t;
+            const float r2 = radioPunto * radioPunto;
+            if (dist2 > r2) return;
+            float tEntra = t - std::sqrt(r2 - dist2);
+            if (tEntra < 0.0f) tEntra = 0.0f;           // el ojo ya esta dentro
+            if (tEntra > alcance) return;
+            if (mejor < 0.0f || tEntra < mejor) mejor = tEntra;
+        };
+        for (int i = 0; i < N; ++i) esfera(p[i]);
+        esfera(centroTorso(p));
+        return mejor;
+    }
+
 private:
     V3 p[N], prev[N], reposo[N];
     V3 cuelloReposo;

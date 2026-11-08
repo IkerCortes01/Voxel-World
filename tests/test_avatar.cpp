@@ -158,6 +158,27 @@ TEST_CASE("Avatar: el cuerpo y la cabeza salen sanos con ajustes extremos") {
     }
 }
 
+TEST_CASE("Avatar: al bajar un ajuste la cabeza vuelve a como estaba") {
+    using namespace ModeloJugador;
+    const Esqueleto esq = resolver(Pose{}, true);
+    Calidad q;
+    Datos d;
+    Malla m;
+    generarCabeza(esq, d, q, m);
+    const size_t nAntes = m.v.size();
+    float altoAntes = -1.0f;
+    for (const auto& v : m.v) altoAntes = std::fmax(altoAntes, v.p.y);
+    // Se sube al maximo y se regenera sobre la MISMA malla, luego se baja.
+    d.poner(CAB_TAMANO, info(CAB_TAMANO).maximo);
+    generarCabeza(esq, d, q, m);
+    d.poner(CAB_TAMANO, info(CAB_TAMANO).defecto);
+    generarCabeza(esq, d, q, m);
+    float alto = -1.0f;
+    for (const auto& v : m.v) alto = std::fmax(alto, v.p.y);
+    CHECK(m.v.size() == nAntes);
+    CHECK(alto == doctest::Approx(altoAntes));
+}
+
 TEST_CASE("Avatar: un pie mas grande es mas largo, y la mano crece") {
     using namespace ModeloJugador;
     const Esqueleto esq = resolver(Pose{}, true);

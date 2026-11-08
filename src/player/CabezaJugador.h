@@ -101,6 +101,7 @@ inline void casquete(Malla& m, V c, const Rot& r, V radio, int lat, int lon, Col
 
 inline void generarCabeza(const Esqueleto& s, const Avatar::Datos& d, const Calidad& q, Malla& m) {
     using namespace Avatar;
+    m.limpiar();
     const Fenotipo f = d.fenotipo();
     const float kRes = q.detalle <= 0 ? 0.5f : (q.detalle == 1 ? 0.75f : 1.0f);
     auto N = [&](int n) { const int r = (int)(n * kRes + 0.5f); return r < 3 ? 3 : r; };

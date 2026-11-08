@@ -117,7 +117,7 @@ namespace Escala {
     // DERIVADO -- del rango MEDIDO 30-50 cm. Se toma un valor alto-medio por
     // coherencia con una longitud de 95 cm; el rango publicado es muy ancho y
     // probablemente mezcla subadultos.
-    constexpr float ALTO_CRUZ_M = 0.44f;
+    constexpr float ALTO_CRUZ_M = 0.50f;   // antes 0.44: ver PecariAnatomia.h
 
     // MEDIDO -- Animal Diversity Web. 1.2 cm: practicamente inexistente.
     // Es un rasgo visible y el modelo NO debe darle cola de cerdo.

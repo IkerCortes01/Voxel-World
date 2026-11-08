@@ -19,11 +19,18 @@
 // alto de su columna. Esa altura la da el motor (un callback), y se guarda en
 // una cache de la caja que se renueva poco a poco, 64 columnas por frame.
 //
+// ⭐ SOLO CAE BAJO LAS NUBES GRANDES (Nubes::lluviaEn). Con `nubeCob` >= 0,
+// cada gota de lluvia, granizo o nieve mira cuanto llueve en su columna: al
+// borde de la masa de nube la lluvia se adelgaza y fuera no cae nada. Se
+// muestrea en una rejilla de 3 x 3 sobre la caja y se interpola: la masa
+// cambia en cientos de bloques, no hace falta mas.
+//
 // Sin OpenGL: escribe vertices en un arreglo y el motor los pinta.
 // ============================================================================
 
 #include <cmath>
 #include <cstdint>
+#include "Nubes.h"
 
 namespace Precipitacion {
 
@@ -87,6 +94,31 @@ struct Entrada {
     float agua, granizo, nieve, polvo;   // 0..1, del clima
     float vientoX, vientoZ;      // hacia donde sopla, en bloques/s
     float luz;                   // 0..1: de noche las gotas apenas se ven
+    // Las nubes de las que cae (ver Nubes.h): con nubeCob < 0 cae en todas
+    // partes, como antes.
+    float nubeCob = -1.0f, nubeCrece = 0.0f;
+};
+
+// Cuanto llueve en cada esquina de una rejilla de 3 x 3 sobre la caja.
+struct MascaraNube {
+    double x0 = 0.0, z0 = 0.0;
+    float v[3][3] = { {1,1,1}, {1,1,1}, {1,1,1} };
+    void calcular(const Entrada& e) {
+        x0 = e.ojoX - LADO; z0 = e.ojoZ - LADO;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                v[i][j] = Nubes::lluviaEn(x0 + i * LADO, z0 + j * LADO, e.t, e.nubeCob, e.nubeCrece);
+    }
+    float en(double x, double z) const {
+        float u = (float)((x - x0) / LADO), w = (float)((z - z0) / LADO);
+        u = u < 0.0f ? 0.0f : (u > 1.999f ? 1.999f : u);
+        w = w < 0.0f ? 0.0f : (w > 1.999f ? 1.999f : w);
+        const int i = (int)u, j = (int)w;
+        const float fu = u - (float)i, fw = w - (float)j;
+        const float a = v[i][j] + (v[i + 1][j] - v[i][j]) * fu;
+        const float b = v[i][j + 1] + (v[i + 1][j + 1] - v[i][j + 1]) * fu;
+        return a + (b - a) * fw;
+    }
 };
 
 // Escribe los trazos (relativos al OJO) y devuelve cuantos. `techos` decide
@@ -95,6 +127,9 @@ inline int generar(const Entrada& e, const Techos& techos, Trazo* out, int max) 
     int n = 0;
     const float tf = (float)std::fmod(e.t, 10000.0);
     const float brillo = 0.25f + 0.75f * e.luz;
+    MascaraNube mascara;
+    const bool porNube = e.nubeCob >= 0.0f;
+    if (porNube) mascara.calcular(e);
 
     struct Clase { float cuanto; int maximo; float velocidad; float largo; float r, g, b, a; uint32_t sal; };
     const Clase clases[4] = {
@@ -137,6 +172,8 @@ inline int generar(const Entrada& e, const Techos& techos, Trazo* out, int max) 
             const double baseZ = std::floor((e.ojoZ - LADO * 0.5 - oz) / LADO + 1.0) * LADO + oz;
             const double wx = baseX + dx, wz = baseZ + dz;
             const double wy = e.ojoY + ALTO - DEBAJO - caida;
+            // Fuera de la nube no cae; en su borde, cada vez menos gotas.
+            if (porNube && c != 3 && azar(s ^ 0x77u) >= mascara.en(wx, wz)) continue;
             if (wy < techos.en((int)std::floor(wx), (int)std::floor(wz))) continue;
 
             Trazo& o = out[n++];

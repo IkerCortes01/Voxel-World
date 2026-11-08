@@ -38,6 +38,9 @@ namespace Fauna {
 // Lo unico que el ragdoll necesita del mundo.
 struct IMundoRagdoll {
     virtual bool solido(int x, int y, int z) const = 0;
+    // Cuanto de la celda ocupa lo que hay, desde abajo: 0 libre, 1 macizo,
+    // la altura de la losa en un nivel. Por defecto, lo que diga `solido`.
+    virtual float alturaCelda(int x, int y, int z) const { return solido(x, y, z) ? 1.0f : 0.0f; }
     virtual ~IMundoRagdoll() = default;
 };
 
@@ -341,20 +344,45 @@ private:
         if (quietoSeg > 0.5f) dormido = true;
     }
 
-    // Un punto dentro de un bloque solido sale por arriba si alli hay hueco;
-    // si no, vuelve a donde estaba. Al tocar suelo pierde casi toda la
-    // velocidad horizontal: un cuerpo no patina.
+    // ⭐ CADA PUNTO TIENE GROSOR, Y LOS NIVELES SON SUELO.
+    //
+    // PEDIDO: "que sus cuerpos no atraviesen los niveles, ni vivos ni
+    // muertos". Antes el punto era un punto sin grosor y solo chocaba con
+    // bloques macizos: los hombros y las caderas, que estan DENTRO del
+    // cuerpo, se apoyaban en el suelo y medio barril quedaba enterrado; y
+    // una losa de nivel 1 a 4 no existia para el cadaver.
+    //
+    // Ahora el punto es una esfera (el torso, unos 10 cm de carne alrededor
+    // de los hombros y las caderas; la cabeza, 9; las pezunas, casi nada) y
+    // lo que se apoya es su FONDO, sobre la altura real de la celda.
+    static float radioMetros(int i) {
+        if (i <= CD) return 0.10f;
+        if (i == CAB) return 0.09f;
+        return 0.015f;
+    }
+
+    // Un punto hundido sale por arriba si es poco (un escalon, una losa); si
+    // se ha metido de lado en una pared, vuelve a donde estaba. Al tocar
+    // suelo pierde casi toda la velocidad horizontal: un cuerpo no patina.
     void chocar(int i, const IMundoRagdoll& mundo) {
+        const float rad = radioMetros(i) * escala / 0.60f;
         const int bx = (int)std::floor(p[i].x);
-        const int by = (int)std::floor(p[i].y);
         const int bz = (int)std::floor(p[i].z);
-        if (!mundo.solido(bx, by, bz)) return;
-        if (!mundo.solido(bx, by + 1, bz) && p[i].y - by > 0.3f) {
-            p[i].y = (float)(by + 1);
-        } else if (!mundo.solido(bx, by + 1, bz)) {
-            p[i].y = (float)(by + 1);
+        const float fondo = p[i].y - rad;
+        const int by = (int)std::floor(fondo);
+        const float h = mundo.alturaCelda(bx, by, bz);
+        if (h <= 0.0f || fondo >= (float)by + h) return;
+        const float tope = (float)by + h;
+        const bool arribaLibre = h < 1.0f || mundo.alturaCelda(bx, by + 1, bz) < 1.0f;
+        if (arribaLibre && tope - fondo < 0.6f) {
+            p[i].y = tope + rad;
         } else {
-            p[i] = prev[i];
+            // De lado contra una pared: se deshace el paso horizontal.
+            p[i].x = prev[i].x;
+            p[i].z = prev[i].z;
+            const int bx2 = (int)std::floor(p[i].x), bz2 = (int)std::floor(p[i].z);
+            const float h2 = mundo.alturaCelda(bx2, by, bz2);
+            if (h2 > 0.0f && fondo < (float)by + h2) p[i] = prev[i];
         }
         constexpr float ROCE = 0.35f;
         prev[i].x = p[i].x - (p[i].x - prev[i].x) * ROCE;

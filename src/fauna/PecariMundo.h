@@ -107,6 +107,12 @@ public:
 
     // Un bloque solido bloquea el paso.
     virtual bool esSolido(int x, int y, int z) const = 0;
+
+    // Cuanto de la celda esta ocupado desde abajo: 0 libre, 1 macizo, la
+    // altura de la losa si es un nivel. Por defecto, lo que diga esSolido.
+    virtual float alturaCelda(int x, int y, int z) const {
+        return esSolido(x, y, z) ? 1.0f : 0.0f;
+    }
 };
 
 // ============================================================================
@@ -131,6 +137,7 @@ private:
         const IPecariMundo& m;
         explicit MundoParaRagdoll(const IPecariMundo& mundo) : m(mundo) {}
         bool solido(int x, int y, int z) const override { return m.esSolido(x, y, z); }
+        float alturaCelda(int x, int y, int z) const override { return m.alturaCelda(x, y, z); }
     };
 
     void actualizarCadaveres(float dt, const IPecariMundo& mundo) {

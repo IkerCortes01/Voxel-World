@@ -35,6 +35,27 @@ TEST_CASE("Ragdoll: cae, se posa sobre el suelo y se duerme") {
     }
 }
 
+TEST_CASE("Ragdoll: sobre una losa de nivel bajo se apoya encima, con su grosor") {
+    // Suelo macizo hasta y=10 y encima una losa de 3/8 (nivel 3).
+    struct Losa : IMundoRagdoll {
+        bool solido(int, int y, int) const override { return y < 10; }
+        float alturaCelda(int, int y, int) const override {
+            return y < 10 ? 1.0f : (y == 10 ? 0.375f : 0.0f);
+        }
+    } losa;
+    Ragdoll r;
+    r.iniciar(esqueletoAdulto(), 1.0f, 5.0f, 10.375f, 5.0f, 0.4f, 0.0f, 0.0f, 2.0f, 0.0f);
+    for (int i = 0; i < 60 * 10 && !r.dormido; ++i) r.avanzar(1.0f / 60.0f, losa);
+    const float radioTorso = 0.10f / 0.60f;
+    for (int i = 0; i < Ragdoll::N; ++i) {
+        INFO("punto ", i);
+        CHECK(r.punto(i).y >= 10.375f - 1e-3f);
+    }
+    // Hombros y caderas no se hunden en la carne: quedan a su grosor.
+    for (int i = Ragdoll::HI; i <= Ragdoll::CD; ++i)
+        CHECK(r.punto(i).y >= 10.375f + radioTorso - 2e-3f);
+}
+
 TEST_CASE("Ragdoll: el torso no se deforma") {
     const EsqueletoReposo esq = esqueletoAdulto();
     Ragdoll r;

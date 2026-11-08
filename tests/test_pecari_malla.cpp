@@ -645,10 +645,17 @@ TEST_CASE("Winding: el tronco tiene las caras hacia fuera") {
     ParametrosPecari p = Especies::pecariDeCollar();
     ConstructorPecari::generar(m, p, 0);
 
-    // Centroide de la malla.
+    // Centroide del CUERPO (torso y vientre). El de la malla entera baja con
+    // las patas: con las patas largas quedaba casi en la panza y las caras de
+    // abajo parecian del reves sin estarlo.
     double cx = 0, cy = 0, cz = 0;
-    for (const auto& v : m.vertices) { cx += v.pos.x; cy += v.pos.y; cz += v.pos.z; }
-    cx /= m.vertices.size(); cy /= m.vertices.size(); cz /= m.vertices.size();
+    size_t nc = 0;
+    for (const auto& v : m.vertices) {
+        if (v.zona != ZonaCuerpo::TORSO && v.zona != ZonaCuerpo::VIENTRE) continue;
+        cx += v.pos.x; cy += v.pos.y; cz += v.pos.z; ++nc;
+    }
+    REQUIRE(nc > 0);
+    cx /= nc; cy /= nc; cz /= nc;
 
     // Solo las zonas del CUERPO: los apendices (patas, orejas, hocico) cuelgan
     // lejos del centroide y esta prueba no vale para ellos.

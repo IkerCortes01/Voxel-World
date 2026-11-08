@@ -452,8 +452,8 @@ TEST_CASE("Anatomia: la hitbox sale de las medidas MEDIDAS") {
     p.escala = 1.0f;
     const HitboxPecari h = HitboxDe(p);
 
-    // Alto = altura a la cruz MEDIDA (0.44 m) / 0.60 m por bloque = 0.733
-    CHECK(h.alto == doctest::Approx(0.44f / 0.60f).epsilon(0.01));
+    // Alto = altura a la cruz (0.50 m, tope del rango MEDIDO) / 0.60 m por bloque
+    CHECK(h.alto == doctest::Approx(0.50f / 0.60f).epsilon(0.01));
 
     // Largo total = longitud cabeza-cuerpo MEDIDA (0.95 m) => semi = 0.475 m
     CHECK(h.semiLargo == doctest::Approx(0.475f / 0.60f).epsilon(0.01));

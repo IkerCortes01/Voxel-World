@@ -70,9 +70,9 @@ struct DibujoNubes {
             "    vec2 q = vUV + vDatos.z * 37.0;\n"
             "    float nz = ruido(q * 2.6) * 0.65 + ruido(q * 5.8 + 3.1) * 0.35;\n"
             "    float cuerpo = (1.0 - r2) - (nz - 0.5) * 0.6;\n"
-            "    float a = vDatos.w * smoothstep(0.0, 0.5, cuerpo);\n"
+            "    float a = vDatos.w * smoothstep(0.0, 0.75, cuerpo);\n"
             "    if (a < 0.004) discard;\n"
-            "    vec3 n = normalize(vec3(vUV + (nz - 0.5) * 0.35, sqrt(1.0 - r2)));\n"
+            "    vec3 n = normalize(vec3((vUV + (nz - 0.5) * 0.35) * 0.7, sqrt(1.0 - r2) + 0.3));\n"
             "    float envuelta = clamp(dot(n, uSol) * 0.6 + 0.4, 0.0, 1.0);\n"
             "    float arriba = dot(n, uArriba) * 0.5 + 0.5;\n"
             "    vec3 cielo = mix(uSuelo, uCielo, arriba);\n"
@@ -132,14 +132,20 @@ struct DibujoNubes {
         pglUniform3f(uSuelo, suelo[0], suelo[1], suelo[2]);
         pglUniform3f(uHorizonte, horizonte[0], horizonte[1], horizonte[2]);
 
+        // ⭐ TODO EL CIELO DE NUBES SE DIBUJA A ESCALA. Llegan hasta 640
+        // bloques y el plano lejano puede estar en 256: se recortarian. Como
+        // este pase no tiene profundidad ni traslacion, encoger posiciones y
+        // radios por igual da EXACTAMENTE la misma imagen, ya dentro.
+        constexpr float ESCALA = 0.35f;
         glBegin(GL_QUADS);
         for (int i = 0; i < n; ++i) {
             const Nubes::Bola& o = b[i];
+            const float x = o.x * ESCALA, y = o.y * ESCALA, z = o.z * ESCALA, r = o.radio * ESCALA;
             glColor4f(o.sombra, o.lejos, o.semilla, o.alfa);
-            glTexCoord3f(-1.0f, -1.0f, o.radio); glVertex3f(o.x, o.y, o.z);
-            glTexCoord3f( 1.0f, -1.0f, o.radio); glVertex3f(o.x, o.y, o.z);
-            glTexCoord3f( 1.0f,  1.0f, o.radio); glVertex3f(o.x, o.y, o.z);
-            glTexCoord3f(-1.0f,  1.0f, o.radio); glVertex3f(o.x, o.y, o.z);
+            glTexCoord3f(-1.0f, -1.0f, r); glVertex3f(x, y, z);
+            glTexCoord3f( 1.0f, -1.0f, r); glVertex3f(x, y, z);
+            glTexCoord3f( 1.0f,  1.0f, r); glVertex3f(x, y, z);
+            glTexCoord3f(-1.0f,  1.0f, r); glVertex3f(x, y, z);
         }
         glEnd();
         pglUseProgram(0);

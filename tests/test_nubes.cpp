@@ -29,7 +29,7 @@ TEST_CASE("Nubes: hay nubes, acotadas, por encima del ojo y dentro de la vista")
             CHECK(o.y > SOBRE_OJO * 0.9f);
             CHECK(std::sqrt(o.x * o.x + o.z * o.z) < RADIO_VISTA + 80.0f);
             CHECK(o.radio > 0.5f);
-            CHECK(o.radio < 20.0f);
+            CHECK(o.radio < 30.0f);
             CHECK(o.alfa > 0.0f);
             CHECK(o.alfa <= 1.0f);
         }
@@ -84,4 +84,71 @@ TEST_CASE("Nubes: la cobertura va de despejado a casi cubierto") {
     CHECK(lo >= 0.19f);
     CHECK(hi <= 0.81f);
     CHECK(hi - lo > 0.35f);
+}
+
+// ============================================================================
+// SE JUNTAN, SE SEPARAN, Y SOLO LLUEVE BAJO LAS GRANDES
+// ============================================================================
+TEST_CASE("Nubes: miles de bolas en el cielo, sin pasarse del tope") {
+    for (float cob : { 0.3f, 0.6f, 0.9f }) {
+        std::vector<Bola> b(MAX_BOLAS);
+        const int n = generar(9000.0, 0.0, 80.0, 0.0, b.data(), MAX_BOLAS, cob, 0.0f);
+        INFO("cobertura ", cob, ": ", n, " bolas");
+        CHECK(n < MAX_BOLAS);
+        if (cob >= 0.6f) CHECK(n > 1000);
+    }
+}
+
+TEST_CASE("Nubes: con poco cielo cubierto no llueve; cubierto, llueve a ratos") {
+    auto mojado = [](float cob) {
+        int si = 0, total = 0;
+        for (int i = 0; i < 60; ++i)
+            for (int j = 0; j < 60; ++j, ++total)
+                if (lluviaEn(i * 37.0, j * 41.0, 5000.0, cob) > 0.5f) ++si;
+        return (float)si / (float)total;
+    };
+    CHECK(mojado(0.2f) < 0.03f);
+    const float cubierto = mojado(0.9f);
+    CHECK(cubierto > 0.3f);
+    CHECK(cubierto < 0.995f);    // hay claros: fuera de la nube no llueve
+    // Y la lluvia empieza y acaba poco a poco al andar.
+    for (int k = 0; k < 200; ++k) {
+        const double x = k * 3.0;
+        CHECK(std::fabs(lluviaEn(x, 0.0, 5000.0, 0.8f) - lluviaEn(x + 1.0, 0.0, 5000.0, 0.8f)) < 0.08f);
+    }
+}
+
+TEST_CASE("Nubes: donde llueve hay una nube grande encima; donde no, poca o ninguna") {
+    const float cob = 0.75f;
+    const double t = 7777.0;
+    double bajoLluvia = 0.0, alSeco = 0.0;
+    int nLluvia = 0, nSeco = 0;
+    std::vector<Bola> b(MAX_BOLAS);
+    for (int k = 0; k < 400 && (nLluvia < 6 || nSeco < 6); ++k) {
+        const double x = k * 53.0, z = k * 29.0;
+        const float ll = lluviaEn(x, z, t, cob);
+        if (!(ll > 0.9f || ll <= 0.0f)) continue;
+        if (ll > 0.9f && nLluvia >= 6) continue;
+        if (ll <= 0.0f && nSeco >= 6) continue;
+        const int n = generar(t, x, 70.0, z, b.data(), MAX_BOLAS, cob, 0.0f);
+        double encima = 0.0;
+        for (int i = 0; i < n; ++i)
+            if (b[i].x * b[i].x + b[i].z * b[i].z < 45.0f * 45.0f) encima += b[i].alfa * b[i].radio * b[i].radio;
+        if (ll > 0.9f) { bajoLluvia += encima; ++nLluvia; } else { alSeco += encima; ++nSeco; }
+    }
+    REQUIRE(nLluvia > 0);
+    REQUIRE(nSeco > 0);
+    CHECK(bajoLluvia / nLluvia > 3.0 * (alSeco / nSeco + 1.0));
+}
+
+TEST_CASE("Nubes: las nubes crecen con la masa: grandes juntas, pequenas sueltas") {
+    // Con poca cobertura las bolas son pequenas; con mucha, bastante mayores.
+    auto radioMedio = [](float cob) {
+        std::vector<Bola> b(MAX_BOLAS);
+        const int n = generar(3333.0, 0.0, 80.0, 0.0, b.data(), MAX_BOLAS, cob, 0.0f);
+        double s = 0.0, w = 0.0;
+        for (int i = 0; i < n; ++i) { s += b[i].radio * b[i].alfa; w += b[i].alfa; }
+        return w > 0.0 ? s / w : 0.0;
+    };
+    CHECK(radioMedio(0.85f) > 1.5 * radioMedio(0.25f));
 }

@@ -330,6 +330,7 @@ struct Vec3i {
 #include "render/PaseSaturacion.h"     // la saturacion, sobre la imagen entera
 #include "render/NubesGL.h"            // las nubes: impostores de esfera
 #include "render/Precipitacion.h"      // lluvia, granizo, nieve y polvo
+#include "render/HojasSecas.h"         // hojas secas que caen y se amontonan
 #include "Clima.h"                     // el tiempo que hace: lluvias y tormentas
 
 // ⭐ FILTRADO ANISOTROPICO
@@ -1020,11 +1021,23 @@ struct ClimaFrame {
     Clima::Rayo rayosVivos[8];    // los rayos que se ven ahora
     int nRayosVivos = 0;
     int forzado = -1;             // VOXELWORLD_CLIMA: un tiempo fijo, para probar
+    // ⭐ LO QUE TIENE ENCIMA EL JUGADOR (ver Nubes::lluviaEn). El clima dice
+    // que cae; esto, si cae AQUI: solo bajo las nubes grandes.
+    float bajoNube = 1.0f;        // 0..1: cuanto llueve justo aqui
+    float cercaNube = 1.0f;       // 0..1: cuanto llueve alrededor (el sonido de lejos)
+    float sombraNube = 1.0f;      // 0..1: cuanta nube hay encima (la luz)
 };
 ClimaFrame g_clima;
 
 // Cuanto tapan el cielo las nubes de tormenta: 0 despejado, 1 manto cerrado.
-inline float mantoClima() { return g_clima.p.cobertura * g_clima.p.oscuridad; }
+// Bajo un claro entre las nubes se esta menos a oscuras que bajo la masa.
+inline float mantoClima() {
+    return g_clima.p.cobertura * g_clima.p.oscuridad * (0.40f + 0.60f * g_clima.sombraNube);
+}
+// Lo que de verdad cae donde esta el jugador.
+inline float aguaAqui() { return g_clima.p.agua * g_clima.bajoNube; }
+inline float granizoAqui() { return g_clima.p.granizo * g_clima.bajoNube; }
+inline float nieveAqui() { return g_clima.p.nieve * g_clima.bajoNube; }
 // Lo que queda de la luz del cielo bajo las nubes (los rayos aparte).
 inline float factorLuzClima() { return 1.0f - 0.62f * mantoClima(); }
 // luzSolar() con el clima: la usan el cuerpo, los items y los animales, para
@@ -32053,6 +32066,14 @@ public:
         const int hasta = idxBase - ABAJO;
 
         for (int y = desde; y >= hasta && y > 0; --y) {
+            // ⭐ LOS NIVELES BAJOS (1 a 4) TAMBIEN SON SUELO.
+            //
+            // `esSolido` no los cuenta --no estorban el paso, se suben--, y
+            // por eso el barrido los atravesaba y posaba al animal en el
+            // bloque de DEBAJO: el cuerpo quedaba hundido en la losa.
+            // Se pisan: la superficie es su cara de arriba.
+            const BlockType bn = mundo->getBlock(x, y, z);
+            if (esNivelParcial(bn)) return (float)y + alturaDe(bn);
             if (!esSolido(x, y, z)) continue;
 
             // Encontrado el primer bloque solido bajando. La superficie que
@@ -32146,6 +32167,17 @@ public:
 
         // Sin mundo o fuera de lo cargado: el relieve base es lo unico que hay.
         return (float)y < alturaSuelo(x, z);
+    }
+
+    // Cuanto de la celda ocupa lo que hay, desde abajo: 0 libre, 1 macizo, y
+    // la altura del nivel si es una losa. Es lo que usa el cadaver para
+    // apoyarse SOBRE los niveles en vez de colarse en ellos.
+    float alturaCelda(int x, int y, int z) const override {
+        if (mundo != nullptr) {
+            const BlockType b = mundo->getBlock(x, y, z);
+            if (esNivelParcial(b)) return alturaDe(b);
+        }
+        return esSolido(x, y, z) ? 1.0f : 0.0f;
     }
 };
 
@@ -46192,6 +46224,18 @@ void actualizarClima() {
         }
     }
     g_clima.tAnterior = t;
+
+    // Las nubes que tiene encima y alrededor: las mismas que se dibujan.
+    const float cob = g_clima.p.cobertura, crece = g_clima.p.oscuridad;
+    g_clima.bajoNube = Nubes::lluviaEn(px, pz, t, cob, crece);
+    float cerca = 0.0f;
+    for (int k = 0; k < 8; ++k) {
+        const double a = k * 0.7853981634;
+        cerca += Nubes::lluviaEn(px + 56.0 * std::cos(a), pz + 56.0 * std::sin(a), t, cob, crece);
+    }
+    g_clima.cercaNube = (std::max)(g_clima.bajoNube, cerca / 8.0f);
+    g_clima.sombraNube = Nubes::suave(0.35f, 0.85f,
+        Nubes::masa(px - Nubes::VIENTO_X * t, pz - Nubes::VIENTO_Z * t, t, cob, crece));
 }
 
 // ============================================================================
@@ -46200,6 +46244,94 @@ void actualizarClima() {
 // Ver render/Precipitacion.h. Va despues de todo lo opaco, con profundidad
 // (el terreno tapa las gotas) pero sin escribirla. Bajo techo no cae: cada
 // columna sabe donde esta su bloque mas alto.
+// ============================================================================
+// LAS HOJAS SECAS (ver render/HojasSecas.h)
+// ============================================================================
+HojasSecas::Sistema g_hojasSecas;
+
+// Lo que hay en una celda para una hoja seca: 0 aire o hierba, la altura de
+// lo que la sostiene (bloque, losa, agua), o -1 en una copa de arbol.
+float celdaParaHoja(int x, int y, int z) {
+    if (!g_gameState || y < 0 || y >= CHUNK_HEIGHT) return 0.0f;
+    const BlockType b = g_gameState->world.getBlock(x, y, z);
+    if (b == BLOCK_AIR || isCrossSprite(b)) return 0.0f;
+    if (esHojaDeArbol(b)) return -1.0f;
+    if (esAguaCualquiera(b)) return 0.88f;
+    if (esNivelParcial(b)) return alturaDe(b);
+    return 1.0f;
+}
+
+// Un paso: se sueltan de los arboles cercanos (mas con viento) y caen,
+// ruedan o se quedan tiradas. iento 0..1 y acha 0..1 son los del sonido.
+void actualizarHojasSecas(float dt, float viento, float racha) {
+    if (!g_gameState) return;
+    const Player& j = g_gameState->player;
+    // Celdas probadas por segundo: cuantas resultan ser hoja con aire debajo
+    // lo decide el bosque. Un arbol solo suelta alguna; un bosque, muchas.
+    static float intentos = 0.0f;
+    intentos += dt * (30.0f + 150.0f * viento);
+    const int n = (int)intentos;
+    intentos -= (float)n;
+    g_hojasSecas.buscarArboles(j.position.x, j.position.y, j.position.z, n,
+        [](int x, int y, int z) {
+            return y >= 0 && y < CHUNK_HEIGHT && esHojaDeArbol(g_gameState->world.getBlock(x, y, z));
+        },
+        celdaParaHoja);
+    // El rumbo del viento es el de las nubes y la lluvia.
+    const float v = 0.6f + 6.5f * viento;
+    g_hojasSecas.avanzar(dt, v * 0.94f, v * 0.34f, racha,
+                         j.position.x, j.position.y, j.position.z, j.velocity.x, j.velocity.z,
+                         celdaParaHoja);
+    // La luz de cada hoja, por turnos: unas cien por frame.
+    static int turno = 0;
+    for (int k = 0; k < 100; ++k) {
+        turno = (turno + 1) % HojasSecas::MAX;
+        HojasSecas::Hoja& o = g_hojasSecas.h[turno];
+        if (o.estado == HojasSecas::LIBRE) continue;
+        float raw = (float)g_gameState->world.getLightAt((int)std::floor(o.x), (int)std::floor(o.y + 0.1f),
+                                                         (int)std::floor(o.z)) / 18.0f;
+        if (raw > 1.0f) raw = 1.0f;
+        o.luz = raw;
+    }
+}
+
+void dibujarHojasSecas() {
+    if (!g_gameState || g_hojasSecas.vivas == 0) return;
+    static float pv[HojasSecas::MAX * 12], pc[HojasSecas::MAX * 12];
+    const float sol = luzSolarClima();
+    int nq = 0;
+    for (int i = 0; i < HojasSecas::MAX; ++i) {
+        const HojasSecas::Hoja& o = g_hojasSecas.h[i];
+        if (o.estado == HojasSecas::LIBRE) continue;
+        HojasSecas::Sistema::vertices(o, pv + nq * 12);
+        const float l = 0.18f + 0.82f * brilloDeLuz(o.luz, sol);
+        for (int k = 0; k < 4; ++k) {
+            // Las puntas, un poco mas oscuras: la hoja se curva.
+            const float f = l * (k % 2 == 0 ? 0.82f : 1.0f);
+            pc[nq * 12 + k * 3 + 0] = o.r * f;
+            pc[nq * 12 + k * 3 + 1] = o.g * f;
+            pc[nq * 12 + k * 3 + 2] = o.b * f;
+        }
+        ++nq;
+    }
+    if (nq == 0) return;
+    glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, pv);
+    glColorPointer(3, GL_FLOAT, 0, pc);
+    glDrawArrays(GL_QUADS, 0, nq * 4);
+    glDisableClientState(GL_COLOR_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glPopAttrib();
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
 void dibujarPrecipitacion() {
     const Clima::Perfil& p = g_clima.p;
     if (!g_gameState || p.agua + p.granizo + p.nieve + p.polvo < 0.01f) return;
@@ -46227,6 +46359,9 @@ void dibujarPrecipitacion() {
     e.vientoX = v * 0.94f;
     e.vientoZ = v * 0.34f;
     e.luz = luzSolarClima();
+    // Solo cae de las nubes grandes: las mismas que se ven arriba.
+    e.nubeCob = p.cobertura;
+    e.nubeCrece = p.oscuridad;
 
     static Precipitacion::Trazo tr[Precipitacion::MAX_GOTAS];
     const int n = Precipitacion::generar(e, techos, tr, Precipitacion::MAX_GOTAS);
@@ -48414,6 +48549,8 @@ int main() {
                     float vientoAhora = Audio::intensidadViento(cabeza.y, abierto) * (0.45f + 0.85f * racha);
                     vientoAhora = (std::min)(1.0f, (std::max)(vientoAhora, vientoClima));
                     g_audioMixer.setViento(callado ? 0.0f : vientoAhora);
+                    // Las hojas secas que el viento arranca de los arboles.
+                    if (!callado) actualizarHojasSecas(deltaTime, vientoAhora, racha);
 
                     // ⭐ LAS HOJAS, LOS PAJAROS Y LOS GRILLOS (Ambiente.h).
                     //
@@ -48452,8 +48589,8 @@ int main() {
                     // Dentro de una casa o una cueva el ambiente de fuera llega
                     // apagado.
                     const float fuera = (std::min)(1.0f, 0.25f + (float)nivel / 14.0f);
-                    const float mojado = (std::min)(1.0f, g_clima.p.agua * 1.6f + g_clima.p.granizo +
-                                                         g_clima.p.nieve + g_clima.p.polvo);
+                    const float mojado = (std::min)(1.0f, aguaAqui() * 1.6f + granizoAqui() +
+                                                         nieveAqui() + g_clima.p.polvo);
                     const float dia = Clima::suave(0.25f, 0.55f, luzSolar());
                     const float templado = Clima::suave(0.25f, 0.45f, g_clima.lugar.temperatura);
                     const bool enAgua = !g_atmosfera.nieblaDelCielo;
@@ -48464,8 +48601,10 @@ int main() {
                                           templado * fuera * (1.0f - 0.5f * racha);
                     if (callado || enAgua) g_audioMixer.setAmbiente(0.0f, 0.0f, 0.0f);
                     else g_audioMixer.setAmbiente(hojasSuena, pajaros, grillos);
-                    g_audioMixer.setLluvia(callado ? 0.0f : g_clima.p.agua,
-                                           callado ? 0.0f : g_clima.p.granizo, abierto);
+                    // Lo que cae aqui, y un rumor de la que cae cerca.
+                    const float oir = (std::max)(g_clima.bajoNube, 0.35f * g_clima.cercaNube);
+                    g_audioMixer.setLluvia(callado ? 0.0f : g_clima.p.agua * oir,
+                                           callado ? 0.0f : g_clima.p.granizo * oir, abierto);
                 }
 
                 // ⭐⭐⭐ ACTUALIZAR ESTADO DE NIEBLA SEGÚN JUGADOR
@@ -50487,6 +50626,9 @@ int main() {
         // Re-habilitar culling y deshabilitar texturas para el resto del renderizado
         glEnable(GL_CULL_FACE);
         glDisable(GL_TEXTURE_2D);
+
+        // Las hojas secas que caen y las que estan tiradas.
+        dibujarHojasSecas();
 
         // Renderizar partículas (en modo 3D)
         glEnable(GL_BLEND);

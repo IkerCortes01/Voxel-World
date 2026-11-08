@@ -66,14 +66,19 @@ struct ParametrosPecari {
     // MEDIDO: longitud cabeza-cuerpo 84-106 cm; se usa el centro del rango.
     float largoCuerpo   = 0.95f;
 
-    // MEDIDO: altura a la cruz 30-50 cm. Se toma un valor alto-medio por
-    // coherencia con 95 cm de longitud.
-    float alturaCruz    = 0.44f;
+    // MEDIDO: altura a la cruz 30-50 cm. Se toma el TOPE del rango.
+    //
+    // ⭐ ANTES 0.44, Y SE VEIA "PEGADO AL SUELO". Con 0.44 y un torso de 0.31
+    // el vientre quedaba a 16 cm: las patas apenas asomaban bajo el barril y
+    // el animal parecia arrastrarse. Con 0.50 y el torso a 0.29 el vientre
+    // sube a ~24 cm, casi media altura de pata a la vista, y solo las
+    // pezunas tocan el suelo (ver test_pecari_postura.cpp).
+    float alturaCruz    = 0.50f;
 
     // ESTIMADO: el tronco "en forma de barril" es mas ancho por el centro.
-    // La razon ancho/alto ~0.86 es lo que lo hace compacto y no aplanado.
+    // La razon ancho/alto ~0.93 es lo que lo hace compacto y no aplanado.
     float anchoTorso    = 0.27f;
-    float altoTorso     = 0.31f;
+    float altoTorso     = 0.29f;
 
     // Fraccion del largo total que ocupa el TRONCO (sin cabeza ni cuello).
     // DERIVADO: cabeza (0.25 m) + cuello (0.12 m) sobre 0.95 m deja 0.58 para

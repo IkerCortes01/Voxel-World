@@ -3,6 +3,9 @@
 
 #include "NoiseSystem.h"
 #include "ClimateGenerator.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 
 // ============================================================================
 // MOUNTAIN GENERATOR - ETAPA 4
@@ -58,7 +61,15 @@ public:
     //
     // Todo el calculo de abajo se conserva intacto y comentado. Para
     // recuperar las montanas basta con quitar el `return 0.0f` de aqui.
-    static constexpr bool MONTANAS_ACTIVAS = false;
+    //
+    // ⭐ REACTIVADAS (pedido: "mejora los biomas montanosos para que sean
+    // mas o menos casi comunes"). Vuelven con dos cambios para que no
+    // levanten paredes: tope de 120 bloques en vez de 150, y SIN las terrazas
+    // de acantilado, que eran justo los escalones verticales.
+    static constexpr bool MONTANAS_ACTIVAS = true;
+
+    // Las terrazas de acantilado: apagadas, levantaban paredes.
+    static constexpr bool TERRAZAS_ACTIVAS = false;
 
     float GetMountainHeight(float x, float z, const ClimateData& c) const {
         if (!MONTANAS_ACTIVAS) {
@@ -142,7 +153,7 @@ public:
         // sobre el mar, escalar una cumbre es una expedicion larga pero
         // posible; con 400 seria una pared inabarcable y el jugador solo la
         // veria de lejos.
-        constexpr float MAX_MOUNTAIN_HEIGHT = 150.0f;
+        constexpr float MAX_MOUNTAIN_HEIGHT = 120.0f;
 
         float h = ridge * MAX_MOUNTAIN_HEIGHT * peakBoost;
         h *= (1.0f - valleyCarve);
@@ -157,7 +168,7 @@ public:
         // Produce las paredes verticales y los escalones rocosos.
         // Se aplica despues de todo lo demas para que los acantilados sigan
         // el relieve y no lo contradigan.
-        if (c.erosion < 0.20f && h > 12.0f) {
+        if (TERRAZAS_ACTIVAS && c.erosion < 0.20f && h > 12.0f) {
             const float cliffNoise = Noise::fbmSimplex2D(seedCliff(),
                                                          x * 0.006f,
                                                          z * 0.006f, 2);
@@ -171,6 +182,122 @@ public:
         }
 
         return h > 0.0f ? h : 0.0f;
+    }
+
+    // ========================================================================
+    // ⭐ CERROS, MONTES Y VOLCANES INACTIVOS
+    // ========================================================================
+    // PEDIDO: "los comunes seran nuevas formas de terreno: montes, cerros y
+    // volcanes inactivos".
+    //
+    // Las cordilleras de arriba son grandes y raras. Esto es el relieve de
+    // todos los dias: elevaciones SUELTAS repartidas por el mundo. El suelo
+    // se divide en celdas de 230 x 230 bloques y cada una tira un dado:
+    //
+    //   30 %  nada: llano
+    //   36 %  CERRO   una loma redonda, 9 a 22 bloques, 28 a 50 de radio
+    //   24 %  MONTE   mas alto y quebrado, 26 a 55 bloques, 55 a 95 de radio,
+    //                 con crestas que le rompen la silueta
+    //   10 %  VOLCAN  un cono de 45 a 80 bloques, 80 a 115 de radio, laderas
+    //                 concavas y un CRATER hundido en la cima. Inactivo: no
+    //                 hay lava, solo la forma.
+    //
+    // El contorno no es un circulo: el radio cambia con el angulo (ruido
+    // sobre la circunferencia), asi cada elevacion tiene su planta propia.
+    // Donde dos se tocan manda la mas alta (maximo, no suma): no aparecen
+    // torres por acumulacion. Solo en tierra firme.
+    enum Forma { NADA = 0, CERRO, MONTE, VOLCAN };
+    struct Elevacion { int forma; float cx, cz, radio, alto; int semilla; };
+
+    static constexpr float CELDA_RELIEVE = 230.0f;
+
+    static uint32_t mezclar(uint32_t h) {
+        h ^= h >> 16; h *= 0x7feb352du;
+        h ^= h >> 15; h *= 0x846ca68bu;
+        h ^= h >> 16;
+        return h;
+    }
+    static float azar(uint32_t& s) {
+        s = mezclar(s + 0x6D2B79F5u);
+        return (float)(s >> 8) * (1.0f / 16777216.0f);
+    }
+
+    Elevacion ElevacionDeCelda(int i, int j) const {
+        uint32_t s = mezclar((uint32_t)i * 0x9E3779B1u ^ mezclar((uint32_t)j * 0x85EBCA77u ^
+                             (uint32_t)seed * 0xC2B2AE35u));
+        Elevacion e{};
+        const float r = azar(s);
+        e.forma = r < 0.30f ? NADA : (r < 0.66f ? CERRO : (r < 0.90f ? MONTE : VOLCAN));
+        e.cx = ((float)i + 0.2f + 0.6f * azar(s)) * CELDA_RELIEVE;
+        e.cz = ((float)j + 0.2f + 0.6f * azar(s)) * CELDA_RELIEVE;
+        const float a = azar(s), b = azar(s);
+        switch (e.forma) {
+            case CERRO:  e.radio = 28.0f + 22.0f * a;  e.alto = 9.0f + 13.0f * b;  break;
+            case MONTE:  e.radio = 55.0f + 40.0f * a;  e.alto = 26.0f + 29.0f * b; break;
+            case VOLCAN: e.radio = 80.0f + 35.0f * a;  e.alto = 45.0f + 35.0f * b; break;
+            default:     e.radio = 0.0f; e.alto = 0.0f; break;
+        }
+        e.semilla = (int)(s & 0xFFFFF);
+        return e;
+    }
+
+    // La altura que pone una elevacion en (x, z): 0 fuera de ella.
+    float PerfilDe(const Elevacion& e, float x, float z) const {
+        if (e.forma == NADA) return 0.0f;
+        const float dx = x - e.cx, dz = z - e.cz;
+        const float d2 = dx * dx + dz * dz;
+        const float rMax = e.radio * 1.25f;
+        if (d2 >= rMax * rMax) return 0.0f;
+        const float d = std::sqrt(d2);
+        // El contorno: el radio varia con el angulo, +-22 %.
+        const float ca = d > 1e-3f ? dx / d : 1.0f, sa = d > 1e-3f ? dz / d : 0.0f;
+        const float borde = 1.0f + 0.22f * Noise::simplex2D(seed + 4441 + e.semilla,
+                                                            ca * 1.6f + (float)(e.semilla % 97),
+                                                            sa * 1.6f);
+        const float u = d / (e.radio * borde);
+        if (u >= 1.0f) return 0.0f;
+        constexpr float PI = 3.14159265f;
+
+        if (e.forma == CERRO) {
+            // Una loma: coseno, plana en la cima y en el pie.
+            const float c = 0.5f + 0.5f * std::cos(PI * u);
+            return e.alto * std::pow(c, 1.2f);
+        }
+        if (e.forma == MONTE) {
+            // Base ancha y cima quebrada por crestas.
+            const float base = (1.0f - u * u) * (1.0f - u * u);
+            const float cresta = Noise::ridged2D(seed + 5557 + e.semilla, x * 0.018f, z * 0.018f, 3, 2.0f, 0.5f);
+            return e.alto * base * (0.62f + 0.48f * cresta);
+        }
+        // VOLCAN: cono de laderas concavas, con barrancos, y un crater.
+        const float cono = std::pow(1.0f - u, 1.7f);
+        const float barranco = Noise::ridged2D(seed + 6661 + e.semilla, ca * 3.0f + u * 0.5f,
+                                               sa * 3.0f + (float)(e.semilla % 53), 2, 2.0f, 0.5f);
+        float h = e.alto * cono * (0.90f + 0.10f * barranco);
+        // El crater: un cuenco en el 17 % central, con el borde redondeado.
+        constexpr float R_CRATER = 0.17f;
+        const float bordeCrater = e.alto * std::pow(1.0f - R_CRATER, 1.7f);
+        if (u < R_CRATER * 1.35f) {
+            const float t = u / R_CRATER;                       // 0 centro, 1 borde
+            const float fondo = bordeCrater - e.alto * 0.30f;    // hondo: 30 % del alto
+            const float cuenco = fondo + (bordeCrater - fondo) * t * t;
+            // Del cuenco al cono, suave alrededor del borde.
+            const float m = Noise::smoothstep(0.85f, 1.35f, t);
+            h = (t < 1.35f) ? (cuenco * (1.0f - m) + (std::min)(h, bordeCrater) * m) : h;
+        }
+        return h > 0.0f ? h : 0.0f;
+    }
+
+    float GetLandformHeight(float x, float z, const ClimateData& c) const {
+        const float landFactor = Noise::smoothstep(0.53f, 0.63f, c.continentalness);
+        if (landFactor <= 0.001f) return 0.0f;
+        const int ci = (int)std::floor(x / CELDA_RELIEVE);
+        const int cj = (int)std::floor(z / CELDA_RELIEVE);
+        float h = 0.0f;
+        for (int di = -1; di <= 1; ++di)
+            for (int dj = -1; dj <= 1; ++dj)
+                h = (std::max)(h, PerfilDe(ElevacionDeCelda(ci + di, cj + dj), x, z));
+        return h * landFactor;
     }
 };
 

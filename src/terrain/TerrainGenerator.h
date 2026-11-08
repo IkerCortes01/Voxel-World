@@ -111,6 +111,9 @@ public:
         // ---- CAPA 3: montanas ----
         height += mountains.GetMountainHeight(x, z, c);
 
+        // ---- CAPA 3b: cerros, montes y volcanes inactivos ----
+        height += mountains.GetLandformHeight(x, z, c);
+
         // Factor de tierra firme: atenua las capas terrestres bajo el agua,
         // donde el relieve es mas suave.
         const float landFactor = Noise::smoothstep(0.44f, 0.56f, c.continentalness);
@@ -332,6 +335,20 @@ public:
         // RESOLUCION DEL BIOMA EFECTIVO
         // --------------------------------------------------------------------
         BiomeType effective = sample.dominant;
+
+        // ⭐ LA MONTANA SE DECIDE POR SU ALTURA, NO SOLO POR EL CLIMA.
+        //
+        // El selector de biomas tiene apagada la rama de montana (asignaba
+        // roca por erosion aunque el terreno fuera llano). Aqui se pone donde
+        // de verdad hay cordillera: ladera rocosa por encima de 35 bloques de
+        // montana, y picos nevados por encima de 80 en las cordilleras raras
+        // (weirdness alta). Los cerros, montes y volcanes conservan el bioma
+        // de su clima: un cerro en el bosque es un cerro con bosque.
+        {
+            const float mont = mountains.GetMountainHeight(x, z, col.climate);
+            if (mont > 80.0f && col.climate.weirdness > 0.52f) effective = BIOME_MOUNTAIN_PEAKS;
+            else if (mont > 35.0f) effective = BIOME_MOUNTAINS;
+        }
 
         col.isOcean = (col.surfaceHeight < SEA_LEVEL);
 

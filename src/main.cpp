@@ -328,6 +328,7 @@ struct Vec3i {
 #include "render/DistanciaVision.h"    // barra 2-100 y difuminado progresivo
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "render/PaseSaturacion.h"     // la saturacion, sobre la imagen entera
+#include "render/NubesGL.h"            // las nubes: impostores de esfera
 
 // ⭐ FILTRADO ANISOTROPICO
 //
@@ -46431,6 +46432,50 @@ void dibujarCieloYAstros() {
               1.0f - bajo * 0.20f,
               vis * opacidad, 0.62f,
               fase == 0 || fase == 4 ? 0.0f : (fase < 4 ? 1.0f : -1.0f));
+    }
+
+    // ------------------------------------------------------------------
+    // LAS NUBES
+    // ------------------------------------------------------------------
+    // Despues del sol y la luna: los tapan al pasar. Cumulos de bolas que
+    // nacen, respiran y se deshacen (ver render/Nubes.h y NubesGL.h). Con la
+    // MEJORA ATMOSFERICA a 0 no se dibujan: es la opcion de quien necesita
+    // cada frame.
+    if (mejoraCielo > 0.0f && g_gameState) {
+        static Nubes::Bola bolas[Nubes::MAX_BOLAS];
+        static Render::DibujoNubes dibujoNubes;
+        const Vec3& pie = g_gameState->player.position;
+        const int n = Nubes::generar(g_horaDelMundoSegundos, pie.x, pie.y + 1.62, pie.z,
+                                     bolas, Nubes::MAX_BOLAS);
+        Nubes::ordenar(bolas, n);
+
+        // El sol y "arriba" en espacio de ojo: la matriz ahora solo tiene la
+        // rotacion de la camara.
+        GLfloat m[16];
+        glGetFloatv(GL_MODELVIEW_MATRIX, m);
+        const float arriba[3] = { m[4], m[5], m[6] };
+        float sol[3];
+        {
+            double sx, sy, sz;
+            direccionAstro(angSol, sx, sy, sz);
+            // De noche la luz que llega es la de la luna.
+            if (sy < -0.05) direccionAstro(angLuna, sx, sy, sz);
+            const float wx = (float)sx, wy = (float)sy, wz = (float)sz;
+            sol[0] = m[0] * wx + m[4] * wy + m[8]  * wz;
+            sol[1] = m[1] * wx + m[5] * wy + m[9]  * wz;
+            sol[2] = m[2] * wx + m[6] * wy + m[10] * wz;
+        }
+        const float luz = luzSolar();
+        const Atmosfera::Cielo& cielo = g_atmosfera.cielo;
+        // De noche apenas la luz de la luna, tenue y fria.
+        const float fuerza = 0.07f + 0.93f * luz;
+        float luzSol[3], arribaC[3], abajoC[3];
+        for (int k = 0; k < 3; ++k) {
+            luzSol[k] = cielo.luzSol[k] * fuerza;
+            arribaC[k] = (cielo.cenit[k] * 0.55f + cielo.horizonte[k] * 0.45f) * 1.15f;
+            abajoC[k] = cielo.horizonte[k] * 0.62f;
+        }
+        dibujoNubes.dibujar(bolas, n, sol, arriba, luzSol, arribaC, abajoC, cielo.horizonte);
     }
 
     glPopAttrib();

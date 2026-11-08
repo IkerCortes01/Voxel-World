@@ -92,23 +92,13 @@ TEST_CASE("Niveles: existe el registro de lo que apilo el jugador") {
     CHECK(src.find("inline bool consumirNivelDelJugador(") != std::string::npos);
 }
 
-TEST_CASE("Niveles: la multiplicacion esta condicionada al registro") {
-    // ⭐ EL ARREGLO. Sin la condicion, vuelve el material gratis.
+TEST_CASE("Niveles: ya no se multiplica el drop por el tamano del nivel") {
+    // A peticion se quito la regla: cualquier nivel suelta un item, lo haya
+    // puesto el jugador o el mundo, asi que tampoco hay material gratis.
     const std::string src = fuenteMotor();
     REQUIRE(!src.empty());
-
-    const size_t m = src.find("SOLO SE MULTIPLICA LO QUE EL JUGADOR APILO");
-    REQUIRE_MESSAGE(m != std::string::npos,
-                    "se quito la regla: picar el suelo intacto volveria a "
-                    "dar varios items");
-
-    const std::string cuerpo = src.substr(m, 1800);
-    CHECK_MESSAGE(
-        cuerpo.find("if (consumirNivelDelJugador(bx, by, bz))") != std::string::npos,
-        "la multiplicacion debe depender del registro");
-
-    // Y el valor por defecto es 1: lo natural suelta uno.
-    CHECK(cuerpo.find("int octavosDelNivel = 1;") != std::string::npos);
+    CHECK(src.find("d.count *= octavosDelNivel") == std::string::npos);
+    CHECK(src.find("octavosDelNivel = nivelDe(blockType)") == std::string::npos);
 }
 
 TEST_CASE("Niveles: todas las rutas de apilado marcan la celda") {

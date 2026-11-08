@@ -111,7 +111,7 @@ TEST_CASE("Juntar: el motor ya no pierde el clic segun el angulo") {
     // Destino = capa con sitio: se junta en vez de salir sin hacer nada.
     const size_t m = src.find("SI EL DESTINO ES UNA CAPA CON SITIO, SE JUNTAN");
     REQUIRE(m != std::string::npos);
-    CHECK(src.substr(m, 1800).find("depositarEnColumna(placePos.x, placePos.y,")
+    CHECK(src.substr(m, 3200).find("depositarEnColumna(placePos.x, placePos.y,")
           != std::string::npos);
 
     // La prueba contra el jugador mira donde va a caer la capa.

@@ -86,17 +86,14 @@ TEST_CASE("Tablones: las lonchas ya no son bloques muertos") {
     CHECK(esNivelDeMaderaHuerfano(BLOCK_WOODO_L7));
 }
 
-TEST_CASE("Drops: el motor multiplica el drop por los octavos del nivel") {
-    // getBlockDrops vive en main.cpp, que no se enlaza con los tests: se
-    // comprueba leyendo el fuente (ver el hallazgo I3 de la auditoria).
+TEST_CASE("Drops: un nivel suelta un item, mida lo que mida") {
+    // Se quito, a peticion, la regla que multiplicaba el drop por los
+    // octavos del nivel. getBlockDrops vive en main.cpp, que no se enlaza con
+    // los tests: se comprueba leyendo el fuente.
     const std::string src = fuenteMotor();
     REQUIRE_FALSE(src.empty());
-
-    // Se lee el nivel ANTES de normalizar a bloque entero...
-    CHECK(src.find("octavosDelNivel = nivelDe(blockType)") != std::string::npos);
-    // ...y se multiplica AL FINAL, para que valga en todos los caminos de drop
-    // y no solo en el `default`.
-    CHECK(src.find("d.count *= octavosDelNivel") != std::string::npos);
+    CHECK(src.find("d.count *= octavosDelNivel") == std::string::npos);
+    CHECK(src.find("UN NIVEL SUELTA UN ITEM, MIDA LO QUE MIDA") != std::string::npos);
 }
 
 TEST_CASE("Drops: el nivel vive en el ID, asi que natural y colocado son iguales") {

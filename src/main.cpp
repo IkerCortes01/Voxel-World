@@ -33406,52 +33406,19 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
 
     if (Compuesto::esCompuesto(blockType)) return drops;
 
-    // ========================================================================
-    // ⭐⭐ UN NIVEL SUELTA TANTOS ITEMS COMO OCTAVOS TIENE
-    // ========================================================================
-    // PEDIDO: "si el jugador pica un nivel 3, te de 3 items de bloque de ese
-    // nivel; que por nivel suelte la cantidad de items de su numero".
+    // (Aqui estuvo la regla "un nivel suelta tantos items como octavos
+    // tiene", con su registro de lo apilado por el jugador. Se quito a
+    // peticion: ver la nota de abajo.)
     //
-    // El material se conserva en los dos sentidos, que es lo que hace que el
-    // apilado no sea un exploit ni una perdida:
+    // ⭐ UN NIVEL SUELTA UN ITEM, MIDA LO QUE MIDA.
     //
-    //   poner 3 veces tierra  -> una capa de nivel 3
-    //   picar esa capa        -> 3 items de tierra
-    //
-    // Antes soltaba SIEMPRE 1, asi que apilar y volver a picar borraba
-    // material: subir una capa a 7 y romperla devolvia un septimo de lo
-    // invertido.
-    //
-    // ⚠️ SE LEE EL NIVEL ANTES DE NORMALIZAR. La linea de abajo convierte
-    // `tierra_L3` en `tierra` (el jugador recoge "tierra", no "tierra de nivel
-    // 3"), y con ella se pierde el dato. Por eso se guarda aqui.
-    //
-    // ⚠️ SOLO SE MULTIPLICA LO QUE EL JUGADOR APILO.
-    //
-    // Antes aqui ponia lo contrario --"no depende de si el bloque es natural
-    // o colocado"-- y esa decision era un BUG con consecuencias grandes:
-    //
-    // El generador usa niveles parciales en TODA la superficie del mundo. La
-    // altura del terreno no se redondea a bloques enteros: la parte decimal
-    // se convierte en el nivel de la capa de arriba (ver "EL NIVEL SALE DE LA
-    // ALTURA REAL DEL TERRENO"). Casi cada bloque de suelo que se ve tiene
-    // nivel parcial.
-    //
-    // Con la regla vieja, picar una loma intacta de nivel 7 daba SIETE
-    // tierras de un golpe. Material infinito a ras de suelo, sin haber puesto
-    // nada: piedra, tierra, pasto, arena y grava, todas.
-    //
-    // La regla correcta es la que motivo el multiplicador en su origen: que
-    // APILAR conserve el material. Pones tierra tres veces, la picas,
-    // recuperas tres. Un nivel que puso el MUNDO suelta uno, como cualquier
-    // otro bloque del terreno.
-    //
-    // `consumirNivelDelJugador` consulta Y OLVIDA: la celda se esta rompiendo,
-    // asi que su entrada en el registro ya no sirve para nada.
-    int octavosDelNivel = 1;
+    // PEDIDO: "elimina el sistema que por tamano de nivel te da una cantidad
+    // de items". Antes un nivel 5 que hubiera apilado el jugador soltaba
+    // cinco. Ahora cualquier nivel suelta lo mismo que su bloque: uno. Se
+    // sigue llevando la cuenta de los niveles puestos por el jugador
+    // (consumirNivelDelJugador), que usan otras partes del motor.
     if (esNivelParcial(blockType)) {
-        if (consumirNivelDelJugador(bx, by, bz))
-            octavosDelNivel = nivelDe(blockType);   // 1..7
+        consumirNivelDelJugador(bx, by, bz);
         blockType = bloqueBaseDe(blockType);
     }
 
@@ -33661,10 +33628,6 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
     // (los que sueltan pedernal, polvo de tierra, cobre...) habrian seguido
     // dando 1 al picarlos en capa, y la perdida de material volveria por esa
     // puerta.
-    if (octavosDelNivel > 1) {
-        for (BlockDrop& d : drops) d.count *= octavosDelNivel;
-    }
-
     return drops;
 }
 
@@ -38432,6 +38395,35 @@ BlockType pegarEncimaDeCapas(BlockType enMano, BlockType tocado) {
     return celdaDeCapas(k);
 }
 
+// ============================================================================
+// ⭐⭐ UN BLOQUE COMPLETO SOBRE UN NIVEL LO SUSTITUYE
+// ============================================================================
+// PEDIDO: "resuelve el bug de bloques completos al colocarlos encima de un
+// nivel cualquiera, se duplica y divide en niveles [...] haz solo que al
+// colocar un bloque, reemplace el nivel de abajo del bloque completo".
+//
+// Antes, un bloque entero puesto sobre un nivel parcial se PEGABA encima de
+// el en la misma celda (pegarEncimaDeCapas) o se repartia por la columna
+// (depositarEnColumna): la celda quedaba partida en capas de dos materiales y,
+// segun el camino, aparecia otro bloque arriba. Ahora es simple: el bloque
+// entero ocupa la celda del nivel y el nivel desaparece.
+//
+// Solo con BLOQUES ENTEROS. Un nivel puesto sobre otro nivel se sigue
+// apilando como siempre, y lo que no es un cubo (plantas, pencas, ramas,
+// guijarros) no sustituye nada. Devuelve el bloque a poner, o BLOCK_AIR si la
+// regla no se aplica.
+BlockType enteroQueSustituyeNivel(BlockType enMano, BlockType nivel) {
+    if (!(esNivelParcial(nivel) || (esCeldaDeCapas(nivel) && !celdaLlena(nivel)))) return BLOCK_AIR;
+    if (esNivelParcial(enMano) || enMano == BLOCK_AIR) return BLOCK_AIR;
+    if (esTechoDeHojas(enMano)) return BLOCK_TECHO_HOJAS;
+    const BlockType b = admiteNiveles(enMano) ? bloqueBaseDe(enMano) : enMano;
+    if (Compuesto::esCompuesto(b) || isCrossSprite(b) || isRama(b) || esRaiz(b) ||
+        esCladodio(b) || esNopalDeCastilla(b) || esPencaDeMaguey(b) || esGuijarro(b))
+        return BLOCK_AIR;
+    if (!isBlockSolid(b) || alturaDe(b) < 1.0f) return BLOCK_AIR;
+    return b;
+}
+
 void placeBlock(GameState* state) {
     if (state->placeCooldown > 0) return;
     if (!state->inventory.hasSelectedBlock()) return;
@@ -38912,6 +38904,19 @@ void placeBlock(GameState* state) {
                     const BlockType enMano =
                         state->inventory.getSelectedBlock();
                     const BlockType base = bloqueBaseDe(tocado);
+
+                    // Un bloque entero sobre un nivel: lo sustituye (ver
+                    // enteroQueSustituyeNivel).
+                    if (const BlockType entero = enteroQueSustituyeNivel(enMano, tocado);
+                        entero != BLOCK_AIR) {
+                        state->world.setBlock(result.blockPos.x, result.blockPos.y,
+                                              result.blockPos.z, entero);
+                        state->inventory.consumeSelected();
+                        state->placeCooldown = 0.25f;
+                        subirSiApilaBajoLosPies(result.blockPos.x, result.blockPos.y,
+                                                result.blockPos.z);
+                        return;
+                    }
 
                     // ⭐ CELDA YA LLENA: LO SIGUIENTE VA ARRIBA, NUNCA AL LADO
                     //
@@ -40141,6 +40146,16 @@ void placeBlock(GameState* state) {
                     // sitio. Ya no depende de por donde entro el rayo.
                     if (!celdaLlena(ocupante) &&
                         (esNivelParcial(ocupante) || esCeldaDeCapas(ocupante))) {
+                        // Un bloque entero: sustituye al nivel, no se pega
+                        // encima ni se reparte por la columna.
+                        if (const BlockType entero = enteroQueSustituyeNivel(blockToPlace, ocupante);
+                            entero != BLOCK_AIR) {
+                            state->world.setBlock(placePos.x, placePos.y, placePos.z, entero);
+                            state->inventory.consumeSelected();
+                            state->placeCooldown = 0.25f;
+                            subirSiApilaBajoLosPies(placePos.x, placePos.y, placePos.z);
+                            return;
+                        }
                         const BlockType pegado =
                             pegarEncimaDeCapas(blockToPlace, ocupante);
                         if (pegado != BLOCK_AIR) {
@@ -50082,15 +50097,23 @@ int main() {
         glDisable(GL_DEPTH_TEST);
 
         // ⭐ CROSSHAIR (Centro de mira)
+        //
+        // Mas pequena (se pidio): 5 px de brazo en vez de 10 y linea de 1.5.
+        // Las coordenadas van a medio pixel para que la cruz caiga entera en
+        // una fila y una columna de pixeles y no se emborrone entre dos.
         if (!g_gameState->isPaused) {
+            constexpr float BRAZO = 5.0f;
+            const float cx = std::floor(width * 0.5f) + 0.5f;
+            const float cy = std::floor(height * 0.5f) + 0.5f;
             glColor3f(1, 1, 1);
-            glLineWidth(2);
+            glLineWidth(1.5f);
             glBegin(GL_LINES);
-            glVertex2f(width / 2 - 10, height / 2);
-            glVertex2f(width / 2 + 10, height / 2);
-            glVertex2f(width / 2, height / 2 - 10);
-            glVertex2f(width / 2, height / 2 + 10);
+            glVertex2f(cx - BRAZO, cy);
+            glVertex2f(cx + BRAZO + 1.0f, cy);
+            glVertex2f(cx, cy - BRAZO);
+            glVertex2f(cx, cy + BRAZO + 1.0f);
             glEnd();
+            glLineWidth(1.0f);
         }
 
         // ====================================================================

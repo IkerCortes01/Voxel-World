@@ -177,7 +177,8 @@ TEST_CASE("Brillo: el motor usa la curva unica en los cuatro sitios") {
     CHECK(src.find("return brilloDeNivel(light, sol);") != std::string::npos);
     CHECK(src.find("brilloDeNivel(nivel, solItems)") != std::string::npos);
     CHECK(src.find("return brilloDeNivel(nivel, solAhora);") != std::string::npos);
-    CHECK(src.find("brilloDeLuz(raw, luzSolar())") != std::string::npos);
+    // Los animales, con la luz del sol ya apagada por el clima (Clima.h).
+    CHECK(src.find("brilloDeLuz(raw, luzSolarClima())") != std::string::npos);
 }
 
 TEST_CASE("Luz: el motor no tiene ninguna fuente de luz por bloque") {

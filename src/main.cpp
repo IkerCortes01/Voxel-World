@@ -329,6 +329,8 @@ struct Vec3i {
 #include "render/TerrenoGL.h"          // array de texturas + shader del terreno
 #include "render/PaseSaturacion.h"     // la saturacion, sobre la imagen entera
 #include "render/NubesGL.h"            // las nubes: impostores de esfera
+#include "render/Precipitacion.h"      // lluvia, granizo, nieve y polvo
+#include "Clima.h"                     // el tiempo que hace: lluvias y tormentas
 
 // ⭐ FILTRADO ANISOTROPICO
 //
@@ -1001,6 +1003,75 @@ struct AtmosferaFrame {
     bool nieblaDelCielo = true;
 };
 AtmosferaFrame g_atmosfera;
+
+// ============================================================================
+// EL CLIMA DE ESTE FRAME (ver Clima.h)
+// ============================================================================
+// Lo calcula `actualizarClima` una vez por frame, donde esta el jugador. Lo
+// leen el cielo, las nubes, la luz del terreno, la niebla, la lluvia y el
+// sonido.
+struct ClimaFrame {
+    Clima::Perfil p;              // lo que hace ahora mismo
+    int tipo = Clima::DESPEJADO;  // el que mas pesa
+    float destello = 0.0f;        // 0..1, la luz del rayo de este instante
+    Clima::Lugar lugar;           // la temperatura y la humedad del bioma
+    double tLugar = -1.0e9;       // cuando se leyo el bioma
+    double tAnterior = -1.0;      // el frame anterior, para los truenos
+    Clima::Rayo rayosVivos[8];    // los rayos que se ven ahora
+    int nRayosVivos = 0;
+    int forzado = -1;             // VOXELWORLD_CLIMA: un tiempo fijo, para probar
+};
+ClimaFrame g_clima;
+
+// Cuanto tapan el cielo las nubes de tormenta: 0 despejado, 1 manto cerrado.
+inline float mantoClima() { return g_clima.p.cobertura * g_clima.p.oscuridad; }
+// Lo que queda de la luz del cielo bajo las nubes (los rayos aparte).
+inline float factorLuzClima() { return 1.0f - 0.62f * mantoClima(); }
+// luzSolar() con el clima: la usan el cuerpo, los items y los animales, para
+// que se apaguen igual que el terreno cuando se nubla y se enciendan con el
+// rayo.
+inline float luzSolarClima() {
+    const float v = luzSolar() * factorLuzClima() + g_clima.destello * 0.6f;
+    return v > 1.0f ? 1.0f : v;
+}
+// Cuanto se ve el sol, la luna y las estrellas a traves de las nubes.
+inline float tapaCielo() { return 1.0f - 0.97f * Clima::suave(0.55f, 0.95f, g_clima.p.cobertura); }
+
+// El cielo bajo el clima: gris y apagado con nubes de tormenta, blanquecino
+// con neblina o nieve, pardo en una tolvanera, y encendido por un rayo. Como
+// el cielo es tambien el color de la niebla y del fondo, todo lo sigue.
+inline void cieloConClima(Atmosfera::Cielo& c, const Clima::Perfil& p, float destello) {
+    const float manto = p.cobertura * p.oscuridad;
+    const float apaga = 1.0f - 0.60f * manto;
+    auto agrisar = [&](float* v, float cuanto) {
+        cuanto = cuanto > 1.0f ? 1.0f : cuanto;
+        const float l = 0.30f * v[0] + 0.59f * v[1] + 0.11f * v[2];
+        for (int k = 0; k < 3; ++k) v[k] = (v[k] + (l - v[k]) * cuanto) * apaga;
+    };
+    agrisar(c.cenit, 0.85f * manto + 0.35f * p.niebla);
+    agrisar(c.horizonte, 0.80f * manto + 0.35f * p.niebla);
+    // La tolvanera: el aire se vuelve pardo, mas cuanto mas claro es.
+    static const float PARDO[3] = { 0.80f, 0.60f, 0.38f };
+    const float lh = 0.30f * c.horizonte[0] + 0.59f * c.horizonte[1] + 0.11f * c.horizonte[2];
+    for (int k = 0; k < 3; ++k) {
+        c.horizonte[k] += (PARDO[k] * (0.3f + 1.1f * lh) - c.horizonte[k]) * 0.85f * p.polvo;
+        c.cenit[k] += (PARDO[k] * (0.2f + 0.9f * lh) - c.cenit[k]) * 0.55f * p.polvo;
+    }
+    // Las nubes tapan el halo del sol y los colores del ocaso.
+    const float tapa = 1.0f - Clima::suave(0.0f, 0.8f, manto + 0.3f * p.niebla + 0.5f * p.polvo);
+    for (int k = 0; k < 3; ++k) {
+        c.halo[k] *= tapa;
+        c.resplandor[k] *= tapa;
+        c.contraluz[k] *= tapa;
+        c.brilloNocturno[k] *= tapa;
+    }
+    // El rayo: todo el cielo se enciende un instante, frio.
+    static const float RAYO[3] = { 0.42f, 0.46f, 0.55f };
+    for (int k = 0; k < 3; ++k) {
+        c.cenit[k] += destello * RAYO[k];
+        c.horizonte[k] += destello * RAYO[k] * 0.8f;
+    }
+}
 
 
 // ============================================================================
@@ -29864,7 +29935,10 @@ public:
         };
         static const Chunk* ultimo = nullptr;
         static float ultimoAhora = -1.0f;
-        const float ahora = cielo(luzSolar());
+        // Con el clima: las nubes de tormenta apagan lo que esta al cielo y
+        // el rayo lo enciende un instante.
+        float ahora = cielo(luzSolar()) * factorLuzClima() + g_clima.destello * 0.7f;
+        if (ahora > 1.0f) ahora = 1.0f;
         if (c == ultimo && ahora == ultimoAhora) return;
         ultimo = c; ultimoAhora = ahora;
         Render::pglUniform2f(g_progTerreno.uSolMalla, cielo(c->solMallado), ahora);
@@ -46047,6 +46121,181 @@ bool nopalHitboxMundo(BlockType type, int x, int y, int z,
 }
 
 // ============================================================================
+// EL CLIMA, CADA FRAME
+// ============================================================================
+// Lee el clima del bioma (cada 2 s: GetColumnData evalua la columna entera),
+// saca el tiempo que hace donde esta el jugador, y mira que rayos se ven y
+// que truenos llegan en este frame. Ver Clima.h.
+void actualizarClima() {
+    if (!g_gameState) return;
+    const double t = g_horaDelMundoSegundos;
+    const Vec3& pie = g_gameState->player.position;
+
+    // VOXELWORLD_CLIMA=<numero o nombre> clava un tiempo: sirve para ver cada
+    // tormenta sin esperar a que toque.
+    static bool leido = false;
+    if (!leido) {
+        leido = true;
+        if (const char* f = getenv("VOXELWORLD_CLIMA")) {
+            std::string pedido(f);
+            for (char& ch : pedido) ch = (ch == '_') ? ' ' : (char)toupper((unsigned char)ch);
+            for (int k = 0; k < Clima::NUM_TIPOS; ++k)
+                if (pedido == Clima::nombre(k) || pedido == std::to_string(k)) g_clima.forzado = k;
+            if (g_clima.forzado >= 0)
+                std::cout << "[CLIMA] Clavado en " << Clima::nombre(g_clima.forzado) << std::endl;
+        }
+    }
+
+    if (std::fabs(t - g_clima.tLugar) > 2.0) {
+        g_clima.tLugar = t;
+        if (auto* gen = g_gameState->world.getWorldGen()) {
+            const auto col = gen->GetColumnData((int)std::floor(pie.x), (int)std::floor(pie.z));
+            float temp = col.climate.temperature;
+            // En lo alto hace frio: en las cumbres la lluvia es nieve.
+            if (pie.y > 110.0f) temp -= (pie.y - 110.0f) / 160.0f;
+            g_clima.lugar.temperatura = Clima::sat(temp);
+            g_clima.lugar.humedad = Clima::sat(col.climate.humidity);
+        }
+    }
+
+    const int forzado = g_clima.forzado;
+    const Clima::Lugar lugar = g_clima.lugar;
+    if (forzado >= 0) {
+        g_clima.p = Clima::perfilDe(forzado);
+        g_clima.tipo = forzado;
+    } else {
+        g_clima.p = Clima::perfilEn(t, pie.x, pie.z, lugar, &g_clima.tipo);
+    }
+
+    // Los rayos de los ultimos 25 s: los que acaban de caer se ven, y de los
+    // demas puede estar llegando el trueno.
+    const double px = pie.x, pz = pie.z;
+    auto ritmo = [&](double s) {
+        return forzado >= 0 ? Clima::perfilDe(forzado).rayos
+                            : Clima::perfilEn(s, px, pz, lugar).rayos;
+    };
+    double t0 = g_clima.tAnterior;
+    if (t0 < 0.0 || t < t0 || t - t0 > 30.0) t0 = t;   // salto de tiempo (dormir): sin truenos
+    static Clima::Rayo rayos[64];
+    const int n = Clima::rayosEntre(t - 25.0, t, ritmo, rayos, 64);
+    g_clima.nRayosVivos = 0;
+    g_clima.destello = 0.0f;
+    const bool callado = g_gameState->isPaused || g_gameState->durmiendo;
+    for (int i = 0; i < n; ++i) {
+        const Clima::Rayo& r = rayos[i];
+        const double llega = r.t + Clima::retrasoTrueno(r);
+        if (!callado && llega > t0 && llega <= t) g_audioMixer.tronar(Clima::fuerzaTrueno(r));
+        const double dt = t - r.t;
+        if (dt >= 0.0 && dt < 0.6 && g_clima.nRayosVivos < 8) {
+            g_clima.rayosVivos[g_clima.nRayosVivos++] = r;
+            g_clima.destello = (std::max)(g_clima.destello, Clima::destello(r, dt));
+        }
+    }
+    g_clima.tAnterior = t;
+}
+
+// ============================================================================
+// LA LLUVIA, EL GRANIZO, LA NIEVE Y EL POLVO
+// ============================================================================
+// Ver render/Precipitacion.h. Va despues de todo lo opaco, con profundidad
+// (el terreno tapa las gotas) pero sin escribirla. Bajo techo no cae: cada
+// columna sabe donde esta su bloque mas alto.
+void dibujarPrecipitacion() {
+    const Clima::Perfil& p = g_clima.p;
+    if (!g_gameState || p.agua + p.granizo + p.nieve + p.polvo < 0.01f) return;
+    if (!g_atmosfera.nieblaDelCielo) return;   // bajo el agua o en la lava, no
+    const Vec3 ojo = ojoDelJugador(g_gameState->player);
+    const int ox = (int)std::floor(ojo.x), oy = (int)std::floor(ojo.y), oz = (int)std::floor(ojo.z);
+
+    static Precipitacion::Techos techos;
+    auto& mundo = g_gameState->world;
+    techos.renovar(ox, oz, [&](int x, int z) {
+        for (int y = oy + 18; y >= oy - 12; --y) {
+            if (y < 0 || y >= CHUNK_HEIGHT) continue;
+            const BlockType b = mundo.getBlock(x, y, z);
+            if (b != BLOCK_AIR && !isCrossSprite(b)) return y + 1;
+        }
+        return -100000;
+    });
+
+    Precipitacion::Entrada e;
+    e.t = g_horaDelMundoSegundos;
+    e.ojoX = ojo.x; e.ojoY = ojo.y; e.ojoZ = ojo.z;
+    e.agua = p.agua; e.granizo = p.granizo; e.nieve = p.nieve; e.polvo = p.polvo;
+    // El mismo rumbo que las nubes (Nubes::VIENTO_X/Z), mas fuerte con tormenta.
+    const float v = 1.5f + 11.0f * p.viento;
+    e.vientoX = v * 0.94f;
+    e.vientoZ = v * 0.34f;
+    e.luz = luzSolarClima();
+
+    static Precipitacion::Trazo tr[Precipitacion::MAX_GOTAS];
+    const int n = Precipitacion::generar(e, techos, tr, Precipitacion::MAX_GOTAS);
+    if (n <= 0) return;
+
+    // A arreglos de vertices: rayas (lluvia, polvo) y puntos (granizo, nieve).
+    static float lv[Precipitacion::MAX_GOTAS * 6], lc[Precipitacion::MAX_GOTAS * 8];
+    static float gv[Precipitacion::MAX_GOTAS * 3], gc[Precipitacion::MAX_GOTAS * 4];
+    static float nv[Precipitacion::MAX_GOTAS * 3], nc[Precipitacion::MAX_GOTAS * 4];
+    int nl = 0, ng = 0, nn = 0;
+    for (int i = 0; i < n; ++i) {
+        const Precipitacion::Trazo& o = tr[i];
+        if (o.clase == 0 || o.clase == 3) {
+            float* pv = lv + nl * 6;
+            float* pc = lc + nl * 8;
+            pv[0] = o.x0; pv[1] = o.y0; pv[2] = o.z0; pv[3] = o.x1; pv[4] = o.y1; pv[5] = o.z1;
+            // La cola de la raya, casi transparente: se ve como una estela.
+            pc[0] = o.r; pc[1] = o.g; pc[2] = o.b; pc[3] = o.a * 0.15f;
+            pc[4] = o.r; pc[5] = o.g; pc[6] = o.b; pc[7] = o.a;
+            ++nl;
+        } else {
+            float* pv = (o.clase == 1 ? gv + ng * 3 : nv + nn * 3);
+            float* pc = (o.clase == 1 ? gc + ng * 4 : nc + nn * 4);
+            pv[0] = o.x1; pv[1] = o.y1; pv[2] = o.z1;
+            pc[0] = o.r; pc[1] = o.g; pc[2] = o.b; pc[3] = o.a;
+            if (o.clase == 1) ++ng; else ++nn;
+        }
+    }
+
+    glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_POINT_BIT |
+                 GL_LINE_BIT | GL_CURRENT_BIT);
+    glPushMatrix();
+    glTranslatef(ojo.x, ojo.y, ojo.z);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_ALPHA_TEST);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+    if (nl > 0) {
+        glLineWidth(1.0f);
+        glVertexPointer(3, GL_FLOAT, 0, lv);
+        glColorPointer(4, GL_FLOAT, 0, lc);
+        glDrawArrays(GL_LINES, 0, nl * 2);
+    }
+    if (ng > 0) {
+        glPointSize(3.0f);
+        glVertexPointer(3, GL_FLOAT, 0, gv);
+        glColorPointer(4, GL_FLOAT, 0, gc);
+        glDrawArrays(GL_POINTS, 0, ng);
+    }
+    if (nn > 0) {
+        glPointSize(2.5f);
+        glVertexPointer(3, GL_FLOAT, 0, nv);
+        glColorPointer(4, GL_FLOAT, 0, nc);
+        glDrawArrays(GL_POINTS, 0, nn);
+    }
+    glDisableClientState(GL_COLOR_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glPopMatrix();
+    glPopAttrib();
+    glDepthMask(GL_TRUE);
+}
+
+// ============================================================================
 // DIBUJAR EL SOL Y LA LUNA
 // ============================================================================
 // Salen y se ponen como en la realidad, con las ecuaciones de posicion solar
@@ -46133,7 +46382,8 @@ void dibujarCieloYAstros() {
         double sx, sy, sz;
         direccionAstro(angSol, sx, sy, sz);
         const float luz = luzSolar();
-        const Atmosfera::Cielo cielo = Atmosfera::cieloPara(luz);
+        Atmosfera::Cielo cielo = Atmosfera::cieloPara(luz);
+        cieloConClima(cielo, g_clima.p, g_clima.destello);
 
         // Publicar la atmosfera del frame. El sol pasa a espacio de ojo con la
         // rotacion de la camara, que es lo unico que hay en la matriz ahora
@@ -46188,7 +46438,7 @@ void dibujarCieloYAstros() {
         // Giran con la hora, como el sol. Las posiciones salen de un hash fijo:
         // son siempre las mismas estrellas.
         const float brillo = Atmosfera::brilloEstrellas(luz) *
-                             (g_opciones[Opciones::ATMOSFERA] / 100.0f);
+                             (g_opciones[Opciones::ATMOSFERA] / 100.0f) * tapaCielo();
         if (brillo > 0.01f) {
             constexpr int N_ESTRELLAS = 320;
             static float estrellas[N_ESTRELLAS][4];
@@ -46382,7 +46632,7 @@ void dibujarCieloYAstros() {
     constexpr float MARGEN = 0.08f;
     const float altSol = alturaDe(angSol);
     if (altSol > -MARGEN) {
-        const float vis = altSol < 0.0f ? (1.0f + altSol / MARGEN) : 1.0f;
+        const float vis = (altSol < 0.0f ? (1.0f + altSol / MARGEN) : 1.0f) * tapaCielo();
         // Al amanecer y al atardecer el sol se ve rojizo: la luz atraviesa
         // mas atmosfera y se filtran los azules. Es el mismo motivo por el
         // que el cielo se tine de naranja a esas horas.
@@ -46415,7 +46665,7 @@ void dibujarCieloYAstros() {
     const float opacidad = Atmosfera::opacidadLuna(luzSolar());
     const float altLuna = alturaDe(angLuna);
     if (altLuna > -MARGEN) {
-        const float vis = altLuna < 0.0f ? (1.0f + altLuna / MARGEN) : 1.0f;
+        const float vis = (altLuna < 0.0f ? (1.0f + altLuna / MARGEN) : 1.0f) * tapaCielo();
         // La luna baja tambien se ve mas calida, pero mucho menos marcada
         // que el sol: su luz es reflejada y mucho mas tenue.
         const float bajo = 1.0f - fminf(altLuna / 0.25f, 1.0f);
@@ -46445,8 +46695,11 @@ void dibujarCieloYAstros() {
         static Nubes::Bola bolas[Nubes::MAX_BOLAS];
         static Render::DibujoNubes dibujoNubes;
         const Vec3& pie = g_gameState->player.position;
+        // Cuantas y que tan grandes las decide el clima: con tormenta se
+        // juntan en un manto bajo y oscuro.
         const int n = Nubes::generar(g_horaDelMundoSegundos, pie.x, pie.y + 1.62, pie.z,
-                                     bolas, Nubes::MAX_BOLAS);
+                                     bolas, Nubes::MAX_BOLAS, g_clima.p.cobertura,
+                                     g_clima.p.oscuridad);
         Nubes::ordenar(bolas, n);
 
         // El sol y "arriba" en espacio de ojo: la matriz ahora solo tiene la
@@ -46468,14 +46721,76 @@ void dibujarCieloYAstros() {
         const float luz = luzSolar();
         const Atmosfera::Cielo& cielo = g_atmosfera.cielo;
         // De noche apenas la luz de la luna, tenue y fria.
-        const float fuerza = 0.07f + 0.93f * luz;
+        // Las de tormenta, de un gris plomizo: casi no les llega el sol.
+        const float fuerza = (0.07f + 0.93f * luz) * (1.0f - 0.88f * mantoClima());
         float luzSol[3], arribaC[3], abajoC[3];
         for (int k = 0; k < 3; ++k) {
-            luzSol[k] = cielo.luzSol[k] * fuerza;
+            luzSol[k] = cielo.luzSol[k] * fuerza + g_clima.destello * 1.6f;
             arribaC[k] = (cielo.cenit[k] * 0.55f + cielo.horizonte[k] * 0.45f) * 1.15f;
             abajoC[k] = cielo.horizonte[k] * 0.62f;
+            arribaC[k] *= 1.0f - 0.30f * mantoClima();
+            abajoC[k] *= 1.0f - 0.45f * mantoClima();
         }
         dibujoNubes.dibujar(bolas, n, sol, arriba, luzSol, arribaC, abajoC, cielo.horizonte);
+    }
+
+    // ------------------------------------------------------------------
+    // LOS RAYOS
+    // ------------------------------------------------------------------
+    // Un zigzag de la base de las nubes al suelo, en el rumbo y a la
+    // distancia a la que cayo (ver Clima.h), con un resplandor ancho y un
+    // nucleo fino, y a veces una rama. Dura lo que su destello: menos de un
+    // segundo. Los lejanos quedan mas alla de la boveda y se ven pequenos.
+    if (g_clima.nRayosVivos > 0 && g_gameState) {
+        const float ojoY = g_gameState->player.position.y + 1.62f;
+        const float arribaY = (std::max)(Nubes::SOBRE_OJO, Nubes::ALTURA - ojoY) - 12.0f;
+        const float abajoY = -14.0f;
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        for (int i = 0; i < g_clima.nRayosVivos; ++i) {
+            const Clima::Rayo& r = g_clima.rayosVivos[i];
+            const float a = Clima::destello(r, g_horaDelMundoSegundos - r.t) * 1.8f;
+            if (a < 0.02f) continue;
+            const float d = (std::min)(r.distancia / 0.6f, 215.0f);
+            const float cx = cosf(r.angulo) * d, cz = sinf(r.angulo) * d;
+            const float px = -sinf(r.angulo), pz = cosf(r.angulo);   // de lado
+            constexpr int TRAMOS = 16;
+            float xs[TRAMOS + 1], ys[TRAMOS + 1], zs[TRAMOS + 1];
+            uint32_t s = r.semilla;
+            float lado = 0.0f;
+            for (int k = 0; k <= TRAMOS; ++k) {
+                if (k > 0) lado += (Clima::azar(s += 0x9E3779B9u) - 0.5f) * d * 0.045f;
+                ys[k] = arribaY + (abajoY - arribaY) * (float)k / (float)TRAMOS;
+                xs[k] = cx + px * lado;
+                zs[k] = cz + pz * lado;
+            }
+            for (int pase = 0; pase < 2; ++pase) {
+                glLineWidth(pase == 0 ? 6.0f : 2.0f);
+                glColor4f(0.78f, 0.84f, 1.0f, (std::min)(1.0f, a * (pase == 0 ? 0.22f : 1.0f)));
+                glBegin(GL_LINE_STRIP);
+                for (int k = 0; k <= TRAMOS; ++k) glVertex3f(xs[k], ys[k], zs[k]);
+                glEnd();
+                // La rama: sale de un punto del tercio alto y se abre.
+                if (r.semilla & 4u) {
+                    const int k0 = 3 + (int)(r.semilla >> 8) % 5;
+                    float bx = xs[k0], by = ys[k0], bz = zs[k0];
+                    const float abre = (r.semilla & 8u) ? 1.0f : -1.0f;
+                    glBegin(GL_LINE_STRIP);
+                    glVertex3f(bx, by, bz);
+                    for (int k = 1; k <= 5; ++k) {
+                        const float paso = (abajoY - arribaY) / (float)TRAMOS;
+                        by += paso * 0.8f;
+                        bx += px * abre * d * 0.03f + (Clima::azar(s += 0x85EBCA6Bu) - 0.5f) * d * 0.02f;
+                        bz += pz * abre * d * 0.03f;
+                        glVertex3f(bx, by, bz);
+                    }
+                    glEnd();
+                }
+            }
+        }
+        glLineWidth(1.0f);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
     glPopAttrib();
@@ -47398,7 +47713,10 @@ int main() {
         // Antes salia de otra paleta, y donde asomaba el fondo --bajo el
         // ultimo anillo de la boveda-- se veia una franja de otro azul.
         // Fuera de la partida (menus, carga) no sopla nada.
-        if (g_gameState->screenState != SCREEN_IN_GAME) g_audioMixer.setViento(0.0f);
+        if (g_gameState->screenState != SCREEN_IN_GAME) {
+            g_audioMixer.setViento(0.0f);
+            g_audioMixer.setLluvia(0.0f, 0.0f, 1.0f);
+        }
         if (g_gameState->screenState == SCREEN_IN_GAME) {
             const float* h = g_atmosfera.cielo.horizonte;
             glClearColor(h[0], h[1], h[2], 1.0f);
@@ -48083,8 +48401,15 @@ int main() {
                         nivel = g_gameState->world.getLightLevel((int)std::floor(cabeza.x), cy,
                                                                  (int)std::floor(cabeza.z));
                     const bool callado = g_gameState->isPaused || g_gameState->durmiendo;
+                    // ⭐ EL CLIMA (Clima.h): la tormenta sube el viento, y la
+                    // lluvia y el granizo suenan, amortiguados bajo techo.
+                    actualizarClima();
+                    const float abierto = (float)nivel / 18.0f;
+                    const float vientoClima = g_clima.p.viento * (0.25f + 0.75f * abierto * abierto);
                     g_audioMixer.setViento(callado ? 0.0f
-                        : Audio::intensidadViento(cabeza.y, (float)nivel / 18.0f));
+                        : (std::max)(Audio::intensidadViento(cabeza.y, abierto), vientoClima));
+                    g_audioMixer.setLluvia(callado ? 0.0f : g_clima.p.agua,
+                                           callado ? 0.0f : g_clima.p.granizo, abierto);
                 }
 
                 // ⭐⭐⭐ ACTUALIZAR ESTADO DE NIEBLA SEGÚN JUGADOR
@@ -48638,6 +48963,9 @@ int main() {
 
             // ⭐ DENSIDAD (con integración altura / agua / lava)
             float finalDensity = g_gameState->fogSystem.getFinalDensity(g_gameState->player.position.y);
+            // ⭐ EL CLIMA ACERCA LA NIEBLA (ver Clima.h): la lluvia, la neblina,
+            // la ventisca y la tolvanera se comen el horizonte.
+            const float nieblaClima = g_atmosfera.nieblaDelCielo ? g_clima.p.niebla : 0.0f;
 
             if (fogConfig.mode == VoxelFog::FOG_LINEAR) {
                 // ⭐ EL RADIO SALE DE LO QUE ESTA LISTO, NO DEL AJUSTE.
@@ -48682,11 +49010,14 @@ int main() {
                 fogStart *= (1.0f - finalDensity * 0.5f);
                 fogEnd *= (1.0f - finalDensity * 0.3f);
 
+                fogStart *= 1.0f - 0.88f * nieblaClima;
+                fogEnd *= 1.0f - 0.70f * nieblaClima;
+
                 glFogf(GL_FOG_START, fogStart);
                 glFogf(GL_FOG_END, fogEnd);
             } else {
                 // Modo exp/exp2: usar densidad
-                glFogf(GL_FOG_DENSITY, finalDensity);
+                glFogf(GL_FOG_DENSITY, finalDensity * (1.0f + 5.0f * nieblaClima));
             }
         } else {
             // Fog deshabilitado: usar fog clásico como fallback
@@ -49068,7 +49399,7 @@ int main() {
                         // El ciclo del dia, con la MISMA curva del mesher
                         // (LuzCielo.h): toda la luz es del cielo y de noche
                         // se apaga hasta la de la luna.
-                        const float luzHora = brilloDeLuz(raw, luzSolar());
+                        const float luzHora = brilloDeLuz(raw, luzSolarClima());
 
                         const float luzAmbiente = 0.18f + 0.82f * luzHora;
 
@@ -49608,7 +49939,7 @@ int main() {
                 // es oscuridad, es una pared. Cada vertice mezcla las dos
                 // segun su altura, y el valor se suaviza en el tiempo para que
                 // cruzar una sombra no cambie el brillo de golpe.
-                const float solCuerpo = luzSolar();
+                const float solCuerpo = luzSolarClima();
                 auto luzEn = [&](int cx, int cy, int cz) -> float {
                     float suma = 0.0f, peso = 0.0f;
                     for (int ox = -1; ox <= 1; ++ox)
@@ -49801,7 +50132,7 @@ int main() {
             // separaran, un bloque cambiaria de brillo al pasar de estar
             // puesto a caer y de caer a quedarse suelto en el suelo, que es un
             // parpadeo mucho mas visible que un item un poco oscuro.
-            const float solItems = luzSolar();
+            const float solItems = luzSolarClima();
 
             // ⭐ Y ADEMAS SE LES BAJA EL BRILLO DE BASE.
             //
@@ -49929,7 +50260,7 @@ int main() {
             // Si estos numeros se separaran de los del mesher, el bloque
             // cambiaria de brillo justo al aterrizar, que es el salto que
             // esto viene a quitar.
-            const float solAhora = luzSolar();
+            const float solAhora = luzSolarClima();
 
             auto luzDeCelda = [&](int cx, int cy, int cz) -> float {
                 // Por encima del mundo es cielo abierto; por debajo, fondo.
@@ -50108,6 +50439,9 @@ int main() {
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         g_gameState->particles.render();
         glDisable(GL_BLEND);
+
+        // La lluvia, el granizo, la nieve o el polvo del clima.
+        dibujarPrecipitacion();
 
         // La mano de cubos de antes ya no se dibuja: lo que se lleva en la
         // mano lo dibuja el cuerpo del jugador, con su modelo 3D

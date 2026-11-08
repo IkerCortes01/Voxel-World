@@ -45,6 +45,7 @@
 // ============================================================================
 
 #include "Viento.h"
+#include "Lluvia.h"
 
 namespace Audio {
 
@@ -86,6 +87,12 @@ private:
     // audio. El juego solo dice cuanto viento hay.
     GeneradorViento viento;
     std::atomic<float> intensidadViento{0.0f};
+
+    // La lluvia, el granizo y los truenos (ver Lluvia.h), igual que el viento.
+    GeneradorLluvia lluvia;
+    GeneradorTrueno trueno;
+    std::mutex truenoMutex;
+    std::atomic<float> intensidadLluvia{0.0f}, intensidadGranizo{0.0f}, cieloAbierto{1.0f};
 
     // Callback de waveOut: se invoca al terminar cada bloque.
     static void CALLBACK waveCallback(HWAVEOUT, UINT uMsg, DWORD_PTR dwInstance,
@@ -133,6 +140,12 @@ private:
         }
 
         viento.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, intensidadViento.load());
+        lluvia.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, intensidadLluvia.load(),
+                      intensidadGranizo.load(), cieloAbierto.load());
+        {
+            std::lock_guard<std::mutex> lock(truenoMutex);
+            trueno.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, cieloAbierto.load());
+        }
 
         // Volcado con clipping suave.
         const float mv = masterVolume;
@@ -198,6 +211,20 @@ public:
 
     // Cuanto viento se oye, 0..1. Se suaviza dentro: se puede llamar cada frame.
     void setViento(float v) { intensidadViento.store(v); }
+
+    // La lluvia y el granizo (0..1) y cuanto cielo abierto hay encima (0 bajo
+    // techo: se oye amortiguado). Se suaviza dentro.
+    void setLluvia(float agua, float granizo, float cielo) {
+        intensidadLluvia.store(agua);
+        intensidadGranizo.store(granizo);
+        cieloAbierto.store(cielo);
+    }
+
+    // Un trueno que llega ahora. `fuerza` 0..1: los cercanos, cerca de 1.
+    void tronar(float fuerza) {
+        std::lock_guard<std::mutex> lock(truenoMutex);
+        trueno.disparar(fuerza);
+    }
 
     void setMasterVolume(float v) {
         masterVolume = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);

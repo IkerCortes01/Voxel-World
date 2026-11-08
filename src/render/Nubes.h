@@ -95,13 +95,18 @@ inline float vidaDe(uint32_t semilla) {
 
 // Las bolas del cielo en el instante `t` (segundos de mundo), vistas desde el
 // ojo en (ojoX, ojoY, ojoZ). Escribe como mucho `max` y devuelve cuantas.
+//
+// `cob` (0..1) es cuanto cielo tapan segun el CLIMA (ver Clima.h); con -1 se
+// usa la cobertura propia de arriba. `crece` (0..1) es lo tormentoso: las
+// nubes se hacen mas grandes y bajan, y acaban juntandose en un manto.
 inline int generar(double t, double ojoX, double ojoY, double ojoZ,
-                   Bola* out, int max) {
+                   Bola* out, int max, float cob = -1.0f, float crece = 0.0f) {
     int n = 0;
     // El viento mueve el cielo entero: se trabaja en el marco del aire.
     const double aireX = ojoX - VIENTO_X * t;
     const double aireZ = ojoZ - VIENTO_Z * t;
-    const float base = (float)((std::max)((double)ALTURA, ojoY + SOBRE_OJO) - ojoY);
+    const float base = (std::max)(SOBRE_OJO,
+        (float)((std::max)((double)ALTURA, ojoY + SOBRE_OJO) - ojoY) - 30.0f * crece);
     const float tf = (float)std::fmod(t, 100000.0);   // para las ondas: sin perder precision
 
     const int i0 = (int)std::floor((aireX - RADIO_VISTA) / CELDA) - 1;
@@ -121,9 +126,14 @@ inline int generar(double t, double ojoX, double ojoY, double ojoZ,
             const float f = (float)((t + desfase) / vida - g);   // 0..1 de su vida
             uint32_t s = mezclar(sc ^ (uint32_t)(int64_t)g * 0x27D4EB2Fu);
 
-            // ¿Hay nube en esta generacion? Se decide con la cobertura de
-            // cuando NACIO: durante su vida no aparece ni desaparece de golpe.
-            if (azar(s) >= cobertura((g * vida - desfase))) continue;
+            // ¿Hay nube en esta celda? Cada una tiene su umbral: cuando la
+            // cobertura lo pasa, aparece (y se va si baja), con un margen
+            // para que lo haga despacio. Asi, cuando el clima sube la
+            // cobertura, las nubes se van juntando una a una.
+            const float umbral = azar(s);
+            const float cobAhora = cob >= 0.0f ? cob : cobertura((g * vida - desfase));
+            const float presente = suave(umbral - 0.06f, umbral + 0.06f, cobAhora * 1.02f);
+            if (presente <= 0.003f) continue;
 
             // Donde, en el marco del aire, y relativo al ojo.
             const float cx = (float)((i + 0.2 + 0.6 * azar(s)) * CELDA - aireX);
@@ -132,7 +142,7 @@ inline int generar(double t, double ojoX, double ojoY, double ojoZ,
             if (dist > RADIO_VISTA + 40.0f) continue;
 
             // LA FORMA de esta nube, nueva en cada generacion.
-            const float tam = 0.6f + 0.65f * azar(s);
+            const float tam = (0.6f + 0.65f * azar(s)) * (1.0f + 1.2f * crece);
             const float largo = (18.0f + 16.0f * azar(s)) * tam;
             const float ancho = (9.0f + 8.0f * azar(s)) * tam;
             const float ang = 6.2831853f * azar(s);
@@ -189,8 +199,8 @@ inline int generar(double t, double ojoX, double ojoY, double ojoZ,
                 o.x = cx + lx * ca - lz * sa;
                 o.z = cz + lx * sa + lz * ca;
                 o.y = base + ly + meceY;
-                o.radio = r * respira * (0.55f + 0.45f * vive);
-                o.alfa = vive * verse;
+                o.radio = r * respira * (0.55f + 0.45f * vive) * (0.6f + 0.4f * presente);
+                o.alfa = vive * verse * presente;
                 o.sombra = cima ? 1.0f : 0.80f;
                 o.lejos = lejos;
                 o.semilla = semilla;

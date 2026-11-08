@@ -1591,6 +1591,65 @@ inline bool esBloqueRetirado(BlockType t) {
 }
 
 // ============================================================================
+// LO QUE NO SE PUEDE COGER EN CREATIVO
+// ============================================================================
+// PEDIDO: "elimina estos bloques: base de ixtle, todos los magueys menos el
+// que te da el que se genera natural, y los pinos por dentro".
+//
+// No se borran del enum (correria los IDs de los mundos guardados) ni dejan
+// de dibujarse donde ya esten. Se quitan del menu creativo, y los troncos
+// "por dentro" sueltan el tronco normal al romperse (troncoDeSuDentro).
+//
+// De los magueys solo quedan las PENCAS que sueltan las plantas naturales al
+// cortarlas: la del pulquero (HOJA DE IXTLE) y la del tequilana.
+inline bool fueraDelCreativo(BlockType t) {
+    switch ((int)t) {
+        // Los pinos por dentro.
+        case BLOCK_WOOD_OCOTE_DENTRO:
+        case BLOCK_WOOD_OCOTE_CHINO_DENTRO:
+        case BLOCK_WOOD_PATULA_DENTRO:
+        case BLOCK_WOOD_PINONERO_DENTRO:
+        case BLOCK_WOOD_ALTURAS_DENTRO:
+        case BLOCK_WOOD_PSEUDOSTROBUS_DENTRO:
+        // El ixtle y el maguey como piezas de planta.
+        case BLOCK_IXTLE_TALLO:
+        case BLOCK_IXTLE_TALLO_ARENA:
+        case BLOCK_IXTLE_PUNTA:
+        case BLOCK_IXTLE_CON_HIERBA:
+        case BLOCK_IXTLE_CON_FLOR:
+        case BLOCK_IXTLE_DOBLE:
+        case BLOCK_IXTLE_PEQUENA:
+        case BLOCK_IXTLE_GRANDE:
+        case BLOCK_IXTLE_ENORME:
+        case BLOCK_MAGUEY_PUNTA:
+        case BLOCK_MAGUEY_HUECO:
+        case BLOCK_AGAVE_AZUL_PENCA:
+        case BLOCK_AGAVE_AZUL_PUNTA:
+        case BLOCK_AGAVE_AZUL_PINA:
+        case BLOCK_AGAVE_AZUL_QUIOTE:
+        case BLOCK_AGAVE_AZUL_FLOR:
+        case BLOCK_AGAVE_ABISAII_PENCA:
+        case BLOCK_AGAVE_ABISAII_PUNTA:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// El tronco con corteza de un tronco "por dentro"; cualquier otro, igual.
+inline BlockType troncoDeSuDentro(BlockType t) {
+    switch ((int)t) {
+        case BLOCK_WOOD_OCOTE_DENTRO:         return BLOCK_WOOD_OCOTE;
+        case BLOCK_WOOD_OCOTE_CHINO_DENTRO:   return BLOCK_WOOD_OCOTE_CHINO;
+        case BLOCK_WOOD_PATULA_DENTRO:        return BLOCK_WOOD_PATULA;
+        case BLOCK_WOOD_PINONERO_DENTRO:      return BLOCK_WOOD_PINONERO;
+        case BLOCK_WOOD_ALTURAS_DENTRO:       return BLOCK_WOOD_ALTURAS;
+        case BLOCK_WOOD_PSEUDOSTROBUS_DENTRO: return BLOCK_WOOD_PSEUDOSTROBUS;
+        default:                              return t;
+    }
+}
+
+// ============================================================================
 // CELDAS MIXTAS: codificar y descodificar
 // ============================================================================
 // El ID no está en el enum: se calcula. Ver el comentario de BLOCK_MIXTO_BASE.

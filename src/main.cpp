@@ -8323,6 +8323,18 @@ public:
             // Tres de estas cinco pedian el nombre con la caja equivocada
             // ("en pasto", "de nopal", "de castilla") y devolvian 0 -- geometria
             // sin textura, o sea BLANCA.
+            //
+            // ⭐ LA CARA DE ARRIBA NO LLEVA SUELO. PEDIDO: "lo que esta conectado
+            // al suelo, no se vea en la cara del polo norte, ahi se vera el
+            // Nopal de castilla". La tierra o la arena incrustada solo tiene
+            // sentido en los costados; arriba se ve la piel de la penca.
+            case BLOCK_NOPAL_BASE_PASTO:
+            case BLOCK_NOPAL_BASE_TIERRA:
+            case BLOCK_NOPAL_BASE_ARENA:
+            case BLOCK_NOPAL_BASE_T_ARCILLA:
+            case BLOCK_NOPAL_BASE_A_ARCILLA:
+                if (face == 0) return getTexture("Tallo de Nopal de Castilla.png");
+                switch (type) {
             case BLOCK_NOPAL_BASE_PASTO:
                 return getTexture("Tallo de Nopal de Castilla en Pasto.png");
             case BLOCK_NOPAL_BASE_TIERRA:
@@ -8337,6 +8349,9 @@ public:
                 return getTexture("Tallo de Nopal de Castilla.png");
             case BLOCK_NOPAL_BASE_A_ARCILLA:
                 return getTexture("Tallo de Nopal de Castilla en arena arcillosa.png");
+            default: break;
+                }
+                return getTexture("Tallo de Nopal de Castilla.png");
 
             // Tallo: bloque COMPLETO.
             case BLOCK_NOPAL_TALLO:
@@ -33533,6 +33548,10 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
 
     if (Compuesto::esCompuesto(blockType)) return drops;
 
+    // Los troncos "por dentro" ya no son un item (ver fueraDelCreativo): si
+    // queda alguno en un mundo viejo, suelta el tronco de su especie.
+    blockType = troncoDeSuDentro(blockType);
+
     // (Aqui estuvo la regla "un nivel suelta tantos items como octavos
     // tiene", con su registro de lo apilado por el jugador. Se quito a
     // peticion: ver la nota de abajo.)
@@ -35676,6 +35695,7 @@ void prewarmItemTextures() {
             if (esNivelDeMaderaHuerfano(bt)) continue;
             if (esHuecoDeMineralRetirado(bt)) continue;
             if (esBloqueRetirado(bt)) continue;
+            if (fueraDelCreativo(bt)) continue;
 
             // Los que SI son piedra de verdad no son un fallo.
             if (bt == BLOCK_STONE || bt == BLOCK_COBBLESTONE) continue;
@@ -38548,6 +38568,14 @@ BlockType pegarEncimaDeCapas(BlockType enMano, BlockType tocado) {
 BlockType enteroQueSustituyeNivel(BlockType enMano, BlockType nivel) {
     if (!(esNivelParcial(nivel) || (esCeldaDeCapas(nivel) && !celdaLlena(nivel)))) return BLOCK_AIR;
     if (esNivelParcial(enMano) || enMano == BLOCK_AIR) return BLOCK_AIR;
+    // ⭐ LO QUE SE COLOCA POR NIVELES NO SUSTITUYE: SE APILA.
+    //
+    // BUG REPORTADO: "pones un nivel y otro, el segundo se convierte en
+    // bloque completo". El item en la mano es el bloque ENTERO (tierra,
+    // arena...), pero al colocarse entra como un nivel. Esta regla lo tomaba
+    // por un cubo y tapaba la capa de abajo con un bloque lleno. Si el
+    // material admite niveles, el segundo clic tiene que subir UN nivel.
+    if (admiteNiveles(enMano)) return BLOCK_AIR;
     if (esTechoDeHojas(enMano)) return BLOCK_TECHO_HOJAS;
     const BlockType b = admiteNiveles(enMano) ? bloqueBaseDe(enMano) : enMano;
     if (Compuesto::esCompuesto(b) || isCrossSprite(b) || isRama(b) || esRaiz(b) ||
@@ -48085,6 +48113,9 @@ int main() {
                         // guardados pero ya no se pueden obtener: hoy, el
                         // tronco del nopal.
                         if (esBloqueRetirado(bt)) continue;
+                        // Base de ixtle, piezas de maguey y pinos por dentro:
+                        // fuera del menu a peticion (ver fueraDelCreativo).
+                        if (fueraDelCreativo(bt)) continue;
 
                         ponerEnCreativo(bt);
                     }
@@ -48142,14 +48173,12 @@ int main() {
 
                     // --- El ocote blanco (Pinus montezumae) ---
                     ponerEnCreativo(BLOCK_WOOD_OCOTE);
-                    ponerEnCreativo(BLOCK_WOOD_OCOTE_DENTRO);
                     ponerEnCreativo(BLOCK_LEAVES_OCOTE);
                     ponerEnCreativo(BLOCK_PLANKS_OCOTE);
                     ponerEnCreativo(BLOCK_RAMA_OCOTE);
 
                     // --- El ocote chino (Pinus leiophylla) ---
                     ponerEnCreativo(BLOCK_WOOD_OCOTE_CHINO);
-                    ponerEnCreativo(BLOCK_WOOD_OCOTE_CHINO_DENTRO);
                     ponerEnCreativo(BLOCK_LEAVES_OCOTE_CHINO);
 
                     // --- Los cuatro pinos mexicanos nuevos ---
@@ -48159,22 +48188,18 @@ int main() {
                     // estan al final del enum, fuera del rango contiguo que
                     // recorre el bucle de arriba.
                     ponerEnCreativo(BLOCK_WOOD_PATULA);
-                    ponerEnCreativo(BLOCK_WOOD_PATULA_DENTRO);
                     ponerEnCreativo(BLOCK_LEAVES_PATULA);
                     ponerEnCreativo(BLOCK_PLANKS_PATULA);
 
                     ponerEnCreativo(BLOCK_WOOD_PINONERO);
-                    ponerEnCreativo(BLOCK_WOOD_PINONERO_DENTRO);
                     ponerEnCreativo(BLOCK_LEAVES_PINONERO);
                     ponerEnCreativo(BLOCK_PLANKS_PINONERO);
 
                     ponerEnCreativo(BLOCK_WOOD_ALTURAS);
-                    ponerEnCreativo(BLOCK_WOOD_ALTURAS_DENTRO);
                     ponerEnCreativo(BLOCK_LEAVES_ALTURAS);
                     ponerEnCreativo(BLOCK_PLANKS_ALTURAS);
 
                     ponerEnCreativo(BLOCK_WOOD_PSEUDOSTROBUS);
-                    ponerEnCreativo(BLOCK_WOOD_PSEUDOSTROBUS_DENTRO);
                     ponerEnCreativo(BLOCK_LEAVES_PSEUDOSTROBUS);
                     ponerEnCreativo(BLOCK_PLANKS_PSEUDOSTROBUS);
 

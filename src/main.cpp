@@ -3668,6 +3668,8 @@ inline bool esBloqueDuroASurvival(BlockType type) {
 constexpr float HACHA_ORGANICO_BREAK_TIME = 1.0f;      // 1 segundo
 constexpr float PICO_ROCA_BREAK_TIME      = 1.5f;      // 1,5 segundos
 constexpr float HERRAMIENTA_MAL_USADA_BREAK_TIME = 780.0f;  // 13 minutos
+// Los tablones con hacha o martillo: menos de un segundo (ver esTablon abajo).
+constexpr float TABLON_HERRAMIENTA_BREAK_TIME = 0.8f;
 
 float getBlockBreakTimeForMode(BlockType type, int gameMode,
                                BlockType herramienta) {
@@ -3713,6 +3715,19 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
         // Si fuera al reves (tiempo de rotura largo) el PRIMER clic tambien
         // tardaria, y eso se siente como lag.
         return 0.0f;
+    }
+
+    // ⭐ LOS TABLONES: SOLO CON HACHA O MARTILLO, Y EN MENOS DE UN SEGUNDO
+    //
+    // PEDIDO: "que los tablones de madera solo se puedan romper con el hacha
+    // y el martillo en menos de un segundo". Es madera ya trabajada: el hacha
+    // la parte y el martillo la desclava. Con cualquier otra cosa (la mano,
+    // el pico, una lasca) cuesta 13 minutos, como toda herramienta mal usada:
+    // no es irrompible, es inviable. Vale para las ocho maderas y sus niveles.
+    if (esTablon(type)) {
+        return (esHacha(herramienta) || esMartillo(herramienta))
+                   ? TABLON_HERRAMIENTA_BREAK_TIME
+                   : HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
 
     // --- CON UNA HERRAMIENTA EN LA MANO ---

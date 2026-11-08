@@ -107,3 +107,21 @@ TEST_CASE("Drops: el nivel vive en el ID, asi que natural y colocado son iguales
         CHECK(nivelDe(colocado) == n);
     }
 }
+
+TEST_CASE("Tablones: solo con hacha o martillo, y en menos de un segundo") {
+    // getBlockBreakTimeForMode vive en main.cpp, que no se enlaza con los
+    // tests: se comprueba leyendo el fuente.
+    const std::string src = fuenteMotor();
+    REQUIRE_FALSE(src.empty());
+    CHECK(src.find("constexpr float TABLON_HERRAMIENTA_BREAK_TIME = 0.8f;") != std::string::npos);
+    const size_t regla = src.find("    if (esTablon(type)) {\n        return (esHacha(herramienta) || esMartillo(herramienta))");
+    const size_t reglaCrlf = src.find("    if (esTablon(type)) {\r\n        return (esHacha(herramienta) || esMartillo(herramienta))");
+    const size_t p = regla != std::string::npos ? regla : reglaCrlf;
+    REQUIRE(p != std::string::npos);
+    // Va dentro de getBlockBreakTimeForMode, despues del creativo y antes de
+    // las reglas generales del hacha y el pico.
+    const size_t funcion = src.find("float getBlockBreakTimeForMode(");
+    const size_t hachaGeneral = src.find("if (isSurvival && esHacha(herramienta))");
+    CHECK(funcion < p);
+    CHECK(p < hachaGeneral);
+}

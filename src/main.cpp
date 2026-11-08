@@ -46171,8 +46171,11 @@ void dibujarCieloYAstros() {
     constexpr float RADIO = 9.0f;    // medio ancho del astro
 
     // Emite un astro en el punto del cielo que le toca a ese angulo horario.
+    // `ladoLuz`: si es la luna, de que lado de la imagen esta la parte
+    // iluminada (+1 la derecha, -1 la izquierda, 0 llena o nueva): el disco se
+    // gira para que ese lado mire hacia el sol, como en el cielo de verdad.
     auto astro = [&](GLuint tex, double angH, float r, float g, float b,
-                     float a, float tam = 1.0f) {
+                     float a, float tam = 1.0f, float ladoLuz = 0.0f) {
         const float RADIO = 9.0f * tam;
         if (tex == 0 || a <= 0.01f) return;
 
@@ -46198,9 +46201,26 @@ void dibujarCieloYAstros() {
         else            { rx /= rl; rz /= rl; }
 
         // Arriba = cruz(direccion, derecha).
-        const float ux = dy*rz - dz*ry;
-        const float uy = dz*rx - dx*rz;
-        const float uz = dx*ry - dy*rx;
+        float ux = dy*rz - dz*ry;
+        float uy = dz*rx - dx*rz;
+        float uz = dx*ry - dy*rx;
+
+        if (ladoLuz != 0.0f) {
+            double sdx, sdy, sdz;
+            direccionAstro(angSol, sdx, sdy, sdz);
+            const float pd = (float)(sdx * dx + sdy * dy + sdz * dz);
+            const float px = (float)sdx - dx * pd, py = (float)sdy - dy * pd, pz = (float)sdz - dz * pd;
+            const float ax = px * rx + py * ry + pz * rz, ay = px * ux + py * uy + pz * uz;
+            if (ax * ax + ay * ay > 1e-8f) {
+                float th = atan2f(ay, ax);
+                if (ladoLuz < 0.0f) th += 3.14159265f;
+                const float c = cosf(th), sn = sinf(th);
+                const float nrx = rx * c + ux * sn, nry = ry * c + uy * sn, nrz = rz * c + uz * sn;
+                const float nux = -rx * sn + ux * c, nuy = -ry * sn + uy * c, nuz = -rz * sn + uz * c;
+                rx = nrx; ry = nry; rz = nrz;
+                ux = nux; uy = nuy; uz = nuz;
+            }
+        }
 
         g_textureManager->bindOptimized(tex);
         glColor4f(r, g, b, a);
@@ -46271,9 +46291,26 @@ void dibujarCieloYAstros() {
 
     // Las texturas de los astros no cambian: se buscan una vez, no con una
     // cadena y un candado en cada frame.
-    static GLuint texSol = 0, texLuna = 0;
+    static GLuint texSol = 0;
     if (texSol == 0)  texSol  = g_textureManager->getTexture("Objetos cosmicos/Sol.png");
-    if (texLuna == 0) texLuna = g_textureManager->getTexture("Objetos cosmicos/Luna llena.png");
+    // Las ocho fases de la luna (ver Atmosfera::faseLunar), del mismo tamano y
+    // centradas en el mismo disco: al cambiar de fase la luna no se mueve.
+    // Lo oscuro de cada imagen es transparente: deja ver el cielo.
+    static const char* const FASES[Atmosfera::NUM_FASES] = {
+        "Objetos cosmicos/Luna nueva.png",
+        "Objetos cosmicos/Creciente.png",
+        "Objetos cosmicos/Cuarto creciente.png",
+        "Objetos cosmicos/Luna gibosa creciente.png",
+        "Objetos cosmicos/Luna llena.png",
+        "Objetos cosmicos/Luna gibosa menguante.png",
+        "Objetos cosmicos/Cuarto menguante.png",
+        "Objetos cosmicos/Luna menguante.png",
+    };
+    static GLuint texFase[Atmosfera::NUM_FASES] = {};
+    const double diasMundo = g_horaDelMundoSegundos / SEGUNDOS_POR_DIA;
+    const int fase = Atmosfera::faseLunar(diasMundo);
+    if (texFase[fase] == 0) texFase[fase] = g_textureManager->getTexture(FASES[fase]);
+    const GLuint texLuna = texFase[fase];
 
     // ------------------------------------------------------------------
     // EL SOL
@@ -46310,10 +46347,13 @@ void dibujarCieloYAstros() {
     // ------------------------------------------------------------------
     // LA LUNA
     // ------------------------------------------------------------------
-    // Va justo enfrente del sol, doce horas por detras: cuando uno se pone
-    // el otro sale. Recorre el mismo cielo con las mismas ecuaciones, asi
-    // que tambien sale por el este y se pone por el oeste.
-    const double angLuna = angSol + 3.14159265358979;
+    // Va por detras del sol tanto como dice su fase (la elongacion): junto a
+    // el en luna nueva, un cuarto de vuelta en los cuartos, enfrente en la
+    // llena. Por eso en los cuartos se ve DE DIA. Recorre el mismo cielo con
+    // las mismas ecuaciones: sale por el este y se pone por el oeste.
+    const double angLuna = angSol - Atmosfera::elongacion(diasMundo);
+    const float iluminado = Atmosfera::iluminada(diasMundo);
+    const float opacidad = Atmosfera::opacidadLuna(luzSolar());
     const float altLuna = alturaDe(angLuna);
     if (altLuna > -MARGEN) {
         const float vis = altLuna < 0.0f ? (1.0f + altLuna / MARGEN) : 1.0f;
@@ -46322,15 +46362,17 @@ void dibujarCieloYAstros() {
         const float bajo = 1.0f - fminf(altLuna / 0.25f, 1.0f);
         // La luna tambien tiene halo, frio y tenue: solo se ve de noche,
         // cuando no hay cielo claro que lo tape.
+        // El halo crece con lo iluminada que esta: en luna nueva no hay.
         halo(angLuna, RADIO * 2.6f, 0.62f, 0.72f, 1.0f,
-             0.16f * vis * (1.0f - luzSolar()) * mejoraCielo);
-        // La luna (Luna llena.png, de "Luna Llena") es solo el disco.
+             0.16f * vis * iluminado * (1.0f - luzSolar()) * mejoraCielo);
+        // El disco de la fase de esta noche; de dia, palido.
         astro(texLuna,
               angLuna,
               1.0f,
               1.0f - bajo * 0.10f,
               1.0f - bajo * 0.20f,
-              vis, 0.62f);
+              vis * opacidad, 0.62f,
+              fase == 0 || fase == 4 ? 0.0f : (fase < 4 ? 1.0f : -1.0f));
     }
 
     glPopAttrib();

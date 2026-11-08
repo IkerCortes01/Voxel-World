@@ -169,4 +169,57 @@ inline void estrella(int i, float out[4]) {
     out[3] = 0.35f + 0.65f * b * b;       // muchas tenues y pocas brillantes
 }
 
+// ============================================================================
+// LAS FASES DE LA LUNA
+// ============================================================================
+// PEDIDO: "las fases lunares igual que el mundo real por noches, y que a veces
+// se pueda ver la luna de dia pero mas transparente".
+//
+// Como en la realidad, la fase sale de cuanto se ha separado la luna del sol
+// en el cielo (la ELONGACION): en luna nueva van juntos (y la luna no se ve),
+// en cuarto creciente la luna va un cuarto de vuelta por detras del sol, en
+// llena justo enfrente. Esa misma separacion es la que la pone en el cielo:
+//
+//   NUEVA     sale y se pone con el sol: invisible.
+//   CRECIENTE se ve al atardecer, hacia el oeste, poco despues del sol.
+//   CUARTO C. sale a mediodia: se ve DE DIA por la tarde, y de noche.
+//   LLENA     sale al ponerse el sol y esta toda la noche.
+//   CUARTO M. sale a medianoche: se ve de madrugada y DE DIA por la manana.
+//
+// Un ciclo dura lo mismo que el real, 29.53 noches. La fase que se dibuja
+// cambia a MEDIODIA, nunca a media noche. Un mundo nuevo empieza con la luna
+// gibosa creciente, a pocas noches de la llena.
+constexpr double MES_LUNAR = 29.530588;
+constexpr double EDAD_INICIAL = 10.0;     // dias de luna al crear el mundo
+constexpr int NUM_FASES = 8;
+
+// Los dias de luna (0 nueva .. 29.53), continuos. `dias` = dias de mundo.
+inline double edadLunar(double dias) {
+    double e = std::fmod(dias + EDAD_INICIAL, MES_LUNAR);
+    return e < 0.0 ? e + MES_LUNAR : e;
+}
+// La separacion entre la luna y el sol, en radianes (0 nueva, PI llena).
+inline double elongacion(double dias) {
+    return edadLunar(dias) / MES_LUNAR * 6.283185307179586;
+}
+// La fase que se ve ESTA noche: 0 nueva, 1 creciente, 2 cuarto creciente,
+// 3 gibosa creciente, 4 llena, 5 gibosa menguante, 6 cuarto menguante,
+// 7 menguante. Cambia a mediodia.
+inline int faseLunar(double dias) {
+    const double noche = std::floor(dias + 0.5);
+    const double e = edadLunar(noche) / MES_LUNAR * NUM_FASES;
+    const int f = (int)std::floor(e + 0.5);
+    return f % NUM_FASES;
+}
+// Cuanto disco esta iluminado (0 nueva, 1 llena).
+inline float iluminada(double dias) {
+    return (float)((1.0 - std::cos(elongacion(dias))) * 0.5);
+}
+// De dia la luna se ve, pero palida: el cielo claro la lava. `luz` es
+// luzSolar() (0 noche, 1 dia).
+inline float opacidadLuna(float luz) {
+    luz = luz < 0.0f ? 0.0f : (luz > 1.0f ? 1.0f : luz);
+    return 1.0f - 0.58f * luz;
+}
+
 } // namespace Atmosfera

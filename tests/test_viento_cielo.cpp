@@ -64,3 +64,40 @@ TEST_CASE("Cielo: el halo del sol y el brillo nocturno no tocan el horizonte") {
     CHECK(franja[1] > arriba[1]);
     CHECK(franja[1] < 0.15f);
 }
+
+TEST_CASE("Luna: fases como las reales, una por noche, y de dia palida") {
+    using namespace Atmosfera;
+    // Un ciclo de 29.53 noches pasa por las ocho fases, siempre en orden.
+    int vistas[NUM_FASES] = {};
+    int antes = faseLunar(0.0), cambios = 0;
+    for (int n = 0; n < 30; ++n) {
+        const int f = faseLunar((double)n);
+        ++vistas[f];
+        if (f != antes) {
+            CHECK(f == (antes + 1) % NUM_FASES);
+            ++cambios;
+        }
+        antes = f;
+    }
+    for (int f = 0; f < NUM_FASES; ++f) CHECK(vistas[f] >= 3);
+    CHECK(cambios >= 7);
+    // La fase no cambia a mitad de la noche: de las 20:00 a las 6:00 es la misma.
+    for (int n = 0; n < 60; ++n) {
+        const double noche = n + 20.0 / 24.0;
+        CHECK(faseLunar(noche) == faseLunar(noche + 10.0 / 24.0));
+    }
+    // Llena: enfrente del sol y entera; nueva: junto al sol y a oscuras.
+    const double llena = MES_LUNAR / 2.0 - EDAD_INICIAL;
+    CHECK(elongacion(llena) == doctest::Approx(3.14159265).epsilon(0.001));
+    CHECK(iluminada(llena) == doctest::Approx(1.0f).epsilon(0.001));
+    CHECK(faseLunar(llena) == 4);
+    const double nueva = MES_LUNAR - EDAD_INICIAL;
+    CHECK(iluminada(nueva) < 0.01f);
+    CHECK(faseLunar(nueva) == 0);
+    // En cuarto creciente va un cuarto de vuelta detras del sol: se ve de dia.
+    CHECK(elongacion(MES_LUNAR / 4.0 - EDAD_INICIAL) == doctest::Approx(1.5708).epsilon(0.001));
+    // De dia, palida; de noche, entera.
+    CHECK(opacidadLuna(0.0f) == doctest::Approx(1.0f));
+    CHECK(opacidadLuna(1.0f) < 0.5f);
+    CHECK(opacidadLuna(1.0f) > 0.3f);
+}

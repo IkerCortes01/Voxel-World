@@ -110,6 +110,7 @@ add_executable(voxel_tests
     test_nubes.cpp
     test_clima.cpp
     test_precipitacion.cpp
+    test_ambiente.cpp
     test_alineacion_bloques.cpp
     test_techo_pilar.cpp
     test_raiz_palos.cpp

@@ -117,6 +117,31 @@ inline double HoraAlDespertar(bool completo) {
 }
 
 // ----------------------------------------------------------------------------
+// ⭐ DORMIR A CUALQUIER HORA: DE NOCHE SE DUERME, DE DIA SE ECHA LA SIESTA
+// ----------------------------------------------------------------------------
+// PEDIDO: "que se pueda dormir en cualquier hora del dia y noche".
+//
+// Antes despertar SIEMPRE llevaba a las 7:00 de la manana siguiente: echarse
+// a mediodia se saltaba casi un dia entero. Ahora depende de cuando:
+//
+//   DE NOCHE (19:00 a 5:00)  como siempre: del tiron hasta las 7:00, cortado
+//                            hasta las 5:30.
+//   DE DIA                   una SIESTA: del tiron, 3 horas; cortada, 1,5.
+//
+// Devuelve cuantas HORAS avanza el reloj (siempre hacia delante).
+constexpr double SIESTA_HORAS = 3.0;
+constexpr double SIESTA_CORTA_HORAS = 1.5;
+
+inline bool EsDeNoche(double hora) { return hora >= 19.0 || hora < 5.0; }
+
+inline double HorasDormidas(double hora, bool completo) {
+    if (!EsDeNoche(hora)) return completo ? SIESTA_HORAS : SIESTA_CORTA_HORAS;
+    double avance = HoraAlDespertar(completo) - hora;
+    if (avance <= 0.0) avance += 24.0;   // de madrugada: hasta la manana
+    return avance;
+}
+
+// ----------------------------------------------------------------------------
 // POR QUE NO SE PUEDE DORMIR AQUI
 // ----------------------------------------------------------------------------
 // Se devuelve el motivo concreto, no un simple false: el jugador tiene que

@@ -47716,6 +47716,7 @@ int main() {
         if (g_gameState->screenState != SCREEN_IN_GAME) {
             g_audioMixer.setViento(0.0f);
             g_audioMixer.setLluvia(0.0f, 0.0f, 1.0f);
+            g_audioMixer.setAmbiente(0.0f, 0.0f, 0.0f);
         }
         if (g_gameState->screenState == SCREEN_IN_GAME) {
             const float* h = g_atmosfera.cielo.horizonte;
@@ -48406,8 +48407,63 @@ int main() {
                     actualizarClima();
                     const float abierto = (float)nivel / 18.0f;
                     const float vientoClima = g_clima.p.viento * (0.25f + 0.75f * abierto * abierto);
-                    g_audioMixer.setViento(callado ? 0.0f
-                        : (std::max)(Audio::intensidadViento(cabeza.y, abierto), vientoClima));
+                    // ⭐ LAS RACHAS DEL DIA (Ambiente.h): ratos de calma, brisa,
+                    // viento y ventarron. El viento de siempre se escala con
+                    // ellas, y la tormenta manda si sopla mas.
+                    const float racha = Audio::rachaDelDia(g_horaDelMundoSegundos);
+                    float vientoAhora = Audio::intensidadViento(cabeza.y, abierto) * (0.45f + 0.85f * racha);
+                    vientoAhora = (std::min)(1.0f, (std::max)(vientoAhora, vientoClima));
+                    g_audioMixer.setViento(callado ? 0.0f : vientoAhora);
+
+                    // ⭐ LAS HOJAS, LOS PAJAROS Y LOS GRILLOS (Ambiente.h).
+                    //
+                    // Cuantas hojas de arbol hay alrededor (17 x 11 x 17 bloques)
+                    // se cuenta poco a poco: 450 celdas por frame, una pasada
+                    // entera cada ~7 frames. Un arbol solo da un susurro bajo; un
+                    // bosque, un mar de hojas.
+                    static int hojasCuenta = 0, hojasParcial = 0, hojasCursor = 0;
+                    static int hojasCx = 0, hojasCy = 0, hojasCz = 0;
+                    {
+                        constexpr int RX = 8, RY0 = -3, RY1 = 7;
+                        constexpr int LX = 2 * RX + 1, LY = RY1 - RY0 + 1;
+                        constexpr int TOTAL = LX * LY * LX;
+                        if (hojasCursor == 0) {
+                            hojasCx = (int)std::floor(cabeza.x);
+                            hojasCy = cy;
+                            hojasCz = (int)std::floor(cabeza.z);
+                        }
+                        for (int k = 0; k < 450 && hojasCursor < TOTAL; ++k, ++hojasCursor) {
+                            const int ix = hojasCursor % LX;
+                            const int iy = (hojasCursor / LX) % LY;
+                            const int iz = hojasCursor / (LX * LY);
+                            const int y = hojasCy + RY0 + iy;
+                            if (y < 0 || y >= CHUNK_HEIGHT) continue;
+                            if (esHojaDeArbol(g_gameState->world.getBlock(hojasCx - RX + ix, y,
+                                                                          hojasCz - RX + iz)))
+                                ++hojasParcial;
+                        }
+                        if (hojasCursor >= TOTAL) {
+                            hojasCuenta = hojasParcial;
+                            hojasParcial = 0;
+                            hojasCursor = 0;
+                        }
+                    }
+                    const float arboles = 1.0f - std::exp(-(float)hojasCuenta / 120.0f);
+                    // Dentro de una casa o una cueva el ambiente de fuera llega
+                    // apagado.
+                    const float fuera = (std::min)(1.0f, 0.25f + (float)nivel / 14.0f);
+                    const float mojado = (std::min)(1.0f, g_clima.p.agua * 1.6f + g_clima.p.granizo +
+                                                         g_clima.p.nieve + g_clima.p.polvo);
+                    const float dia = Clima::suave(0.25f, 0.55f, luzSolar());
+                    const float templado = Clima::suave(0.25f, 0.45f, g_clima.lugar.temperatura);
+                    const bool enAgua = !g_atmosfera.nieblaDelCielo;
+                    const float hojasSuena = arboles * (0.12f + 0.88f * vientoAhora) * fuera;
+                    const float pajaros = dia * (0.30f + 0.70f * arboles) * (1.0f - mojado) *
+                                          templado * fuera * (1.0f - 0.6f * racha);
+                    const float grillos = (1.0f - dia) * (0.45f + 0.55f * arboles) * (1.0f - mojado) *
+                                          templado * fuera * (1.0f - 0.5f * racha);
+                    if (callado || enAgua) g_audioMixer.setAmbiente(0.0f, 0.0f, 0.0f);
+                    else g_audioMixer.setAmbiente(hojasSuena, pajaros, grillos);
                     g_audioMixer.setLluvia(callado ? 0.0f : g_clima.p.agua,
                                            callado ? 0.0f : g_clima.p.granizo, abierto);
                 }
@@ -48488,21 +48544,19 @@ int main() {
                                 // reloj cuenta dias enteros, se veria como un
                                 // salto al pasado. Se avanza hasta la proxima
                                 // vez que el reloj marque esa hora.
-                                const double destino =
-                                    Dormir::HoraAlDespertar(completo);
+                                // De noche hasta la manana; de dia, una
+                                // siesta de unas horas (Dormir::HorasDormidas).
                                 const double ahora = horaDelMundo();
-
-                                double avance = destino - ahora;
-                                if (avance <= 0.0) avance += 24.0;   // manana
+                                const double avance =
+                                    Dormir::HorasDormidas(ahora, completo);
 
                                 g_horaDelMundoSegundos +=
                                     avance / 24.0 * SEGUNDOS_POR_DIA;
 
-                                std::cout << "Ha dormido "
-                                          << (completo ? "toda la noche"
-                                                       : "a ratos")
-                                          << ": son las " << destino
-                                          << std::endl;
+                                std::cout << (Dormir::EsDeNoche(ahora) ? "Ha dormido "
+                                                                       : "Siesta ")
+                                          << (completo ? "entera" : "a ratos")
+                                          << ": " << avance << " h" << std::endl;
                             }
 
                             g_gameState->durmiendo = false;

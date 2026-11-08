@@ -46,6 +46,7 @@
 
 #include "Viento.h"
 #include "Lluvia.h"
+#include "Ambiente.h"
 
 namespace Audio {
 
@@ -94,6 +95,10 @@ private:
     std::mutex truenoMutex;
     std::atomic<float> intensidadLluvia{0.0f}, intensidadGranizo{0.0f}, cieloAbierto{1.0f};
 
+    // Las hojas al viento, los pajaros y los grillos (ver Ambiente.h).
+    GeneradorAmbiente ambiente;
+    std::atomic<float> nivelHojas{0.0f}, nivelPajaros{0.0f}, nivelGrillos{0.0f};
+
     // Callback de waveOut: se invoca al terminar cada bloque.
     static void CALLBACK waveCallback(HWAVEOUT, UINT uMsg, DWORD_PTR dwInstance,
                                       DWORD_PTR dwParam, DWORD_PTR) {
@@ -140,6 +145,8 @@ private:
         }
 
         viento.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, intensidadViento.load());
+        ambiente.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, nivelHojas.load(),
+                        nivelPajaros.load(), nivelGrillos.load());
         lluvia.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, intensidadLluvia.load(),
                       intensidadGranizo.load(), cieloAbierto.load());
         {
@@ -218,6 +225,13 @@ public:
         intensidadLluvia.store(agua);
         intensidadGranizo.store(granizo);
         cieloAbierto.store(cielo);
+    }
+
+    // El ambiente: hojas al viento, pajaros y grillos, 0..1 cada uno.
+    void setAmbiente(float hojas, float pajaros, float grillos) {
+        nivelHojas.store(hojas);
+        nivelPajaros.store(pajaros);
+        nivelGrillos.store(grillos);
     }
 
     // Un trueno que llega ahora. `fuerza` 0..1: los cercanos, cerca de 1.

@@ -301,3 +301,19 @@ TEST_CASE("Dormir: el fundido acaba antes de que termine el sueno") {
     // Y el punto de "ya cuenta" cae dentro del sueno, no despues.
     CHECK(Dormir::DESPERTAR_TEMPRANO < Dormir::DURACION);
 }
+
+TEST_CASE("Dormir: a cualquier hora; de noche hasta la manana, de dia una siesta") {
+    // De noche, como siempre: a las 23:00 del tiron se despierta a las 7:00.
+    CHECK(Dormir::HorasDormidas(23.0, true) == doctest::Approx(8.0));
+    CHECK(Dormir::HorasDormidas(2.0, true) == doctest::Approx(5.0));
+    CHECK(Dormir::HorasDormidas(23.0, false) == doctest::Approx(6.5));
+    // De dia ya no se salta un dia entero: siesta de 3 h (1,5 cortada).
+    CHECK(Dormir::HorasDormidas(12.0, true) == doctest::Approx(Dormir::SIESTA_HORAS));
+    CHECK(Dormir::HorasDormidas(9.0, false) == doctest::Approx(Dormir::SIESTA_CORTA_HORAS));
+    // Siempre hacia delante, y nunca un dia entero.
+    for (double h = 0.0; h < 24.0; h += 0.25) {
+        CHECK(Dormir::HorasDormidas(h, true) > 0.0);
+        CHECK(Dormir::HorasDormidas(h, true) <= 12.0);
+        CHECK(Dormir::HorasDormidas(h, false) > 0.0);
+    }
+}

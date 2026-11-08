@@ -102,6 +102,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/PlayerDebug.h"
 #include "player/ModeloJugador.h"   // el cuerpo que se ve al mirar abajo
 #include "player/MallaJugador.h"    // su piel: musculos, tendones y venas
+#include "player/CabezaJugador.h"   // la cabeza, el pelo y el avatar (genes y ajustes)
 #include "player/Postura.h"         // SHIFT y ESPACIO: de pie, agachado, tumbado
 #include "player/EngineAdapter.h"
 
@@ -1029,6 +1030,34 @@ struct ClimaFrame {
 };
 ClimaFrame g_clima;
 
+// ============================================================================
+// EL AVATAR (ver player/Avatar.h): los ajustes del cuerpo y los genes
+// ============================================================================
+// Uno para todo el juego, como las opciones: se guarda en avatar.txt junto a
+// opciones.txt. El pelo, la barba y las unas crecen con los dias del mundo.
+Avatar::Datos g_avatar;
+double g_ruedaAvatar = 0.0;       // la rueda del raton en la pantalla de avatar
+
+void guardarAvatar() {
+    if (FILE* f = fopen("avatar.txt", "wb")) {
+        const std::string s = g_avatar.texto();
+        fwrite(s.data(), 1, s.size(), f);
+        fclose(f);
+    }
+}
+void cargarAvatar() {
+    static bool hecho = false;
+    if (hecho) return;
+    hecho = true;
+    if (FILE* f = fopen("avatar.txt", "rb")) {
+        std::string s;
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) s.append(buf, n);
+        fclose(f);
+        g_avatar.leer(s);
+    }
+}
 // Cuanto tapan el cielo las nubes de tormenta: 0 despejado, 1 manto cerrado.
 // Bajo un claro entre las nubes se esta menos a oscuras que bajo la masa.
 inline float mantoClima() {
@@ -40985,6 +41014,49 @@ void renderChar(char c, float x, float y, float size) {
             glVertex2f(x + w, y + h * 0.5f + t * 0.5f); glVertex2f(x, y + h * 0.5f + t * 0.5f);
             break;
 
+        // ⭐ Los signos de la pantalla de AVATAR (cifras con decimales,
+        // genotipos "G / A", cambios "C>T", cromosomas "16Q24.3").
+        case '.':
+            glVertex2f(x + w * 0.35f, y + h - t * 1.3f); glVertex2f(x + w * 0.35f + t * 1.3f, y + h - t * 1.3f);
+            glVertex2f(x + w * 0.35f + t * 1.3f, y + h); glVertex2f(x + w * 0.35f, y + h);
+            break;
+        case ',':
+            glVertex2f(x + w * 0.35f, y + h - t * 1.3f); glVertex2f(x + w * 0.35f + t * 1.3f, y + h - t * 1.3f);
+            glVertex2f(x + w * 0.25f + t, y + h + t * 1.5f); glVertex2f(x + w * 0.25f, y + h + t * 1.5f);
+            break;
+        case ':':
+            glVertex2f(x + w * 0.35f, y + h * 0.25f); glVertex2f(x + w * 0.35f + t * 1.3f, y + h * 0.25f);
+            glVertex2f(x + w * 0.35f + t * 1.3f, y + h * 0.25f + t * 1.3f); glVertex2f(x + w * 0.35f, y + h * 0.25f + t * 1.3f);
+            glVertex2f(x + w * 0.35f, y + h - t * 1.3f); glVertex2f(x + w * 0.35f + t * 1.3f, y + h - t * 1.3f);
+            glVertex2f(x + w * 0.35f + t * 1.3f, y + h); glVertex2f(x + w * 0.35f, y + h);
+            break;
+        case '/':
+            glVertex2f(x + w - t, y); glVertex2f(x + w, y);
+            glVertex2f(x + t, y + h); glVertex2f(x, y + h);
+            break;
+        case '(':
+            glVertex2f(x + w * 0.55f, y); glVertex2f(x + w * 0.55f + t, y);
+            glVertex2f(x + w * 0.25f + t, y + h * 0.3f); glVertex2f(x + w * 0.25f, y + h * 0.3f);
+            glVertex2f(x + w * 0.25f, y + h * 0.3f); glVertex2f(x + w * 0.25f + t, y + h * 0.3f);
+            glVertex2f(x + w * 0.25f + t, y + h * 0.7f); glVertex2f(x + w * 0.25f, y + h * 0.7f);
+            glVertex2f(x + w * 0.25f, y + h * 0.7f); glVertex2f(x + w * 0.25f + t, y + h * 0.7f);
+            glVertex2f(x + w * 0.55f + t, y + h); glVertex2f(x + w * 0.55f, y + h);
+            break;
+        case ')':
+            glVertex2f(x + w * 0.30f, y); glVertex2f(x + w * 0.30f + t, y);
+            glVertex2f(x + w * 0.60f + t, y + h * 0.3f); glVertex2f(x + w * 0.60f, y + h * 0.3f);
+            glVertex2f(x + w * 0.60f, y + h * 0.3f); glVertex2f(x + w * 0.60f + t, y + h * 0.3f);
+            glVertex2f(x + w * 0.60f + t, y + h * 0.7f); glVertex2f(x + w * 0.60f, y + h * 0.7f);
+            glVertex2f(x + w * 0.60f, y + h * 0.7f); glVertex2f(x + w * 0.60f + t, y + h * 0.7f);
+            glVertex2f(x + w * 0.30f + t, y + h); glVertex2f(x + w * 0.30f, y + h);
+            break;
+        case '>':
+            glVertex2f(x + w * 0.15f, y + h * 0.15f); glVertex2f(x + w * 0.15f + t, y + h * 0.15f);
+            glVertex2f(x + w * 0.85f, y + h * 0.5f + t * 0.5f); glVertex2f(x + w * 0.85f - t, y + h * 0.5f + t * 0.5f);
+            glVertex2f(x + w * 0.85f - t, y + h * 0.5f - t * 0.5f); glVertex2f(x + w * 0.85f, y + h * 0.5f - t * 0.5f);
+            glVertex2f(x + w * 0.15f + t, y + h * 0.85f); glVertex2f(x + w * 0.15f, y + h * 0.85f);
+            break;
+
         case '0':
             // Barra vertical izquierda
             glVertex2f(x, y + t); glVertex2f(x + t, y + t);
@@ -41774,6 +41846,12 @@ bool loadLevelDat(const std::string& worldPath, WorldInfo& worldInfo);
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     if (!g_gameState) return;
 
+    // En la pantalla de AVATAR la rueda acerca el personaje o desplaza el panel.
+    if (g_gameState->isPaused && g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
+        g_ruedaAvatar += yoffset;
+        return;
+    }
+
     // Solo funciona en juego, no en menús
     if (g_gameState->screenState != SCREEN_IN_GAME) return;
 
@@ -42445,15 +42523,332 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         return;
 
     } else if (g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
-        // AVATAR esta vacio: solo se puede volver.
-        float startY = height / 2.0f - 100.0f;
+        // AVATAR: los clics, arrastres y la rueda los lee renderAvatar.
+        return;
+    }
+}
 
-        // Botón volver
-        Button btnBack(centerX - buttonWidth / 2, startY + 160, buttonWidth, buttonHeight, "Volver");
-        if (btnBack.contains((float)xpos, (float)ypos)) {
-            g_gameState->pauseMenuState = PAUSE_MENU_MAIN;
-            return;
+// ============================================================================
+// ⭐ LA PANTALLA DE AVATAR
+// ============================================================================
+// PEDIDO: "en Avatar, la seccion donde se ve el personaje en 3D parado de la
+// nada, que puedes girar, y a su lado izquierdo una seccion grande con
+// minisecciones: cabeza, cuello, hombros... hasta los pies; pelo y su
+// crecimiento, unas, altura, fuerza, edad, genero, y una seccion para
+// modificar tus genes y ADN".
+//
+//   IZQUIERDA   las familias, de la cabeza a los pies, en pestanas; debajo,
+//               los deslizadores de la elegida (o los genes). La rueda la
+//               desplaza si no cabe.
+//   DERECHA     el personaje entero, de pie sobre la nada. Arrastrando se
+//               gira; la rueda acerca y aleja; CUERPO y CARA encuadran.
+//
+// Todo se maneja aqui mismo leyendo el raton (clic, arrastre y rueda), asi
+// los deslizadores se pueden arrastrar. Se guarda en avatar.txt al cambiar.
+void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my) {
+    using namespace Avatar;
+    cargarAvatar();
+
+    // --- EL RATON: clic, arrastre y rueda ---
+    static bool antes = true;
+    static double vistoEn = -10.0;
+    const bool abajo = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    // Recien entrado: el clic que abrio la pantalla no cuenta.
+    if (glfwGetTime() - vistoEn > 0.25) antes = abajo;
+    vistoEn = glfwGetTime();
+    const bool clic = abajo && !antes;
+    antes = abajo;
+    static int arrastre = -1;              // -1 nada, -2 girar, >= 0 un deslizador
+    static float giro = 20.0f, ultimoX = 0.0f;
+    static float distancia = 3.3f;
+    static int familiaSel = 0;             // NUM_FAMILIAS = los genes
+    static float scroll = 0.0f;
+    static bool cambiado = false;
+    static double cambiadoEn = 0.0;
+    if (!abajo) arrastre = -1;
+
+    auto rect = [](float x, float y, float w, float h, float r, float g, float b, float a) {
+        glColor4f(r, g, b, a);
+        glBegin(GL_QUADS);
+        glVertex2f(x, y); glVertex2f(x + w, y); glVertex2f(x + w, y + h); glVertex2f(x, y + h);
+        glEnd();
+    };
+    auto dentro = [&](float x, float y, float w, float h) { return mx >= x && mx < x + w && my >= y && my < y + h; };
+    auto texto = [](const std::string& s, float x, float y, float tam, float r = 1, float g = 1, float b = 1) {
+        glColor4f(r, g, b, 1.0f);
+        renderText(s.c_str(), x, y, tam);
+    };
+    auto boton = [&](const char* t, float x, float y, float w, float h) {
+        const bool sobre = dentro(x, y, w, h);
+        rect(x, y, w, h, sobre ? 0.45f : 0.28f, sobre ? 0.42f : 0.26f, sobre ? 0.36f : 0.22f, 0.92f);
+        texto(t, x + (w - (float)strlen(t) * 12.0f * 0.7f) * 0.5f, y + (h - 12.0f) * 0.5f, 12.0f);
+        return sobre && clic;
+    };
+
+    const float panelX = 14.0f, panelW = (std::min)(600.0f, width * 0.48f);
+    const float vistaX = panelX + panelW + 14.0f, vistaY = 14.0f;
+    const float vistaW = (float)width - vistaX - 14.0f, vistaH = (float)height - 28.0f;
+
+    // ===================== LA VISTA 3D =====================
+    rect(vistaX, vistaY, vistaW, vistaH, 0.10f, 0.11f, 0.13f, 0.96f);
+    // La rueda: sobre la vista acerca y aleja; sobre el panel, desplaza.
+    const double rueda = g_ruedaAvatar;
+    g_ruedaAvatar = 0.0;
+    if (mx >= vistaX) distancia = (std::max)(0.55f, (std::min)(5.5f, distancia * (float)std::pow(0.88, rueda)));
+    else scroll = (std::max)(0.0f, scroll - (float)rueda * 40.0f);
+    if (clic && dentro(vistaX, vistaY, vistaW, vistaH - 40.0f)) { arrastre = -2; ultimoX = mx; }
+    if (arrastre == -2) { giro += (mx - ultimoX) * 0.5f; ultimoX = mx; }
+    {
+        const Fenotipo fen = g_avatar.fenotipo();
+        ModeloJugador::Pose pose;
+        pose.respira = std::sin((float)glfwGetTime() * 1.7f) * 0.7f;
+        for (ModeloJugador::Brazo& b : pose.brazo) { b.abd = 0.20f; b.codo = 0.20f; }
+        const ModeloJugador::Esqueleto esq = ModeloJugador::resolver(pose, true);
+        static ModeloJugador::Piel piel = ModeloJugador::generarPiel(12345u);
+        ModeloJugador::aplicarAvatar(g_avatar, piel);
+        ModeloJugador::Calidad q;
+        q.detalle = 2;
+        q.venas = true;
+        ModeloJugador::Fisiologia fis;
+        static ModeloJugador::Malla cuerpo, cabeza;
+        ModeloJugador::generar(esq, pose, piel, fis, q, cuerpo);
+        ModeloJugador::generarCabeza(esq, g_avatar, q, cabeza);
+
+        int fbw = width, fbh = height;
+        glfwGetFramebufferSize(window, &fbw, &fbh);
+        const float kx = (float)fbw / (float)width, ky = (float)fbh / (float)height;
+        const GLint vx = (GLint)(vistaX * kx), vy = (GLint)(((float)height - vistaY - vistaH) * ky);
+        const GLsizei vw = (GLsizei)(vistaW * kx), vh = (GLsizei)(vistaH * ky);
+        glViewport(vx, vy, vw, vh);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(vx, vy, vw, vh);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        const float cerca = 0.05f, aspecto = vistaW / vistaH;
+        const float th = cerca * 0.42f;
+        glFrustum(-th * aspecto, th * aspecto, -th, th, cerca, 30.0f);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+        // Mas cerca, se mira a la cara; lejos, al cuerpo entero.
+        const float escala = fen.alturaCm / 180.0f;
+        const float acerca = (std::max)(0.0f, (std::min)(1.0f, (3.3f - distancia) / 2.6f));
+        const float mirarY = (0.92f + 0.70f * acerca) * escala;
+        glTranslatef(0.0f, 0.0f, -distancia);
+        glRotatef(8.0f, 1, 0, 0);
+        glTranslatef(0.0f, -mirarY, 0.0f);
+        glRotatef(giro, 0, 1, 0);
+        glScalef(escala, escala, escala);
+        glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LEQUAL);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_BLEND);
+        glDisable(GL_FOG);
+        glDisable(GL_LIGHTING);
+        glDisable(GL_ALPHA_TEST);
+        // El suelo de la nada: una sombra suave bajo los pies.
+        glBegin(GL_TRIANGLE_FAN);
+        glColor3f(0.05f, 0.05f, 0.06f);
+        glVertex3f(0.0f, 0.001f, 0.0f);
+        glColor3f(0.10f, 0.11f, 0.13f);
+        for (int k = 0; k <= 32; ++k) {
+            const float a = k * 6.2831853f / 32.0f;
+            glVertex3f(std::cos(a) * 0.55f, 0.0f, std::sin(a) * 0.40f);
         }
+        glEnd();
+        // La luz: de arriba, delante y a la izquierda de la camara, fija
+        // aunque el personaje gire.
+        const float gr = -giro * 3.14159265f / 180.0f;
+        const float Lx0 = -0.45f, Ly = 0.80f, Lz0 = 0.55f;
+        const float Lx = Lx0 * std::cos(gr) + Lz0 * std::sin(gr), Lz = -Lx0 * std::sin(gr) + Lz0 * std::cos(gr);
+        static std::vector<float> pos, col;
+        auto dibujar = [&](const ModeloJugador::Malla& m) {
+            pos.resize(m.v.size() * 3);
+            col.resize(m.v.size() * 3);
+            for (size_t i = 0; i < m.v.size(); ++i) {
+                const ModeloJugador::VerticeJ& v = m.v[i];
+                pos[i * 3] = v.p.x; pos[i * 3 + 1] = v.p.y; pos[i * 3 + 2] = v.p.z;
+                float d = v.n.x * Lx + v.n.y * Ly + v.n.z * Lz;
+                d = d < 0.0f ? 0.0f : d;
+                const float d2 = d * d, brillo = d2 * d2 * d2 * 0.10f;
+                const float k = 0.42f + 0.62f * d + brillo;
+                col[i * 3] = (std::min)(1.0f, v.r * k);
+                col[i * 3 + 1] = (std::min)(1.0f, v.g * k);
+                col[i * 3 + 2] = (std::min)(1.0f, v.b * k);
+            }
+            glEnableClientState(GL_VERTEX_ARRAY);
+            glEnableClientState(GL_COLOR_ARRAY);
+            glVertexPointer(3, GL_FLOAT, 0, pos.data());
+            glColorPointer(3, GL_FLOAT, 0, col.data());
+            glDrawElements(GL_TRIANGLES, (GLsizei)m.i.size(), GL_UNSIGNED_INT, m.i.data());
+            glDisableClientState(GL_COLOR_ARRAY);
+            glDisableClientState(GL_VERTEX_ARRAY);
+        };
+        dibujar(cuerpo);
+        dibujar(cabeza);
+        glPopAttrib();
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+        glDisable(GL_SCISSOR_TEST);
+        glViewport(0, 0, fbw, fbh);
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        // Encuadres y ayuda.
+        if (boton("CUERPO", vistaX + 10.0f, vistaY + 10.0f, 110.0f, 30.0f)) distancia = 3.3f;
+        if (boton("CARA", vistaX + 126.0f, vistaY + 10.0f, 90.0f, 30.0f)) distancia = 0.75f;
+        char lin[96];
+        std::snprintf(lin, sizeof(lin), "%.2f M   %s", fen.alturaCm / 100.0f, fen.varon ? "XY" : "XX");
+        texto(lin, vistaX + 10.0f, vistaY + vistaH - 52.0f, 12.0f, 0.85f, 0.85f, 0.85f);
+        texto("ARRASTRA PARA GIRAR - RUEDA PARA ACERCAR", vistaX + 10.0f, vistaY + vistaH - 28.0f, 10.0f, 0.6f, 0.6f, 0.6f);
+    }
+
+    // ===================== EL PANEL =====================
+    rect(panelX, vistaY, panelW, vistaH, 0.13f, 0.12f, 0.11f, 0.94f);
+    texto("AVATAR", panelX + 14.0f, vistaY + 12.0f, 24.0f, 1.0f, 0.85f, 0.55f);
+
+    // Las pestanas: 16 familias, de la cabeza a los pies, y los genes.
+    const int columnas = 3;
+    const float tabW = (panelW - 28.0f - (columnas - 1) * 4.0f) / columnas, tabH = 24.0f;
+    const float tabsY = vistaY + 48.0f;
+    for (int k = 0; k <= NUM_FAMILIAS; ++k) {
+        const float x = panelX + 14.0f + (k % columnas) * (tabW + 4.0f);
+        const float y = tabsY + (k / columnas) * (tabH + 4.0f);
+        const char* nombre = k < NUM_FAMILIAS ? familia(k).nombre : "GENES Y ADN";
+        const bool sel = k == familiaSel, sobre = dentro(x, y, tabW, tabH);
+        if (k == NUM_FAMILIAS) rect(x, y, tabW, tabH, sel ? 0.20f : 0.12f, sel ? 0.45f : 0.30f, sel ? 0.32f : 0.22f, 0.95f);
+        else rect(x, y, tabW, tabH, sel ? 0.55f : (sobre ? 0.32f : 0.22f), sel ? 0.40f : (sobre ? 0.30f : 0.20f),
+                  sel ? 0.20f : (sobre ? 0.26f : 0.17f), 0.95f);
+        const float tam = (std::min)(10.0f, (tabW - 8.0f) / ((float)strlen(nombre) * 0.7f));
+        texto(nombre, x + 5.0f, y + (tabH - tam) * 0.5f, tam);
+        if (sobre && clic) { familiaSel = k; scroll = 0.0f; }
+    }
+    const int filasTabs = (NUM_FAMILIAS + 1 + columnas - 1) / columnas;
+    const float contY = tabsY + filasTabs * (tabH + 4.0f) + 8.0f;
+    const float contH = vistaY + vistaH - 56.0f - contY;
+    glEnable(GL_SCISSOR_TEST);
+    {
+        int fbw = width, fbh = height;
+        glfwGetFramebufferSize(window, &fbw, &fbh);
+        const float kx = (float)fbw / (float)width, ky = (float)fbh / (float)height;
+        glScissor((GLint)(panelX * kx), (GLint)(((float)height - contY - contH) * ky),
+                  (GLsizei)(panelW * kx), (GLsizei)(contH * ky));
+    }
+    float y = contY - scroll;
+    const float x0 = panelX + 14.0f, anchoUtil = panelW - 28.0f;
+    const bool dentroCont = my >= contY && my < contY + contH;
+    float altoContenido = 0.0f;
+
+    if (familiaSel < NUM_FAMILIAS) {
+        // --- LOS DESLIZADORES ---
+        const Familia& fa = familia(familiaSel);
+        for (int p = fa.desde; p < fa.hasta; ++p) {
+            const InfoParam& in = info(p);
+            const float barX = x0 + anchoUtil * 0.47f, barW = anchoUtil * 0.36f, barY = y + 9.0f;
+            texto(in.nombre, x0, y + 8.0f, 10.0f, 0.9f, 0.9f, 0.88f);
+            rect(barX, barY, barW, 6.0f, 0.30f, 0.29f, 0.27f, 1.0f);
+            const float u = (g_avatar[p] - in.minimo) / (in.maximo - in.minimo);
+            rect(barX, barY, barW * u, 6.0f, 0.85f, 0.62f, 0.30f, 1.0f);
+            rect(barX + barW * u - 5.0f, barY - 5.0f, 10.0f, 16.0f, 0.95f, 0.92f, 0.85f, 1.0f);
+            if (clic && dentroCont && dentro(barX - 8.0f, y, barW + 16.0f, 26.0f)) arrastre = p;
+            if (arrastre == p) {
+                const float nu = (std::max)(0.0f, (std::min)(1.0f, (mx - barX) / barW));
+                g_avatar.poner(p, in.minimo + (in.maximo - in.minimo) * nu);
+                cambiado = true;
+                cambiadoEn = glfwGetTime();
+            }
+            char val[48];
+            if (in.unidad[0]) std::snprintf(val, sizeof(val), "%.1f %s", g_avatar[p], in.unidad);
+            else if (in.minimo >= 0.5f) std::snprintf(val, sizeof(val), "%d%%", (int)std::lround(g_avatar[p] * 100.0f));
+            else std::snprintf(val, sizeof(val), "%d", (int)std::lround(g_avatar[p] * 100.0f));
+            texto(val, barX + barW + 12.0f, y + 8.0f, 10.0f, 0.75f, 0.85f, 0.95f);
+            y += 30.0f;
+            altoContenido += 30.0f;
+        }
+        // Lo que sale de los genes, para que se vea que manda en el color.
+        if (familiaSel == 5 || familiaSel == 15) {
+            const Fenotipo f = g_avatar.fenotipo();
+            char l[96];
+            std::snprintf(l, sizeof(l), "CANAS %d%%   CALVICIE %d%%   RIZO %d%%", (int)(f.canas * 100),
+                          (int)(f.calvicie * 100), (int)(f.rizo * 100));
+            texto(l, x0, y + 8.0f, 9.0f, 0.65f, 0.80f, 0.65f);
+            y += 24.0f;
+            altoContenido += 24.0f;
+        }
+        texto("EL COLOR DE PIEL, OJOS Y PELO LO DECIDEN LOS GENES", x0, y + 10.0f, 8.0f, 0.55f, 0.55f, 0.55f);
+        altoContenido += 30.0f;
+    } else {
+        // --- LOS GENES ---
+        const Fenotipo f = g_avatar.fenotipo();
+        char l[128];
+        std::snprintf(l, sizeof(l), "SEXO %s   GRUPO %s   LACTOSA %s", f.varon ? "XY VARON" : "XX MUJER", f.grupo,
+                      f.toleraLactosa ? "SI" : "NO");
+        texto(l, x0, y + 4.0f, 10.0f, 0.65f, 0.90f, 0.70f);
+        std::snprintf(l, sizeof(l), "ALTURA %.0f CM   MUSCULO %d%%   POTENCIA %d%%", f.alturaCm, (int)(f.musculo * 100),
+                      (int)(f.potencia * 100));
+        texto(l, x0, y + 22.0f, 10.0f, 0.65f, 0.90f, 0.70f);
+        if (f.albino) texto("ALBINISMO OCA1", x0, y + 40.0f, 10.0f, 1.0f, 0.75f, 0.6f);
+        texto("CLIC EN UN ALELO PARA CAMBIARLO: PADRE / MADRE", x0, y + 58.0f, 8.0f, 0.6f, 0.6f, 0.6f);
+        y += 78.0f;
+        altoContenido += 78.0f;
+        for (int g = 0; g < NUM_GENES; ++g) {
+            const InfoGen& in = infoGen(g);
+            rect(x0 - 4.0f, y, anchoUtil + 8.0f, 58.0f, g % 2 ? 0.16f : 0.19f, g % 2 ? 0.15f : 0.18f, 0.16f, 0.9f);
+            std::snprintf(l, sizeof(l), "%s  %s", in.nombre, in.cromosoma);
+            texto(l, x0, y + 5.0f, 11.0f, 1.0f, 0.88f, 0.6f);
+            texto(in.variante, x0, y + 22.0f, 8.0f, 0.75f, 0.75f, 0.75f);
+            texto(in.cambio, x0, y + 34.0f, 8.0f, 0.55f, 0.75f, 0.95f);
+            texto(in.efecto, x0, y + 46.0f, 7.0f, 0.70f, 0.85f, 0.70f);
+            // Los dos alelos: el del padre y el de la madre.
+            for (int lado = 0; lado < 2; ++lado) {
+                const float bw = 78.0f, bx = x0 + anchoUtil - (2 - lado) * (bw + 6.0f), by = y + 4.0f;
+                const bool sinX = in.herencia == LIGADO_X && esXY(g_avatar.genes) && lado == 1;
+                const char* nombre = sinX ? "(Y)" : in.alelo[g_avatar.genes.a[g][lado] % in.nAlelos];
+                const bool fijo = sinX || (g == G_SRY && lado == 0);
+                const bool sobre = dentro(bx, by, bw, 22.0f) && dentroCont;
+                rect(bx, by, bw, 22.0f, fijo ? 0.20f : (sobre ? 0.30f : 0.22f), fijo ? 0.20f : (sobre ? 0.42f : 0.32f),
+                     fijo ? 0.22f : (sobre ? 0.55f : 0.45f), 1.0f);
+                const float tam = (std::min)(10.0f, (bw - 8.0f) / ((float)strlen(nombre) * 0.7f));
+                texto(nombre, bx + 4.0f, by + (22.0f - tam) * 0.5f, tam);
+                if (sobre && clic && !fijo) {
+                    g_avatar.ciclarAlelo(g, lado);
+                    cambiado = true;
+                    cambiadoEn = glfwGetTime();
+                }
+            }
+            y += 62.0f;
+            altoContenido += 62.0f;
+        }
+    }
+    glDisable(GL_SCISSOR_TEST);
+    scroll = (std::min)(scroll, (std::max)(0.0f, altoContenido - contH));
+
+    // --- ABAJO: reiniciar y volver ---
+    const float by = vistaY + vistaH - 46.0f;
+    if (boton("REINICIAR", panelX + 14.0f, by, 150.0f, 34.0f)) {
+        const double dia = g_avatar.ultimoDia;
+        g_avatar.reiniciar();
+        g_avatar.ultimoDia = dia;
+        cambiado = true;
+        cambiadoEn = 0.0;
+    }
+    if (boton("VOLVER", panelX + panelW - 164.0f, by, 150.0f, 34.0f)) {
+        guardarAvatar();
+        cambiado = false;
+        g_gameState->pauseMenuState = PAUSE_MENU_MAIN;
+    }
+    // Se guarda solo, al poco de dejar de tocar.
+    if (cambiado && glfwGetTime() - cambiadoEn > 1.0) {
+        guardarAvatar();
+        cambiado = false;
     }
 }
 
@@ -50137,6 +50532,15 @@ int main() {
                     semillaPiel = g_gameState->world.getSeed();
                     piel = ModeloJugador::generarPiel((uint32_t)semillaPiel);
                 }
+                // ⭐ EL AVATAR: color de piel de sus genes, la ropa y la forma
+                // del cuerpo; el pelo y las unas crecen con los dias.
+                cargarAvatar();
+                g_avatar.crecer(g_horaDelMundoSegundos / SEGUNDOS_POR_DIA);
+                ModeloJugador::aplicarAvatar(g_avatar, piel);
+                {
+                    static double guardadoEn = 0.0;
+                    if (glfwGetTime() - guardadoEn > 60.0) { guardadoEn = glfwGetTime(); guardarAvatar(); }
+                }
                 ModeloJugador::Calidad calidad;
                 calidad.detalle = g_opciones[Opciones::DETALLE];
                 calidad.venas = calidad.detalle >= 1;
@@ -51352,22 +51756,7 @@ int main() {
                 renderOpciones(width, height, (float)mouseX, (float)mouseY);
 
             } else if (g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
-                // AVATAR: por ahora vacio. Solo el titulo y VOLVER.
-                const float startY = height / 2.0f - 100.0f;
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("AVATAR", centerX - 6 * 32 * 0.35f, startY - 40, 32);
-
-                Button btnBack(centerX - buttonWidth / 2, startY + 160, buttonWidth, buttonHeight, "Volver");
-                const bool hover = btnBack.contains((float)mouseX, (float)mouseY);
-                glColor4f(hover ? 0.5f : 0.3f, hover ? 0.5f : 0.3f, hover ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btnBack.x, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y);
-                glVertex2f(btnBack.x + btnBack.width, btnBack.y + btnBack.height);
-                glVertex2f(btnBack.x, btnBack.y + btnBack.height);
-                glEnd();
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("VOLVER", btnBack.x + 75, btnBack.y + 15, 20);
+                renderAvatar(window, width, height, (float)mouseX, (float)mouseY);
             }
 
             } // Fin del else (renderizar menú normal cuando no está guardando)

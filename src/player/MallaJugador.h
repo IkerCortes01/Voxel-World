@@ -212,7 +212,18 @@ struct Vena {
     bool arteria;
 };
 
+// ⭐ LA FORMA DEL AVATAR (ver Avatar.h). Todo a 1 (o 0) es el cuerpo de
+// siempre: los factores multiplican los grosores de cada tramo, y la mano y
+// el pie se escalan enteros alrededor de la muneca y del tobillo.
+struct Forma {
+    float hombros = 1, deltoides = 1, brazo = 1, biceps = 1, antebrazo = 1;
+    float mano = 1, dedos = 1, unaMm = 1.0f;
+    float pecho = 1, busto = 0, cintura = 1, abdomen = 0, cadera = 1, gluteos = 1;
+    float muslo = 1, gemelo = 1, pie = 1, pieAncho = 1, arco = 1, musculo = 1;
+};
+
 struct Piel {
+    Forma forma;
     Color piel{ 0.86f, 0.67f, 0.53f };
     Color camisa{ 0.24f, 0.45f, 0.66f };
     Color pantalon{ 0.20f, 0.22f, 0.30f };
@@ -447,6 +458,26 @@ inline void seccionPierna(float t, float a, float sx, float punta, float& dx, fl
     elipse(a, base, base * 0.97f, tibia + gemeloIn + gemeloEx + soleo + aquiles, dx, dz);
 }
 
+// Escala los vertices [desde, fin) en el marco (o, r): kx, ky, kz en los ejes
+// de ese marco. Es como crece una mano o un pie entero sin tocar el hueso.
+inline void escalarEnMarco(Malla& m, uint32_t desde, V o, const Rot& r, float kx, float ky, float kz) {
+    for (uint32_t i = desde; i < (uint32_t)m.v.size(); ++i) {
+        const V d = resta(m.v[i].p, o);
+        // Al marco (la traspuesta es la inversa), escalar, y de vuelta.
+        V l = { r.m[0] * d.x + r.m[3] * d.y + r.m[6] * d.z,
+                r.m[1] * d.x + r.m[4] * d.y + r.m[7] * d.z,
+                r.m[2] * d.x + r.m[5] * d.y + r.m[8] * d.z };
+        l = { l.x * kx, l.y * ky, l.z * kz };
+        m.v[i].p = suma(o, r.aplicar(l));
+        V n = m.v[i].n;
+        V ln = { r.m[0] * n.x + r.m[3] * n.y + r.m[6] * n.z,
+                 r.m[1] * n.x + r.m[4] * n.y + r.m[7] * n.z,
+                 r.m[2] * n.x + r.m[5] * n.y + r.m[8] * n.z };
+        ln = { ln.x / kx, ln.y / ky, ln.z / kz };
+        m.v[i].n = normalizar(r.aplicar(ln));
+    }
+}
+
 // ----------------------------------------------------------------------------
 // LA MALLA ENTERA
 // ----------------------------------------------------------------------------
@@ -464,6 +495,11 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
 
     const Color P = piel.piel;
     const Color camisa = piel.camisa, pantalon = piel.pantalon;
+    const Forma& F = piel.forma;
+    // Las costuras y los dobladillos, un poco mas oscuros que la tela.
+    const Color camisaCostura = tinte(camisa, 0.80f, 0.80f, 0.82f);
+    const Color pantalonCostura = tinte(pantalon, 0.72f, 0.72f, 0.74f);
+    const Color boton = mezclaC(camisa, Color{ 0.92f, 0.90f, 0.85f }, 0.75f);
     const Color articulacion = tinte(P, 1.04f, 0.93f, 0.92f);   // nudillos, codos, rodillas
     const Color palma = tinte(P, 1.06f, 1.00f, 0.97f);
     // Unas claras: es lo que mas separa un dedo de otro vistos desde arriba.
@@ -523,18 +559,64 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
                                      (bulto(difAng(a, DELANTE + 0.55f), 0.6f) + bulto(difAng(a, DELANTE - 0.55f), 0.6f));
             const float escapulas = 0.008f * bulto(t - 0.78f, 0.12f) *
                                     (bulto(difAng(a, DETRAS + 0.6f), 0.6f) + bulto(difAng(a, DETRAS - 0.6f), 0.6f));
-            const float gluteos = 0.014f * bulto(t - 0.12f, 0.12f) *
+            const float gluteos = 0.014f * F.gluteos * bulto(t - 0.12f, 0.12f) *
                                   (bulto(difAng(a, DETRAS + 0.5f), 0.7f) + bulto(difAng(a, DETRAS - 0.5f), 0.7f));
-            // Las arrugas de la camisa, suaves y solo en la cintura.
-            const float arrugas = 0.0015f * std::sin(a * 7.0f + t * 23.0f) * bulto(t - 0.32f, 0.15f);
-            elipse(a, rx, rz, pectorales + escapulas + gluteos + arrugas, dx, dz);
+            // Las arrugas de la camisa: en la cintura, donde la tela sobra, y
+            // unas diagonales bajo las axilas.
+            const float arrugas = 0.0015f * std::sin(a * 7.0f + t * 23.0f) * bulto(t - 0.32f, 0.15f)
+                                + 0.0010f * std::sin(a * 5.0f - t * 31.0f) * bulto(t - 0.80f, 0.08f)
+                                  * (bulto(difAng(a, 0.0f), 0.5f) + bulto(difAng(a, PI), 0.5f));
+            // ⭐ LAS PROPORCIONES DEL AVATAR: cadera abajo, cintura en medio,
+            // pecho arriba; cada una pesa en su altura del tronco.
+            const float kCadera = (F.cadera - 1.0f) * bulto(t - 0.12f, 0.26f);
+            const float kCintura = (F.cintura - 1.0f) * bulto(t - 0.40f, 0.20f);
+            const float kPecho = (F.pecho - 1.0f) * bulto(t - 0.78f, 0.28f);
+            const float k = 1.0f + kCadera + kCintura + kPecho;
+            rx *= k;
+            rz *= 1.0f + (k - 1.0f) * 0.6f;
+            const float busto = 0.045f * F.busto * bulto(t - 0.71f, 0.13f) *
+                                (bulto(difAng(a, DELANTE + 0.42f), 0.55f) + bulto(difAng(a, DELANTE - 0.42f), 0.55f));
+            const float abdomen = 0.040f * F.abdomen * bulto(t - 0.37f, 0.22f) * bulto(difAng(a, DELANTE), 1.3f);
+            // LA ROPA: el dobladillo de la camisa cae por fuera del short, la
+            // pretina del short marca la cintura y el cuello lleva su tira.
+            const float dobladillo = 0.0045f * bulto(t - 0.215f, 0.025f);
+            const float pretina = 0.0025f * bulto(t - 0.185f, 0.022f);
+            const float cuelloTira = 0.0040f * bulto(t - 0.960f, 0.020f);
+            elipse(a, rx, rz, pectorales * F.musculo + escapulas * F.musculo + gluteos + arrugas +
+                              busto + abdomen + dobladillo + pretina + cuelloTira, dx, dz);
         };
-        auto color = [&](float t, float) {
-            if (t < 0.20f) return pantalon;
+        auto color = [&](float t, float a) {
+            if (t < 0.20f) {
+                // La pretina y la costura del costado del short.
+                if (t > 0.165f) return pantalonCostura;
+                if (bulto(difAng(a, 0.0f), 0.05f) + bulto(difAng(a, PI), 0.05f) > 0.5f) return pantalonCostura;
+                return pantalon;
+            }
             if (t > 0.975f) return P;          // el cuello asoma por la camisa
-            return camisa;
+            if (t > 0.945f) return camisaCostura;   // la tira del cuello
+            if (t < 0.232f) return camisaCostura;   // el dobladillo
+            // La tapeta de los botones, una franja por delante.
+            if (t > 0.40f && bulto(difAng(a, DELANTE), 0.07f) > 0.3f) return camisaCostura;
+            // Pliegues: la tela se sombrea un poco en los surcos.
+            const float pliegue = 1.0f - 0.05f * (0.5f + 0.5f * std::sin(a * 7.0f + t * 23.0f)) * bulto(t - 0.32f, 0.15f);
+            return tinte(camisa, pliegue, pliegue, pliegue);
         };
-        dibujarTubo(m, tubo(eje, sec), N(18), N(28), color, true, true);
+        const auto torso = tubo(eje, sec);
+        dibujarTubo(m, torso, N(18), N(28), color, true, true);
+        // Tres botones en la tapeta, y el nudo del cordon del short.
+        for (float tb : { 0.55f, 0.68f, 0.81f }) {
+            V c; Rot r;
+            eje(tb, c, r);
+            const V pb = torso.punto(tb, DELANTE);
+            elipsoide(m, suma(pb, r.aplicar({ 0, 0, 0.0016f })), r, { 0.0042f, 0.0042f, 0.0016f }, N(3), N(6), boton);
+        }
+        for (float lado : { -1.0f, 1.0f }) {
+            V c; Rot r;
+            eje(0.185f, c, r);
+            const V pc = torso.punto(0.185f, DELANTE + lado * 0.06f);
+            elipsoide(m, suma(pc, r.aplicar({ 0, -0.012f, 0.002f })), r, { 0.0022f, 0.012f, 0.0022f }, N(3), N(6),
+                      Color{ 0.88f, 0.86f, 0.80f });
+        }
     }
 
     // ================= BRAZOS =================
@@ -549,20 +631,30 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         const float visible = visibleBase * (0.75f + 0.35f * cuelga);
 
         // El hombro, bajo la camisa.
+        const float kDelt = F.deltoides * (0.85f + 0.15f * F.musculo) * F.hombros;
         elipsoide(m, suma(s.hombro[l].p, s.hombro[l].r.aplicar({ 0, -0.010f, 0 })), s.hombro[l].r,
-                  { 0.050f, 0.054f, 0.050f }, N(7), N(12), camisa);
+                  { 0.050f * kDelt, 0.054f * (0.9f + 0.1f * kDelt), 0.050f * kDelt }, N(7), N(12), camisa);
 
         // Brazo: piel desde el borde de la manga, y la manga encima.
         const EjeRecto ejeBrazo{ s.hombro[l].p, s.hombro[l].r, M::BRAZO };
-        auto secBrazo = [=](float t, float a, float& dx, float& dz) { seccionBrazo(t, a, sx, flexN, dx, dz); };
+        const float kBiceps = F.biceps * F.musculo;
+        auto kBrazo = [=](float t) { return F.brazo * (1.0f + (kBiceps - 1.0f) * 0.30f * bulto(t - 0.60f, 0.38f)); };
+        auto secBrazo = [=](float t, float a, float& dx, float& dz) {
+            seccionBrazo(t, a, sx, flexN, dx, dz);
+            const float k = kBrazo(t);
+            dx *= k; dz *= k;
+        };
         const auto brazo = tubo(ejeBrazo, secBrazo, 0.38f, 1.0f);
         dibujarTubo(m, brazo, N(10), N(22), pielCon(1.3f + l, 0.6f), false, false);
         auto secManga = [=](float t, float a, float& dx, float& dz) {
             seccionBrazo(t, a, sx, flexN, dx, dz);
-            const float k = 1.0f + 0.008f / 0.045f + 0.003f * std::sin(a * 5.0f + t * 9.0f);
+            // La manga, holgada, con su dobladillo en el borde.
+            const float k = kBrazo(t) * (1.0f + 0.008f / 0.045f + 0.003f * std::sin(a * 5.0f + t * 9.0f)
+                                         + 0.06f * bulto(t - 0.43f, 0.025f));
             dx *= k; dz *= k;
         };
-        dibujarTubo(m, tubo(ejeBrazo, secManga, 0.0f, 0.45f), N(5), N(22), plano(camisa), false, false);
+        auto colorManga = [=](float t, float) { return t > 0.41f ? camisaCostura : camisa; };
+        dibujarTubo(m, tubo(ejeBrazo, secManga, 0.0f, 0.45f), N(6), N(22), colorManga, false, false);
 
         // Codo y olecranon (la punta del codo).
         elipsoide(m, s.codo[l].p, s.codo[l].r, { 0.037f, 0.036f, 0.035f }, N(6), N(12), articulacion);
@@ -578,11 +670,17 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
             r = rAnte.por(Rot::enY(giro * t));
             c = suma(oAnte, rAnte.aplicar({ 0, -M::ANTEBRAZO * t, 0 }));
         };
-        auto secAnte = [=](float t, float a, float& dx, float& dz) { seccionAntebrazo(t, a, sx, puno, dx, dz); };
+        const float kAnte = F.antebrazo * F.brazo;
+        auto secAnte = [=](float t, float a, float& dx, float& dz) {
+            seccionAntebrazo(t, a, sx, puno, dx, dz);
+            const float k = kAnte * (1.0f + (F.musculo - 1.0f) * 0.25f * bulto(t - 0.28f, 0.35f));
+            dx *= k; dz *= k;
+        };
         const auto ante = tubo(ejeAnte, secAnte);
         dibujarTubo(m, ante, N(18), N(28), pielCon(2.9f + l, 0.8f), false, false);
 
-        // Muneca.
+        // Muneca. Desde aqui, todo es la mano: se escala entera al final.
+        const uint32_t inicioMano = (uint32_t)m.v.size();
         const Mano& mano = s.mano[l];
         elipsoide(m, mano.muneca.p, mano.muneca.r, { 0.028f, 0.020f, 0.019f }, N(5), N(12), P);
 
@@ -609,7 +707,19 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
             elipse(a, rx, rz, tenar + hipotenar + hueco + dorso, dx, dz);
         };
         const auto palmaT = tubo(ejePalma, secPalma);
-        auto colorPalma = [=](float, float a) { return mezclaC(P, palma, suave((std::sin(a) - 0.1f) / 0.5f)); };
+        // Las lineas de la palma: tres surcos algo mas oscuros (la de la
+        // vida rodea la base del pulgar, la de la cabeza la cruza, la del
+        // corazon va bajo los dedos).
+        const Color surco = tinte(palma, 0.86f, 0.80f, 0.80f);
+        auto colorPalma = [=](float t, float a) {
+            const Color base = mezclaC(P, palma, suave((std::sin(a) - 0.1f) / 0.5f));
+            if (std::sin(a) < 0.35f) return base;
+            const float x = std::cos(a) * lado;
+            const float vida = bulto(t - (0.30f + 0.35f * x), 0.035f) * (x > -0.2f ? 1.0f : 0.0f);
+            const float cabeza = bulto(t - (0.55f - 0.10f * x), 0.028f);
+            const float corazon = bulto(t - (0.80f + 0.05f * x), 0.028f) * (x < 0.4f ? 1.0f : 0.0f);
+            return mezclaC(base, surco, sujetar(vida + cabeza + corazon, 0.0f, 1.0f));
+        };
         dibujarTubo(m, palmaT, N(10), N(24), colorPalma, false, true);
 
         // Los cinco dedos: tres falanges, cada una con su articulacion, la
@@ -624,7 +734,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
             for (int f = 0; f < 3; ++f) {
                 const Junta& j = mano.dedo[d][f];
                 const float L = M::DEDO[d][f];
-                const float r = RAD[d] * AFINA[d][f];
+                const float r = RAD[d] * AFINA[d][f] * F.dedos;
                 const bool yema = f == 2;
                 auto secDedo = [=](float t, float a, float& dx, float& dz) {
                     const float rx = r * (1.0f - 0.08f * t);
@@ -642,16 +752,29 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
                     // La una, en el dorso (-Z).
                     elipsoide(m, suma(j.p, j.r.aplicar({ 0, -L * 0.62f, -rf * 0.80f })), j.r,
                               { rf * 0.82f, L * 0.36f, rf * 0.28f }, N(3), N(8), una);
+                    // ⭐ EL BORDE LIBRE: lo que la una crece (Avatar: ~3,5 mm al
+                    // mes). Pasado el milimetro asoma por delante de la yema,
+                    // blanco, curvado sobre ella.
+                    const float libre = (F.unaMm - 1.0f) * 0.001f;
+                    if (libre > 0.0002f) {
+                        const Color blanco{ 0.95f, 0.92f, 0.86f };
+                        elipsoide(m, suma(mano.dedo[d][3].p, j.r.aplicar({ 0, -libre * 0.5f, -rf * 0.55f })), j.r,
+                                  { rf * 0.80f, libre * 0.55f + 0.0008f, rf * 0.20f }, N(3), N(8), blanco);
+                    }
                 }
             }
         }
+
+        // La mano entera, a la medida del avatar.
+        if (std::fabs(F.mano - 1.0f) > 1e-3f)
+            escalarEnMarco(m, inicioMano, mano.muneca.p, mano.muneca.r, F.mano, F.mano, F.mano);
 
         // Las venas de este brazo.
         if (q.venas) {
             for (const Vena& v : piel.venas) {
                 if (v.region == BRAZO_I + l) dibujarVena(m, brazo, v, P, visible, latido, muestrasVena);
                 else if (v.region == ANTE_I + l) dibujarVena(m, ante, v, P, visible, latido, muestrasVena);
-                else if (v.region == MANO_I + l) dibujarVena(m, palmaT, v, P, visible * 1.15f, latido, muestrasVena);
+                else if (v.region == MANO_I + l && std::fabs(F.mano - 1.0f) <= 1e-3f) dibujarVena(m, palmaT, v, P, visible * 1.15f, latido, muestrasVena);
             }
         }
     }
@@ -664,15 +787,29 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
 
         // Muslo: el pantalon corto cubre hasta un palmo sobre la rodilla.
         const EjeRecto ejeMuslo{ s.cadera[l].p, s.cadera[l].r, M::MUSLO };
-        auto secMuslo = [=](float t, float a, float& dx, float& dz) { seccionMuslo(t, a, sx, dx, dz); };
+        const float kMuslo = F.muslo * (1.0f + (F.musculo - 1.0f) * 0.30f);
+        auto secMuslo = [=](float t, float a, float& dx, float& dz) {
+            seccionMuslo(t, a, sx, dx, dz);
+            dx *= kMuslo; dz *= kMuslo;
+        };
         const auto muslo = tubo(ejeMuslo, secMuslo, 0.55f, 1.0f);
         dibujarTubo(m, muslo, N(8), N(24), pielCon(4.1f + l, 0.3f), false, false);
         auto secShort = [=](float t, float a, float& dx, float& dz) {
             seccionMuslo(t, a, sx, dx, dz);
-            const float k = 1.0f + 0.009f / 0.07f + 0.004f * std::sin(a * 4.0f + t * 7.0f);
+            // Holgado, con el dobladillo vuelto en el borde.
+            const float k = kMuslo * (1.0f + 0.009f / 0.07f + 0.004f * std::sin(a * 4.0f + t * 7.0f)
+                                      + 0.05f * bulto(t - 0.60f, 0.03f));
             dx *= k; dz *= k;
         };
-        dibujarTubo(m, tubo(ejeMuslo, secShort, 0.0f, 0.62f), N(7), N(24), plano(pantalon), false, false);
+        auto colorShort = [=](float t, float a) {
+            if (t > 0.575f) return pantalonCostura;                          // dobladillo
+            if (bulto(difAng(a, fuera(sx)), 0.05f) > 0.4f) return pantalonCostura;   // costura
+            // Un bolsillo: el borde de su abertura en diagonal, por delante.
+            const float bolsillo = bulto(t - 0.10f - 0.25f * sujetar(difAng(a, fuera(sx)) * sx, 0.0f, 1.0f), 0.012f)
+                                   * bulto(difAng(a, entre(fuera(sx), DELANTE, 0.5f)), 0.6f);
+            return bolsillo > 0.5f ? pantalonCostura : pantalon;
+        };
+        dibujarTubo(m, tubo(ejeMuslo, secShort, 0.0f, 0.62f), N(8), N(24), colorShort, false, false);
 
         // Rodilla y rotula, que se desliza por el femur al doblarla.
         elipsoide(m, s.rodilla[l].p, s.rodilla[l].r, { 0.050f, 0.050f, 0.048f }, N(6), N(14), articulacion);
@@ -685,7 +822,12 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         // Pierna: tibia, gemelos y Aquiles.
         const float punta = sujetar(-g.tobillo / 0.87f, 0.0f, 1.0f);
         const EjeRecto ejePierna{ s.rodilla[l].p, s.rodilla[l].r, M::PIERNA };
-        auto secPierna = [=](float t, float a, float& dx, float& dz) { seccionPierna(t, a, sx, punta, dx, dz); };
+        const float kGemelo = F.gemelo * F.musculo;
+        auto secPierna = [=](float t, float a, float& dx, float& dz) {
+            seccionPierna(t, a, sx, punta, dx, dz);
+            const float k = 1.0f + (kGemelo - 1.0f) * 0.32f * bulto(t - 0.30f, 0.30f) * bulto(difAng(a, DETRAS), 1.4f);
+            dx *= k; dz *= k;
+        };
         const auto pierna = tubo(ejePierna, secPierna);
         dibujarTubo(m, pierna, N(18), N(26), pielCon(5.7f + l, 0.2f), false, false);
 
@@ -699,6 +841,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
                   { 0.010f, 0.012f, 0.011f }, N(4), N(8), articulacion);
 
         // Pie descalzo: talon, empeine, arco por dentro y planta plana.
+        const uint32_t inicioPie = (uint32_t)m.v.size();
         const Rot& rPie = pie.tobillo.r;
         const float ad = -sx;          // hacia dentro, en X
         const V talonC = suma(pie.tobillo.p, rPie.aplicar({ 0, -0.036f, -0.055f }));
@@ -714,7 +857,9 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
             const float sn = std::sin(a), cs = std::cos(a);
             float abajo = 0.034f - 0.018f * t;
             const float porDentro = sujetar(cs * ad, 0.0f, 1.0f);
-            abajo -= 0.012f * bulto(t - 0.45f, 0.32f) * porDentro;          // el arco
+            abajo -= 0.012f * F.arco * bulto(t - 0.45f, 0.32f) * porDentro;  // el arco
+            // La almohadilla de la bola del pie, bajo los metatarsianos.
+            abajo += 0.004f * bulto(t - 0.80f, 0.16f);
             float tendones = 0.0f;
             for (float o : { -0.45f, -0.15f, 0.15f, 0.45f })
                 tendones += bulto(difAng(a, DELANTE + o), 0.12f);
@@ -730,6 +875,13 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
 
         // Los cinco dedos del pie: dos tramos, articulacion, punta y una.
         for (int d = 0; d < 5; ++d) {
+            // La yema de cada dedo, abajo: es lo que apoya.
+            {
+                const float rp0 = radioDedoPie(d);
+                const Junta& pt = pie.dedo[d][2];
+                elipsoide(m, suma(pt.p, pt.r.aplicar({ 0, -rp0 * 0.45f, -rp0 * 0.25f })), pt.r,
+                          { rp0 * 0.80f, rp0 * 0.45f, rp0 * 0.85f }, N(3), N(6), palma);
+            }
             const float r = radioDedoPie(d);
             const float L = M::DEDO_PIE[d];
             for (int f = 0; f < 2; ++f) {
@@ -749,11 +901,16 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
                       punta2.r, { rp * 0.75f, rp * 0.24f, L * 0.45f * 0.38f }, N(3), N(8), una);
         }
 
+        // El pie entero, a la medida del avatar: largo (Z del pie) y ancho
+        // (X), sin tocar el alto, que es lo que lo apoya en el suelo.
+        if (std::fabs(F.pie - 1.0f) > 1e-3f || std::fabs(F.pieAncho - 1.0f) > 1e-3f)
+            escalarEnMarco(m, inicioPie, pie.tobillo.p, rPie, F.pie * F.pieAncho, 1.0f, F.pie);
+
         if (q.venas) {
             for (const Vena& v : piel.venas) {
                 if (v.region == MUSLO_I + l) dibujarVena(m, muslo, v, P, visible, latido, muestrasVena);
                 else if (v.region == PIERNA_I + l) dibujarVena(m, pierna, v, P, visible, latido, muestrasVena);
-                else if (v.region == PIE_I + l) dibujarVena(m, pieT, v, P, visible, latido, muestrasVena);
+                else if (v.region == PIE_I + l && std::fabs(F.pie - 1.0f) <= 1e-3f && std::fabs(F.pieAncho - 1.0f) <= 1e-3f) dibujarVena(m, pieT, v, P, visible, latido, muestrasVena);
             }
         }
     }

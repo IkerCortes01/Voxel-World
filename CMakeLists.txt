@@ -120,6 +120,9 @@ target_link_libraries(VoxelWorld PRIVATE
 # mundo) se puede probar sin arrancar OpenGL. doctest va vendorizado en
 # external/doctest para que el build siga funcionando sin red.
 enable_testing()
+# Herramienta para convertir modelos (ver tools/convertir_jugador_glb.py).
+add_executable(decimar_malla tools/decimar_malla.cpp)
+
 add_subdirectory(tests)
 
 # Windows specific

@@ -105,6 +105,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/CabezaJugador.h"   // la cabeza, el pelo y el avatar (genes y ajustes)
 #include "player/Movimiento.h"      // canales de cada articulacion y animaciones programables
 #include "player/MallaImportada.h"  // el modelo realista importado (GLB -> jugador.vwm) con el esqueleto
+#include "render/CuerpoGL.h"        // ese modelo en la GPU: skinning en el shader y texturas DXT1
 #include "player/Postura.h"         // SHIFT y ESPACIO: de pie, agachado, tumbado
 #include "player/EngineAdapter.h"
 
@@ -1146,7 +1147,7 @@ private:
 // ⭐ EL MODELO REALISTA DEL JUGADOR (ver player/MallaImportada.h). Si existe
 // resourcepacks/Modelos/jugador.vwm se usa en vez del cuerpo procedural; si
 // no, queda el de siempre. Se carga una vez.
-const ModeloJugador::MallaImportada& modeloImportado() {
+ModeloJugador::MallaImportada& modeloImportado() {
     static ModeloJugador::MallaImportada m;
     static bool intentado = false;
     if (!intentado) {
@@ -1156,6 +1157,47 @@ const ModeloJugador::MallaImportada& modeloImportado() {
                       << m.indices.size() / 3 << " triangulos" << std::endl;
     }
     return m;
+}
+
+// Las proporciones del esqueleto con el modelo importado: las que encajan
+// en la malla, por las que pida el avatar.
+void proporcionesConModelo(ModeloJugador::Proporciones& p) {
+    const ModeloJugador::Proporciones m = modeloImportado().proporciones();
+    p.torso *= m.torso; p.brazo *= m.brazo; p.antebrazo *= m.antebrazo;
+    p.muslo *= m.muslo; p.pierna *= m.pierna; p.hombroY *= m.hombroY;
+}
+// El avatar sobre el modelo importado: la forma de la cara y el cuerpo, y los
+// tintes. Solo rehace la malla si algo cambio.
+void avatarAlModelo() {
+    ModeloJugador::AjustesMalla aj;
+    ModeloJugador::aplicarAvatarMalla(g_avatar, aj);
+    modeloImportado().aplicarAjustes(aj);
+}
+// El modelo importado en la GPU: shader, texturas (de resourcepacks/Modelos)
+// y malla. Se prepara una vez; si algo falla, se dibuja en la CPU.
+bool prepararCuerpoGPU() {
+    static int estado = 0;               // 0 sin probar, 1 listo, -1 no se puede
+    if (estado != 0) return estado > 0;
+    estado = -1;
+    if (!modeloImportado().cargada || modeloImportado().formato != 2 || !CuerpoGL::iniciar()) return false;
+    struct { CuerpoGL::Textura t; const char* archivo; int canales; bool comprimir; } T[] = {
+        { CuerpoGL::T_COLOR, "jugador_color.jpg", 3, true },
+        { CuerpoGL::T_NORMAL, "jugador_normal.png", 3, true },
+        { CuerpoGL::T_MASCARA, "jugador_mascara.png", 4, false },
+    };
+    for (const auto& x : T) {
+        int w = 0, h = 0, c = 0;
+        // Sin voltear: las uv del modelo (glTF) tienen el origen arriba, como
+        // la imagen. El motor deja el volteo puesto; se vuelve a dejar asi.
+        stbi_set_flip_vertically_on_load(false);
+        unsigned char* px = stbi_load(gamePath(std::string("resourcepacks/Modelos/") + x.archivo).c_str(), &w, &h, &c, x.canales);
+        stbi_set_flip_vertically_on_load(true);
+        if (!px) { std::cout << "[CUERPO] Falta " << x.archivo << std::endl; return false; }
+        CuerpoGL::subirTextura(x.t, w, h, x.canales, px, x.comprimir);
+        stbi_image_free(px);
+    }
+    estado = 1;
+    return true;
 }
 
 const Movimiento::Animacion* animacionLlamada(const std::string& nombre) {
@@ -42771,7 +42813,7 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
         // (sin bucle se repite con una pausa para verla entera).
         ModeloJugador::aplicarProporciones(g_avatar, pose);
         const bool importado = modeloImportado().cargada;
-        if (importado) pose.prop = modeloImportado().proporciones();
+        if (importado) { proporcionesConModelo(pose.prop); avatarAlModelo(); }
         const Movimiento::Animacion* anim = modoVista == 1 ? animacionLlamada(animVista) : nullptr;
         if (anim) {
             float t = (float)(glfwGetTime() - animDesde);
@@ -42787,8 +42829,10 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
         q.venas = true;
         ModeloJugador::Fisiologia fis;
         static ModeloJugador::Malla cuerpo, cabeza;
+        const bool enGPU = importado && prepararCuerpoGPU();
         if (importado) {
-            modeloImportado().deformar(esq, cuerpo, true);
+            if (enGPU) cuerpo.limpiar();
+            else modeloImportado().deformar(esq, cuerpo, true);
             cabeza.limpiar();
         } else {
             ModeloJugador::generar(esq, pose, piel, fis, q, cuerpo);
@@ -42870,9 +42914,18 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
             glDisableClientState(GL_COLOR_ARRAY);
             glDisableClientState(GL_VERTEX_ARRAY);
         };
-        dibujar(cuerpo);
-        dibujar(cabeza);
-        glPopAttrib();
+        if (enGPU) {
+            CuerpoGL::Luz luz;
+            const float ll = std::sqrt(Lx * Lx + Ly * Ly + Lz * Lz);
+            luz.dir[0] = Lx / ll; luz.dir[1] = Ly / ll; luz.dir[2] = Lz / ll;
+            luz.pies = luz.pecho = 1.0f;
+            luz.niebla = false;
+            CuerpoGL::dibujar(modeloImportado(), esq, true, luz);
+            if (g_textureManager) g_textureManager->invalidateBindCache();
+        } else {
+            dibujar(cuerpo);
+            dibujar(cabeza);
+        }        glPopAttrib();
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
@@ -50934,7 +50987,7 @@ int main() {
                 cargarAvatar();
                 ModeloJugador::Pose objetivo = ModeloJugador::poseDe(ea);
                 ModeloJugador::aplicarProporciones(g_avatar, objetivo);
-                if (modeloImportado().cargada) objetivo.prop = modeloImportado().proporciones();
+                if (modeloImportado().cargada) { proporcionesConModelo(objetivo.prop); avatarAlModelo(); }
                 {
                     static float tGesto = -1.0f;
                     if (g_gestoPedido) {
@@ -50985,7 +51038,9 @@ int main() {
                 // Con el modelo importado basta deformarlo (decimas de ms), sin
                 // la cabeza: la camara esta dentro.
                 if (modeloImportado().cargada) {
-                    modeloImportado().deformar(esqAhora, malla, false);
+                    // En la GPU no hace falta la malla en la CPU.
+                    if (prepararCuerpoGPU()) { malla.v.clear(); malla.i.clear(); }
+                    else modeloImportado().deformar(esqAhora, malla, false);
                     esqDibujo = esqAhora;
                     poseDibujo = poseAhora;
                 } else {
@@ -51065,7 +51120,7 @@ int main() {
                 // Tumbado, lo que se apoya es la malla entera (pecho, codos):
                 // se ajusta al suelo por su punto mas bajo.
                 float baseMalla = 0.0f;
-                if (pose.tumbado > 0.0f && ea.enSuelo) {
+                if (pose.tumbado > 0.0f && ea.enSuelo && !malla.v.empty()) {
                     baseMalla = 1e9f;
                     for (const ModeloJugador::VerticeJ& v : malla.v) baseMalla = std::fmin(baseMalla, v.p.y);
                 }
@@ -51074,6 +51129,29 @@ int main() {
                 // Al mundo, con la luz por vertice (el motor no usa
                 // GL_LIGHTING): sol desde arriba y algo de lado, como en los
                 // animales.
+                // ⭐ EL MODELO IMPORTADO EN LA GPU (ver render/CuerpoGL.h): la
+                // misma cuenta que los vertices de abajo, puesta como matriz.
+                bool dibujadoGPU = false;
+                if (modeloImportado().cargada && prepararCuerpoGPU()) {
+                    const float M[16] = { rx, 0.0f, rz, 0.0f,
+                                          -fx * atrasPorAlto, ky, -fz * atrasPorAlto, 0.0f,
+                                          fx, 0.0f, fz, 0.0f,
+                                          cuelloX - rx * cuelloLocal.x - fx * cuelloLocal.z, pieY - baseMalla * ky,
+                                          cuelloZ - rz * cuelloLocal.x - fz * cuelloLocal.z, 1.0f };
+                    CuerpoGL::Luz luz;
+                    const float lx = rx * 0.35f + rz * 0.25f, lz = fx * 0.35f + fz * 0.25f;
+                    const float ll = std::sqrt(lx * lx + 0.81f + lz * lz);
+                    luz.dir[0] = lx / ll; luz.dir[1] = 0.9f / ll; luz.dir[2] = lz / ll;
+                    luz.pies = luzPies; luz.pecho = luzPecho;
+                    luz.base = baseMalla; luz.alto = altoFigura;
+                    glPushMatrix();
+                    glMultMatrixf(M);
+                    glDisable(GL_CULL_FACE);
+                    dibujadoGPU = CuerpoGL::dibujar(modeloImportado(), esq, false, luz);
+                    glPopMatrix();
+                    if (g_textureManager) g_textureManager->invalidateBindCache();
+                }
+                if (!dibujadoGPU) {
                 static std::vector<float> pos, col;
                 pos.resize(malla.v.size() * 3);
                 col.resize(malla.v.size() * 3);
@@ -51137,6 +51215,7 @@ int main() {
                     glBindBuffer(GL_ARRAY_BUFFER, (GLuint)bufArray);
                     glBindBuffer(BUF_INDICES, (GLuint)bufIndices);
                 }
+                }   // !dibujadoGPU
 
                 // ⭐ LO QUE LLEVA EN LA MANO, CON SU TEXTURA
                 //

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include "Avatar.h"
 #include "MallaJugador.h"
+#include "MallaImportada.h"
 
 // ============================================================================
 // LA CABEZA, EL CUELLO, EL PELO Y LA BARBA (y como el avatar viste el cuerpo)
@@ -67,6 +68,64 @@ inline void aplicarAvatar(const Avatar::Datos& d, Piel& piel) {
     F.pieAncho = d[PIE_ANCHO];
     F.arco = d[PIE_ARCO];
     F.musculo = f.musculo;
+}
+
+// ⭐ El avatar sobre el modelo importado (ver MallaImportada.h): las mismas
+// formas que el cuerpo procedural (con el genero y la grasa ya mezclados en
+// aplicarAvatar), la cara por zonas y los colores de los genes y la ropa.
+inline void aplicarAvatarMalla(const Avatar::Datos& d, AjustesMalla& a) {
+    using namespace Avatar;
+    Piel piel;
+    aplicarAvatar(d, piel);
+    const Forma& F = piel.forma;
+    const Fenotipo f = d.fenotipo();
+    a.cabeza = d[CAB_TAMANO];
+    a.cuello = d[CUELLO_GROSOR];
+    a.hombros = F.hombros * F.deltoides * 0.5f + 0.5f;
+    a.brazo = F.brazo * (0.85f + 0.15f * F.musculo);
+    a.biceps = F.biceps * F.musculo;
+    a.antebrazo = F.antebrazo * F.brazo;
+    a.mano = F.mano;
+    a.pecho = F.pecho;
+    a.cintura = F.cintura;
+    a.cadera = F.cadera;
+    a.muslo = F.muslo * (1.0f + (F.musculo - 1.0f) * 0.3f);
+    a.gemelo = F.gemelo * F.musculo;
+    a.pie = F.pie;
+    a.caraAncho = d[CAB_ANCHO];
+    a.caraLargo = d[CAB_LARGO];
+    a.frente = d[CAB_FRENTE];
+    a.pomulos = d[CAB_POMULOS];
+    a.mandibula = d[CAB_MANDIBULA];
+    a.menton = d[CAB_MENTON];
+    a.ojos = d[OJO_TAMANO];
+    a.ojosSeparacion = d[OJO_SEPARACION];
+    a.ojosAltura = d[OJO_ALTURA];
+    a.cejasAltura = d[CEJA_ALTURA];
+    a.narizLargo = d[NARIZ_LARGO];
+    a.narizAncho = d[NARIZ_ANCHO];
+    a.narizPuente = d[NARIZ_PUENTE];
+    a.bocaAncho = d[BOCA_ANCHO];
+    a.labios = d[LABIOS_GROSOR];
+    a.orejas = d[OREJA_TAMANO];
+    a.orejasDespegadas = d[OREJA_DESPEGADA] - 0.2f;
+    a.cuelloLargo = d[CUELLO_LARGO];
+    a.busto = F.busto;
+    a.abdomen = F.abdomen;
+    a.gluteos = F.gluteos;
+    // Los colores: sin tocar nada el modelo se ve tal cual vino. Cuanto mas
+    // se aleja el avatar de su color por defecto (genes, canas, ropa), mas
+    // toma cada zona el color pedido, con el sombreado de la textura.
+    static const Fenotipo f0 = Avatar::Datos{}.fenotipo();
+    auto zona = [](float* o, float& mezcla, Avatar::Color3 c, Avatar::Color3 c0) {
+        o[0] = c.r; o[1] = c.g; o[2] = c.b;
+        const float d = std::fmax(std::fabs(c.r - c0.r), std::fmax(std::fabs(c.g - c0.g), std::fabs(c.b - c0.b)));
+        mezcla = d * 8.0f > 1.0f ? 1.0f : d * 8.0f;
+    };
+    zona(a.piel, a.mezcla[0], f.piel, f0.piel);
+    zona(a.pelo, a.mezcla[1], f.pelo, f0.pelo);
+    zona(a.camisa, a.mezcla[2], f.camisa, f0.camisa);
+    zona(a.shortC, a.mezcla[3], f.shortC, f0.shortC);
 }
 
 // ⭐ Los largos de los huesos y la flexibilidad, a la pose. La flexibilidad

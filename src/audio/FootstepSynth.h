@@ -56,6 +56,8 @@ enum class StepMaterial {
     Wood,
     Gravel,
     Snow,
+    Dirt,       // tierra suelta y compacta
+    Leaves,     // hojarasca y copas
     COUNT
 };
 
@@ -253,6 +255,118 @@ public:
         }
 
         return out;
+    }
+
+    // ========================================================================
+    // UNA CAPA DE PISADA (ver FootstepSystem: 100 por material)
+    // ========================================================================
+    // PEDIDO: "100 sonidos distintos pero similares [...] que se superpondran
+    // y de forma aleatoria se combinaran perfectamente haciendo sonidos
+    // unicos de pisar pasto, arena, piedra, madera y todos los bloques".
+    //
+    // Una capa es un pedacito de pisada de 15 a 110 ms: un roce, un crujido,
+    // un golpe sordo, una lluvia de granos, un chasquido. Cada material tiene
+    // su paleta de tipos de capa y cada semilla saca una distinta dentro de su
+    // tipo. Sueltas suenan a poco; juntas, a una pisada.
+    //
+    // Se guardan en float (no en PCM): el compositor las mezcla, las afina y
+    // las suaviza antes de convertir.
+    struct Capa {
+        std::vector<float> s;
+        int fase = 1;            // 0 talon (golpe), 1 apoyo (roce), 2 punta (despegue)
+    };
+
+    static Capa capa(StepMaterial mat, uint32_t seed) {
+        Rng rng(seed * 2246822519u + 3266489917u);
+        // Los ingredientes de una capa.
+        struct P {
+            float durMs, ataqueMs, caida, lp, hp, golpe;
+            int granos; float granoMs, granoAmp;
+            float cuerpoHz, cuerpoAmp, cuerpoCaida;
+            float ruido;
+            int fase;
+        } p{ 60, 2, 40, 0.5f, 0.05f, 0.2f, 0, 5, 0.3f, 0, 0, 1, 1.0f, 1 };
+        auto R = [&](float a, float b) { return rng.range(a, b); };
+        const int tipo = (int)(rng.unit() * 3.0f) % 3;   // tres tipos por material
+        switch (mat) {
+            case StepMaterial::Grass:
+                if (tipo == 0) p = { R(40, 90), R(3, 9), R(25, 45), R(0.45f, 0.70f), R(0.08f, 0.16f), R(0.0f, 0.08f), (int)R(2, 8), R(2, 5), R(0.15f, 0.35f), 0, 0, 1, 1.0f, 1 };          // roce de hojas de pasto
+                else if (tipo == 1) p = { R(15, 35), R(0.5f, 2), R(70, 120), R(0.70f, 0.95f), R(0.20f, 0.35f), R(0.10f, 0.30f), (int)R(1, 4), R(1, 3), R(0.30f, 0.60f), 0, 0, 1, 0.6f, 2 };  // tallitos que se doblan
+                else p = { R(35, 70), R(1, 3), R(35, 60), R(0.08f, 0.18f), R(0.004f, 0.012f), R(0.10f, 0.30f), 0, 5, 0, R(60, 120), R(0.15f, 0.35f), R(1.5f, 2.5f), 0.7f, 0 };  // la tierra blanda debajo
+                break;
+            case StepMaterial::Leaves:
+                if (tipo == 0) p = { R(50, 110), R(2, 6), R(20, 35), R(0.55f, 0.85f), R(0.10f, 0.22f), R(0.0f, 0.1f), (int)R(10, 30), R(1, 3), R(0.35f, 0.70f), 0, 0, 1, 0.5f, 1 };    // crujido de hoja seca
+                else if (tipo == 1) p = { R(30, 70), R(4, 10), R(30, 50), R(0.40f, 0.60f), R(0.06f, 0.12f), 0.0f, (int)R(3, 9), R(2, 4), R(0.2f, 0.4f), 0, 0, 1, 1.0f, 2 };         // roce
+                else p = { R(30, 60), R(1, 3), R(40, 70), R(0.10f, 0.20f), R(0.005f, 0.015f), R(0.10f, 0.25f), 0, 5, 0, R(70, 130), R(0.10f, 0.25f), R(1.5f, 2.5f), 0.6f, 0 };
+                break;
+            case StepMaterial::Dirt:
+                if (tipo == 0) p = { R(40, 80), R(1, 4), R(35, 55), R(0.10f, 0.25f), R(0.006f, 0.015f), R(0.20f, 0.40f), 0, 5, 0, R(70, 140), R(0.20f, 0.40f), R(1.4f, 2.2f), 0.8f, 0 };   // golpe sordo
+                else if (tipo == 1) p = { R(40, 90), R(3, 8), R(25, 40), R(0.25f, 0.45f), R(0.03f, 0.07f), 0.05f, (int)R(4, 12), R(2, 5), R(0.20f, 0.45f), 0, 0, 1, 0.8f, 1 };    // terron que se desmorona
+                else p = { R(20, 45), R(1, 3), R(50, 80), R(0.35f, 0.55f), R(0.08f, 0.15f), R(0.05f, 0.15f), (int)R(2, 6), R(1, 3), R(0.2f, 0.4f), 0, 0, 1, 0.5f, 2 };
+                break;
+            case StepMaterial::Sand:
+                if (tipo == 0) p = { R(70, 110), R(8, 18), R(14, 24), R(0.18f, 0.32f), R(0.01f, 0.04f), 0.0f, (int)R(15, 35), R(2, 5), R(0.25f, 0.55f), 0, 0, 1, 1.0f, 1 };      // siseo de arena
+                else if (tipo == 1) p = { R(40, 80), R(4, 10), R(25, 40), R(0.30f, 0.50f), R(0.04f, 0.08f), 0.0f, (int)R(20, 45), R(1, 3), R(0.35f, 0.65f), 0, 0, 1, 0.4f, 2 };    // granos que ruedan
+                else p = { R(40, 70), R(4, 9), R(30, 45), R(0.08f, 0.16f), R(0.004f, 0.01f), R(0.05f, 0.15f), 0, 5, 0, R(55, 95), R(0.10f, 0.25f), R(1.2f, 2.0f), 0.7f, 0 };
+                break;
+            case StepMaterial::Gravel:
+                if (tipo == 0) p = { R(50, 100), R(1, 3), R(22, 35), R(0.50f, 0.75f), R(0.06f, 0.12f), R(0.2f, 0.4f), (int)R(15, 35), R(3, 7), R(0.45f, 0.85f), 0, 0, 1, 0.5f, 1 };   // crujido de piedritas
+                else if (tipo == 1) p = { R(15, 35), R(0.3f, 1), R(80, 140), R(0.75f, 0.95f), R(0.15f, 0.30f), R(0.4f, 0.7f), (int)R(2, 6), R(1, 3), R(0.4f, 0.7f), R(900, 2200), R(0.05f, 0.15f), R(2, 4), 0.4f, 2 };  // piedrita que choca
+                else p = { R(35, 60), R(1, 3), R(40, 60), R(0.15f, 0.30f), R(0.01f, 0.03f), R(0.25f, 0.45f), (int)R(4, 10), R(3, 6), R(0.3f, 0.5f), R(90, 160), R(0.15f, 0.3f), R(1.5f, 2.5f), 0.6f, 0 };
+                break;
+            case StepMaterial::Snow:
+                if (tipo == 0) p = { R(60, 110), R(4, 10), R(18, 30), R(0.28f, 0.42f), R(0.03f, 0.06f), R(0.05f, 0.15f), (int)R(12, 30), R(3, 6), R(0.35f, 0.65f), 0, 0, 1, 0.6f, 1 };   // nieve que se comprime
+                else if (tipo == 1) p = { R(30, 60), R(2, 5), R(35, 55), R(0.45f, 0.65f), R(0.08f, 0.14f), 0.05f, (int)R(5, 14), R(2, 4), R(0.3f, 0.5f), R(700, 1400), R(0.03f, 0.08f), R(2, 3), 0.4f, 2 };  // chirrido
+                else p = { R(40, 70), R(2, 6), R(30, 45), R(0.08f, 0.16f), R(0.004f, 0.01f), R(0.1f, 0.2f), 0, 5, 0, R(60, 110), R(0.10f, 0.22f), R(1.4f, 2.2f), 0.6f, 0 };
+                break;
+            case StepMaterial::Stone:
+                if (tipo == 0) p = { R(40, 80), R(0.3f, 1), R(45, 70), R(0.55f, 0.85f), R(0.10f, 0.20f), R(0.5f, 0.9f), 0, 5, 0, R(150, 380), R(0.20f, 0.40f), R(1.6f, 2.6f), 0.5f, 0 };  // taconazo
+                else if (tipo == 1) p = { R(25, 55), R(2, 5), R(40, 70), R(0.60f, 0.85f), R(0.15f, 0.30f), R(0.05f, 0.15f), (int)R(2, 6), R(1, 3), R(0.15f, 0.3f), 0, 0, 1, 0.9f, 1 };   // roce de la suela
+                else p = { R(15, 35), R(0.3f, 1), R(70, 120), R(0.70f, 0.95f), R(0.20f, 0.35f), R(0.3f, 0.6f), 0, 5, 0, R(500, 1200), R(0.05f, 0.15f), R(2, 3.5f), 0.5f, 2 };  // la punta
+                break;
+            case StepMaterial::Wood:
+                if (tipo == 0) p = { R(60, 110), R(0.5f, 2), R(35, 55), R(0.40f, 0.60f), R(0.04f, 0.08f), R(0.4f, 0.7f), 0, 5, 0, R(170, 420), R(0.35f, 0.60f), R(1.2f, 1.9f), 0.5f, 0 };  // tabla hueca
+                else if (tipo == 1) p = { R(30, 60), R(2, 5), R(35, 60), R(0.50f, 0.75f), R(0.10f, 0.20f), R(0.05f, 0.15f), (int)R(1, 4), R(1, 3), R(0.1f, 0.25f), R(400, 900), R(0.05f, 0.12f), R(1.5f, 2.5f), 0.8f, 1 };  // roce sobre la veta
+                else p = { R(40, 90), R(5, 15), R(18, 30), R(0.30f, 0.45f), R(0.02f, 0.05f), 0.0f, 0, 5, 0, R(120, 240), R(0.10f, 0.25f), R(0.8f, 1.4f), 0.2f, 2 };  // crujido de la tabla
+                break;
+            default:
+                break;
+        }
+        Capa c;
+        c.fase = p.fase;
+        const int sr = AudioMixer::SAMPLE_RATE;
+        const int n = (int)(sr * p.durMs / 1000.0f);
+        if (n <= 4) return c;
+        c.s.assign(n, 0.0f);
+        LowPass lp(p.lp);
+        HighPass hp(p.hp);
+        const int ataque = (int)(sr * p.ataqueMs / 1000.0f) + 1;
+        const float w = p.cuerpoHz > 0.0f ? 2.0f * 3.14159265f * p.cuerpoHz / (float)sr : 0.0f;
+        const float fase0 = rng.unit() * 6.2831853f;
+        for (int i = 0; i < n; ++i) {
+            const float t = (float)i / (float)sr;
+            const float env = i < ataque ? (float)i / (float)ataque : expf(-p.caida * (t - (float)ataque / sr));
+            float s = hp(lp(rng.noise())) * env * p.ruido;
+            if (p.golpe > 0.0f) s += rng.noise() * expf(-300.0f * t) * p.golpe;
+            if (w > 0.0f) s += sinf(w * (float)i + fase0) * expf(-p.caida * p.cuerpoCaida * t) * p.cuerpoAmp;
+            c.s[i] = s;
+        }
+        // Los granos: impulsos cortos repartidos (arena, grava, hojas...).
+        const int largoGrano = (int)(sr * p.granoMs / 1000.0f) + 1;
+        for (int g = 0; g < p.granos; ++g) {
+            const int ini = (int)(rng.unit() * n * 0.85f);
+            const float amp = rng.range(0.3f, 1.0f) * p.granoAmp;
+            HighPass ghp(rng.range(0.1f, 0.4f));
+            for (int i = 0; i < largoGrano && ini + i < n; ++i)
+                c.s[ini + i] += ghp(rng.noise()) * expf(-6.0f * (float)i / (float)largoGrano) * amp;
+        }
+        // Sin clics al principio ni al final.
+        const int borde = (int)(sr * 0.003f);
+        for (int i = 0; i < borde && i < n; ++i) {
+            const float f = (float)i / (float)borde;
+            c.s[n - 1 - i] *= f;
+        }
+        return c;
     }
 };
 

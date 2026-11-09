@@ -31854,11 +31854,21 @@ inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
         case BLOCK_SNOW:
             return Audio::StepMaterial::Snow;
 
-        case BLOCK_GRASS:
         case BLOCK_DIRT:
+            return Audio::StepMaterial::Dirt;
+
         case BLOCK_LEAVES:
+            return Audio::StepMaterial::Leaves;
+
+        case BLOCK_GRASS:
         case BLOCK_TALLGRASS:
+            return Audio::StepMaterial::Grass;
+
         default:
+            // Todos los demas bloques, por familia: cada uno suena a lo que es.
+            if (esHojaDeArbol(b)) return Audio::StepMaterial::Leaves;
+            if (esTablon(b) || esTroncoDeArbol(b)) return Audio::StepMaterial::Wood;
+            if (esRocaParaPico(b)) return Audio::StepMaterial::Stone;
             return Audio::StepMaterial::Grass;
     }
 }

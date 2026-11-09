@@ -171,7 +171,10 @@ inline uint32_t hash(uint32_t h) {
 inline float azar(uint32_t h) { return (float)(hash(h) >> 8) * (1.0f / 16777216.0f); }
 
 constexpr double TRAMO = 540.0;          // la duracion media de un tramo
-constexpr double CAMBIO = 90.0;          // lo que tarda en cambiar el tiempo
+// Lo que tarda en cambiar el tiempo: unos 4 minutos, como una tormenta que
+// se arma o un cielo que se despeja. Puede pasar del largo de un tramo corto:
+// el tramo nuevo arranca desde donde iba el anterior (ver perfilRegion).
+constexpr double CAMBIO = 240.0;
 constexpr double REGION = 640.0;         // bloques
 constexpr double SEGUNDOS_DIA = 1440.0;  // como SEGUNDOS_POR_DIA del motor
 
@@ -204,27 +207,48 @@ inline int tipoDeTramo(int64_t k, uint32_t region, const Lugar& l) {
     return DESPEJADO;
 }
 
-// El tiempo de UNA region en el instante t: el de su tramo, fundido con el
-// anterior durante el CAMBIO.
+// El tiempo de UNA region en el instante t: el de su tramo, fundido durante
+// el CAMBIO con lo que habia cuando empezo. Si el tramo anterior fue corto y
+// no habia terminado de llegar, se parte de ese punto a medias (y asi hacia
+// atras unos tramos): nunca hay un salto al empezar un tramo.
 inline Perfil perfilRegion(double t, uint32_t region, const Lugar& l, int* tipo = nullptr) {
     int64_t k = (int64_t)std::floor(t / TRAMO);
     // El tramo que contiene t (el desfase puede moverlo uno arriba o abajo).
     for (int i = 0; i < 3 && inicioTramo(k + 1, region) <= t; ++i) ++k;
     for (int i = 0; i < 3 && inicioTramo(k, region) > t; ++i) --k;
-    const int actual = tipoDeTramo(k, region, l);
-    const int antes = tipoDeTramo(k - 1, region, l);
-    const float f = suave(0.0f, (float)CAMBIO, (float)(t - inicioTramo(k, region)));
-    if (tipo) *tipo = f >= 0.5f ? actual : antes;
-    return mezclar(perfilDe(antes), perfilDe(actual), f);
+    // Lo que habia al empezar el tramo k: el tramo k-1 a medio llegar desde
+    // el k-2, etc. Cuatro tramos atras ya no se notan.
+    constexpr int ATRAS = 4;
+    Perfil p = perfilDe(tipoDeTramo(k - ATRAS, region, l));
+    for (int64_t j = k - ATRAS + 1; j <= k; ++j) {
+        const double fin = j < k ? inicioTramo(j + 1, region) : t;
+        const float f = suave(0.0f, (float)CAMBIO, (float)(fin - inicioTramo(j, region)));
+        p = mezclar(p, perfilDe(tipoDeTramo(j, region, l)), f);
+    }
+    if (tipo) {
+        const float f = suave(0.0f, (float)CAMBIO, (float)(t - inicioTramo(k, region)));
+        *tipo = f >= 0.5f ? tipoDeTramo(k, region, l) : tipoDeTramo(k - 1, region, l);
+    }
+    return p;
 }
 
 inline uint32_t region(int64_t i, int64_t j) {
     return hash((uint32_t)i * 0x9E3779B1u ^ hash((uint32_t)j * 0x85EBCA77u + 0x165667B1u));
 }
 
+// El centro de la region (i, j) en bloques: ahi se mide su clima.
+inline double centroRegion(int64_t i) { return ((double)i + 1.0) * REGION; }
+
 // EL TIEMPO EN UN SITIO: el de las cuatro regiones de alrededor, fundido.
 // `tipo` devuelve el que mas pesa (para el HUD).
-inline Perfil perfilEn(double t, double x, double z, const Lugar& l, int* tipo = nullptr) {
+//
+// ⭐ El tiempo de cada region se sortea con el clima de SU centro
+// (`lugarDe(i, j)`), no con el de la columna que pisa el jugador. Antes se
+// usaba la del jugador: al cruzar de un bioma a otro cambiaban los pesos, el
+// mismo tramo sorteaba otro tiempo y el cielo pasaba de despejado a aguacero
+// de golpe.
+template <class LugarDe>
+inline Perfil perfilEnLugares(double t, double x, double z, LugarDe lugarDe, int* tipo = nullptr) {
     const double fx = x / REGION - 0.5, fz = z / REGION - 0.5;
     const int64_t i = (int64_t)std::floor(fx), j = (int64_t)std::floor(fz);
     // Una transicion ancha entre regiones: solo el 40 % central de cada una
@@ -232,10 +256,10 @@ inline Perfil perfilEn(double t, double x, double z, const Lugar& l, int* tipo =
     const float ux = suave(0.3f, 0.7f, (float)(fx - (double)i));
     const float uz = suave(0.3f, 0.7f, (float)(fz - (double)j));
     int t00, t10, t01, t11;
-    const Perfil p00 = perfilRegion(t, region(i, j), l, &t00);
-    const Perfil p10 = perfilRegion(t, region(i + 1, j), l, &t10);
-    const Perfil p01 = perfilRegion(t, region(i, j + 1), l, &t01);
-    const Perfil p11 = perfilRegion(t, region(i + 1, j + 1), l, &t11);
+    const Perfil p00 = perfilRegion(t, region(i, j), lugarDe(i, j), &t00);
+    const Perfil p10 = perfilRegion(t, region(i + 1, j), lugarDe(i + 1, j), &t10);
+    const Perfil p01 = perfilRegion(t, region(i, j + 1), lugarDe(i, j + 1), &t01);
+    const Perfil p11 = perfilRegion(t, region(i + 1, j + 1), lugarDe(i + 1, j + 1), &t11);
     if (tipo) {
         const float w[4] = { (1 - ux) * (1 - uz), ux * (1 - uz), (1 - ux) * uz, ux * uz };
         const int ts[4] = { t00, t10, t01, t11 };
@@ -244,6 +268,26 @@ inline Perfil perfilEn(double t, double x, double z, const Lugar& l, int* tipo =
         *tipo = ts[mejor];
     }
     return mezclar(mezclar(p00, p10, ux), mezclar(p01, p11, ux), uz);
+}
+// Con el mismo clima en todas las regiones.
+inline Perfil perfilEn(double t, double x, double z, const Lugar& l, int* tipo = nullptr) {
+    return perfilEnLugares(t, x, z, [&l](int64_t, int64_t) { return l; }, tipo);
+}
+
+// ----------------------------------------------------------------------------
+// LO QUE SIENTE EL JUGADOR: EL CAMBIO SIEMPRE GRADUAL
+// ----------------------------------------------------------------------------
+// El perfil de arriba ya es continuo en el tiempo y en el espacio, pero un
+// salto del reloj (dormir), un clima clavado o correr a traves de regiones
+// pueden moverlo deprisa. Lo que se ve y se oye lo sigue con inercia: ~25 s
+// para el cielo y la niebla, ~5 s para lo que tiene encima (meterse bajo una
+// nube). Con `dt` en segundos reales.
+inline float seguir(float actual, float meta, float dt, float tau) {
+    if (dt <= 0.0f) return actual;
+    return actual + (meta - actual) * (1.0f - std::exp(-dt / tau));
+}
+inline Perfil seguir(const Perfil& a, const Perfil& b, float dt, float tau) {
+    return mezclar(a, b, dt <= 0.0f ? 0.0f : 1.0f - std::exp(-dt / tau));
 }
 
 // ----------------------------------------------------------------------------

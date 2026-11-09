@@ -79,6 +79,61 @@ TEST_CASE("Clima: el tiempo cambia poco a poco, en el tiempo y andando") {
     }
 }
 
+TEST_CASE("Clima: al empezar un tramo no hay salto, aunque el anterior fuera corto") {
+    // Justo antes y justo despues del inicio de cada tramo, en muchas
+    // regiones: el tramo nuevo sale de donde iba el anterior.
+    float peor = 0.0f;
+    for (uint32_t r = 0; r < 40; ++r) {
+        const uint32_t reg = region(r, 7 * r + 1);
+        for (int64_t k = 2; k < 60; ++k) {
+            const double t0 = inicioTramo(k, reg);
+            const Perfil a = perfilRegion(t0 - 0.05, reg, BOSQUE);
+            const Perfil b = perfilRegion(t0 + 0.05, reg, BOSQUE);
+            peor = std::fmax(peor, std::fabs(a.cobertura - b.cobertura));
+            peor = std::fmax(peor, std::fabs(a.agua - b.agua));
+            peor = std::fmax(peor, std::fabs(a.niebla - b.niebla));
+        }
+    }
+    CHECK(peor < 0.01f);
+}
+
+TEST_CASE("Clima: un cambio de tiempo tarda minutos, no segundos") {
+    // En 10 s de mundo la cobertura, la lluvia y la niebla se mueven poco.
+    float peor = 0.0f;
+    for (int k = 0; k < 4000; ++k) {
+        const double t = 50.0 + k * 13.7;
+        const Perfil a = perfilEn(t, 900.0, 4100.0, BOSQUE);
+        const Perfil b = perfilEn(t + 10.0, 900.0, 4100.0, BOSQUE);
+        peor = std::fmax(peor, std::fabs(a.cobertura - b.cobertura));
+        peor = std::fmax(peor, std::fabs(a.agua - b.agua));
+        peor = std::fmax(peor, std::fabs(a.niebla - b.niebla));
+    }
+    CHECK(peor < 0.12f);
+}
+
+TEST_CASE("Clima: el tiempo de una region no depende de donde este parado el jugador") {
+    // El clima de cada region se mide en su centro: cambiar el lugar que
+    // pisa el jugador (otro bioma) no cambia el tiempo que toca.
+    auto lugarDe = [](int64_t i, int64_t j) {
+        return (i + j) % 2 == 0 ? BOSQUE : DESIERTO;
+    };
+    for (int k = 0; k < 200; ++k) {
+        const double t = k * 97.0, x = 1300.0 + k * 3.0, z = -800.0;
+        const Perfil a = perfilEnLugares(t, x, z, lugarDe);
+        const Perfil b = perfilEnLugares(t, x + 0.5, z, lugarDe);
+        CHECK(std::fabs(a.cobertura - b.cobertura) < 0.01f);
+    }
+}
+
+TEST_CASE("Clima: lo que se ve sigue al tiempo con inercia") {
+    Perfil p = perfilDe(DESPEJADO);
+    const Perfil meta = perfilDe(AGUACERO);
+    p = seguir(p, meta, 1.0f / 60.0f, 25.0f);
+    CHECK(p.agua < 0.01f);
+    for (int i = 0; i < 60 * 75; ++i) p = seguir(p, meta, 1.0f / 60.0f, 25.0f);
+    CHECK(p.agua > 0.80f);
+}
+
 TEST_CASE("Clima: con el tiempo pasan muchos tiempos distintos") {
     std::vector<int> vistos(NUM_TIPOS, 0);
     for (int k = 0; k < 600; ++k) {

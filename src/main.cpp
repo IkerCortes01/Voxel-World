@@ -46829,21 +46829,69 @@ void actualizarClima() {
         }
     }
 
+    // ⭐ EL CLIMA DE CADA REGION, MEDIDO EN SU CENTRO (ver Clima::perfilEnLugares).
+    // Cinco columnas alrededor del centro, promediadas: un rio o una loma no
+    // deciden el tiempo de 640 bloques. Se guardan las ultimas regiones.
+    struct LugarRegion { int64_t i, j; Clima::Lugar l; };
+    static LugarRegion cache[16];
+    static int nCache = 0, proximo = 0;
+    static int semillaCache = 0;
+    if (semillaCache != g_gameState->world.getSeed()) { semillaCache = g_gameState->world.getSeed(); nCache = 0; }
+    auto lugarDe = [&](int64_t i, int64_t j) -> Clima::Lugar {
+        for (int k = 0; k < nCache; ++k) if (cache[k].i == i && cache[k].j == j) return cache[k].l;
+        Clima::Lugar l = g_clima.lugar;
+        if (auto* gen = g_gameState->world.getWorldGen()) {
+            const double cx = Clima::centroRegion(i), cz = Clima::centroRegion(j);
+            static const double D[5][2] = { { 0, 0 }, { 160, 0 }, { -160, 0 }, { 0, 160 }, { 0, -160 } };
+            float temp = 0.0f, hum = 0.0f;
+            for (const auto& d : D) {
+                const auto col = gen->GetColumnData((int)std::floor(cx + d[0]), (int)std::floor(cz + d[1]));
+                temp += col.climate.temperature;
+                hum += col.climate.humidity;
+            }
+            l.temperatura = Clima::sat(temp / 5.0f);
+            l.humedad = Clima::sat(hum / 5.0f);
+        }
+        cache[proximo] = { i, j, l };
+        proximo = (proximo + 1) % 16;
+        if (nCache < 16) ++nCache;
+        return l;
+    };
+
     const int forzado = g_clima.forzado;
-    const Clima::Lugar lugar = g_clima.lugar;
-    if (forzado >= 0) {
-        g_clima.p = Clima::perfilDe(forzado);
-        g_clima.tipo = forzado;
-    } else {
-        g_clima.p = Clima::perfilEn(t, pie.x, pie.z, lugar, &g_clima.tipo);
+    Clima::Perfil meta;
+    int tipo = forzado;
+    if (forzado >= 0) meta = Clima::perfilDe(forzado);
+    else meta = Clima::perfilEnLugares(t, pie.x, pie.z, lugarDe, &tipo);
+    // En lo alto hace frio: lo que cae en las cumbres es nieve. Por la altura
+    // del jugador, poco a poco entre 110 y 170 (la cota de nieve).
+    if (forzado < 0) {
+        const float helada = Clima::suave(110.0f, 170.0f, (float)pie.y);
+        meta.nieve += meta.agua * 0.8f * helada;
+        meta.agua *= 1.0f - helada;
+        meta.granizo *= 1.0f - 0.5f * helada;
     }
+    // ⭐ CON INERCIA: el cielo, la niebla y la lluvia siguen al tiempo que
+    // toca en ~25 s reales. Sin esto, correr entre regiones o un cambio de
+    // bioma movia la niebla y las nubes de golpe. Al cargar, al clavar un
+    // clima o tras dormir (el reloj salta) se pone directo.
+    static double tReal = -1.0;
+    const double ahora = glfwGetTime();
+    const float dtReal = tReal < 0.0 ? 0.0f : (float)(std::min)(0.25, ahora - tReal);
+    tReal = ahora;
+    static int forzadoAntes = -2;
+    const bool saltoReloj = g_clima.tAnterior < 0.0 || t < g_clima.tAnterior || t - g_clima.tAnterior > 30.0;
+    const bool directo = saltoReloj || forzado != forzadoAntes || forzado >= 0;
+    forzadoAntes = forzado;
+    g_clima.p = directo ? meta : Clima::seguir(g_clima.p, meta, dtReal, 25.0f);
+    g_clima.tipo = tipo;
 
     // Los rayos de los ultimos 25 s: los que acaban de caer se ven, y de los
     // demas puede estar llegando el trueno.
     const double px = pie.x, pz = pie.z;
     auto ritmo = [&](double s) {
         return forzado >= 0 ? Clima::perfilDe(forzado).rayos
-                            : Clima::perfilEn(s, px, pz, lugar).rayos;
+                            : Clima::perfilEnLugares(s, px, pz, lugarDe).rayos;
     };
     double t0 = g_clima.tAnterior;
     if (t0 < 0.0 || t < t0 || t - t0 > 30.0) t0 = t;   // salto de tiempo (dormir): sin truenos
@@ -46865,16 +46913,22 @@ void actualizarClima() {
     g_clima.tAnterior = t;
 
     // Las nubes que tiene encima y alrededor: las mismas que se dibujan.
+    // Meterse bajo una nube o salir de ella tambien es gradual (~5 s): el
+    // borde de una nube de lluvia no es una pared.
     const float cob = g_clima.p.cobertura, crece = g_clima.p.oscuridad;
-    g_clima.bajoNube = Nubes::lluviaEn(px, pz, t, cob, crece);
+    const float bajo = Nubes::lluviaEn(px, pz, t, cob, crece);
     float cerca = 0.0f;
     for (int k = 0; k < 8; ++k) {
         const double a = k * 0.7853981634;
         cerca += Nubes::lluviaEn(px + 56.0 * std::cos(a), pz + 56.0 * std::sin(a), t, cob, crece);
     }
-    g_clima.cercaNube = (std::max)(g_clima.bajoNube, cerca / 8.0f);
-    g_clima.sombraNube = Nubes::suave(0.35f, 0.85f,
+    const float sombra = Nubes::suave(0.35f, 0.85f,
         Nubes::masa(px - Nubes::VIENTO_X * t, pz - Nubes::VIENTO_Z * t, t, cob, crece));
+    const float tauNube = directo ? 0.0f : 5.0f;
+    auto ir = [&](float& v, float m) { v = tauNube <= 0.0f ? m : Clima::seguir(v, m, dtReal, tauNube); };
+    ir(g_clima.bajoNube, bajo);
+    ir(g_clima.cercaNube, (std::max)(bajo, cerca / 8.0f));
+    ir(g_clima.sombraNube, sombra);
 }
 
 // ============================================================================
@@ -49841,6 +49895,34 @@ int main() {
 
                 fogStart *= 1.0f - 0.88f * nieblaClima;
                 fogEnd *= 1.0f - 0.70f * nieblaClima;
+
+                // ⭐ LA NIEBLA NO SALTA. El radio cargado lo mueve el regulador
+                // de FPS a saltos de un chunk, y eso movia la niebla de golpe.
+                // Se sigue con inercia: se acerca rapido (0,6 s, para tapar
+                // lo que se descarga) y se aleja despacio (4 s). Bajo el agua
+                // o en lava, y al quitarla, va directa.
+                {
+                    static float nInicio = -1.0f, nFin = -1.0f;
+                    static double tNiebla = -1.0;
+                    static bool cieloAntes = true;
+                    const double ahoraN = glfwGetTime();
+                    const float dtN = tNiebla < 0.0 ? 0.0f : (float)(std::min)(0.25, ahoraN - tNiebla);
+                    tNiebla = ahoraN;
+                    const bool directa = nInicio < 0.0f || fogStart > 1.0e5f || nInicio > 1.0e5f ||
+                                         !g_atmosfera.nieblaDelCielo || cieloAntes != g_atmosfera.nieblaDelCielo;
+                    cieloAntes = g_atmosfera.nieblaDelCielo;
+                    if (directa) { nInicio = fogStart; nFin = fogEnd; }
+                    else {
+                        auto ir = [dtN](float& v, float m) {
+                            const float tau = m < v ? 0.6f : 4.0f;
+                            v += (m - v) * (1.0f - std::exp(-dtN / tau));
+                        };
+                        ir(nInicio, fogStart);
+                        ir(nFin, fogEnd);
+                    }
+                    fogStart = nInicio;
+                    fogEnd = (std::max)(nFin, nInicio + 1.0f);
+                }
 
                 glFogf(GL_FOG_START, fogStart);
                 glFogf(GL_FOG_END, fogEnd);

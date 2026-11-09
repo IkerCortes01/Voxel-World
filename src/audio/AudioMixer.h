@@ -63,6 +63,14 @@ public:
     static constexpr int BLOCK_SAMPLES = 512;   // ~23 ms
     static constexpr int NUM_BLOCKS  = 4;
 
+    // El peso de cada capa en la mezcla (antes todas 1, con el maestro a
+    // 0.55: se oia todo muy bajo, y el viento y las hojas casi nada).
+    static constexpr float GANANCIA_EFECTOS  = 1.5f;   // pasos, golpes, items...
+    static constexpr float GANANCIA_VIENTO   = 2.4f;
+    static constexpr float GANANCIA_AMBIENTE = 2.6f;   // hojas, pajaros, grillos
+    static constexpr float GANANCIA_LLUVIA   = 2.2f;
+    static constexpr float GANANCIA_TRUENO   = 1.4f;
+
 private:
     struct Voice {
         const SoundBuffer* buffer = nullptr;
@@ -144,22 +152,42 @@ private:
             }
         }
 
-        viento.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, intensidadViento.load());
-        ambiente.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, nivelHojas.load(),
-                        nivelPajaros.load(), nivelGrillos.load());
-        lluvia.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, intensidadLluvia.load(),
-                      intensidadGranizo.load(), cieloAbierto.load());
+        // ⭐ CADA CAPA CON SU GANANCIA. PEDIDO: "que sea mas audible el sonido
+        // de viento, hojas, lluvia, sube el volumen de todo". Cada generador
+        // escribe en su propio buffer y se suma con su peso: asi se puede
+        // subir el viento sin que la lluvia se coma todo.
+        static thread_local std::vector<float> capa;
+        auto sumar = [&](float ganancia, auto&& llenar) {
+            capa.assign(BLOCK_SAMPLES, 0.0f);
+            llenar(capa.data());
+            for (int i = 0; i < BLOCK_SAMPLES; ++i) acc[i] += capa[i] * ganancia;
+        };
+        for (int i = 0; i < BLOCK_SAMPLES; ++i) acc[i] *= GANANCIA_EFECTOS;
+        sumar(GANANCIA_VIENTO, [&](float* b) { viento.llenar(b, BLOCK_SAMPLES, SAMPLE_RATE, intensidadViento.load()); });
+        sumar(GANANCIA_AMBIENTE, [&](float* b) {
+            ambiente.llenar(b, BLOCK_SAMPLES, SAMPLE_RATE, nivelHojas.load(), nivelPajaros.load(), nivelGrillos.load());
+        });
+        sumar(GANANCIA_LLUVIA, [&](float* b) {
+            lluvia.llenar(b, BLOCK_SAMPLES, SAMPLE_RATE, intensidadLluvia.load(), intensidadGranizo.load(),
+                          cieloAbierto.load());
+        });
         {
             std::lock_guard<std::mutex> lock(truenoMutex);
-            trueno.llenar(acc.data(), BLOCK_SAMPLES, SAMPLE_RATE, cieloAbierto.load());
+            sumar(GANANCIA_TRUENO, [&](float* b) { trueno.llenar(b, BLOCK_SAMPLES, SAMPLE_RATE, cieloAbierto.load()); });
         }
 
-        // Volcado con clipping suave.
+        // Volcado con un limitador suave: hasta el 60 % del maximo pasa tal
+        // cual; por encima se curva (tanh) hacia el tope en vez de recortarse
+        // en seco, que es lo que suena a "crujido" al subir el volumen.
         const float mv = masterVolume;
+        constexpr float TOPE = 32767.0f, RODILLA = 0.6f * TOPE;
         for (int i = 0; i < BLOCK_SAMPLES; ++i) {
             float s = acc[i] * mv;
-            if (s >  32767.0f) s =  32767.0f;
-            if (s < -32768.0f) s = -32768.0f;
+            const float a = std::fabs(s);
+            if (a > RODILLA) {
+                const float sobra = (a - RODILLA) / (TOPE - RODILLA);
+                s = std::copysign(RODILLA + (TOPE - RODILLA) * std::tanh(sobra), s);
+            }
             out[i] = (int16_t)s;
         }
 

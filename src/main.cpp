@@ -1039,7 +1039,8 @@ ClimaFrame g_clima;
 Avatar::Datos g_avatar;
 int g_subMenuPrincipal = 0;      // 1 Opciones, 2 Avatar abiertos desde el menu principal
 double g_ruedaAvatar = 0.0;       // la rueda del raton en la pantalla de avatar
-bool g_gestoPedido = false;       // la tecla G: hacer el gesto elegido en Avatar > MOVIMIENTO
+bool g_gestoPedido = false;
+       // la tecla G: hacer el gesto elegido en Avatar > MOVIMIENTO
 
 // Las animaciones: las del juego y las de la carpeta animaciones/ (*.txt).
 // Se leen una vez; el boton RECARGAR de la pantalla de avatar las relee.
@@ -1065,6 +1066,82 @@ std::vector<Movimiento::Animacion>& animacionesTodas(bool recargar = false) {
     }
     return v;
 }
+// ============================================================================
+// EL CUERPO DEL JUGADOR SE GENERA EN OTRO HILO
+// ============================================================================
+// Medido en la partida: generar la malla del cuerpo (14.000 vertices con el
+// detalle alto: tubos, dedos, unas, venas) costaba 6-8 ms de cada frame en el
+// hilo principal, mas que dibujar todo el mundo. Ahora la genera un hilo
+// aparte mientras el principal dibuja el terreno; se dibuja la del frame
+// anterior (16 ms de retraso en la pose, que no se ve) con SU esqueleto, asi
+// que el item de la mano y el anclaje del cuello siguen cuadrando con ella.
+class CuerpoEnHilo {
+public:
+    struct Pedido {
+        ModeloJugador::Esqueleto esq;
+        ModeloJugador::Pose pose;
+        ModeloJugador::Piel piel;
+        ModeloJugador::Fisiologia fis;
+        ModeloJugador::Calidad q;
+    };
+    ~CuerpoEnHilo() {
+        { std::lock_guard<std::mutex> l(mx); salir = true; }
+        cv.notify_all();
+        if (hilo.joinable()) hilo.join();
+    }
+    // Pide la malla de esta pose (si habia una pedida sin empezar, la
+    // sustituye: solo importa la ultima).
+    void pedir(Pedido p) {
+        if (!hilo.joinable()) hilo = std::thread([this] { bucle(); });
+        { std::lock_guard<std::mutex> l(mx); pedido = std::move(p); hayPedido = true; }
+        cv.notify_one();
+    }
+    // Si hay una malla nueva terminada, la pasa a malla, esq y pose.
+    // La primera vez espera a tenerla: el cuerpo nunca sale vacio.
+    void recoger(ModeloJugador::Malla& malla, ModeloJugador::Esqueleto& esq, ModeloJugador::Pose& pose) {
+        std::unique_lock<std::mutex> l(mx);
+        if (!primeraRecogida) cv.wait(l, [&] { return lista || salir; });
+        if (!lista) return;
+        std::swap(malla, hecha);
+        esq = esqHecha;
+        pose = poseHecha;
+        lista = false;
+        primeraRecogida = true;
+    }
+
+private:
+    void bucle() {
+        ModeloJugador::Malla trabajo;
+        for (;;) {
+            Pedido p;
+            {
+                std::unique_lock<std::mutex> l(mx);
+                cv.wait(l, [&] { return hayPedido || salir; });
+                if (salir) return;
+                p = std::move(pedido);
+                hayPedido = false;
+            }
+            ModeloJugador::generar(p.esq, p.pose, p.piel, p.fis, p.q, trabajo);
+            {
+                std::lock_guard<std::mutex> l(mx);
+                std::swap(trabajo, hecha);
+                esqHecha = p.esq;
+                poseHecha = p.pose;
+                lista = true;
+            }
+            cv.notify_all();
+        }
+    }
+    std::thread hilo;
+    std::mutex mx;
+    std::condition_variable cv;
+    Pedido pedido;
+    bool hayPedido = false, lista = false, salir = false, primeraRecogida = false;
+    ModeloJugador::Malla hecha;
+    ModeloJugador::Esqueleto esqHecha;
+    ModeloJugador::Pose poseHecha;
+};
+
 const Movimiento::Animacion* animacionLlamada(const std::string& nombre) {
     for (const Movimiento::Animacion& a : animacionesTodas()) if (a.nombre == nombre) return &a;
     return nullptr;
@@ -47913,7 +47990,7 @@ int main() {
         // ---- AUDIO ----
         // Si el dispositivo no abre, el juego sigue sin sonido (no es fatal).
         if (g_audioMixer.init()) {
-            g_audioMixer.setMasterVolume(0.55f);
+            g_audioMixer.setMasterVolume(0.85f);   // con el limitador suave del mezclador
             g_footsteps.init(&g_audioMixer);
             std::cout << "Audio inicializado (waveOut " << Audio::AudioMixer::SAMPLE_RATE
                       << " Hz, pasos sintetizados)" << std::endl;
@@ -50851,11 +50928,10 @@ int main() {
                     }
                 }
                 static ModeloJugador::SuavizadoPose suavizado;
-                const ModeloJugador::Pose pose = suavizado.avanzar(objetivo, dtc,
-                                                                    ea.accion != ModeloJugador::Accion::NINGUNA);
-                const ModeloJugador::Esqueleto esq =
-                    ModeloJugador::resolver(pose, ea.enSuelo && !ea.volando);
-                const float ky = ModeloJugador::escalaVertical(esq, altoOjo);
+                const ModeloJugador::Pose poseAhora = suavizado.avanzar(objetivo, dtc,
+                                                                         ea.accion != ModeloJugador::Accion::NINGUNA);
+                const ModeloJugador::Esqueleto esqAhora =
+                    ModeloJugador::resolver(poseAhora, ea.enSuelo && !ea.volando);
 
                 // La piel de este mundo: cada mundo, su dibujo de venas.
                 static int semillaPiel = 0x7fffffff;
@@ -50876,8 +50952,17 @@ int main() {
                 ModeloJugador::Calidad calidad;
                 calidad.detalle = g_opciones[Opciones::DETALLE];
                 calidad.venas = calidad.detalle >= 1;
+                // La malla la hace el hilo del cuerpo (ver CuerpoEnHilo): se
+                // pide la de esta pose y se dibuja la ultima terminada.
+                static CuerpoEnHilo cuerpoHilo;
                 static ModeloJugador::Malla malla;
-                ModeloJugador::generar(esq, pose, piel, fisiologia, calidad, malla);
+                static ModeloJugador::Esqueleto esqDibujo;
+                static ModeloJugador::Pose poseDibujo;
+                cuerpoHilo.pedir({ esqAhora, poseAhora, piel, fisiologia, calidad });
+                cuerpoHilo.recoger(malla, esqDibujo, poseDibujo);
+                const ModeloJugador::Esqueleto& esq = esqDibujo;
+                const ModeloJugador::Pose& pose = poseDibujo;
+                const float ky = ModeloJugador::escalaVertical(esq, altoOjo);
 
                 // ⭐ LA LUZ DE ALREDEDOR, CON LA CURVA DEL TERRENO
                 //

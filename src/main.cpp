@@ -103,6 +103,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/ModeloJugador.h"   // el cuerpo que se ve al mirar abajo
 #include "player/MallaJugador.h"    // su piel: musculos, tendones y venas
 #include "player/CabezaJugador.h"   // la cabeza, el pelo y el avatar (genes y ajustes)
+#include "player/Movimiento.h"      // canales de cada articulacion y animaciones programables
 #include "player/Postura.h"         // SHIFT y ESPACIO: de pie, agachado, tumbado
 #include "player/EngineAdapter.h"
 
@@ -1038,6 +1039,36 @@ ClimaFrame g_clima;
 Avatar::Datos g_avatar;
 int g_subMenuPrincipal = 0;      // 1 Opciones, 2 Avatar abiertos desde el menu principal
 double g_ruedaAvatar = 0.0;       // la rueda del raton en la pantalla de avatar
+bool g_gestoPedido = false;       // la tecla G: hacer el gesto elegido en Avatar > MOVIMIENTO
+
+// Las animaciones: las del juego y las de la carpeta animaciones/ (*.txt).
+// Se leen una vez; el boton RECARGAR de la pantalla de avatar las relee.
+std::vector<Movimiento::Animacion>& animacionesTodas(bool recargar = false) {
+    static std::vector<Movimiento::Animacion> v;
+    static bool leidas = false;
+    if (leidas && !recargar) return v;
+    leidas = true;
+    v = Movimiento::incluidas();
+    std::error_code ec;
+    if (std::filesystem::is_directory("animaciones", ec)) {
+        for (const auto& e : std::filesystem::directory_iterator("animaciones", ec)) {
+            if (e.path().extension() != ".txt") continue;
+            std::ifstream in(e.path(), std::ios::binary);
+            const std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            for (Movimiento::Animacion& a : Movimiento::leerVarias(s, e.path().filename().string())) {
+                // Una del jugador con el nombre de otra la sustituye.
+                bool puesta = false;
+                for (Movimiento::Animacion& b : v) if (b.nombre == a.nombre) { b = a; puesta = true; }
+                if (!puesta) v.push_back(a);
+            }
+        }
+    }
+    return v;
+}
+const Movimiento::Animacion* animacionLlamada(const std::string& nombre) {
+    for (const Movimiento::Animacion& a : animacionesTodas()) if (a.nombre == nombre) return &a;
+    return nullptr;
+}
 
 void guardarAvatar() {
     if (FILE* f = fopen("avatar.txt", "wb")) {
@@ -41780,6 +41811,8 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         g_gameState->screenState == SCREEN_IN_GAME) {
         recogerPedazoMirado(g_gameState);
     }
+    // G hace el gesto elegido en Avatar > MOVIMIENTO (otra vez G lo corta).
+    if (action == GLFW_PRESS && key == GLFW_KEY_G && g_gameState->screenState == SCREEN_IN_GAME) g_gestoPedido = true;
 
     if (action == GLFW_PRESS) {
         // ⭐⭐⭐ TECLAS A-Z (minúsculas) + Ñ
@@ -42597,6 +42630,11 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
     static float scroll = 0.0f;
     static bool cambiado = false;
     static double cambiadoEn = 0.0;
+    // Lo que muestra la vista: 0 de pie, 1 una animacion, 2 la pose libre.
+    static int modoVista = 0;
+    static std::string animVista;
+    static double animDesde = 0.0;
+    static ModeloJugador::Pose poseLibre;
     if (!abajo) arrastre = -1;
 
     auto rect = [](float x, float y, float w, float h, float r, float g, float b, float a) {
@@ -42633,8 +42671,19 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
     {
         const Fenotipo fen = g_avatar.fenotipo();
         ModeloJugador::Pose pose;
+        if (modoVista == 2) pose = poseLibre;
+        else for (ModeloJugador::Brazo& b : pose.brazo) { b.abd = 0.20f; b.codo = 0.20f; }
         pose.respira = std::sin((float)glfwGetTime() * 1.7f) * 0.7f;
-        for (ModeloJugador::Brazo& b : pose.brazo) { b.abd = 0.20f; b.codo = 0.20f; }
+        // Los huesos y la flexibilidad del avatar, y la animacion elegida
+        // (sin bucle se repite con una pausa para verla entera).
+        ModeloJugador::aplicarProporciones(g_avatar, pose);
+        const Movimiento::Animacion* anim = modoVista == 1 ? animacionLlamada(animVista) : nullptr;
+        if (anim) {
+            float t = (float)(glfwGetTime() - animDesde);
+            if (!anim->bucle) t = std::fmod(t, anim->duracion + 0.8f);
+            Movimiento::aplicar(*anim, t, pose);
+        }
+        ModeloJugador::limitar(pose);
         const ModeloJugador::Esqueleto esq = ModeloJugador::resolver(pose, true);
         static ModeloJugador::Piel piel = ModeloJugador::generarPiel(12345u);
         ModeloJugador::aplicarAvatar(g_avatar, piel);
@@ -42740,6 +42789,8 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
         char lin[96];
         std::snprintf(lin, sizeof(lin), "%.2f M   %s", fen.alturaCm / 100.0f, fen.varon ? "XY" : "XX");
         texto(lin, vistaX + 10.0f, vistaY + vistaH - 52.0f, 12.0f, 0.85f, 0.85f, 0.85f);
+        if (anim) texto(anim->nombre, vistaX + 230.0f, vistaY + 18.0f, 12.0f, 1.0f, 0.85f, 0.55f);
+        else if (modoVista == 2) texto("POSE LIBRE", vistaX + 230.0f, vistaY + 18.0f, 12.0f, 1.0f, 0.85f, 0.55f);
         texto("ARRASTRA PARA GIRAR - RUEDA PARA ACERCAR", vistaX + 10.0f, vistaY + vistaH - 28.0f, 10.0f, 0.6f, 0.6f, 0.6f);
     }
 
@@ -42747,23 +42798,24 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
     rect(panelX, vistaY, panelW, vistaH, 0.13f, 0.12f, 0.11f, 0.94f);
     texto("AVATAR", panelX + 14.0f, vistaY + 12.0f, 24.0f, 1.0f, 0.85f, 0.55f);
 
-    // Las pestanas: 16 familias, de la cabeza a los pies, y los genes.
+    // Las pestanas: las familias, de la cabeza a los pies, los genes y el
+    // movimiento.
     const int columnas = 3;
     const float tabW = (panelW - 28.0f - (columnas - 1) * 4.0f) / columnas, tabH = 24.0f;
     const float tabsY = vistaY + 48.0f;
-    for (int k = 0; k <= NUM_FAMILIAS; ++k) {
+    for (int k = 0; k <= NUM_FAMILIAS + 1; ++k) {
         const float x = panelX + 14.0f + (k % columnas) * (tabW + 4.0f);
         const float y = tabsY + (k / columnas) * (tabH + 4.0f);
-        const char* nombre = k < NUM_FAMILIAS ? familia(k).nombre : "GENES Y ADN";
+        const char* nombre = k < NUM_FAMILIAS ? familia(k).nombre : (k == NUM_FAMILIAS ? "GENES Y ADN" : "MOVIMIENTO");
         const bool sel = k == familiaSel, sobre = dentro(x, y, tabW, tabH);
-        if (k == NUM_FAMILIAS) rect(x, y, tabW, tabH, sel ? 0.20f : 0.12f, sel ? 0.45f : 0.30f, sel ? 0.32f : 0.22f, 0.95f);
+        if (k >= NUM_FAMILIAS) rect(x, y, tabW, tabH, sel ? 0.20f : 0.12f, sel ? 0.45f : 0.30f, sel ? 0.32f : 0.22f, 0.95f);
         else rect(x, y, tabW, tabH, sel ? 0.55f : (sobre ? 0.32f : 0.22f), sel ? 0.40f : (sobre ? 0.30f : 0.20f),
                   sel ? 0.20f : (sobre ? 0.26f : 0.17f), 0.95f);
         const float tam = (std::min)(10.0f, (tabW - 8.0f) / ((float)strlen(nombre) * 0.7f));
         texto(nombre, x + 5.0f, y + (tabH - tam) * 0.5f, tam);
         if (sobre && clic) { familiaSel = k; scroll = 0.0f; }
     }
-    const int filasTabs = (NUM_FAMILIAS + 1 + columnas - 1) / columnas;
+    const int filasTabs = (NUM_FAMILIAS + 2 + columnas - 1) / columnas;
     const float contY = tabsY + filasTabs * (tabH + 4.0f) + 8.0f;
     const float contH = vistaY + vistaH - 56.0f - contY;
     glEnable(GL_SCISSOR_TEST);
@@ -42817,7 +42869,7 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
         }
         texto("EL COLOR DE PIEL, OJOS Y PELO LO DECIDEN LOS GENES", x0, y + 10.0f, 8.0f, 0.55f, 0.55f, 0.55f);
         altoContenido += 30.0f;
-    } else {
+    } else if (familiaSel == NUM_FAMILIAS) {
         // --- LOS GENES ---
         const Fenotipo f = g_avatar.fenotipo();
         char l[128];
@@ -42859,6 +42911,106 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
             y += 62.0f;
             altoContenido += 62.0f;
         }
+    } else {
+        // --- EL MOVIMIENTO ---
+        // Arriba las animaciones (clic: se ve y queda para la tecla G);
+        // debajo cada articulacion con su rango sano, para armar una pose.
+        auto& anims = animacionesTodas();
+        texto("TECLA G EN EL JUEGO: " + g_avatar.gesto, x0, y + 4.0f, 10.0f, 0.65f, 0.90f, 0.70f);
+        texto("TUS ANIMACIONES VAN EN LA CARPETA ANIMACIONES (TXT)", x0, y + 22.0f, 8.0f, 0.6f, 0.6f, 0.6f);
+        y += 40.0f;
+        altoContenido += 40.0f;
+        const float bw = (anchoUtil - 6.0f) * 0.5f, bh = 26.0f;
+        for (size_t i = 0; i < anims.size(); ++i) {
+            const float bx = x0 + (float)(i % 2) * (bw + 6.0f), by = y + (float)(i / 2) * (bh + 4.0f);
+            const bool viendo = modoVista == 1 && animVista == anims[i].nombre;
+            const bool sobre = dentro(bx, by, bw, bh) && dentroCont;
+            const bool elegida = g_avatar.gesto == anims[i].nombre;
+            rect(bx, by, bw, bh, viendo ? 0.55f : (sobre ? 0.32f : 0.22f), viendo ? 0.40f : (sobre ? 0.30f : 0.20f),
+                 viendo ? 0.20f : (sobre ? 0.26f : 0.17f), 0.95f);
+            if (elegida) rect(bx, by, 5.0f, bh, 0.45f, 0.85f, 0.55f, 1.0f);
+            const std::string n = anims[i].nombre + (anims[i].origen.empty() ? "" : " *");
+            const float tam = (std::min)(10.0f, (bw - 14.0f) / ((float)n.size() * 0.7f));
+            texto(n, bx + 10.0f, by + (bh - tam) * 0.5f, tam);
+            if (sobre && clic) {
+                modoVista = 1;
+                animVista = anims[i].nombre;
+                animDesde = glfwGetTime();
+                g_avatar.gesto = anims[i].nombre;
+                cambiado = true;
+                cambiadoEn = glfwGetTime();
+            }
+        }
+        const float filas = (float)((anims.size() + 1) / 2);
+        y += filas * (bh + 4.0f) + 6.0f;
+        altoContenido += filas * (bh + 4.0f) + 6.0f;
+        const float b3 = (anchoUtil - 12.0f) / 3.0f;
+        if (dentroCont && boton("DE PIE", x0, y, b3, 28.0f)) modoVista = 0;
+        if (dentroCont && boton("RECARGAR", x0 + b3 + 6.0f, y, b3, 28.0f)) animacionesTodas(true);
+        if (dentroCont && boton("GUARDAR POSE", x0 + 2.0f * (b3 + 6.0f), y, b3, 28.0f)) {
+            // La pose libre, como una animacion de una clave sostenida.
+            const ModeloJugador::Pose neutra;
+            Movimiento::Animacion a;
+            int n = 1;
+            std::error_code ec;
+            std::filesystem::create_directories("animaciones", ec);
+            while (std::filesystem::exists("animaciones/pose_" + std::to_string(n) + ".txt", ec)) ++n;
+            a.nombre = "POSE " + std::to_string(n);
+            a.duracion = 2.6f;
+            Movimiento::Clave c0{ 0.8f, {} };
+            for (int c = 0; c < (int)Movimiento::canales().size(); ++c) {
+                const float v = Movimiento::leer(poseLibre, c);
+                if (std::fabs(v - Movimiento::leer(neutra, c)) > 0.5f * (Movimiento::canales()[c].unidad == Movimiento::GRADOS ? 1.0f : 0.01f))
+                    c0.valores.push_back({ c, v });
+            }
+            Movimiento::Clave c1 = c0;
+            c1.t = 1.8f;
+            a.claves = { c0, c1 };
+            std::ofstream out("animaciones/pose_" + std::to_string(n) + ".txt", std::ios::binary);
+            out << "# Guardada desde Avatar > MOVIMIENTO. Se puede editar a mano.\n" << Movimiento::textoDe(a);
+            out.close();
+            animacionesTodas(true);
+            modoVista = 1;
+            animVista = a.nombre;
+            animDesde = glfwGetTime();
+        }
+        y += 40.0f;
+        altoContenido += 40.0f;
+        texto("ARTICULACIONES - RANGOS DE UNA PERSONA SANA", x0, y + 4.0f, 10.0f, 1.0f, 0.85f, 0.55f);
+        texto("LOS MUSCULOS QUE CRUZAN DOS ARTICULACIONES TAMBIEN LIMITAN", x0, y + 20.0f, 7.0f, 0.6f, 0.6f, 0.6f);
+        y += 36.0f;
+        altoContenido += 36.0f;
+        ModeloJugador::Pose conLimites = poseLibre;
+        ModeloJugador::aplicarProporciones(g_avatar, conLimites);
+        ModeloJugador::limitar(conLimites);
+        for (int c = 0; c < (int)Movimiento::canales().size(); ++c) {
+            const Movimiento::Canal& ca = Movimiento::canales()[c];
+            const float barX = x0 + anchoUtil * 0.47f, barW = anchoUtil * 0.36f, barY = y + 9.0f;
+            texto(ca.etiqueta, x0, y + 8.0f, 9.0f, 0.9f, 0.9f, 0.88f);
+            rect(barX, barY, barW, 6.0f, 0.30f, 0.29f, 0.27f, 1.0f);
+            const float v = Movimiento::leer(conLimites, c);
+            const float u = (std::max)(0.0f, (std::min)(1.0f, (v - ca.minimo) / (ca.maximo - ca.minimo)));
+            const float u0 = (std::max)(0.0f, (std::min)(1.0f, -ca.minimo / (ca.maximo - ca.minimo)));
+            rect(barX + barW * (std::min)(u, u0), barY, barW * std::fabs(u - u0), 6.0f, 0.40f, 0.70f, 0.85f, 1.0f);
+            rect(barX + barW * u - 5.0f, barY - 5.0f, 10.0f, 16.0f, 0.95f, 0.92f, 0.85f, 1.0f);
+            if (clic && dentroCont && dentro(barX - 8.0f, y, barW + 16.0f, 22.0f)) arrastre = 1000 + c;
+            if (arrastre == 1000 + c) {
+                const float nu = (std::max)(0.0f, (std::min)(1.0f, (mx - barX) / barW));
+                if (modoVista != 2) modoVista = 2;
+                Movimiento::poner(poseLibre, c, ca.minimo + (ca.maximo - ca.minimo) * nu);
+                ModeloJugador::aplicarProporciones(g_avatar, poseLibre);
+                ModeloJugador::limitar(poseLibre);
+            }
+            char val[32];
+            if (ca.unidad == Movimiento::GRADOS) std::snprintf(val, sizeof(val), "%d GR", (int)std::lround(v));
+            else std::snprintf(val, sizeof(val), "%d%%", (int)std::lround(v * 100.0f));
+            texto(val, barX + barW + 12.0f, y + 8.0f, 9.0f, 0.75f, 0.85f, 0.95f);
+            y += 24.0f;
+            altoContenido += 24.0f;
+        }
+        if (dentroCont && boton("POSE NEUTRA", x0, y + 6.0f, 160.0f, 26.0f)) poseLibre = ModeloJugador::Pose{};
+        y += 40.0f;
+        altoContenido += 40.0f;
     }
     glDisable(GL_SCISSOR_TEST);
     scroll = (std::min)(scroll, (std::max)(0.0f, altoContenido - contH));
@@ -50593,8 +50745,31 @@ int main() {
                 // ⭐ Las transiciones: cada articulacion llega con inercia a su
                 // pose (ModeloJugador::SuavizadoPose). Con una accion rapida en
                 // marcha los brazos se endurecen para no perder el golpe.
+                // ⭐ EL GESTO (tecla G): la animacion elegida en el avatar se
+                // pone encima de la pose del juego. Se corta al echar a
+                // andar, al golpear o con otra G; los muelles del suavizado
+                // hacen que entre y salga sin saltos.
+                cargarAvatar();
+                ModeloJugador::Pose objetivo = ModeloJugador::poseDe(ea);
+                ModeloJugador::aplicarProporciones(g_avatar, objetivo);
+                {
+                    static float tGesto = -1.0f;
+                    if (g_gestoPedido) {
+                        g_gestoPedido = false;
+                        tGesto = tGesto >= 0.0f ? -1.0f : 0.0f;
+                    }
+                    const Movimiento::Animacion* gesto = tGesto >= 0.0f ? animacionLlamada(g_avatar.gesto) : nullptr;
+                    if (gesto && (ea.rapidez > 1.2f || ea.accion != ModeloJugador::Accion::NINGUNA ||
+                                  (!gesto->bucle && tGesto > gesto->duracion))) gesto = nullptr;
+                    if (gesto) {
+                        Movimiento::aplicar(*gesto, tGesto, objetivo);
+                        tGesto += dtc;
+                    } else {
+                        tGesto = -1.0f;
+                    }
+                }
                 static ModeloJugador::SuavizadoPose suavizado;
-                const ModeloJugador::Pose pose = suavizado.avanzar(ModeloJugador::poseDe(ea), dtc,
+                const ModeloJugador::Pose pose = suavizado.avanzar(objetivo, dtc,
                                                                     ea.accion != ModeloJugador::Accion::NINGUNA);
                 const ModeloJugador::Esqueleto esq =
                     ModeloJugador::resolver(pose, ea.enSuelo && !ea.volando);

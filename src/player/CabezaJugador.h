@@ -69,6 +69,24 @@ inline void aplicarAvatar(const Avatar::Datos& d, Piel& piel) {
     F.musculo = f.musculo;
 }
 
+// ⭐ Los largos de los huesos y la flexibilidad, a la pose. La flexibilidad
+// del deslizador (0..1) va de rigido a muy flexible, y con los anos se
+// pierde: ~0,5 % de rango por ano desde los 30. Las mujeres tienen de media
+// algo mas de rango articular.
+inline void aplicarProporciones(const Avatar::Datos& d, Pose& p) {
+    using namespace Avatar;
+    p.prop.torso = d[LARGO_TORSO];
+    p.prop.brazo = d[LARGO_BRAZO];
+    p.prop.antebrazo = d[LARGO_ANTEBRAZO];
+    p.prop.muslo = d[LARGO_MUSLO];
+    p.prop.pierna = d[LARGO_PIERNA];
+    const float edad = d[CUERPO_EDAD];
+    float k = 0.80f + 0.40f * d[FLEXIBILIDAD];
+    if (edad > 30.0f) k *= 1.0f - 0.005f * (edad - 30.0f);
+    k *= 1.0f + 0.05f * (1.0f - d[CUERPO_GENERO]);
+    p.flexibilidad = sujetar(k, 0.6f, 1.3f);
+}
+
 // Un casquete de elipsoide: solo lo que queda por ENCIMA de la linea del pelo
 // (`linea(phi)` = angulo polar maximo en cada direccion) y fuera del claro de
 // la calvicie (`claro(phi)` = angulo polar minimo). Con ondas para el rizo.

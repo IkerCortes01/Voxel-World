@@ -129,8 +129,13 @@ namespace M {
 namespace Lim {
     constexpr float CUELLO_GIRO  = 1.22f;   // 70 grados a cada lado
     constexpr float CUELLO_FLEX  = 0.87f;   // 50 hacia el pecho; el resto lo ponen los ojos
+    constexpr float CUELLO_LADO  = 0.70f;   // 40 de la oreja hacia el hombro
     constexpr float TORSO_GIRO   = 0.52f;   // 30 de los hombros sobre la pelvis
+    constexpr float TORSO_LADO   = 0.61f;   // 35 de flexion lateral de la columna
     constexpr float INCLINA_MIN = -0.25f, INCLINA_MAX = 1.10f;
+    // La escapula: sube (encoger) y va hacia delante o atras sobre las
+    // costillas. En metros, no en angulo.
+    constexpr float ENCOGER_M = 0.040f, ADELANTAR_M = 0.030f;
 
     constexpr float HOMBRO_FLEX_MIN = -0.90f, HOMBRO_FLEX_MAX = 3.00f;
     constexpr float HOMBRO_ABD_MIN  = -0.20f, HOMBRO_ABD_MAX  = 2.60f;
@@ -147,9 +152,25 @@ namespace Lim {
 
     constexpr float CADERA_FLEX_MIN = -0.35f, CADERA_FLEX_MAX = 2.10f;
     constexpr float CADERA_ABD_MIN  = -0.50f, CADERA_ABD_MAX  = 0.80f;
+    constexpr float CADERA_ROT_MIN  = -0.61f, CADERA_ROT_MAX  = 0.79f;   // 35 interna, 45 externa
     constexpr float RODILLA_MAX     = 2.40f;
     constexpr float TOBILLO_MIN = -0.87f, TOBILLO_MAX = 0.35f;   // punta abajo / arriba
+    constexpr float TOBILLO_LADO_MIN = -0.26f, TOBILLO_LADO_MAX = 0.52f;   // eversion 15, inversion 30
     constexpr float DEDOS_PIE_MIN = -0.70f, DEDOS_PIE_MAX = 1.10f;
+
+    // ⭐ LOS MUSCULOS QUE CRUZAN DOS ARTICULACIONES
+    // Un musculo biarticular no da para estirarse en las dos a la vez:
+    //   ISQUIOTIBIALES  con la rodilla recta la cadera solo flexiona ~80
+    //                   grados (la prueba de la pierna recta); doblada, 120.
+    //   GEMELOS         con la rodilla recta el pie sube ~10 grados; doblada,
+    //                   el soleo solo deja ~20.
+    //   RECTO FEMORAL   con la cadera hacia atras la rodilla dobla menos (la
+    //                   prueba de Ely).
+    //   FALANGES        la ultima falange no se dobla sola: va con la del
+    //                   medio (comparten el flexor profundo).
+    constexpr float CADERA_FLEX_RODILLA_RECTA = 1.40f;
+    constexpr float TOBILLO_MAX_RODILLA_RECTA = 0.17f;
+    constexpr float RODILLA_MAX_CADERA_ATRAS  = 1.90f;
 }
 
 // ----------------------------------------------------------------------------
@@ -163,21 +184,39 @@ struct Brazo {
     float munFlex = 0.10f, munDesv = 0.0f;
     float dedo[5][3] = {};             // indice, medio, anular, menique, pulgar
     float abre[5] = {};
+    float encoger = 0.0f;              // 0..1: la escapula sube hacia la oreja
+    float adelantar = 0.0f;            // -1..1: la escapula hacia delante (+) o atras
 };
 struct Pierna {
     float flex = 0.0f, abd = 0.03f;
+    float rot = 0.0f;                  // + = rotacion externa (la punta hacia fuera)
     float rodilla = 0.05f;
     float tobillo = 0.0f;
+    float tobilloLado = 0.0f;          // + = inversion (la planta mira hacia dentro)
     float dedos = 0.0f;                // + = dedos hacia arriba (extension)
+};
+// ⭐ LAS PROPORCIONES: el largo de cada hueso respecto al de M (1 = el de
+// una persona media de 1.80). Las pone el avatar.
+struct Proporciones {
+    float torso = 1.0f, brazo = 1.0f, antebrazo = 1.0f, muslo = 1.0f, pierna = 1.0f;
 };
 struct Pose {
     Brazo brazo[2];
     Pierna pierna[2];
+    Proporciones prop;
+    float flexibilidad = 1.0f;         // multiplica los rangos blandos (0.7 rigido .. 1.25 muy flexible)
     float inclinacion = 0.0f;          // el torso hacia delante
     float giroTorso = 0.0f;            // los hombros sobre la pelvis
+    float torsoLado = 0.0f;            // + = la columna se dobla hacia la derecha
     float giroPelvis = 0.0f;
+    // + = la pelvis se inclina hacia delante sobre las cabezas de los
+    // femures: el tronco entero baja y las piernas siguen donde estaban (es
+    // como se dobla una persona de pie). Cuenta como flexion de cadera.
+    float pelvisInclina = 0.0f;
     float respira = 0.0f;              // -1..1
     float cuelloFlex = 0.0f;           // la cabeza hacia el pecho
+    float cuelloGiro = 0.0f;           // + = la cara hacia la derecha
+    float cuelloLado = 0.0f;           // + = la oreja derecha hacia el hombro
     float agachado = 0.0f;
     float tumbado = 0.0f;              // 0..1: boca abajo, el torso en el suelo
     float apretar = 0.0f;              // 0..1, cuanto aprieta el puno derecho
@@ -187,30 +226,61 @@ struct Pose {
     bool pedernal = false;             // cabeza de pedernal (si no, de piedra)
 };
 
+// Los topes de hueso (el codo y la rodilla al estirarse, el codo al doblarse)
+// son fijos; los de partes blandas (capsulas, ligamentos, musculos) se
+// abren o cierran con la flexibilidad de cada persona.
 inline void limitar(Pose& p) {
     using namespace Lim;
-    p.inclinacion = sujetar(p.inclinacion, INCLINA_MIN, INCLINA_MAX);
-    p.giroTorso = sujetar(p.giroTorso, -TORSO_GIRO, TORSO_GIRO);
-    p.cuelloFlex = sujetar(p.cuelloFlex, -CUELLO_FLEX, CUELLO_FLEX);
+    p.flexibilidad = sujetar(p.flexibilidad, 0.6f, 1.3f);
+    const float k = p.flexibilidad;
+    auto suave = [](float x) { x = sujetar(x, 0.0f, 1.0f); return x * x * (3.0f - 2.0f * x); };
+    auto blando = [k](float v, float lo, float hi) { return sujetar(v, lo * k, hi * k); };
+    p.inclinacion = blando(p.inclinacion, INCLINA_MIN, INCLINA_MAX);
+    p.giroTorso = blando(p.giroTorso, -TORSO_GIRO, TORSO_GIRO);
+    p.torsoLado = blando(p.torsoLado, -TORSO_LADO, TORSO_LADO);
+    p.cuelloFlex = blando(p.cuelloFlex, -CUELLO_FLEX, CUELLO_FLEX);
+    p.cuelloGiro = blando(p.cuelloGiro, -CUELLO_GIRO, CUELLO_GIRO);
+    p.cuelloLado = blando(p.cuelloLado, -CUELLO_LADO, CUELLO_LADO);
     for (Brazo& b : p.brazo) {
-        b.flex = sujetar(b.flex, HOMBRO_FLEX_MIN, HOMBRO_FLEX_MAX);
-        b.abd = sujetar(b.abd, HOMBRO_ABD_MIN, HOMBRO_ABD_MAX);
-        b.rot = sujetar(b.rot, HOMBRO_ROT_MIN, HOMBRO_ROT_MAX);
+        b.flex = blando(b.flex, HOMBRO_FLEX_MIN, HOMBRO_FLEX_MAX);
+        b.abd = sujetar(b.abd, HOMBRO_ABD_MIN, HOMBRO_ABD_MAX * k);
+        b.rot = blando(b.rot, HOMBRO_ROT_MIN, HOMBRO_ROT_MAX);
         b.codo = sujetar(b.codo, 0.0f, CODO_MAX);
         b.prono = sujetar(b.prono, PRONO_MIN, PRONO_MAX);
-        b.munFlex = sujetar(b.munFlex, MUNECA_FLEX_MIN, MUNECA_FLEX_MAX);
+        b.munFlex = blando(b.munFlex, MUNECA_FLEX_MIN, MUNECA_FLEX_MAX);
         b.munDesv = sujetar(b.munDesv, MUNECA_DESV_MIN, MUNECA_DESV_MAX);
+        b.encoger = sujetar(b.encoger, 0.0f, 1.0f);
+        b.adelantar = sujetar(b.adelantar, -1.0f, 1.0f);
         for (int d = 0; d < 5; ++d) {
             const auto& L = d == 4 ? PULGAR : DEDO;
             for (int f = 0; f < 3; ++f) b.dedo[d][f] = sujetar(b.dedo[d][f], L[f][0], L[f][1]);
+            // La ultima falange acompana a la del medio: sola se dobla poco.
+            if (d < 4) b.dedo[d][2] = std::fmin(b.dedo[d][2], 0.35f + 0.75f * std::fmax(0.0f, b.dedo[d][1]));
             b.abre[d] = sujetar(b.abre[d], DEDO_ABRE_MIN, DEDO_ABRE_MAX);
         }
     }
+    // Isquiotibiales: cuanto flexiona la cadera depende de la rodilla. La
+    // inclinacion de la pelvis es flexion de las dos caderas a la vez, asi
+    // que se frena con la pierna que menos deja.
+    auto flexMaxDe = [&](const Pierna& g) {
+        const float doblada = suave(sujetar(g.rodilla, 0.0f, RODILLA_MAX) / 1.4f);
+        return (CADERA_FLEX_RODILLA_RECTA + (CADERA_FLEX_MAX - CADERA_FLEX_RODILLA_RECTA) * doblada) * k;
+    };
+    float inclinaMax = 1e9f;
+    for (const Pierna& g : p.pierna) inclinaMax = std::fmin(inclinaMax, flexMaxDe(g) - std::fmax(0.0f, g.flex));
+    p.pelvisInclina = sujetar(p.pelvisInclina, -0.26f * k, std::fmax(0.0f, inclinaMax));
     for (Pierna& g : p.pierna) {
-        g.flex = sujetar(g.flex, CADERA_FLEX_MIN, CADERA_FLEX_MAX);
-        g.abd = sujetar(g.abd, CADERA_ABD_MIN, CADERA_ABD_MAX);
         g.rodilla = sujetar(g.rodilla, 0.0f, RODILLA_MAX);
-        g.tobillo = sujetar(g.tobillo, TOBILLO_MIN, TOBILLO_MAX);
+        g.flex = sujetar(g.flex, CADERA_FLEX_MIN * k - p.pelvisInclina, flexMaxDe(g) - p.pelvisInclina);
+        // Recto femoral: con la cadera atras la rodilla no llega al tope.
+        const float atras = suave(-(g.flex + p.pelvisInclina) / 0.35f);
+        g.rodilla = std::fmin(g.rodilla, RODILLA_MAX + (RODILLA_MAX_CADERA_ATRAS - RODILLA_MAX) * atras);
+        g.abd = blando(g.abd, CADERA_ABD_MIN, CADERA_ABD_MAX);
+        g.rot = blando(g.rot, CADERA_ROT_MIN, CADERA_ROT_MAX);
+        // Gemelos: con la rodilla recta el pie sube menos.
+        const float tobMax = TOBILLO_MAX_RODILLA_RECTA + (TOBILLO_MAX - TOBILLO_MAX_RODILLA_RECTA) * suave(g.rodilla / 0.8f);
+        g.tobillo = sujetar(g.tobillo, TOBILLO_MIN, tobMax * k);
+        g.tobilloLado = sujetar(g.tobilloLado, TOBILLO_LADO_MIN, TOBILLO_LADO_MAX);
         g.dedos = sujetar(g.dedos, DEDOS_PIE_MIN, DEDOS_PIE_MAX);
     }
 }
@@ -1296,6 +1366,8 @@ struct SuavizadoPose {
             campo(b.prono, m.prono, wb * 0.8f, 0.6f);
             campo(b.munFlex, m.munFlex, wb * 0.75f, 0.55f);
             campo(b.munDesv, m.munDesv, wb * 0.75f, 0.6f);
+            campo(b.encoger, m.encoger, wb * 0.6f, 0.8f);
+            campo(b.adelantar, m.adelantar, wb * 0.6f, 0.8f);
             for (int d = 0; d < 5; ++d) {
                 for (int k = 0; k < 3; ++k) campo(b.dedo[d][k], m.dedo[d][k], 24.0f + 2.0f * k, 0.8f);
                 campo(b.abre[d], m.abre[d], 20.0f, 0.8f);
@@ -1309,9 +1381,15 @@ struct SuavizadoPose {
             campo(g.rodilla, m.rodilla, 40.0f, 1.0f);
             campo(g.tobillo, m.tobillo, 40.0f, 1.0f);
             campo(g.dedos, m.dedos, 40.0f, 1.0f);
+            campo(g.rot, m.rot, 30.0f, 1.0f);
+            campo(g.tobilloLado, m.tobilloLado, 30.0f, 1.0f);
         }
         campo(a.inclinacion, o.inclinacion, 11.0f, 0.8f);
         campo(a.giroTorso, o.giroTorso, 12.0f, 0.75f);
+        campo(a.torsoLado, o.torsoLado, 11.0f, 0.8f);
+        campo(a.pelvisInclina, o.pelvisInclina, 11.0f, 0.85f);
+        campo(a.cuelloGiro, o.cuelloGiro, 14.0f, 0.9f);
+        campo(a.cuelloLado, o.cuelloLado, 14.0f, 0.9f);
         campo(a.giroPelvis, o.giroPelvis, 14.0f, 0.9f);
         campo(a.pelvisLado, o.pelvisLado, 16.0f, 0.9f);
         campo(a.cuelloFlex, o.cuelloFlex, 14.0f, 0.9f);
@@ -1338,6 +1416,8 @@ struct SuavizadoPose {
         actual.apretar = objetivo.apretar;
         actual.enMano = objetivo.enMano;
         actual.pedernal = objetivo.pedernal;
+        actual.prop = objetivo.prop;
+        actual.flexibilidad = objetivo.flexibilidad;
         limitar(actual);
         return actual;
     }
@@ -1409,34 +1489,64 @@ struct Esqueleto {
     Junta cadera[2], rodilla[2];
     Pie pie[2];
     float ojo = M::OJO;    // altura del ojo de la figura en esta pose
+    // El largo de cada hueso con las proporciones de la pose (la malla los
+    // usa para que la piel cubra justo el hueso).
+    struct Largos {
+        float espalda = M::ESPALDA, brazo = M::BRAZO, antebrazo = M::ANTEBRAZO,
+              muslo = M::MUSLO, pierna = M::PIERNA;
+    } largo;
 };
 
 // El grosor de cada dedo del pie (del gordo al pequeno).
 inline float radioDedoPie(int d) { return d == 0 ? 0.0160f : 0.0112f - d * 0.0007f; }
 
+// La parte de la flexion lateral y el giro de la columna que ya se hizo a la
+// altura `t` (0 pelvis .. 1 cuello): las vertebras lumbares casi no giran y
+// las toracicas si; la malla del torso usa lo mismo.
+inline float columnaGiro(float t) { const float u = sujetar(t * 1.4f, 0.0f, 1.0f); return u * u * (3.0f - 2.0f * u); }
+inline float columnaLado(float t) { const float u = sujetar(t * 1.25f, 0.0f, 1.0f); return u * u * (3.0f - 2.0f * u); }
+
 namespace detalle {
 inline void resolver(const Pose& p, float subir, Esqueleto& s) {
-    const Rot rPelvis = Rot::enY(p.giroPelvis).por(Rot::enZ(p.pelvisLado));
-    s.pelvis = { { 0, M::CADERA + 0.02f + subir, -M::ATRAS }, rPelvis };
+    Esqueleto::Largos& L = s.largo;
+    L.espalda = M::ESPALDA * p.prop.torso;
+    L.brazo = M::BRAZO * p.prop.brazo;
+    L.antebrazo = M::ANTEBRAZO * p.prop.antebrazo;
+    L.muslo = M::MUSLO * p.prop.muslo;
+    L.pierna = M::PIERNA * p.prop.pierna;
+    const float alturaCadera = M::CADERA + (L.muslo - M::MUSLO) + (L.pierna - M::PIERNA);
+    const Rot rPelvis = Rot::enY(p.giroPelvis).por(Rot::enZ(p.pelvisLado)).por(Rot::enX(-p.pelvisInclina));
+    s.pelvis = { { 0, alturaCadera + 0.02f + subir, -M::ATRAS }, rPelvis };
     // El pecho compensa casi toda la caida de la cadera: los hombros quedan
     // casi rectos aunque la pelvis se incline.
-    const Rot rPecho = rPelvis.por(Rot::enZ(-0.8f * p.pelvisLado)).por(Rot::enY(p.giroTorso))
+    const Rot rPecho = rPelvis.por(Rot::enZ(-0.8f * p.pelvisLado - p.torsoLado)).por(Rot::enY(p.giroTorso))
                               .por(Rot::enX(-p.inclinacion));
     s.pecho = { s.pelvis.p, rPecho };
-    s.cuello = { suma(s.pelvis.p, rPecho.aplicar({ 0, M::ESPALDA, 0 })),
-                 rPecho.por(Rot::enX(p.cuelloFlex)) };
+    // El cuello: gira, se dobla de lado y hacia el pecho (en ese orden: la
+    // atlas-axis gira y el resto de las cervicales se doblan).
+    s.cuello = { suma(s.pelvis.p, rPecho.aplicar({ 0, L.espalda, 0 })),
+                 rPecho.por(Rot::enY(p.cuelloGiro)).por(Rot::enZ(-p.cuelloLado)).por(Rot::enX(p.cuelloFlex)) };
     s.ojo = s.cuello.p.y + M::OJO_SOBRE_CUELLO;
+    const float kHombro = L.espalda / M::ESPALDA;
 
     for (int l = 0; l < 2; ++l) {
         const float sx = l == 0 ? -1.0f : 1.0f;
         const Brazo& b = p.brazo[l];
-        // Al tomar aire los hombros suben un poco.
+        // ⭐ LA ESCAPULA. Al subir el brazo por encima de ~70 grados la
+        // escapula gira y sube con el (el ritmo escapulohumeral: de cada 3
+        // grados, 1 lo pone ella); al llevarlo delante se desliza hacia
+        // delante. Mas lo que se encoja o adelante a proposito, y al tomar
+        // aire los hombros suben un poco.
+        const float elevado = std::fmax(b.abd, b.flex);
+        const float ritmo = sujetar((elevado - 1.2f) / 1.6f, 0.0f, 1.0f);
+        const float sube = Lim::ENCOGER_M * b.encoger + 0.022f * ritmo + p.respira * 0.005f;
+        const float delante = Lim::ADELANTAR_M * b.adelantar + 0.012f * sujetar(b.flex / 1.5f, -0.5f, 1.0f);
         const V hombro = suma(s.pelvis.p, rPecho.aplicar({ sx * M::X_HOMBRO,
-                                                           M::HOMBRO + p.respira * 0.005f, 0 }));
+                                                           M::HOMBRO * kHombro + sube, delante }));
         const Rot rBrazo = rPecho.por(Rot::enZ(sx * b.abd)).por(Rot::enX(b.flex))
                                  .por(Rot::enY(sx * b.rot));
         s.hombro[l] = { hombro, rBrazo };
-        const V codo = suma(hombro, rBrazo.aplicar({ 0, -M::BRAZO, 0 }));
+        const V codo = suma(hombro, rBrazo.aplicar({ 0, -L.brazo, 0 }));
         const Rot rAnte = rBrazo.por(Rot::enX(b.codo));
         s.codo[l] = { codo, rAnte };
         // La mano se construye en la posicion anatomica: palma delante (+Z) y
@@ -1445,7 +1555,7 @@ inline void resolver(const Pose& p, float subir, Esqueleto& s) {
         // vuelta, mas lo que este pronada. Ese giro se reparte a lo largo del
         // antebrazo (radio sobre cubito), no de golpe en la muneca.
         s.prono[l] = -sx * (PI * 0.5f + b.prono);
-        const V muneca = suma(codo, rAnte.aplicar({ 0, -M::ANTEBRAZO, 0 }));
+        const V muneca = suma(codo, rAnte.aplicar({ 0, -L.antebrazo, 0 }));
         const float pulgar = sx;                  // el pulgar, hacia fuera
         const Rot rMano = rAnte.por(Rot::enY(s.prono[l])).por(Rot::enX(b.munFlex))
                                .por(Rot::enZ(pulgar * b.munDesv));
@@ -1482,13 +1592,18 @@ inline void resolver(const Pose& p, float subir, Esqueleto& s) {
         const float sx = l == 0 ? -1.0f : 1.0f;
         const Pierna& g = p.pierna[l];
         const V cadera = suma(s.pelvis.p, rPelvis.aplicar({ sx * M::X_CADERA, -0.02f, 0 }));
-        const Rot rMuslo = rPelvis.por(Rot::enZ(sx * g.abd)).por(Rot::enX(g.flex));
+        // La rotacion de la cadera gira el muslo sobre su eje: con ella la
+        // rodilla y la punta del pie miran hacia fuera o hacia dentro.
+        const Rot rMuslo = rPelvis.por(Rot::enX(p.pelvisInclina)).por(Rot::enZ(sx * g.abd)).por(Rot::enX(g.flex))
+                                  .por(Rot::enY(sx * g.rot));
         s.cadera[l] = { cadera, rMuslo };
-        const V rodilla = suma(cadera, rMuslo.aplicar({ 0, -M::MUSLO, 0 }));
+        const V rodilla = suma(cadera, rMuslo.aplicar({ 0, -L.muslo, 0 }));
         const Rot rPierna = rMuslo.por(Rot::enX(-g.rodilla));   // la rodilla dobla hacia atras
         s.rodilla[l] = { rodilla, rPierna };
-        const V tobillo = suma(rodilla, rPierna.aplicar({ 0, -M::PIERNA, 0 }));
-        const Rot rPie = rPierna.por(Rot::enX(g.tobillo));
+        const V tobillo = suma(rodilla, rPierna.aplicar({ 0, -L.pierna, 0 }));
+        // El tobillo sube y baja la punta; la subastragalina voltea la planta
+        // hacia dentro (inversion) o hacia fuera (eversion).
+        const Rot rPie = rPierna.por(Rot::enX(g.tobillo)).por(Rot::enZ(-sx * g.tobilloLado));
         Pie& pie = s.pie[l];
         pie.tobillo = { tobillo, rPie };
         pie.talon = suma(tobillo, rPie.aplicar({ 0, -0.068f, -0.058f }));

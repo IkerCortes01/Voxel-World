@@ -98,6 +98,8 @@ enum Param : int {
     CUERPO_ALTURA_EXTRA, CUERPO_FUERZA, CUERPO_EDAD, CUERPO_GENERO, CUERPO_GRASA,
     // ROPA
     ROPA_CAMISA_TONO, ROPA_CAMISA_CLARO, ROPA_SHORT_TONO, ROPA_SHORT_CLARO,
+    // PROPORCIONES Y ARTICULACIONES (al final: avatar.txt guarda por numero)
+    LARGO_TORSO, LARGO_BRAZO, LARGO_ANTEBRAZO, LARGO_MUSLO, LARGO_PIERNA, FLEXIBILIDAD,
     NUM_PARAMS
 };
 
@@ -164,12 +166,20 @@ inline const InfoParam& info(int p) {
         { "CLARIDAD CAMISA",    0.1f, 1.0f, 0.55f, "" },
         { "TONO DE SHORT",      0.0f, 1.0f, 0.64f, "" },
         { "CLARIDAD SHORT",     0.05f, 1.0f, 0.25f, "" },
+        // Los huesos largos varian ~5 % (una desviacion) entre adultos de la
+        // misma altura; aqui hasta dos desviaciones a cada lado.
+        { "LARGO DE TORSO",     0.90f, 1.10f, 1.0f, "" },
+        { "LARGO DE BRAZO",     0.90f, 1.10f, 1.0f, "" },
+        { "LARGO DE ANTEBRAZO", 0.90f, 1.10f, 1.0f, "" },
+        { "LARGO DE MUSLO",     0.90f, 1.10f, 1.0f, "" },
+        { "LARGO DE PIERNA",    0.90f, 1.10f, 1.0f, "" },
+        { "FLEXIBILIDAD",       0.0f, 1.0f, 0.5f, "" },
     };
     return T[p < 0 ? 0 : (p >= NUM_PARAMS ? NUM_PARAMS - 1 : p)];
 }
 
 struct Familia { const char* nombre; int desde, hasta; };   // [desde, hasta)
-constexpr int NUM_FAMILIAS = 16;
+constexpr int NUM_FAMILIAS = 17;
 inline const Familia& familia(int f) {
     static const Familia F[NUM_FAMILIAS] = {
         { "CABEZA",         CAB_TAMANO,     OJO_TAMANO },
@@ -187,7 +197,8 @@ inline const Familia& familia(int f) {
         { "CADERA",         CADERA_ANCHO,   PIERNA_MUSLO },
         { "PIERNAS",        PIERNA_MUSLO,   PIE_TAMANO },
         { "PIES",           PIE_TAMANO,     CUERPO_ALTURA_EXTRA },
-        { "CUERPO Y ROPA",  CUERPO_ALTURA_EXTRA, NUM_PARAMS },
+        { "CUERPO Y ROPA",  CUERPO_ALTURA_EXTRA, LARGO_TORSO },
+        { "PROPORCIONES",   LARGO_TORSO,    NUM_PARAMS },
     };
     return F[f < 0 ? 0 : (f >= NUM_FAMILIAS ? NUM_FAMILIAS - 1 : f)];
 }
@@ -363,6 +374,7 @@ struct Datos {
     float v[NUM_PARAMS];
     Genoma genes;
     double ultimoDia = -1.0;     // el dia del mundo en que se aplico el crecimiento
+    std::string gesto = "SALUDAR";   // la animacion de la tecla G (ver Movimiento.h)
 
     Datos() { reiniciar(); }
     void reiniciar() {
@@ -509,6 +521,7 @@ struct Datos {
         }
         std::snprintf(linea, sizeof(linea), "dia %.4f\n", ultimoDia);
         s += linea;
+        s += "gesto " + gesto + "\n";
         return s;
     }
     void leer(const std::string& s) {
@@ -527,6 +540,10 @@ struct Datos {
                 genes.a[k][0] = (uint8_t)(((a0 % n) + n) % n);
                 genes.a[k][1] = (uint8_t)(((a1 % n) + n) % n);
             } else if (std::sscanf(l.c_str(), "dia %lf", &d) == 1) ultimoDia = d;
+            else if (l.compare(0, 6, "gesto ") == 0) {
+                gesto = l.substr(6);
+                while (!gesto.empty() && (gesto.back() == '\r' || gesto.back() == ' ')) gesto.pop_back();
+            }
         }
         genes.a[G_SRY][0] = 0;   // la madre siempre da un X
     }

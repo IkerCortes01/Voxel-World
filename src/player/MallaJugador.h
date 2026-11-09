@@ -530,9 +530,10 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
 
     // ================= TORSO =================
     {
-        const float L = M::ESPALDA + 0.10f;
+        const float L = s.largo.espalda + 0.10f;
         auto eje = [&](float t, V& c, Rot& r) {
-            r = s.pelvis.r.por(Rot::enY(p.giroTorso * suave(t * 1.4f))).por(Rot::enX(-p.inclinacion * suave(t * 2.0f)));
+            r = s.pelvis.r.por(Rot::enZ((-0.8f * p.pelvisLado - p.torsoLado) * columnaLado(t)))
+                       .por(Rot::enY(p.giroTorso * columnaGiro(t))).por(Rot::enX(-p.inclinacion * suave(t * 2.0f)));
             c = suma(s.pelvis.p, r.aplicar({ 0, -0.10f + L * t, 0 }));
         };
         static const float KX[][2] = { { 0.0f, 0.150f }, { 0.18f, 0.165f }, { 0.38f, 0.145f },
@@ -636,7 +637,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
                   { 0.050f * kDelt, 0.054f * (0.9f + 0.1f * kDelt), 0.050f * kDelt }, N(7), N(12), camisa);
 
         // Brazo: piel desde el borde de la manga, y la manga encima.
-        const EjeRecto ejeBrazo{ s.hombro[l].p, s.hombro[l].r, M::BRAZO };
+        const EjeRecto ejeBrazo{ s.hombro[l].p, s.hombro[l].r, s.largo.brazo };
         const float kBiceps = F.biceps * F.musculo;
         auto kBrazo = [=](float t) { return F.brazo * (1.0f + (kBiceps - 1.0f) * 0.30f * bulto(t - 0.60f, 0.38f)); };
         auto secBrazo = [=](float t, float a, float& dx, float& dz) {
@@ -668,7 +669,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         const float giro = s.prono[l];
         auto ejeAnte = [=](float t, V& c, Rot& r) {
             r = rAnte.por(Rot::enY(giro * t));
-            c = suma(oAnte, rAnte.aplicar({ 0, -M::ANTEBRAZO * t, 0 }));
+            c = suma(oAnte, rAnte.aplicar({ 0, -s.largo.antebrazo * t, 0 }));
         };
         const float kAnte = F.antebrazo * F.brazo;
         auto secAnte = [=](float t, float a, float& dx, float& dz) {
@@ -786,7 +787,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
         const float visible = visibleBase * 0.85f;
 
         // Muslo: el pantalon corto cubre hasta un palmo sobre la rodilla.
-        const EjeRecto ejeMuslo{ s.cadera[l].p, s.cadera[l].r, M::MUSLO };
+        const EjeRecto ejeMuslo{ s.cadera[l].p, s.cadera[l].r, s.largo.muslo };
         const float kMuslo = F.muslo * (1.0f + (F.musculo - 1.0f) * 0.30f);
         auto secMuslo = [=](float t, float a, float& dx, float& dz) {
             seccionMuslo(t, a, sx, dx, dz);
@@ -821,7 +822,7 @@ inline void generar(const Esqueleto& s, const Pose& p, const Piel& piel, const F
 
         // Pierna: tibia, gemelos y Aquiles.
         const float punta = sujetar(-g.tobillo / 0.87f, 0.0f, 1.0f);
-        const EjeRecto ejePierna{ s.rodilla[l].p, s.rodilla[l].r, M::PIERNA };
+        const EjeRecto ejePierna{ s.rodilla[l].p, s.rodilla[l].r, s.largo.pierna };
         const float kGemelo = F.gemelo * F.musculo;
         auto secPierna = [=](float t, float a, float& dx, float& dz) {
             seccionPierna(t, a, sx, punta, dx, dz);

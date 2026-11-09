@@ -1,0 +1,41 @@
+# ============================================================================
+# EJEMPLO DE ANIMACION PROGRAMADA
+# ============================================================================
+# Cada archivo .txt de esta carpeta puede tener una o varias animaciones.
+# Salen en Avatar > MOVIMIENTO (con un * al lado) y la elegida se hace en el
+# juego con la tecla G. Tras cambiar un archivo, boton RECARGAR.
+#
+#   nombre   COMO SE LLAMA        (si coincide con una del juego, la sustituye)
+#   duracion SEGUNDOS
+#   bucle    si | no              (si = se repite hasta pulsar G otra vez o andar)
+#   curva    natural | suave | lineal
+#   T  canal=valor  canal=valor ...      una clave en el segundo T
+#
+# Los angulos van en grados. El lado: .i izquierda, .d derecha, .a los dos.
+# Canales (rango sano entre parentesis; lo que se pase se recorta):
+#   cuello.flex (-50..50)  cuello.giro (-70..70)  cuello.lado (-40..40)
+#   torso.inclina (-14..63)  torso.giro (-30..30)  torso.lado (-35..35)
+#   pelvis.inclina (-15..120)  pelvis.giro  pelvis.lado
+#   hombro.X.encoger (0..1)  hombro.X.adelantar (-1..1)
+#   brazo.X.flex (-52..172)  brazo.X.abd (-11..149)  brazo.X.rot (-69..69)
+#   codo.X (0..149)  antebrazo.X.prono (-80..86)
+#   muneca.X.flex (-69..80)  muneca.X.desv (-20..32)
+#   dedos.X.indice / medio / anular / menique / pulgar (0 abierto .. 1 cerrado)
+#   dedos.X.abrir (-0.4..1)
+#   pierna.X.flex (-20..120)  pierna.X.abd (-29..46)  pierna.X.rot (-35..45)
+#   rodilla.X (0..137)  tobillo.X.flex (-50..20)  tobillo.X.lado (-15..30)
+#   dedospie.X (-40..63)
+#
+# El cuerpo respeta la anatomia aunque el archivo pida otra cosa: con la
+# rodilla recta la cadera no pasa de ~80 grados (isquiotibiales), el pie
+# sube menos (gemelos) y la ultima falange no se dobla sin la del medio.
+# ============================================================================
+
+nombre   BAILAR
+duracion 2.0
+bucle    si
+curva    natural
+0.00  rodilla.a=15 pelvis.lado=-6 torso.lado=4 brazo.a.abd=35 codo.a=95 brazo.a.flex=30 dedos.a.indice=0.8 dedos.a.medio=0.8 dedos.a.anular=0.8 dedos.a.menique=0.8 cuello.lado=5
+0.50  rodilla.a=25 pelvis.lado=0 torso.lado=0 cuello.lado=0 brazo.i.flex=60 brazo.d.flex=10
+1.00  rodilla.a=15 pelvis.lado=6 torso.lado=-4 cuello.lado=-5 brazo.i.flex=30 brazo.d.flex=30
+1.50  rodilla.a=25 pelvis.lado=0 torso.lado=0 cuello.lado=0 brazo.i.flex=10 brazo.d.flex=60

@@ -116,6 +116,7 @@ add_executable(voxel_tests
     test_fuera_creativo.cpp
     test_relieve.cpp
     test_avatar.cpp
+    test_movimiento.cpp
     test_alineacion_bloques.cpp
     test_techo_pilar.cpp
     test_raiz_palos.cpp

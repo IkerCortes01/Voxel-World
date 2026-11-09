@@ -199,6 +199,7 @@ struct Pierna {
 // una persona media de 1.80). Las pone el avatar.
 struct Proporciones {
     float torso = 1.0f, brazo = 1.0f, antebrazo = 1.0f, muslo = 1.0f, pierna = 1.0f;
+    float hombroY = 1.0f;   // la altura del hombro sobre la pelvis (hombros caidos < 1)
 };
 struct Pose {
     Brazo brazo[2];
@@ -1542,7 +1543,7 @@ inline void resolver(const Pose& p, float subir, Esqueleto& s) {
         const float sube = Lim::ENCOGER_M * b.encoger + 0.022f * ritmo + p.respira * 0.005f;
         const float delante = Lim::ADELANTAR_M * b.adelantar + 0.012f * sujetar(b.flex / 1.5f, -0.5f, 1.0f);
         const V hombro = suma(s.pelvis.p, rPecho.aplicar({ sx * M::X_HOMBRO,
-                                                           M::HOMBRO * kHombro + sube, delante }));
+                                                           M::HOMBRO * kHombro * p.prop.hombroY + sube, delante }));
         const Rot rBrazo = rPecho.por(Rot::enZ(sx * b.abd)).por(Rot::enX(b.flex))
                                  .por(Rot::enY(sx * b.rot));
         s.hombro[l] = { hombro, rBrazo };

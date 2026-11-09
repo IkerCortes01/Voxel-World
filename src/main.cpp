@@ -104,6 +104,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/MallaJugador.h"    // su piel: musculos, tendones y venas
 #include "player/CabezaJugador.h"   // la cabeza, el pelo y el avatar (genes y ajustes)
 #include "player/Movimiento.h"      // canales de cada articulacion y animaciones programables
+#include "player/MallaImportada.h"  // el modelo realista importado (GLB -> jugador.vwm) con el esqueleto
 #include "player/Postura.h"         // SHIFT y ESPACIO: de pie, agachado, tumbado
 #include "player/EngineAdapter.h"
 
@@ -1141,6 +1142,21 @@ private:
     ModeloJugador::Esqueleto esqHecha;
     ModeloJugador::Pose poseHecha;
 };
+
+// ⭐ EL MODELO REALISTA DEL JUGADOR (ver player/MallaImportada.h). Si existe
+// resourcepacks/Modelos/jugador.vwm se usa en vez del cuerpo procedural; si
+// no, queda el de siempre. Se carga una vez.
+const ModeloJugador::MallaImportada& modeloImportado() {
+    static ModeloJugador::MallaImportada m;
+    static bool intentado = false;
+    if (!intentado) {
+        intentado = true;
+        if (m.cargar(gamePath("resourcepacks/Modelos/jugador.vwm")))
+            std::cout << "[JUGADOR] Modelo importado: " << m.base.size() << " vertices, "
+                      << m.indices.size() / 3 << " triangulos" << std::endl;
+    }
+    return m;
+}
 
 const Movimiento::Animacion* animacionLlamada(const std::string& nombre) {
     for (const Movimiento::Animacion& a : animacionesTodas()) if (a.nombre == nombre) return &a;
@@ -42754,6 +42770,8 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
         // Los huesos y la flexibilidad del avatar, y la animacion elegida
         // (sin bucle se repite con una pausa para verla entera).
         ModeloJugador::aplicarProporciones(g_avatar, pose);
+        const bool importado = modeloImportado().cargada;
+        if (importado) pose.prop = modeloImportado().proporciones();
         const Movimiento::Animacion* anim = modoVista == 1 ? animacionLlamada(animVista) : nullptr;
         if (anim) {
             float t = (float)(glfwGetTime() - animDesde);
@@ -42769,8 +42787,13 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
         q.venas = true;
         ModeloJugador::Fisiologia fis;
         static ModeloJugador::Malla cuerpo, cabeza;
-        ModeloJugador::generar(esq, pose, piel, fis, q, cuerpo);
-        ModeloJugador::generarCabeza(esq, g_avatar, q, cabeza);
+        if (importado) {
+            modeloImportado().deformar(esq, cuerpo, true);
+            cabeza.limpiar();
+        } else {
+            ModeloJugador::generar(esq, pose, piel, fis, q, cuerpo);
+            ModeloJugador::generarCabeza(esq, g_avatar, q, cabeza);
+        }
 
         int fbw = width, fbh = height;
         glfwGetFramebufferSize(window, &fbw, &fbh);
@@ -50911,6 +50934,7 @@ int main() {
                 cargarAvatar();
                 ModeloJugador::Pose objetivo = ModeloJugador::poseDe(ea);
                 ModeloJugador::aplicarProporciones(g_avatar, objetivo);
+                if (modeloImportado().cargada) objetivo.prop = modeloImportado().proporciones();
                 {
                     static float tGesto = -1.0f;
                     if (g_gestoPedido) {
@@ -50958,8 +50982,16 @@ int main() {
                 static ModeloJugador::Malla malla;
                 static ModeloJugador::Esqueleto esqDibujo;
                 static ModeloJugador::Pose poseDibujo;
-                cuerpoHilo.pedir({ esqAhora, poseAhora, piel, fisiologia, calidad });
-                cuerpoHilo.recoger(malla, esqDibujo, poseDibujo);
+                // Con el modelo importado basta deformarlo (decimas de ms), sin
+                // la cabeza: la camara esta dentro.
+                if (modeloImportado().cargada) {
+                    modeloImportado().deformar(esqAhora, malla, false);
+                    esqDibujo = esqAhora;
+                    poseDibujo = poseAhora;
+                } else {
+                    cuerpoHilo.pedir({ esqAhora, poseAhora, piel, fisiologia, calidad });
+                    cuerpoHilo.recoger(malla, esqDibujo, poseDibujo);
+                }
                 const ModeloJugador::Esqueleto& esq = esqDibujo;
                 const ModeloJugador::Pose& pose = poseDibujo;
                 const float ky = ModeloJugador::escalaVertical(esq, altoOjo);

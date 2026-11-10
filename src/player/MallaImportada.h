@@ -343,15 +343,14 @@ struct MallaImportada {
         // persona, y lo que se quito queda detras de la camara.
         indicesSinCabeza.clear();
         const V entreOjos = mezclar(pt.ojo[0], pt.ojo[1], 0.5f);
-        const float yCuello = ref[H_CABEZA].marco.p.y - 0.02f;
         for (size_t t = 0; t + 2 < indices.size(); t += 3) {
             bool fuera = false;
             for (int k = 0; k < 3; ++k) {
                 const uint32_t v = indices[t + k];
-                const bool cabeza = (h0[v] == H_CABEZA && w0[v] > 0.3f) || (h1[v] == H_CABEZA && w0[v] < 0.7f);
-                const bool cuello = modelo[v].p.y > yCuello && std::fabs(modelo[v].p.x - entreOjos.x) < 0.09f &&
-                                    std::fabs(modelo[v].p.z - ref[H_CABEZA].marco.p.z) < 0.09f;
-                if (cabeza || cuello || largo(resta(modelo[v].p, entreOjos)) < 0.08f) fuera = true;
+                // La cabeza del menton para arriba; el cuello y los hombros se ven.
+                const bool cabeza = ((h0[v] == H_CABEZA && w0[v] > 0.3f) || (h1[v] == H_CABEZA && w0[v] < 0.7f)) &&
+                                    modelo[v].p.y > pt.menton.y + 0.005f;
+                if (cabeza || largo(resta(modelo[v].p, entreOjos)) < 0.08f) fuera = true;
             }
             if (!fuera) indicesSinCabeza.insert(indicesSinCabeza.end(), { indices[t], indices[t + 1], indices[t + 2] });
         }
@@ -602,10 +601,11 @@ struct MallaImportada {
         const Junta& r0 = ref[H_CABEZA].marco;
         const V entre = mezclar(pt.ojo[0], pt.ojo[1], 0.5f);
         V local = detalle::traspuesta(r0.r).aplicar(resta(entre, r0.p));
-        // Un poco por encima y por detras de los ojos: asi la camara no roza
-        // los parpados ni las cejas al girar o inclinar la cabeza.
-        local.y += 0.035f;
-        local.z -= 0.035f;
+        // Algo por encima y por delante de los ojos: asi la camara no roza los
+        // parpados ni las cejas y al mirar abajo ve el cuello y los hombros
+        // por fuera, sin meterse en ellos.
+        local.y += 0.045f;
+        local.z += 0.03f;
         local = escala(local, ajustes.cabeza);
         return suma(h[H_CABEZA].marco.p, h[H_CABEZA].marco.r.aplicar(local));
     }

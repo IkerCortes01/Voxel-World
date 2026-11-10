@@ -492,24 +492,40 @@ inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo, float apunta = 0
     // Cada golpe de la serie, ligeramente distinto: unos cargan mas, otros
     // golpean un poco mas abajo, la muneca no remata siempre igual.
     const uint32_t sg = semilla * 7919u + numero;
-    const float k = faseGolpe(u, sujetar(g.carga + 0.04f * ruido(sg, 1), 0.3f, 0.8f));
+    const float cargaF = sujetar(g.carga + 0.04f * ruido(sg, 1), 0.3f, 0.8f);
+    // ⭐ LA CADENA DEL GOLPE, del cuerpo a la herramienta. Un golpe de verdad
+    // no mueve todo a la vez: arrancan la cadera y el tronco, luego el hombro,
+    // luego el codo y la muneca al final -- el latigazo que da la fuerza. Cada
+    // eslabon va un poco por detras del anterior.
+    auto fase = [&](float desfase) { float uu = u + desfase; uu -= std::floor(uu); return faseGolpe(uu, cargaF); };
+    const float kTronco = fase(0.06f), kHombro = fase(0.025f), k = fase(0.0f), kMuneca = fase(-0.035f);
+    // El rebote al dar: la herramienta se frena de golpe y vibra un instante.
+    const float tImpacto = (u - (cargaF + (1.0f - cargaF) * 0.45f)) * g.periodo;
+    const float rebote = tImpacto > 0.0f ? std::sin(tImpacto * 42.0f) * std::exp(-tImpacto * 16.0f) : 0.0f;
     const float carga = 1.0f + 0.10f * ruido(sg, 2);      // mas o menos arriba
     const float impacto = 0.07f * ruido(sg, 3);           // un poco mas alto o bajo
-    auto mezcla = [k](const float v[2]) { return v[0] + (v[1] - v[0]) * k; };
-    auto mezclaV = [k, carga, impacto](const float v[2]) {
-        return v[0] * carga + (v[1] + impacto - v[0] * carga) * k;
+    auto mezclaEn = [](float kk, const float v[2]) { return v[0] + (v[1] - v[0]) * kk; };
+    auto mezcla = [&](const float v[2]) { return mezclaEn(k, v); };
+    auto mezclaV = [carga, impacto](float kk, const float v[2]) {
+        return v[0] * carga + (v[1] + impacto - v[0] * carga) * kk;
     };
     Brazo& b = p.brazo[1];
-    b.flex = mezclaV(g.flex);
-    b.abd = mezcla(g.abd) + 0.05f * ruido(sg, 4);
-    b.rot = mezcla(g.rot);
-    b.codo = mezclaV(g.codo);
-    b.munFlex = mezcla(g.muneca) + 0.10f * ruido(sg, 5) * k;
+    b.flex = mezclaV(kHombro, g.flex) - 0.06f * rebote;
+    b.abd = mezclaEn(kHombro, g.abd) + 0.05f * ruido(sg, 4);
+    b.rot = mezclaEn(kHombro, g.rot);
+    b.codo = mezclaV(k, g.codo);
+    b.munFlex = mezclaEn(kMuneca, g.muneca) + 0.10f * ruido(sg, 5) * kMuneca - 0.15f * rebote;
+    // El cuerpo entra en el golpe: las rodillas ceden un poco al dar, la
+    // pelvis gira con el tronco y la cabeza acompana hacia el blanco.
+    for (Pierna& pg : p.pierna) pg.rodilla += 0.04f + 0.10f * kTronco;
+    p.giroPelvis += 0.35f * mezclaEn(kTronco, g.torso);
+    p.pelvisInclina += 0.05f * kTronco;
+    p.cuelloFlex += 0.08f * k;
     b.prono = 0.55f;
     manoRelajada(b, 1.0f);
     b.dedo[4][0] = 0.75f; b.dedo[4][1] = 0.65f; b.dedo[4][2] = 0.55f;
-    p.giroTorso += mezcla(g.torso) * (1.0f + 0.15f * ruido(sg, 6));
-    p.inclinacion += g.inclina * k;
+    p.giroTorso += mezclaEn(kTronco, g.torso) * (1.0f + 0.15f * ruido(sg, 6));
+    p.inclinacion += g.inclina * kTronco;
     p.apretar = 1.0f;
     // El brazo libre acompana el golpe para equilibrar: baja cuando el otro
     // sube y se adelanta un poco en el impacto.

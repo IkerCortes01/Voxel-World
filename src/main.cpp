@@ -51161,7 +51161,9 @@ int main() {
                 baja = baja < 0.0f ? 0.0f : (baja > 1.0f ? 1.0f : baja);
                 // Tambien con el modelo realista: si no, al mirar abajo la camara
                 // (en su cabeza) queda encima del cuello y ve el cuerpo por dentro.
-                const float atrasPorAlto = 0.26f * baja / 1.45f * (1.0f - pose.tumbado);
+                // Agachado mucho menos: echar atras unas cuclillas las aplastaba
+                // (los muslos se veian como tablas).
+                const float atrasPorAlto = 0.26f * baja / 1.45f * (1.0f - pose.tumbado) * (1.0f - 0.75f * ModeloJugador::sujetar(pose.agachado, 0.0f, 1.0f));
                 // Tumbado, lo que se apoya es la malla entera (pecho, codos):
                 // se ajusta al suelo por su punto mas bajo.
                 float baseMalla = 0.0f;
@@ -51212,7 +51214,7 @@ int main() {
                     // El giro del cuerpo al mundo invierte el sentido de las caras:
                     // con el determinante negativo, las de delante son las horarias.
                     luz.frenteHorario = (rx * fz - fx * rz) * ky < 0.0f;
-                    luz.recorteCerca = 0.45f;
+                    luz.recorteCerca = 0.20f;   // solo lo pegado a la camara: los muslos agachado se ven enteros
                     glPushMatrix();
                     glMultMatrixf(M);
                     glDisable(GL_CULL_FACE);

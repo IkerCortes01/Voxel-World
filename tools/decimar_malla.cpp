@@ -8,7 +8,8 @@
 //
 //     decimar_malla entrada.raw salida.raw triangulos_objetivo
 //
-// .raw (little endian): uint32 nv, nt; nv x float[8] (pos, normal, uv);
+// .raw (little endian): uint32 nv, nt; nv x float[9] (pos, normal, uv,
+// importancia: cuanto cuesta simplificar ahi; manos y cara valen mas);
 // nt x uint32[3].
 //
 // EL METODO: colapso de media arista con el error cuadratico de Garland y
@@ -67,7 +68,7 @@ int main(int argc, char** argv) {
     if (!f) { std::fprintf(stderr, "no abre %s\n", argv[1]); return 1; }
     uint32_t nv = 0, nt = 0;
     if (std::fread(&nv, 4, 1, f) != 1 || std::fread(&nt, 4, 1, f) != 1) return 1;
-    std::vector<float> vb((size_t)nv * 8);
+    std::vector<float> vb((size_t)nv * 9);
     std::vector<uint32_t> ib((size_t)nt * 3);
     if (std::fread(vb.data(), 4, vb.size(), f) != vb.size() || std::fread(ib.data(), 4, ib.size(), f) != ib.size()) return 1;
     std::fclose(f);
@@ -78,7 +79,7 @@ int main(int argc, char** argv) {
     {
         std::unordered_map<uint64_t, std::vector<int>> mapa;
         for (uint32_t i = 0; i < nv; ++i) {
-            const float* q = &vb[(size_t)i * 8];
+            const float* q = &vb[(size_t)i * 9];
             const int64_t kx = (int64_t)std::llround(q[0] * 1e6), ky = (int64_t)std::llround(q[1] * 1e6),
                           kz = (int64_t)std::llround(q[2] * 1e6);
             const uint64_t h = (uint64_t)kx * 73856093ull ^ (uint64_t)ky * 19349663ull ^ (uint64_t)kz * 83492791ull;
@@ -101,6 +102,9 @@ int main(int argc, char** argv) {
         for (int k = 0; k < 3; ++k) tris[posDe(t, k)].push_back((int)t);
     }
     // Las cuadricas, con el area como peso.
+    // La importancia de cada posicion (la mayor de sus cunas).
+    std::vector<float> peso(np, 1.0f);
+    for (uint32_t i = 0; i < nv; ++i) peso[W[i].pos] = std::max(peso[W[i].pos], vb[(size_t)i * 9 + 8]);
     std::vector<Cuadrica> Q(np);
     for (uint32_t t = 0; t < nt; ++t) {
         if (!viva[t]) continue;
@@ -110,7 +114,8 @@ int main(int argc, char** argv) {
         if (l < 1e-20) continue;
         n = { n.x / l, n.y / l, n.z / l };
         const double d = -punto(n, a);
-        for (int k = 0; k < 3; ++k) Q[posDe(t, k)].sumarPlano(n.x, n.y, n.z, d, l * 0.5);
+        const double w = std::max(peso[posDe(t, 0)], std::max(peso[posDe(t, 1)], peso[posDe(t, 2)]));
+        for (int k = 0; k < 3; ++k) Q[posDe(t, k)].sumarPlano(n.x, n.y, n.z, d, l * 0.5 * w);
     }
     // Los bordes abiertos: un plano perpendicular que los sujeta.
     std::vector<char> borde(np, 0);

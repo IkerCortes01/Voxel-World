@@ -116,7 +116,7 @@ def decimar(p, n, uv, idx, objetivo, temp):
     ent, sal = temp + "_entrada.raw", temp + "_salida.raw"
     with open(ent, "wb") as f:
         f.write(struct.pack("<II", len(p), len(idx)))
-        f.write(np.hstack([p, n, uv]).astype("<f4").tobytes())
+        f.write(np.hstack([p, n, uv, importancia(p)[:, None]]).astype("<f4").tobytes())
         f.write(idx.astype("<u4").tobytes())
     subprocess.run([exe, ent, sal, str(objetivo)], check=True)
     with open(sal, "rb") as f:
@@ -127,6 +127,21 @@ def decimar(p, n, uv, idx, objetivo, temp):
     os.remove(ent)
     os.remove(sal)
     return v[:, :3], v[:, 3:6], v[:, 6:8], t
+
+
+def importancia(p):
+    """Cuanto cuesta simplificar cada vertice: las manos (los dedos) mucho,
+    la cara y los pies algo; el tronco y las piernas, superficies grandes y
+    lisas, se simplifican sin que se note."""
+    x, y, z = p[:, 0], p[:, 1], p[:, 2]
+    w = np.ones(len(p))
+    cab = y > 1.53
+    frente = z > np.percentile(z[cab], 70) if cab.any() else np.zeros(len(p), bool)
+    w[cab & frente] = 6.0
+    w[cab & ~frente] = 2.0
+    w[y < 0.10] = 4.0
+    w[(np.abs(x) > 0.62) & (y > 1.1)] = 25.0
+    return w
 
 
 def tangentes(p, n, uv, t):

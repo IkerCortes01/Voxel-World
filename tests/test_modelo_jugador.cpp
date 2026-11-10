@@ -24,7 +24,8 @@ bool dentroDeLimites(const Pose& p) {
             }
     }
     for (const Pierna& g : p.pierna)
-        ok = ok && en(g.flex, CADERA_FLEX_MIN, CADERA_FLEX_MAX) && en(g.rodilla, 0, RODILLA_MAX) &&
+        // La flexion de la cadera es la del muslo mas la inclinacion de la pelvis.
+        ok = ok && en(g.flex + p.pelvisInclina, CADERA_FLEX_MIN, CADERA_FLEX_MAX) && en(g.rodilla, 0, RODILLA_MAX) &&
              en(g.tobillo, TOBILLO_MIN, TOBILLO_MAX) && en(g.dedos, DEDOS_PIE_MIN, DEDOS_PIE_MAX);
     return ok;
 }

@@ -376,8 +376,8 @@ inline void dibujarVena(Malla& m, const T& tb, const Vena& v, Color piel, float 
         const float u = (float)k / muestras;
         // 0 en los extremos. sin(PI) en float sale -8e-8: sin el tope, NaN.
         const float fin = std::sqrt(std::fmax(0.0f, std::sin(PI * u)));
-        const V T = resta(P[k < muestras ? k + 1 : k], P[k > 0 ? k - 1 : k]);
-        const V B = normalizar(cruz(N[k], T));
+        const V tg = resta(P[k < muestras ? k + 1 : k], P[k > 0 ? k - 1 : k]);
+        const V B = normalizar(cruz(N[k], tg));
         const float w = v.ancho * (0.35f + 0.65f * fin);
         const float h = alto * visible * fin;
         const float mz = sujetar(fuerza * visible * fin, 0.0f, 0.75f);

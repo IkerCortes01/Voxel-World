@@ -113,7 +113,22 @@ inline void aplicarAvatarMalla(const Avatar::Datos& d, AjustesMalla& a) {
     a.busto = F.busto;
     a.abdomen = F.abdomen;
     a.gluteos = F.gluteos;
-    // Los colores: sin tocar nada el modelo se ve tal cual vino. Cuanto mas
+    a.craneo = d[CAB_CRANEO]; a.papada = d[CAB_PAPADA]; a.sienes = d[CAB_SIENES];
+    a.ojosProfundidad = d[OJO_PROFUNDIDAD]; a.ojosInclinacion = d[OJO_INCLINACION];
+    a.cejasArco = d[CEJA_ARCO]; a.cejasGrosor = d[CEJA_GROSOR];
+    a.narizPunta = d[NARIZ_PUNTA]; a.narizAletas = d[NARIZ_ALETAS]; a.narizAltura = d[NARIZ_ALTURA];
+    a.bocaAltura = d[BOCA_ALTURA]; a.sonrisa = d[BOCA_SONRISA]; a.bocaSaliente = d[BOCA_SALIENTE];
+    a.orejasAltura = d[OREJA_ALTURA]; a.orejasPunta = d[OREJA_PUNTA]; a.lobulos = d[OREJA_LOBULO];
+    a.peloVolumen = d[PELO_VOLUMEN] * (0.9f + 0.1f * d[PELO_DENSIDAD]);
+    a.nuez = 0.3f + (d[CUELLO_NUEZ] * (1.0f - 0.7f * (1.0f - d[CUERPO_GENERO])) - 0.3f);
+    a.trapecio = d[HOMBRO_TRAPECIO] * (0.9f + 0.1f * F.musculo);
+    a.triceps = d[BRAZO_TRICEPS];
+    a.dedosLargo = d[MANO_DEDOS_LARGO];
+    a.espalda = d[TORSO_ESPALDA];
+    a.pectoral = d[TORSO_PECTORAL] * F.musculo;
+    a.cuadriceps = d[PIERNA_CUADRICEPS];
+    a.pieDedos = d[PIE_DEDOS_LARGO];
+    a.cinturaAltura = d[CADERA_ALTURA];    // Los colores: sin tocar nada el modelo se ve tal cual vino. Cuanto mas
     // se aleja el avatar de su color por defecto (genes, canas, ropa), mas
     // toma cada zona el color pedido, con el sombreado de la textura.
     static const Fenotipo f0 = Avatar::Datos{}.fenotipo();
@@ -144,6 +159,26 @@ inline void aplicarProporciones(const Avatar::Datos& d, Pose& p) {
     if (edad > 30.0f) k *= 1.0f - 0.005f * (edad - 30.0f);
     k *= 1.0f + 0.05f * (1.0f - d[CUERPO_GENERO]);
     p.flexibilidad = sujetar(k, 0.6f, 1.3f);
+    p.prop.hombroY *= d[LARGO_CUELLO_HUESO];
+    p.prop.mano *= d[LARGO_MANO];
+    // ⭐ LA POSTURA DE CADA UNO: hombros, codos, manos, espalda, pelvis,
+    // rodillas y pies. Se suman a la pose del juego en cada frame.
+    for (int l = 0; l < 2; ++l) {
+        Brazo& b = p.brazo[l];
+        b.encoger += 0.5f * std::fmax(0.0f, d[HOMBRO_ALTURA]);
+        b.adelantar += 0.6f * d[HOMBRO_ADELANTE] - 0.3f * std::fmax(0.0f, -d[HOMBRO_ALTURA]);
+        b.abd += 0.10f * d[BRAZO_CODOS];
+        b.rot -= 0.25f * d[BRAZO_CODOS];
+        const float puno = d[MANO_PUNO] - 0.15f;
+        for (int dd = 0; dd < 4; ++dd)
+            for (int ff = 0; ff < 3; ++ff) b.dedo[dd][ff] += puno * (ff == 1 ? 1.3f : 1.0f);
+        Pierna& g = p.pierna[l];
+        g.rot += 0.25f * d[PIERNA_RODILLAS] + 0.30f * d[PIE_PUNTAS];
+        g.abd += 0.07f * d[PIERNA_SEPARACION];
+    }
+    p.inclinacion += 0.15f * d[TORSO_POSTURA];
+    p.cuelloFlex += 0.12f * d[TORSO_POSTURA] + 0.15f * d[CUELLO_ADELANTE];
+    p.pelvisInclina += 0.12f * d[CADERA_POSTURA];
 }
 
 // Un casquete de elipsoide: solo lo que queda por ENCIMA de la linea del pelo

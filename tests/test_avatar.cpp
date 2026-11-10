@@ -196,3 +196,34 @@ TEST_CASE("Avatar: un pie mas grande es mas largo, y la mano crece") {
     };
     CHECK(largoPie(1.15f) > largoPie(1.0f) + 0.015f);
 }
+
+TEST_CASE("Avatar: se guarda por nombre y se siguen leyendo los archivos viejos por numero") {
+    Datos viejo;
+    viejo.leer("p0 1.1000\np17 1.2000\np51 0.1000\n");     // CAB_TAMANO, OREJA_TAMANO, ROPA_CAMISA_TONO
+    CHECK(viejo[CAB_TAMANO] == doctest::Approx(1.1f));
+    CHECK(viejo[OREJA_TAMANO] == doctest::Approx(1.2f));
+    CHECK(viejo[ROPA_CAMISA_TONO] == doctest::Approx(0.1f));
+    Datos a;
+    a.poner(NARIZ_PUNTA, 0.7f);
+    a.poner(PELO_TINTE, 0.5f);
+    CHECK(a.texto().find("a PUNTA_ARRIBA/ABAJO 0.7000") != std::string::npos);
+    Datos b;
+    b.leer(a.texto());
+    CHECK(b[NARIZ_PUNTA] == doctest::Approx(0.7f));
+    CHECK(b[PELO_TINTE] == doctest::Approx(0.5f));
+}
+
+TEST_CASE("Avatar: los nuevos ajustes de color se notan") {
+    Datos d;
+    const Fenotipo base = d.fenotipo();
+    d.poner(PELO_TINTE, 1.0f);
+    d.poner(PELO_TINTE_TONO, 0.6f);      // azul
+    d.poner(PIEL_BRONCEADO, 1.0f);
+    d.poner(ROPA_VIVEZA, 1.0f);
+    const Fenotipo f = d.fenotipo();
+    CHECK(f.pelo.b > f.pelo.r);
+    CHECK(f.piel.r < base.piel.r);
+    const float satAntes = base.camisa.r + base.camisa.g + base.camisa.b;
+    (void)satAntes;
+    CHECK(std::fabs(f.camisa.r - f.camisa.b) > std::fabs(base.camisa.r - base.camisa.b));
+}

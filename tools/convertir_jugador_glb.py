@@ -10,6 +10,7 @@ Deja en resourcepacks/Modelos/:
     jugador_normal.png    el mapa de normales (2048): el relieve fino de la
                           ropa, la piel y el pelo sin gastar triangulos
     jugador_mascara.png   que es cada texel: R piel, G pelo, B camisa, A short
+    jugador_rugosidad.jpg cuanto brilla cada texel (la piel algo, la tela casi nada)
                           (el avatar recolorea cada zona con sus genes y ropa)
 
 Que hace:
@@ -45,7 +46,7 @@ from PIL import Image, ImageDraw, ImageFilter
 PARAMS = ["abdBrazo", "abdPierna", "propTorso", "propBrazo", "propAntebrazo", "propMuslo",
           "propPierna", "propHombroY", "alto",
           "pielR", "pielG", "pielB", "peloR", "peloG", "peloB",
-          "camisaR", "camisaG", "camisaB", "shortR", "shortG", "shortB"]
+          "camisaR", "camisaG", "camisaB", "shortR", "shortG", "shortB", "propMano"]
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEX = 2048
 MASCARA = 1024
@@ -89,7 +90,8 @@ def cargar(ruta):
     mat = js["materials"][prim.get("material", 0)] if js.get("materials") else {}
     color = imagen(mat.get("pbrMetallicRoughness", {}).get("baseColorTexture"))
     normal = imagen(mat.get("normalTexture"))
-    return pos, nor, uv, idx, color, normal
+    rugosidad = imagen(mat.get("pbrMetallicRoughness", {}).get("metallicRoughnessTexture"))
+    return pos, nor, uv, idx, color, normal, rugosidad
 
 
 def al_juego(pos, nor):
@@ -231,10 +233,10 @@ def mascara(p, uv, t, color):
 def main():
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
-    objetivo = int(sys.argv[2]) if len(sys.argv) > 2 else 60000
+    objetivo = int(sys.argv[2]) if len(sys.argv) > 2 else 80000
     dir_salida = os.path.join(RAIZ, "resourcepacks", "Modelos")
     os.makedirs(dir_salida, exist_ok=True)
-    pos, nor, uv, idx, color, normal = cargar(sys.argv[1])
+    pos, nor, uv, idx, color, normal, rugosidad = cargar(sys.argv[1])
     print("GLB:", len(pos), "vertices,", len(idx), "triangulos")
     p, n = al_juego(pos, nor)
     abd, hombroY, alcance, entre = medir(p)
@@ -254,6 +256,7 @@ def main():
     params = [abd, 0.03, 1.0, kBrazo, kBrazo, kPierna, kPierna, kHombroY, 1.80]
     for m in medias:
         params += list(m)
+    params.append(kBrazo)            # la mano, en proporcion al brazo
     for nombre, v in zip(PARAMS, params):
         print("  %-14s %.4f" % (nombre, v))
 
@@ -261,6 +264,10 @@ def main():
     if normal is not None:
         normal.resize((TEX, TEX), Image.LANCZOS).save(os.path.join(dir_salida, "jugador_normal.png"), optimize=True)
     mascara_img.save(os.path.join(dir_salida, "jugador_mascara.png"), optimize=True)
+    # La rugosidad (canal G del metallicRoughness de glTF): la piel brilla
+    # algo, el pelo menos, la tela casi nada.
+    if rugosidad is not None:
+        rugosidad.split()[1].resize((1024, 1024), Image.LANCZOS).save(os.path.join(dir_salida, "jugador_rugosidad.jpg"), quality=90)
     with open(os.path.join(dir_salida, "jugador.vwm"), "wb") as f:
         f.write(b"VWM2")
         f.write(struct.pack("<II", len(pr), len(tr)))

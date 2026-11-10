@@ -1184,6 +1184,7 @@ bool prepararCuerpoGPU() {
         { CuerpoGL::T_COLOR, "jugador_color.jpg", 3, true },
         { CuerpoGL::T_NORMAL, "jugador_normal.png", 3, true },
         { CuerpoGL::T_MASCARA, "jugador_mascara.png", 4, false },
+        { CuerpoGL::T_RUGOSIDAD, "jugador_rugosidad.jpg", 3, true },
     };
     for (const auto& x : T) {
         int w = 0, h = 0, c = 0;
@@ -31804,12 +31805,23 @@ struct MedirTramo {
 // Player::getEyePosition() usa una altura fija de 1.62, y la camara la real
 // (0.80 agachado). Con el rayo saliendo de la fija, agachado se seleccionaba
 // lo que estaba 0.82 bloques por encima del punto de mira.
-Vec3 ojoDelJugador(const Player& player) {
+//
+// ⭐ PEDIDO: "que la camara este en la misma posicion de los ojos y acomodada
+// a la cabeza". Con el modelo realista el cuerpo va centrado en su hitbox y la
+// camara se pone en SUS ojos: g_ojoCuerpo es lo que hay del ojo de la
+// capsula al de la cabeza del modelo (lo calcula el cuerpo en cada frame).
+// La camara y el rayo de apuntar usan el mismo, asi la cruz no se desvia.
+Vec3 g_ojoCuerpo(0.0f, 0.0f, 0.0f);
+Vec3 ojoDeLaCapsula(const Player& player) {
     if (g_playerController) {
         const PlayerSys::MoveVec3 e = g_playerController->getEyePosition();
         return Vec3(e.x, e.y, e.z);
     }
     return player.getEyePosition();
+}
+Vec3 ojoDelJugador(const Player& player) {
+    const Vec3 e = ojoDeLaCapsula(player);
+    return Vec3(e.x + g_ojoCuerpo.x, e.y + g_ojoCuerpo.y, e.z + g_ojoCuerpo.z);
 }
 
 PlayerSys::PlayerDebug         g_playerDebug;
@@ -49971,7 +49983,8 @@ int main() {
         // La caida al acostarse se resta aqui, sobre la altura del ojo que ya
         // calculo el CameraSystem: asi se respeta el agachado y el suavizado
         // del escalon en vez de pisarlos con una altura fija.
-        glTranslatef(-eye.x, -(eye.y - caidaCamara), -eye.z);
+        // Y del ojo de la capsula al de la cabeza del modelo (g_ojoCuerpo).
+        glTranslatef(-(eye.x + g_ojoCuerpo.x), -(eye.y + g_ojoCuerpo.y - caidaCamara), -(eye.z + g_ojoCuerpo.z));
 
         // ⭐⭐⭐ CONFIGURAR SISTEMA DE NIEBLA VOLUMÉTRICA AVANZADO ⭐⭐⭐
         if (g_gameState->fogSystem.isEnabled()) {
@@ -50752,7 +50765,7 @@ int main() {
             // Mirando hacia arriba no se ve nada del cuerpo: ni se genera.
             if (g_playerController && !g_gameState->durmiendo && g_gameState->player.pitch < 40.0f) {
                 const auto& st = g_playerController->getState();
-                const Vec3 ojo = ojoDelJugador(g_gameState->player);
+                const Vec3 ojo = ojoDeLaCapsula(g_gameState->player);   // sin g_ojoCuerpo: el cuerpo lo define
                 // La altura real del ojo, la que la camara va suavizando.
                 const float altoOjo = st.alturaOjo > 0.0f ? st.alturaOjo
                     : (st.isProne ? 0.42f : (st.isCrouching ? 0.86f : 1.62f));
@@ -50998,6 +51011,10 @@ int main() {
                 ModeloJugador::Pose objetivo = ModeloJugador::poseDe(ea);
                 ModeloJugador::aplicarProporciones(g_avatar, objetivo);
                 if (modeloImportado().cargada) { proporcionesConModelo(objetivo.prop); avatarAlModelo(); }
+                // ⭐ La postura cabe en su hueco: el ojo de la pose, en la camara
+                // (ver hundirHasta). Asi el cuerpo no se aplasta al agacharse.
+                if (ea.tumbado) ModeloJugador::hundirHasta(objetivo, altoOjo, true);
+                else if (ea.agachado) ModeloJugador::hundirHasta(objetivo, altoOjo, false);
                 {
                     static float tGesto = -1.0f;
                     if (g_gestoPedido) {
@@ -51059,7 +51076,11 @@ int main() {
                 }
                 const ModeloJugador::Esqueleto& esq = esqDibujo;
                 const ModeloJugador::Pose& pose = poseDibujo;
-                const float ky = ModeloJugador::escalaVertical(esq, altoOjo);
+                // El modelo importado no se aplasta (la pose ya cabe); el
+                // procedural, como siempre.
+                const bool importado = modeloImportado().cargada;
+                const float ky = importado ? (std::max)(0.92f, ModeloJugador::escalaVertical(esq, altoOjo))
+                                           : ModeloJugador::escalaVertical(esq, altoOjo);
 
                 // ⭐ LA LUZ DE ALREDEDOR, CON LA CURVA DEL TERRENO
                 //
@@ -51115,9 +51136,13 @@ int main() {
                 // agacharse el torso se inclina y el cuello avanza: anclado
                 // por el origen, el cuello y los hombros quedaban delante del
                 // ojo y la camara los atravesaba.
-                const float cuelloX = ojo.x + std::sin(yawC) * ModeloJugador::M::ATRAS;
-                const float cuelloZ = ojo.z + std::cos(yawC) * ModeloJugador::M::ATRAS;
-                const ModeloJugador::V cuelloLocal = esq.cuello.p;
+                // ⭐ El modelo importado va CENTRADO EN SU HITBOX: el medio de lo
+                // que ocupa en planta, en el centro de la capsula. La camara
+                // queda dentro de la cabeza, que no se dibuja, y lo que la
+                // rodea se ve solo por fuera (caras traseras descartadas).
+                const float cuelloX = importado ? ojo.x : ojo.x + std::sin(yawC) * ModeloJugador::M::ATRAS;
+                const float cuelloZ = importado ? ojo.z : ojo.z + std::cos(yawC) * ModeloJugador::M::ATRAS;
+                const ModeloJugador::V cuelloLocal = importado ? ModeloJugador::centroEnPlanta(esq) : esq.cuello.p;
                 const float pieY = ojo.y - altoOjo;
                 // Al mirar abajo una persona dobla el cuello y el ojo se
                 // adelanta sobre el pecho: por eso se ve los pies. Sin esto el
@@ -51126,7 +51151,9 @@ int main() {
                 // los hombros retroceden hasta 0.24.
                 float baja = (-g_gameState->player.pitch - 20.0f) / 60.0f;
                 baja = baja < 0.0f ? 0.0f : (baja > 1.0f ? 1.0f : baja);
-                const float atrasPorAlto = 0.24f * baja / 1.45f * (1.0f - pose.tumbado);
+                // Con el modelo realista la camara va en sus ojos y el cuello se
+                // dobla de verdad al mirar abajo: no hace falta echarlo atras.
+                const float atrasPorAlto = modeloImportado().cargada ? 0.0f : 0.24f * baja / 1.45f * (1.0f - pose.tumbado);
                 // Tumbado, lo que se apoya es la malla entera (pecho, codos):
                 // se ajusta al suelo por su punto mas bajo.
                 float baseMalla = 0.0f;
@@ -51139,6 +51166,24 @@ int main() {
                 // Al mundo, con la luz por vertice (el motor no usa
                 // GL_LIGHTING): sol desde arriba y algo de lado, como en los
                 // animales.
+                // ⭐ LA CAMARA EN SUS OJOS: del ojo de la capsula al de la cabeza
+                // del modelo, con su misma cuenta. Se queda dentro de la hitbox
+                // y se suaviza un poco para que andar no la sacuda.
+                if (importado) {
+                    const ModeloJugador::V oj = modeloImportado().ojos(esq);
+                    const float lx = oj.x - cuelloLocal.x, ly = (oj.y - baseMalla) * ky;
+                    const float lz = oj.z - oj.y * atrasPorAlto - cuelloLocal.z;
+                    Vec3 meta(cuelloX + rx * lx + fx * lz - ojo.x, pieY + ly - ojo.y, cuelloZ + rz * lx + fz * lz - ojo.z);
+                    const float h = std::sqrt(meta.x * meta.x + meta.z * meta.z);
+                    if (h > 0.24f) { meta.x *= 0.24f / h; meta.z *= 0.24f / h; }
+                    meta.y = (std::max)(-0.30f, (std::min)(0.15f, meta.y));
+                    const float k = 1.0f - std::exp(-20.0f * dtc);
+                    g_ojoCuerpo.x += (meta.x - g_ojoCuerpo.x) * k;
+                    g_ojoCuerpo.y += (meta.y - g_ojoCuerpo.y) * k;
+                    g_ojoCuerpo.z += (meta.z - g_ojoCuerpo.z) * k;
+                } else {
+                    g_ojoCuerpo = Vec3(0.0f, 0.0f, 0.0f);
+                }
                 // ⭐ EL MODELO IMPORTADO EN LA GPU (ver render/CuerpoGL.h): la
                 // misma cuenta que los vertices de abajo, puesta como matriz.
                 bool dibujadoGPU = false;
@@ -51154,6 +51199,9 @@ int main() {
                     luz.dir[0] = lx / ll; luz.dir[1] = 0.9f / ll; luz.dir[2] = lz / ll;
                     luz.pies = luzPies; luz.pecho = luzPecho;
                     luz.base = baseMalla; luz.alto = altoFigura;
+                    // El giro del cuerpo al mundo invierte el sentido de las caras:
+                    // con el determinante negativo, las de delante son las horarias.
+                    luz.frenteHorario = (rx * fz - fx * rz) * ky < 0.0f;
                     glPushMatrix();
                     glMultMatrixf(M);
                     glDisable(GL_CULL_FACE);

@@ -55,6 +55,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -65,41 +66,41 @@ namespace Avatar {
 // ----------------------------------------------------------------------------
 enum Param : int {
     // CABEZA
-    CAB_TAMANO, CAB_ANCHO, CAB_LARGO, CAB_FRENTE, CAB_POMULOS, CAB_MANDIBULA, CAB_MENTON,
-    // OJOS Y CEJAS
-    OJO_TAMANO, OJO_SEPARACION, OJO_ALTURA, CEJA_GROSOR, CEJA_ALTURA,
+    CAB_TAMANO, CAB_ANCHO, CAB_LARGO, CAB_FRENTE, CAB_POMULOS, CAB_MANDIBULA, CAB_MENTON, CAB_CRANEO, CAB_PAPADA, CAB_SIENES,
+    // OJOS
+    OJO_TAMANO, OJO_SEPARACION, OJO_ALTURA, CEJA_GROSOR, CEJA_ALTURA, OJO_PROFUNDIDAD, OJO_INCLINACION, CEJA_ARCO,
     // NARIZ
-    NARIZ_LARGO, NARIZ_ANCHO, NARIZ_PUENTE,
+    NARIZ_LARGO, NARIZ_ANCHO, NARIZ_PUENTE, NARIZ_PUNTA, NARIZ_ALETAS, NARIZ_ALTURA,
     // BOCA
-    BOCA_ANCHO, LABIOS_GROSOR,
+    BOCA_ANCHO, LABIOS_GROSOR, BOCA_ALTURA, BOCA_SONRISA, BOCA_SALIENTE,
     // OREJAS
-    OREJA_TAMANO, OREJA_DESPEGADA,
+    OREJA_TAMANO, OREJA_DESPEGADA, OREJA_ALTURA, OREJA_PUNTA, OREJA_LOBULO,
     // PELO
-    PELO_LARGO_CM, PELO_CRECE, PELO_DENSIDAD, PELO_RIZO_EXTRA, BARBA_LARGO_MM,
+    PELO_LARGO_CM, PELO_CRECE, PELO_DENSIDAD, PELO_RIZO_EXTRA, BARBA_LARGO_MM, PELO_VOLUMEN, PELO_TINTE, PELO_TINTE_TONO, PELO_BRILLO,
     // CUELLO
-    CUELLO_LARGO, CUELLO_GROSOR,
+    CUELLO_LARGO, CUELLO_GROSOR, CUELLO_NUEZ, CUELLO_ADELANTE,
     // HOMBROS
-    HOMBRO_ANCHO, HOMBRO_DELTOIDES,
+    HOMBRO_ANCHO, HOMBRO_DELTOIDES, HOMBRO_ALTURA, HOMBRO_TRAPECIO, HOMBRO_ADELANTE,
     // BRAZOS
-    BRAZO_GROSOR, BRAZO_BICEPS, BRAZO_ANTEBRAZO,
+    BRAZO_GROSOR, BRAZO_BICEPS, BRAZO_ANTEBRAZO, BRAZO_TRICEPS, BRAZO_CODOS,
     // MANOS
-    MANO_TAMANO, MANO_DEDOS_GROSOR,
+    MANO_TAMANO, MANO_DEDOS_GROSOR, MANO_DEDOS_LARGO, MANO_PUNO,
     // UNAS
     UNA_LARGO_MM, UNA_CRECE,
     // TORSO
-    TORSO_PECHO, TORSO_BUSTO, TORSO_CINTURA, TORSO_ABDOMEN,
+    TORSO_PECHO, TORSO_BUSTO, TORSO_CINTURA, TORSO_ABDOMEN, TORSO_ESPALDA, TORSO_PECTORAL, TORSO_POSTURA,
     // CADERA
-    CADERA_ANCHO, CADERA_GLUTEOS,
+    CADERA_ANCHO, CADERA_GLUTEOS, CADERA_POSTURA, CADERA_ALTURA,
     // PIERNAS
-    PIERNA_MUSLO, PIERNA_GEMELO,
+    PIERNA_MUSLO, PIERNA_GEMELO, PIERNA_RODILLAS, PIERNA_CUADRICEPS, PIERNA_SEPARACION,
     // PIES
-    PIE_TAMANO, PIE_ANCHO, PIE_ARCO,
+    PIE_TAMANO, PIE_ANCHO, PIE_ARCO, PIE_DEDOS_LARGO, PIE_PUNTAS,
     // CUERPO
-    CUERPO_ALTURA_EXTRA, CUERPO_FUERZA, CUERPO_EDAD, CUERPO_GENERO, CUERPO_GRASA,
+    CUERPO_ALTURA_EXTRA, CUERPO_FUERZA, CUERPO_EDAD, CUERPO_GENERO, CUERPO_GRASA, PIEL_AJUSTE, PIEL_RUBOR, PIEL_BRONCEADO,
     // ROPA
-    ROPA_CAMISA_TONO, ROPA_CAMISA_CLARO, ROPA_SHORT_TONO, ROPA_SHORT_CLARO,
-    // PROPORCIONES Y ARTICULACIONES (al final: avatar.txt guarda por numero)
-    LARGO_TORSO, LARGO_BRAZO, LARGO_ANTEBRAZO, LARGO_MUSLO, LARGO_PIERNA, FLEXIBILIDAD,
+    ROPA_CAMISA_TONO, ROPA_CAMISA_CLARO, ROPA_SHORT_TONO, ROPA_SHORT_CLARO, ROPA_VIVEZA, ROPA_DESGASTE,
+    // PROPORCIONES
+    LARGO_TORSO, LARGO_BRAZO, LARGO_ANTEBRAZO, LARGO_MUSLO, LARGO_PIERNA, FLEXIBILIDAD, LARGO_CUELLO_HUESO, LARGO_MANO,
     NUM_PARAMS
 };
 
@@ -111,71 +112,123 @@ struct InfoParam {
 
 inline const InfoParam& info(int p) {
     static const InfoParam T[NUM_PARAMS] = {
-        { "TAMANO DE CABEZA",   0.85f, 1.15f, 1.0f, "" },
-        { "ANCHO DE CARA",      0.85f, 1.15f, 1.0f, "" },
-        { "LARGO DE CARA",      0.85f, 1.15f, 1.0f, "" },
-        { "FRENTE",             0.80f, 1.20f, 1.0f, "" },
-        { "POMULOS",            0.70f, 1.30f, 1.0f, "" },
-        { "MANDIBULA",          0.80f, 1.25f, 1.0f, "" },
-        { "MENTON",             0.70f, 1.30f, 1.0f, "" },
-        { "TAMANO DE OJOS",     0.80f, 1.20f, 1.0f, "" },
-        { "SEPARACION OJOS",    0.85f, 1.15f, 1.0f, "" },
-        { "ALTURA DE OJOS",     0.90f, 1.10f, 1.0f, "" },
-        { "GROSOR DE CEJAS",    0.40f, 1.80f, 1.0f, "" },
-        { "ALTURA DE CEJAS",    0.85f, 1.15f, 1.0f, "" },
-        { "LARGO DE NARIZ",     0.80f, 1.25f, 1.0f, "" },
-        { "ANCHO DE NARIZ",     0.75f, 1.30f, 1.0f, "" },
-        { "PUENTE NASAL",       0.70f, 1.30f, 1.0f, "" },
-        { "ANCHO DE BOCA",      0.80f, 1.20f, 1.0f, "" },
-        { "GROSOR DE LABIOS",   0.60f, 1.50f, 1.0f, "" },
-        { "TAMANO DE OREJAS",   0.80f, 1.25f, 1.0f, "" },
-        { "OREJAS DESPEGADAS",  0.00f, 1.00f, 0.2f, "" },
-        { "LARGO DE PELO",      0.0f, 60.0f, 4.0f, "CM" },
-        { "CRECIMIENTO PELO",   0.0f, 3.0f, 1.2f, "CM/MES" },
-        { "DENSIDAD DE PELO",   0.2f, 1.2f, 1.0f, "" },
-        { "RIZO EXTRA",        -0.5f, 0.5f, 0.0f, "" },
-        { "LARGO DE BARBA",     0.0f, 80.0f, 0.0f, "MM" },
-        { "LARGO DE CUELLO",    0.80f, 1.25f, 1.0f, "" },
-        { "GROSOR DE CUELLO",   0.80f, 1.35f, 1.0f, "" },
-        { "ANCHO DE HOMBROS",   0.85f, 1.20f, 1.0f, "" },
-        { "DELTOIDES",          0.70f, 1.50f, 1.0f, "" },
-        { "GROSOR DE BRAZO",    0.80f, 1.30f, 1.0f, "" },
-        { "BICEPS",             0.60f, 1.80f, 1.0f, "" },
-        { "ANTEBRAZO",          0.80f, 1.35f, 1.0f, "" },
-        { "TAMANO DE MANOS",    0.85f, 1.15f, 1.0f, "" },
-        { "GROSOR DE DEDOS",    0.80f, 1.25f, 1.0f, "" },
-        { "LARGO DE UNAS",      0.0f, 25.0f, 1.0f, "MM" },
-        { "CRECIMIENTO UNAS",   0.0f, 8.0f, 3.5f, "MM/MES" },
-        { "ANCHO DE PECHO",     0.85f, 1.20f, 1.0f, "" },
-        { "BUSTO",              0.0f, 1.0f, 0.0f, "" },
-        { "CINTURA",            0.80f, 1.25f, 1.0f, "" },
-        { "ABDOMEN",            0.0f, 1.0f, 0.1f, "" },
-        { "ANCHO DE CADERA",    0.85f, 1.25f, 1.0f, "" },
-        { "GLUTEOS",            0.60f, 1.60f, 1.0f, "" },
-        { "MUSLO",              0.80f, 1.35f, 1.0f, "" },
-        { "GEMELOS",            0.70f, 1.50f, 1.0f, "" },
-        { "TAMANO DE PIES",     0.85f, 1.15f, 1.0f, "" },
-        { "ANCHO DE PIES",      0.85f, 1.20f, 1.0f, "" },
-        { "ARCO DEL PIE",       0.0f, 2.0f, 1.0f, "" },
-        { "ALTURA (AJUSTE)",   -15.0f, 15.0f, 0.0f, "CM" },
-        { "FUERZA",             0.0f, 1.0f, 0.5f, "" },
-        { "EDAD",              14.0f, 90.0f, 25.0f, "ANOS" },
-        { "GENERO (ASPECTO)",   0.0f, 1.0f, 1.0f, "" },
-        { "GRASA CORPORAL",     0.0f, 1.0f, 0.25f, "" },
-        { "TONO DE CAMISA",     0.0f, 1.0f, 0.58f, "" },
-        { "CLARIDAD CAMISA",    0.1f, 1.0f, 0.55f, "" },
-        { "TONO DE SHORT",      0.0f, 1.0f, 0.64f, "" },
-        { "CLARIDAD SHORT",     0.05f, 1.0f, 0.25f, "" },
-        // Los huesos largos varian ~5 % (una desviacion) entre adultos de la
-        // misma altura; aqui hasta dos desviaciones a cada lado.
-        { "LARGO DE TORSO",     0.90f, 1.10f, 1.0f, "" },
-        { "LARGO DE BRAZO",     0.90f, 1.10f, 1.0f, "" },
-        { "LARGO DE ANTEBRAZO", 0.90f, 1.10f, 1.0f, "" },
-        { "LARGO DE MUSLO",     0.90f, 1.10f, 1.0f, "" },
-        { "LARGO DE PIERNA",    0.90f, 1.10f, 1.0f, "" },
-        { "FLEXIBILIDAD",       0.0f, 1.0f, 0.5f, "" },
+        { "TAMANO DE CABEZA",        0.85f, 1.15f, 1.0f, "" },   // CAB_TAMANO
+        { "ANCHO DE CARA",           0.85f, 1.15f, 1.0f, "" },   // CAB_ANCHO
+        { "LARGO DE CARA",           0.85f, 1.15f, 1.0f, "" },   // CAB_LARGO
+        { "FRENTE",                  0.8f, 1.2f, 1.0f, "" },   // CAB_FRENTE
+        { "POMULOS",                 0.7f, 1.3f, 1.0f, "" },   // CAB_POMULOS
+        { "MANDIBULA",               0.8f, 1.25f, 1.0f, "" },   // CAB_MANDIBULA
+        { "MENTON",                  0.7f, 1.3f, 1.0f, "" },   // CAB_MENTON
+        { "FONDO DEL CRANEO",        0.85f, 1.2f, 1.0f, "" },   // CAB_CRANEO
+        { "PAPADA",                  0.0f, 1.0f, 0.0f, "" },   // CAB_PAPADA
+        { "SIENES",                  0.85f, 1.15f, 1.0f, "" },   // CAB_SIENES
+        { "TAMANO DE OJOS",          0.8f, 1.2f, 1.0f, "" },   // OJO_TAMANO
+        { "SEPARACION OJOS",         0.85f, 1.15f, 1.0f, "" },   // OJO_SEPARACION
+        { "ALTURA DE OJOS",          0.9f, 1.1f, 1.0f, "" },   // OJO_ALTURA
+        { "GROSOR DE CEJAS",         0.4f, 1.8f, 1.0f, "" },   // CEJA_GROSOR
+        { "ALTURA DE CEJAS",         0.85f, 1.15f, 1.0f, "" },   // CEJA_ALTURA
+        { "PROFUNDIDAD OJOS",        0.7f, 1.3f, 1.0f, "" },   // OJO_PROFUNDIDAD
+        { "INCLINACION OJOS",        -1.0f, 1.0f, 0.0f, "" },   // OJO_INCLINACION
+        { "ARCO DE CEJAS",           -1.0f, 1.0f, 0.0f, "" },   // CEJA_ARCO
+        { "LARGO DE NARIZ",          0.8f, 1.25f, 1.0f, "" },   // NARIZ_LARGO
+        { "ANCHO DE NARIZ",          0.75f, 1.3f, 1.0f, "" },   // NARIZ_ANCHO
+        { "PUENTE NASAL",            0.7f, 1.3f, 1.0f, "" },   // NARIZ_PUENTE
+        { "PUNTA ARRIBA/ABAJO",      -1.0f, 1.0f, 0.0f, "" },   // NARIZ_PUNTA
+        { "ALETAS",                  0.7f, 1.4f, 1.0f, "" },   // NARIZ_ALETAS
+        { "ALTURA DE NARIZ",         0.9f, 1.1f, 1.0f, "" },   // NARIZ_ALTURA
+        { "ANCHO DE BOCA",           0.8f, 1.2f, 1.0f, "" },   // BOCA_ANCHO
+        { "GROSOR DE LABIOS",        0.6f, 1.5f, 1.0f, "" },   // LABIOS_GROSOR
+        { "ALTURA DE BOCA",          0.9f, 1.1f, 1.0f, "" },   // BOCA_ALTURA
+        { "SONRISA",                 -1.0f, 1.0f, 0.0f, "" },   // BOCA_SONRISA
+        { "BOCA SALIENTE",           -1.0f, 1.0f, 0.0f, "" },   // BOCA_SALIENTE
+        { "TAMANO DE OREJAS",        0.8f, 1.25f, 1.0f, "" },   // OREJA_TAMANO
+        { "OREJAS DESPEGADAS",       0.0f, 1.0f, 0.2f, "" },   // OREJA_DESPEGADA
+        { "ALTURA DE OREJAS",        0.9f, 1.1f, 1.0f, "" },   // OREJA_ALTURA
+        { "OREJAS EN PUNTA",         0.0f, 1.0f, 0.0f, "" },   // OREJA_PUNTA
+        { "LOBULOS",                 0.7f, 1.4f, 1.0f, "" },   // OREJA_LOBULO
+        { "LARGO DE PELO",           0.0f, 60.0f, 4.0f, "CM" },   // PELO_LARGO_CM
+        { "CRECIMIENTO PELO",        0.0f, 3.0f, 1.2f, "CM/MES" },   // PELO_CRECE
+        { "DENSIDAD DE PELO",        0.2f, 1.2f, 1.0f, "" },   // PELO_DENSIDAD
+        { "RIZO EXTRA",              -0.5f, 0.5f, 0.0f, "" },   // PELO_RIZO_EXTRA
+        { "LARGO DE BARBA",          0.0f, 80.0f, 0.0f, "MM" },   // BARBA_LARGO_MM
+        { "VOLUMEN DE PELO",         0.7f, 1.5f, 1.0f, "" },   // PELO_VOLUMEN
+        { "TINTE DE PELO",           0.0f, 1.0f, 0.0f, "" },   // PELO_TINTE
+        { "TONO DEL TINTE",          0.0f, 1.0f, 0.05f, "" },   // PELO_TINTE_TONO
+        { "CLARIDAD DE PELO",        -1.0f, 1.0f, 0.0f, "" },   // PELO_BRILLO
+        { "LARGO DE CUELLO",         0.8f, 1.25f, 1.0f, "" },   // CUELLO_LARGO
+        { "GROSOR DE CUELLO",        0.8f, 1.35f, 1.0f, "" },   // CUELLO_GROSOR
+        { "NUEZ",                    0.0f, 1.0f, 0.3f, "" },   // CUELLO_NUEZ
+        { "CUELLO ADELANTE",         -1.0f, 1.0f, 0.0f, "" },   // CUELLO_ADELANTE
+        { "ANCHO DE HOMBROS",        0.85f, 1.2f, 1.0f, "" },   // HOMBRO_ANCHO
+        { "DELTOIDES",               0.7f, 1.5f, 1.0f, "" },   // HOMBRO_DELTOIDES
+        { "ALTURA DE HOMBROS",       -1.0f, 1.0f, 0.0f, "" },   // HOMBRO_ALTURA
+        { "TRAPECIOS",               0.7f, 1.6f, 1.0f, "" },   // HOMBRO_TRAPECIO
+        { "HOMBROS ADELANTE",        -1.0f, 1.0f, 0.0f, "" },   // HOMBRO_ADELANTE
+        { "GROSOR DE BRAZO",         0.8f, 1.3f, 1.0f, "" },   // BRAZO_GROSOR
+        { "BICEPS",                  0.6f, 1.8f, 1.0f, "" },   // BRAZO_BICEPS
+        { "ANTEBRAZO",               0.8f, 1.35f, 1.0f, "" },   // BRAZO_ANTEBRAZO
+        { "TRICEPS",                 0.7f, 1.5f, 1.0f, "" },   // BRAZO_TRICEPS
+        { "CODOS HACIA FUERA",       -1.0f, 1.0f, 0.0f, "" },   // BRAZO_CODOS
+        { "TAMANO DE MANOS",         0.85f, 1.15f, 1.0f, "" },   // MANO_TAMANO
+        { "GROSOR DE DEDOS",         0.8f, 1.25f, 1.0f, "" },   // MANO_DEDOS_GROSOR
+        { "LARGO DE DEDOS",          0.85f, 1.15f, 1.0f, "" },   // MANO_DEDOS_LARGO
+        { "MANOS CERRADAS",          0.0f, 1.0f, 0.15f, "" },   // MANO_PUNO
+        { "LARGO DE UNAS",           0.0f, 25.0f, 1.0f, "MM" },   // UNA_LARGO_MM
+        { "CRECIMIENTO UNAS",        0.0f, 8.0f, 3.5f, "MM/MES" },   // UNA_CRECE
+        { "ANCHO DE PECHO",          0.85f, 1.2f, 1.0f, "" },   // TORSO_PECHO
+        { "BUSTO",                   0.0f, 1.0f, 0.0f, "" },   // TORSO_BUSTO
+        { "CINTURA",                 0.8f, 1.25f, 1.0f, "" },   // TORSO_CINTURA
+        { "ABDOMEN",                 0.0f, 1.0f, 0.1f, "" },   // TORSO_ABDOMEN
+        { "ANCHO DE ESPALDA",        0.85f, 1.25f, 1.0f, "" },   // TORSO_ESPALDA
+        { "PECTORALES",              0.0f, 1.0f, 0.2f, "" },   // TORSO_PECTORAL
+        { "ESPALDA ENCORVADA",       -1.0f, 1.0f, 0.0f, "" },   // TORSO_POSTURA
+        { "ANCHO DE CADERA",         0.85f, 1.25f, 1.0f, "" },   // CADERA_ANCHO
+        { "GLUTEOS",                 0.6f, 1.6f, 1.0f, "" },   // CADERA_GLUTEOS
+        { "PELVIS ADELANTE",         -1.0f, 1.0f, 0.0f, "" },   // CADERA_POSTURA
+        { "ALTURA DE CINTURA",       -1.0f, 1.0f, 0.0f, "" },   // CADERA_ALTURA
+        { "MUSLO",                   0.8f, 1.35f, 1.0f, "" },   // PIERNA_MUSLO
+        { "GEMELOS",                 0.7f, 1.5f, 1.0f, "" },   // PIERNA_GEMELO
+        { "RODILLAS JUNTAS/ABIERTAS", -1.0f, 1.0f, 0.0f, "" },   // PIERNA_RODILLAS
+        { "CUADRICEPS",              0.7f, 1.5f, 1.0f, "" },   // PIERNA_CUADRICEPS
+        { "PIERNAS ABIERTAS",        -1.0f, 1.0f, 0.0f, "" },   // PIERNA_SEPARACION
+        { "TAMANO DE PIES",          0.85f, 1.15f, 1.0f, "" },   // PIE_TAMANO
+        { "ANCHO DE PIES",           0.85f, 1.2f, 1.0f, "" },   // PIE_ANCHO
+        { "ARCO DEL PIE",            0.0f, 2.0f, 1.0f, "" },   // PIE_ARCO
+        { "LARGO DEDOS PIE",         0.8f, 1.25f, 1.0f, "" },   // PIE_DEDOS_LARGO
+        { "PUNTAS HACIA FUERA",      -1.0f, 1.0f, 0.0f, "" },   // PIE_PUNTAS
+        { "ALTURA (AJUSTE)",         -15.0f, 15.0f, 0.0f, "CM" },   // CUERPO_ALTURA_EXTRA
+        { "FUERZA",                  0.0f, 1.0f, 0.5f, "" },   // CUERPO_FUERZA
+        { "EDAD",                    14.0f, 90.0f, 25.0f, "ANOS" },   // CUERPO_EDAD
+        { "GENERO (ASPECTO)",        0.0f, 1.0f, 1.0f, "" },   // CUERPO_GENERO
+        { "GRASA CORPORAL",          0.0f, 1.0f, 0.25f, "" },   // CUERPO_GRASA
+        { "TONO DE PIEL (AJUSTE)",   -1.0f, 1.0f, 0.0f, "" },   // PIEL_AJUSTE
+        { "RUBOR",                   0.0f, 1.0f, 0.0f, "" },   // PIEL_RUBOR
+        { "BRONCEADO",               0.0f, 1.0f, 0.0f, "" },   // PIEL_BRONCEADO
+        { "TONO DE CAMISA",          0.0f, 1.0f, 0.58f, "" },   // ROPA_CAMISA_TONO
+        { "CLARIDAD CAMISA",         0.1f, 1.0f, 0.55f, "" },   // ROPA_CAMISA_CLARO
+        { "TONO DE SHORT",           0.0f, 1.0f, 0.64f, "" },   // ROPA_SHORT_TONO
+        { "CLARIDAD SHORT",          0.05f, 1.0f, 0.25f, "" },   // ROPA_SHORT_CLARO
+        { "COLOR VIVO DE ROPA",      0.0f, 1.0f, 0.55f, "" },   // ROPA_VIVEZA
+        { "ROPA GASTADA",            0.0f, 1.0f, 0.0f, "" },   // ROPA_DESGASTE
+        { "LARGO DE TORSO",          0.9f, 1.1f, 1.0f, "" },   // LARGO_TORSO
+        { "LARGO DE BRAZO",          0.9f, 1.1f, 1.0f, "" },   // LARGO_BRAZO
+        { "LARGO DE ANTEBRAZO",      0.9f, 1.1f, 1.0f, "" },   // LARGO_ANTEBRAZO
+        { "LARGO DE MUSLO",          0.9f, 1.1f, 1.0f, "" },   // LARGO_MUSLO
+        { "LARGO DE PIERNA",         0.9f, 1.1f, 1.0f, "" },   // LARGO_PIERNA
+        { "FLEXIBILIDAD",            0.0f, 1.0f, 0.5f, "" },   // FLEXIBILIDAD
+        { "ALTURA DE HOMBROS (HUESO)", 0.9f, 1.1f, 1.0f, "" },   // LARGO_CUELLO_HUESO
+        { "LARGO DE MANO",           0.9f, 1.1f, 1.0f, "" },   // LARGO_MANO
     };
     return T[p < 0 ? 0 : (p >= NUM_PARAMS ? NUM_PARAMS - 1 : p)];
+}
+
+// El orden en que avatar.txt guardaba los ajustes por NUMERO (antes de que
+// se guardaran por nombre): para leer los archivos viejos.
+inline int paramLegado(int k) {
+    static const int L[] = {
+        CAB_TAMANO, CAB_ANCHO, CAB_LARGO, CAB_FRENTE, CAB_POMULOS, CAB_MANDIBULA, CAB_MENTON, OJO_TAMANO, OJO_SEPARACION, OJO_ALTURA, CEJA_GROSOR, CEJA_ALTURA, NARIZ_LARGO, NARIZ_ANCHO, NARIZ_PUENTE, BOCA_ANCHO, LABIOS_GROSOR, OREJA_TAMANO, OREJA_DESPEGADA, PELO_LARGO_CM, PELO_CRECE, PELO_DENSIDAD, PELO_RIZO_EXTRA, BARBA_LARGO_MM, CUELLO_LARGO, CUELLO_GROSOR, HOMBRO_ANCHO, HOMBRO_DELTOIDES, BRAZO_GROSOR, BRAZO_BICEPS, BRAZO_ANTEBRAZO, MANO_TAMANO, MANO_DEDOS_GROSOR, UNA_LARGO_MM, UNA_CRECE, TORSO_PECHO, TORSO_BUSTO, TORSO_CINTURA, TORSO_ABDOMEN, CADERA_ANCHO, CADERA_GLUTEOS, PIERNA_MUSLO, PIERNA_GEMELO, PIE_TAMANO, PIE_ANCHO, PIE_ARCO, CUERPO_ALTURA_EXTRA, CUERPO_FUERZA, CUERPO_EDAD, CUERPO_GENERO, CUERPO_GRASA, ROPA_CAMISA_TONO, ROPA_CAMISA_CLARO, ROPA_SHORT_TONO, ROPA_SHORT_CLARO, LARGO_TORSO, LARGO_BRAZO, LARGO_ANTEBRAZO, LARGO_MUSLO, LARGO_PIERNA, FLEXIBILIDAD
+    };
+    return k >= 0 && k < (int)(sizeof(L) / sizeof(L[0])) ? L[k] : -1;
 }
 
 struct Familia { const char* nombre; int desde, hasta; };   // [desde, hasta)
@@ -358,14 +411,13 @@ inline Color3 mezcla(Color3 a, Color3 b, float t) {
 inline float sat01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
 // Un color de tela a partir de tono (0..1 por el circulo) y claridad.
-inline Color3 tela(float tono, float claro) {
+inline Color3 tela(float tono, float claro, float s = 0.55f) {
     const float h = (tono - std::floor(tono)) * 6.0f;
     const float x = 1.0f - std::fabs(std::fmod(h, 2.0f) - 1.0f);
     Color3 c{ 0, 0, 0 };
     if (h < 1) c = { 1, x, 0 }; else if (h < 2) c = { x, 1, 0 }; else if (h < 3) c = { 0, 1, x };
     else if (h < 4) c = { 0, x, 1 }; else if (h < 5) c = { x, 0, 1 }; else c = { 1, 0, x };
-    // Saturacion moderada: es algodon, no plastico.
-    const float s = 0.55f;
+    // Saturacion moderada por defecto: es algodon, no plastico.
     return { (1.0f - s + s * c.r) * claro * 0.9f, (1.0f - s + s * c.g) * claro * 0.9f,
              (1.0f - s + s * c.b) * claro * 0.9f };
 }
@@ -495,13 +547,24 @@ struct Datos {
         const bool A = copias(g, G_ABO, 0) > 0, B = copias(g, G_ABO, 1) > 0;
         std::snprintf(f.grupo, sizeof(f.grupo), "%s", A && B ? "AB" : (A ? "A" : (B ? "B" : "O")));
 
-        f.camisa = tela(v[ROPA_CAMISA_TONO], v[ROPA_CAMISA_CLARO]);
-        f.shortC = tela(v[ROPA_SHORT_TONO], v[ROPA_SHORT_CLARO]);
+        // La ropa: lo vivo del color y lo gastada (mas clara y apagada).
+        const float viva = v[ROPA_VIVEZA] * (1.0f - 0.6f * v[ROPA_DESGASTE]);
+        f.camisa = tela(v[ROPA_CAMISA_TONO], sat01(v[ROPA_CAMISA_CLARO] * (1.0f + 0.25f * v[ROPA_DESGASTE])), viva);
+        f.shortC = tela(v[ROPA_SHORT_TONO], sat01(v[ROPA_SHORT_CLARO] * (1.0f + 0.25f * v[ROPA_DESGASTE])), viva);
         f.pelo_cm = v[PELO_LARGO_CM] * (1.0f - 0.8f * f.calvicie);
         f.barba_mm = v[BARBA_LARGO_MM];
         f.una_mm = v[UNA_LARGO_MM];
         // Las canas aclaran el pelo hacia el gris.
         f.pelo = mezcla(f.pelo, Color3{ 0.78f, 0.78f, 0.76f }, f.canas * 0.85f);
+        // El tinte (cubre las canas) y la claridad del pelo.
+        if (v[PELO_TINTE] > 0.0f) f.pelo = mezcla(f.pelo, tela(v[PELO_TINTE_TONO], 0.55f, 0.85f), v[PELO_TINTE]);
+        const float kPelo = 1.0f + 0.6f * v[PELO_BRILLO];
+        f.pelo = { sat01(f.pelo.r * kPelo), sat01(f.pelo.g * kPelo), sat01(f.pelo.b * kPelo) };
+        // La piel: el ajuste fino sobre los genes, el rubor y el bronceado.
+        const float kPiel = 1.0f + 0.30f * v[PIEL_AJUSTE];
+        f.piel = { sat01(f.piel.r * kPiel), sat01(f.piel.g * kPiel), sat01(f.piel.b * kPiel) };
+        f.piel = mezcla(f.piel, Color3{ f.piel.r * 1.05f, f.piel.g * 0.78f, f.piel.b * 0.76f }, v[PIEL_RUBOR] * 0.6f);
+        f.piel = mezcla(f.piel, Color3{ f.piel.r * 0.80f, f.piel.g * 0.66f, f.piel.b * 0.52f }, v[PIEL_BRONCEADO] * 0.7f);
         return f;
     }
 
@@ -512,8 +575,12 @@ struct Datos {
         std::string s;
         char linea[96];
         for (int i = 0; i < NUM_PARAMS; ++i) {
-            std::snprintf(linea, sizeof(linea), "p%d %.4f\n", i, v[i]);
-            s += linea;
+            // Por NOMBRE (con _ en vez de espacios): asi se pueden anadir
+            // ajustes en cualquier familia sin desordenar los archivos.
+            std::string n = info(i).nombre;
+            for (char& c : n) if (c == ' ') c = '_';
+            std::snprintf(linea, sizeof(linea), " %.4f\n", v[i]);
+            s += "a " + n + linea;
         }
         for (int gi = 0; gi < NUM_GENES; ++gi) {
             std::snprintf(linea, sizeof(linea), "g%d %d %d\n", gi, genes.a[gi][0], genes.a[gi][1]);
@@ -534,7 +601,15 @@ struct Datos {
             int k = 0, a0 = 0, a1 = 0;
             float x = 0.0f;
             double d = 0.0;
-            if (std::sscanf(l.c_str(), "p%d %f", &k, &x) == 2 && k >= 0 && k < NUM_PARAMS) poner(k, x);
+            if (l.compare(0, 2, "a ") == 0) {
+                const size_t esp = l.find_last_of(' ');
+                if (esp > 2) {
+                    std::string n = l.substr(2, esp - 2);
+                    for (char& c : n) if (c == '_') c = ' ';
+                    for (int p = 0; p < NUM_PARAMS; ++p)
+                        if (n == info(p).nombre) { poner(p, (float)std::atof(l.c_str() + esp + 1)); break; }
+                }
+            } else if (std::sscanf(l.c_str(), "p%d %f", &k, &x) == 2 && paramLegado(k) >= 0) poner(paramLegado(k), x);
             else if (std::sscanf(l.c_str(), "g%d %d %d", &k, &a0, &a1) == 3 && k >= 0 && k < NUM_GENES) {
                 const int n = infoGen(k).nAlelos;
                 genes.a[k][0] = (uint8_t)(((a0 % n) + n) % n);

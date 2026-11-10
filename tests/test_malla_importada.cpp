@@ -24,7 +24,7 @@ TEST_CASE("Modelo importado: se carga y es ligero para la HD 4000") {
     REQUIRE(mi.cargar(rutaModelo()));
     CHECK(mi.formato == 2);
     CHECK(mi.base.size() < 60000);
-    CHECK(mi.indices.size() / 3 < 100000);
+    CHECK(mi.indices.size() / 3 <= 80000);
     CHECK(mi.uv.size() == mi.base.size() * 2);
     CHECK(mi.indicesSinCabeza.size() < mi.indices.size());
 }

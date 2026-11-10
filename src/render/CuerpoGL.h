@@ -31,6 +31,8 @@
 
 namespace CuerpoGL {
 
+static_assert(ModeloJugador::NUM_HUESOS * 3 == 189, "uHueso[] del shader debe tener NUM_HUESOS * 3 filas");
+
 using namespace Render;
 
 typedef void (APIENTRY *PFN_glGenBuffersC)(GLsizei, GLuint*);
@@ -44,7 +46,7 @@ constexpr GLenum ARRAY_ACTUAL = 0x8894, ELEMENTOS_ACTUAL = 0x8895, PROGRAMA_ACTU
 constexpr GLenum DXT1 = 0x83F0, TEXTURA0 = 0x84C0, TEXTURA_ACTIVA = 0x84E0;
 
 enum Atributo { A_POS, A_NOR, A_UV, A_TAN, A_HUESO, A_PESO };
-enum Textura { T_COLOR, T_NORMAL, T_MASCARA, T_NUM };
+enum Textura { T_COLOR, T_NORMAL, T_MASCARA, T_RUGOSIDAD, T_NUM };
 
 inline const char* VS = R"(#version 130
 in vec3 aPos;
@@ -53,7 +55,7 @@ in vec2 aUV;
 in vec4 aTan;
 in vec2 aHueso;
 in float aPeso;
-uniform vec4 uHueso[153];
+uniform vec4 uHueso[189];   // 3 filas por hueso: NUM_HUESOS * 3
 uniform float uBase;
 uniform float uAlto;
 out vec2 vUV;
@@ -84,6 +86,7 @@ inline const char* FS = R"(#version 130
 uniform sampler2D uColor;
 uniform sampler2D uNormal;
 uniform sampler2D uMascara;
+uniform sampler2D uRugosidad;
 uniform vec3 uTinte[4];
 uniform vec4 uMezcla;
 uniform vec3 uLuzDir;
@@ -119,9 +122,19 @@ void main() {
         N = normalize(T * nm.x + B * nm.y + N * max(nm.z, 0.2));
     }
     float d = max(dot(N, uLuzDir), 0.0);
-    float d2 = d * d;
-    float luz = mix(uLuzPies, uLuzPecho, vAltura) * (0.58 + 0.40 * d + d2 * d2 * d2 * 0.06);
+    float ambiente = mix(uLuzPies, uLuzPecho, vAltura);
+    float luz = ambiente * (0.56 + 0.42 * d);
     c *= luz;
+    // El brillo de cada material (la rugosidad del modelo): la piel y el pelo
+    // tienen reflejo; la tela casi nada. Y un borde de luz suave en el
+    // contorno, que separa la figura del fondo como en una foto.
+    vec3 Ne = normalize(gl_NormalMatrix * N);
+    vec3 Le = normalize(gl_NormalMatrix * uLuzDir);
+    vec3 Ve = normalize(-vOjo);
+    float rug = texture(uRugosidad, vUV).r;
+    float brillo = pow(max(dot(Ne, normalize(Le + Ve)), 0.0), mix(48.0, 6.0, rug)) * (1.0 - rug) * 0.35;
+    float borde = pow(1.0 - max(dot(Ne, Ve), 0.0), 3.0) * 0.12;
+    c += vec3(brillo + borde) * ambiente;
     float dist = length(vOjo), f = 0.0;
     if (uNieblaModo == 0) f = (dist - uNieblaIni) / max(uNieblaFin - uNieblaIni, 0.001);
     else if (uNieblaModo == 1) f = 1.0 - exp(-uNieblaDensidad * dist);
@@ -137,7 +150,7 @@ struct Recursos {
     GLuint tex[T_NUM] = {};
     int versionSubida = -1;
     GLint uHueso = -1, uBase = -1, uAlto = -1, uColor = -1, uNormal = -1, uMascara = -1, uTinte = -1;
-    GLint uMezcla = -1;
+    GLint uMezcla = -1, uRugosidad = -1;
     GLint uLuzDir = -1, uLuzPies = -1, uLuzPecho = -1, uUsaNormal = -1;
     GLint uNieblaModo = -1, uNieblaIni = -1, uNieblaFin = -1, uNieblaDensidad = -1, uNieblaColor = -1;
     PFN_glGenBuffersC genBuffers = nullptr;
@@ -190,7 +203,7 @@ inline bool iniciar() {
     }
     auto U = [&](const char* n) { return pglGetUniformLocation(r.prog, n); };
     r.uHueso = U("uHueso"); r.uBase = U("uBase"); r.uAlto = U("uAlto");
-    r.uColor = U("uColor"); r.uNormal = U("uNormal"); r.uMascara = U("uMascara"); r.uTinte = U("uTinte"); r.uMezcla = U("uMezcla");
+    r.uColor = U("uColor"); r.uNormal = U("uNormal"); r.uMascara = U("uMascara"); r.uRugosidad = U("uRugosidad"); r.uTinte = U("uTinte"); r.uMezcla = U("uMezcla");
     r.uLuzDir = U("uLuzDir"); r.uLuzPies = U("uLuzPies"); r.uLuzPecho = U("uLuzPecho"); r.uUsaNormal = U("uUsaNormal");
     r.uNieblaModo = U("uNieblaModo"); r.uNieblaIni = U("uNieblaIni"); r.uNieblaFin = U("uNieblaFin");
     r.uNieblaDensidad = U("uNieblaDensidad"); r.uNieblaColor = U("uNieblaColor");
@@ -263,6 +276,7 @@ struct Luz {
     float pies = 1.0f, pecho = 1.0f;
     float base = 0.0f, alto = 1.62f;
     bool niebla = true;
+    bool frenteHorario = false;   // la matriz del mundo es un espejo
 };
 
 // Dibuja el modelo con el esqueleto `s`. La matriz de modelo (el personaje
@@ -330,6 +344,7 @@ inline bool dibujar(const ModeloJugador::MallaImportada& m, const ModeloJugador:
     pglUniform1i(r.uColor, T_COLOR);
     pglUniform1i(r.uNormal, T_NORMAL);
     pglUniform1i(r.uMascara, T_MASCARA);
+    pglUniform1i(r.uRugosidad, T_RUGOSIDAD);
 
     r.bindBuffer(ARRAY, r.vbo);
     const GLsizei paso = 15 * sizeof(float);
@@ -338,9 +353,19 @@ inline bool dibujar(const ModeloJugador::MallaImportada& m, const ModeloJugador:
         pglVertexAttribPointer(i, n, GL_FLOAT, GL_FALSE, paso, (const void*)(size_t)(desde * sizeof(float)));
     };
     atr(A_POS, 3, 0); atr(A_NOR, 3, 3); atr(A_UV, 2, 6); atr(A_TAN, 4, 8); atr(A_HUESO, 2, 12); atr(A_PESO, 1, 14);
+    // Solo las caras de fuera: con la camara dentro del cuerpo (primera
+    // persona) no se ve el interior, y se dibuja la mitad de triangulos.
+    const GLboolean cullAntes = glIsEnabled(GL_CULL_FACE);
+    GLint frenteAntes = GL_CCW;
+    glGetIntegerv(GL_FRONT_FACE, &frenteAntes);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glFrontFace(luz.frenteHorario ? GL_CW : GL_CCW);
     const int k = conCabeza ? 0 : 1;
     r.bindBuffer(ELEMENTOS, r.ibo[k]);
     glDrawElements(GL_TRIANGLES, r.n[k], GL_UNSIGNED_INT, nullptr);
+    glFrontFace((GLenum)frenteAntes);
+    if (!cullAntes) glDisable(GL_CULL_FACE);
     for (int i = A_POS; i <= A_PESO; ++i) pglDisableVertexAttribArray(i);
 
     for (int t = T_NUM - 1; t >= 0; --t) {

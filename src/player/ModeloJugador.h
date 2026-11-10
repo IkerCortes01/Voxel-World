@@ -200,6 +200,7 @@ struct Pierna {
 struct Proporciones {
     float torso = 1.0f, brazo = 1.0f, antebrazo = 1.0f, muslo = 1.0f, pierna = 1.0f;
     float hombroY = 1.0f;   // la altura del hombro sobre la pelvis (hombros caidos < 1)
+    float mano = 1.0f;      // el tamano de la mano: palma, nudillos y falanges
 };
 struct Pose {
     Brazo brazo[2];
@@ -1572,18 +1573,18 @@ inline void resolver(const Pose& p, float subir, Esqueleto& s) {
             V base;
             Rot r;
             if (d < 4) {
-                base = suma(muneca, rMano.aplicar({ pulgar * NX[d], NY[d], 0 }));
+                base = suma(muneca, rMano.aplicar({ pulgar * NX[d] * p.prop.mano, NY[d] * p.prop.mano, 0 }));
                 r = rMano.por(Rot::enZ(pulgar * ABRE[d] * b.abre[d]));
             } else {
                 // El pulgar sale del lado de la palma, abierto y girado sobre
                 // si mismo: asi al doblarse cruza hacia el centro de la mano.
-                base = suma(muneca, rMano.aplicar({ pulgar * 0.026f, -0.022f, 0.009f }));
+                base = suma(muneca, rMano.aplicar({ pulgar * 0.026f * p.prop.mano, -0.022f * p.prop.mano, 0.009f * p.prop.mano }));
                 r = rMano.por(Rot::enZ(pulgar * 0.65f)).por(Rot::enY(-pulgar * 0.8f));
             }
             for (int f = 0; f < 3; ++f) {
                 r = r.por(Rot::enX(b.dedo[d][f]));    // se dobla hacia la palma (+Z)
                 m.dedo[d][f] = { base, r };
-                base = suma(base, r.aplicar({ 0, -M::DEDO[d][f], 0 }));
+                base = suma(base, r.aplicar({ 0, -M::DEDO[d][f] * p.prop.mano, 0 }));
             }
             m.dedo[d][3] = { base, r };
         }
@@ -1695,6 +1696,68 @@ inline Esqueleto resolver(const Pose& p, bool apoyar = true) {
         detalle::resolver(p, -baja, s);
     }
     return s;
+}
+
+// ⭐ LA POSTURA DENTRO DE SU HUECO
+//
+// BUG: "el modelo del jugador se ve muy estirado y mal las rodillas y manos
+// al agacharme o tirarme". La camara del motor agachado esta a 0.86 (hitbox de
+// 0.95) y tumbado a 0.42 (hitbox de 0.55), pero la pose dejaba el ojo a 1.24 y
+// a 0.61: el cuerpo se APLASTABA en vertical para que cupiera, y un modelo
+// realista aplastado se ve estirado y con las rodillas rotas.
+//
+// Ahora la pose se HUNDE hasta que el ojo cae justo en la camara: agachado,
+// hacia unas cuclillas profundas sobre las puntas, con la pelvis inclinada y
+// el tronco adelante (la cabeza levantada para seguir mirando al frente);
+// tumbado, bajando el pecho al suelo. Se busca por biseccion cuanto mezclar.
+inline void hundirHasta(Pose& p, float ojoObjetivo, bool tumbado) {
+    auto con = [&](float t) {
+        Pose q = p;
+        auto ir = [t](float& v, float meta) { v += (meta - v) * t; };
+        if (tumbado) {
+            ir(q.levantaPecho, 0.0f);
+            ir(q.cuelloFlex, -0.25f);
+        } else {
+            for (Pierna& g : q.pierna) {
+                ir(g.flex, 1.95f); ir(g.rodilla, 2.38f); ir(g.tobillo, -0.30f);
+                ir(g.abd, 0.22f); ir(g.rot, 0.30f); ir(g.dedos, 0.6f);
+            }
+            ir(q.pelvisInclina, 0.42f);
+            ir(q.inclinacion, 0.82f);
+            ir(q.cuelloFlex, -0.55f);
+        }
+        limitar(q);
+        return q;
+    };
+    if (resolver(con(0.0f), true).ojo <= ojoObjetivo + 0.02f) return;
+    float lo = 0.0f, hi = 1.0f;
+    for (int i = 0; i < 10; ++i) {
+        const float m = 0.5f * (lo + hi);
+        if (resolver(con(m), true).ojo > ojoObjetivo) lo = m; else hi = m;
+    }
+    p = con(hi);
+}
+
+// ⭐ EL CENTRO DEL CUERPO EN PLANTA: el medio de lo que ocupa (pelvis y
+// gluteos detras, rodillas y pies delante, hombros a los lados), con el
+// grosor de cada parte. Es el punto que va en el centro de la hitbox, asi el
+// cuerpo queda dentro de ella de pie, agachado o andando.
+inline V centroEnPlanta(const Esqueleto& s) {
+    float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+    auto meter = [&](V p, float r) {
+        x0 = std::fmin(x0, p.x - r); x1 = std::fmax(x1, p.x + r);
+        z0 = std::fmin(z0, p.z - r); z1 = std::fmax(z1, p.z + r);
+    };
+    meter(s.pelvis.p, 0.15f);
+    meter(s.cuello.p, 0.10f);
+    for (int l = 0; l < 2; ++l) {
+        meter(s.hombro[l].p, 0.07f);
+        meter(s.cadera[l].p, 0.09f);
+        meter(s.rodilla[l].p, 0.07f);
+        meter(s.pie[l].talon, 0.04f);
+        meter(s.pie[l].dedo[0][2].p, 0.02f);
+    }
+    return { 0.5f * (x0 + x1), s.cuello.p.y, 0.5f * (z0 + z1) };
 }
 
 // ----------------------------------------------------------------------------

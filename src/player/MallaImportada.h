@@ -53,10 +53,55 @@ struct Hueso {
 
 enum : int { H_PELVIS, H_PECHO, H_CABEZA, H_POR_LADO_INICIO };
 // Por cada lado, en este orden (ver huesosDe).
+// Los _M son huesos de ayuda en cada articulacion: giran la mitad que su
+// vecino (ver huesosDe). Con ellos rodillas, codos y caderas muy dobladas no
+// se colapsan (el defecto tipico del skinning lineal).
 enum : int { HL_CLAVICULA, HL_BRAZO, HL_ANTE1, HL_ANTE2, HL_MANO, HL_DEDO0 = 5,
-             HL_MUSLO = HL_DEDO0 + 15, HL_PIERNA, HL_PIE, HL_DEDOS_PIE, HL_NUM };
+             HL_MUSLO = HL_DEDO0 + 15, HL_PIERNA, HL_PIE, HL_DEDOS_PIE,
+             HL_HOMBRO_M, HL_CODO_M, HL_MUNECA_M, HL_CADERA_M, HL_RODILLA_M, HL_TOBILLO_M, HL_NUM };
 constexpr int NUM_HUESOS = H_POR_LADO_INICIO + 2 * HL_NUM;
 inline int huesoDe(int lado, int k) { return H_POR_LADO_INICIO + lado * HL_NUM + k; }
+
+namespace detalle {
+// El giro a medio camino entre dos marcos (cuaterniones: la media normalizada
+// es exactamente el slerp al 50 %).
+struct Cuat { float w, x, y, z; };
+inline Cuat aCuat(const Rot& r) {
+    const float* m = r.m;
+    Cuat q;
+    const float tr = m[0] + m[4] + m[8];
+    if (tr > 0.0f) {
+        const float s = std::sqrt(tr + 1.0f) * 2.0f;
+        q = { 0.25f * s, (m[7] - m[5]) / s, (m[2] - m[6]) / s, (m[3] - m[1]) / s };
+    } else if (m[0] > m[4] && m[0] > m[8]) {
+        const float s = std::sqrt(1.0f + m[0] - m[4] - m[8]) * 2.0f;
+        q = { (m[7] - m[5]) / s, 0.25f * s, (m[1] + m[3]) / s, (m[2] + m[6]) / s };
+    } else if (m[4] > m[8]) {
+        const float s = std::sqrt(1.0f + m[4] - m[0] - m[8]) * 2.0f;
+        q = { (m[2] - m[6]) / s, (m[1] + m[3]) / s, 0.25f * s, (m[5] + m[7]) / s };
+    } else {
+        const float s = std::sqrt(1.0f + m[8] - m[0] - m[4]) * 2.0f;
+        q = { (m[3] - m[1]) / s, (m[2] + m[6]) / s, (m[5] + m[7]) / s, 0.25f * s };
+    }
+    return q;
+}
+inline Rot aRot(Cuat q) {
+    const float w = q.w, x = q.x, y = q.y, z = q.z;
+    return { { 1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
+               2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
+               2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y) } };
+}
+inline Rot medioGiro(const Rot& a, const Rot& b) {
+    const Cuat p = aCuat(a);
+    Cuat q = aCuat(b);
+    if (p.w * q.w + p.x * q.x + p.y * q.y + p.z * q.z < 0.0f) q = { -q.w, -q.x, -q.y, -q.z };
+    Cuat m = { p.w + q.w, p.x + q.x, p.y + q.y, p.z + q.z };
+    const float l = std::sqrt(m.w * m.w + m.x * m.x + m.y * m.y + m.z * m.z);
+    if (l < 1e-6f) return a;
+    m = { m.w / l, m.x / l, m.y / l, m.z / l };
+    return aRot(m);
+}
+} // namespace detalle
 
 // Los huesos de un esqueleto ya colocado. Mismo orden siempre: el de la pose
 // de referencia y el de la actual se emparejan por indice.
@@ -85,6 +130,17 @@ inline void huesosDe(const Esqueleto& s, Hueso* h) {
         H(HL_PIERNA) = { s.rodilla[l], s.rodilla[l].p, pie.tobillo.p, 0.060f, huesoDe(l, HL_MUSLO) };
         H(HL_PIE) = { pie.tobillo, pie.talon, pie.bola, 0.040f, huesoDe(l, HL_PIERNA) };
         H(HL_DEDOS_PIE) = { { pie.bola, pie.dedo[0][0].r }, pie.bola, pie.dedo[2][2].p, 0.020f, huesoDe(l, HL_PIE) };
+        // Los de ayuda: en la articulacion, con el giro a medias.
+        auto ayuda = [&](int k, int padre, int hijo, V p, float radio) {
+            H(k) = { { p, detalle::medioGiro(h[padre].marco.r, h[hijo].marco.r) }, p, p, radio, padre };
+            h[hijo].padre = huesoDe(l, k);
+        };
+        ayuda(HL_HOMBRO_M, huesoDe(l, HL_CLAVICULA), huesoDe(l, HL_BRAZO), s.hombro[l].p, 0.075f);
+        ayuda(HL_CODO_M, huesoDe(l, HL_BRAZO), huesoDe(l, HL_ANTE1), s.codo[l].p, 0.055f);
+        ayuda(HL_MUNECA_M, huesoDe(l, HL_ANTE2), huesoDe(l, HL_MANO), m.muneca.p, 0.035f);
+        ayuda(HL_CADERA_M, H_PELVIS, huesoDe(l, HL_MUSLO), s.cadera[l].p, 0.10f);
+        ayuda(HL_RODILLA_M, huesoDe(l, HL_MUSLO), huesoDe(l, HL_PIERNA), s.rodilla[l].p, 0.07f);
+        ayuda(HL_TOBILLO_M, huesoDe(l, HL_PIERNA), huesoDe(l, HL_PIE), pie.tobillo.p, 0.05f);
     }
 }
 
@@ -120,6 +176,11 @@ struct AjustesMalla {
     float narizLargo = 1, narizAncho = 1, narizPuente = 1, bocaAncho = 1, labios = 1;
     float orejas = 1, orejasDespegadas = 0, cuelloLargo = 1;
     float busto = 0, abdomen = 0, gluteos = 1;
+    // Los de la segunda tanda (ver Avatar.h): 1 o 0 = nada.
+    float craneo = 1, papada = 0, sienes = 1, ojosProfundidad = 1, ojosInclinacion = 0, cejasArco = 0, cejasGrosor = 1;
+    float narizPunta = 0, narizAletas = 1, narizAltura = 1, bocaAltura = 1, sonrisa = 0, bocaSaliente = 0;
+    float orejasAltura = 1, orejasPunta = 0, lobulos = 1, peloVolumen = 1, nuez = 0.3f, trapecio = 1;
+    float triceps = 1, dedosLargo = 1, espalda = 1, pectoral = 0.2f, cuadriceps = 1, pieDedos = 1, cinturaAltura = 0;
     // El color que pide el avatar en cada zona y cuanto se usa (0 = el del
     // modelo tal cual; 1 = ese color con el sombreado de la textura).
     float piel[3] = { 1, 1, 1 }, pelo[3] = { 1, 1, 1 }, camisa[3] = { 1, 1, 1 }, shortC[3] = { 1, 1, 1 };
@@ -151,6 +212,7 @@ struct MallaImportada {
         Proporciones p;
         p.torso = params[2]; p.brazo = params[3]; p.antebrazo = params[4];
         p.muslo = params[5]; p.pierna = params[6]; p.hombroY = params[7];
+        p.mano = params[21] > 0.3f ? params[21] : 1.0f;
         return p;
     }
     // La pose en que esta hecho el modelo: en cruz, los brazos algo caidos.
@@ -254,17 +316,20 @@ struct MallaImportada {
                 if (w0[i] > 0.97f) { w0[i] = 1.0f; h1[i] = h0[i]; }
             }
         }
-        // En primera persona la camara esta dentro de la cabeza: sin ella.
-        indicesSinCabeza.clear();
-        for (size_t t = 0; t + 2 < indices.size(); t += 3) {
-            bool cabeza = false;
-            for (int k = 0; k < 3; ++k) {
-                const uint32_t v = indices[t + k];
-                if ((h0[v] == H_CABEZA && w0[v] > 0.5f) || (h1[v] == H_CABEZA && w0[v] < 0.5f)) cabeza = true;
-            }
-            if (!cabeza) indicesSinCabeza.insert(indicesSinCabeza.end(), { indices[t], indices[t + 1], indices[t + 2] });
-        }
         buscarPuntos(s);
+        // En primera persona la camara va en los ojos (ver ojos()). La cabeza
+        // SE QUEDA: con las caras traseras descartadas, desde dentro no se ve,
+        // y el menton y el cuello tapan la vista al mirar abajo como en una
+        // persona. Solo se quita lo que esta pegado a la camara: los parpados
+        // y los globos de los ojos.
+        indicesSinCabeza.clear();
+        const V entreOjos = mezclar(pt.ojo[0], pt.ojo[1], 0.5f);
+        for (size_t t = 0; t + 2 < indices.size(); t += 3) {
+            bool pegado = false;
+            for (int k = 0; k < 3; ++k)
+                if (largo(resta(modelo[indices[t + k]].p, entreOjos)) < 0.065f) pegado = true;
+            if (!pegado) indicesSinCabeza.insert(indicesSinCabeza.end(), { indices[t], indices[t + 1], indices[t + 2] });
+        }
     }
 
     // ⭐ LOS PUNTOS DE REFERENCIA, buscados en la malla: la punta de la nariz
@@ -336,32 +401,50 @@ struct MallaImportada {
         // La cabeza entera: ancho y largo.
         zona(p.cabeza, R * 1.6f, a.caraAncho, a.caraLargo, 1.0f);
         // La frente, los pomulos, la mandibula y el menton.
-        empujar({ p.cabeza.x, p.nariz.y + 0.07f, p.nariz.z - 0.03f }, 0.06f, { 0, 0.012f * (a.frente - 1) * 4, 0.02f * (a.frente - 1) * 4 });
+        empujar({ p.cabeza.x, p.nariz.y + 0.07f, p.nariz.z - 0.03f }, 0.06f, { 0, 0.012f * (a.frente - 1) * 6, 0.02f * (a.frente - 1) * 6 });
         for (int l = 0; l < 2; ++l) {
             const float sx = l == 0 ? -1.0f : 1.0f;
-            empujar({ p.nariz.x + sx * 0.050f, p.nariz.y, p.nariz.z - 0.040f }, 0.035f, { sx * 0.012f * (a.pomulos - 1) * 3, 0, 0.006f * (a.pomulos - 1) * 3 });
+            empujar({ p.nariz.x + sx * 0.050f, p.nariz.y, p.nariz.z - 0.040f }, 0.035f, { sx * 0.012f * (a.pomulos - 1) * 5, 0, 0.006f * (a.pomulos - 1) * 5 });
         }
         zona({ p.menton.x, p.menton.y + 0.025f, p.menton.z - 0.05f }, 0.075f, a.mandibula, 1.0f, 1.0f);
-        empujar(p.menton, 0.035f, { 0, -0.010f * (a.menton - 1) * 3, 0.018f * (a.menton - 1) * 3 });
+        empujar(p.menton, 0.035f, { 0, -0.010f * (a.menton - 1) * 5, 0.018f * (a.menton - 1) * 5 });
         // Los ojos y las cejas.
         for (int l = 0; l < 2; ++l) {
             const float sx = l == 0 ? -1.0f : 1.0f;
             zona(p.ojo[l], 0.020f, a.ojos, a.ojos, a.ojos);
-            empujar(p.ojo[l], 0.024f, { sx * 0.030f * (a.ojosSeparacion - 1), 0.040f * (a.ojosAltura - 1), 0 });
-            empujar({ p.ojo[l].x, p.ojo[l].y + 0.018f, p.ojo[l].z + 0.004f }, 0.022f, { 0, 0.05f * (a.cejasAltura - 1), 0 });
+            empujar(p.ojo[l], 0.024f, { sx * 0.045f * (a.ojosSeparacion - 1), 0.060f * (a.ojosAltura - 1), 0.012f * (1 - a.ojosProfundidad) });
+            // La comisura de fuera sube o baja: los ojos se inclinan.
+            empujar({ p.ojo[l].x + sx * 0.016f, p.ojo[l].y, p.ojo[l].z - 0.004f }, 0.014f, { 0, 0.005f * a.ojosInclinacion, 0 });
+            const V ceja = { p.ojo[l].x, p.ojo[l].y + 0.018f, p.ojo[l].z + 0.004f };
+            empujar(ceja, 0.022f, { 0, 0.08f * (a.cejasAltura - 1), 0.004f * (a.cejasGrosor - 1) });
+            empujar({ ceja.x + sx * 0.008f, ceja.y + 0.003f, ceja.z }, 0.012f, { 0, 0.005f * a.cejasArco, 0 });
         }
         // La nariz y la boca.
         // El largo: la punta sale (~2 cm de nariz: un 25 % son 5 mm); el ancho,
         // alrededor de la base.
-        empujar(p.nariz, 0.030f, { 0, -0.004f * (a.narizLargo - 1), 0.020f * (a.narizLargo - 1) });
+        empujar(p.nariz, 0.030f, { 0, -0.006f * (a.narizLargo - 1), 0.035f * (a.narizLargo - 1) });
+        empujar(p.nariz, 0.016f, { 0, 0.006f * a.narizPunta, 0 });
+        zona({ p.nariz.x, p.nariz.y - 0.010f, p.nariz.z - 0.012f }, 0.020f, a.narizAletas, 1.0f, 1.0f);
+        empujar({ p.nariz.x, p.nariz.y + 0.01f, p.nariz.z - 0.015f }, 0.035f, { 0, 0.06f * (a.narizAltura - 1), 0 });
         zona({ p.nariz.x, p.nariz.y, p.nariz.z - 0.018f }, 0.035f, a.narizAncho, 1.0f, 1.0f);
-        empujar({ p.nariz.x, p.nariz.y + 0.025f, p.nariz.z - 0.012f }, 0.022f, { 0, 0, 0.012f * (a.narizPuente - 1) * 3 });
+        empujar({ p.nariz.x, p.nariz.y + 0.025f, p.nariz.z - 0.012f }, 0.022f, { 0, 0, 0.012f * (a.narizPuente - 1) * 5 });
         zona(p.boca, 0.030f, a.bocaAncho, a.labios, 1.0f);
+        empujar(p.boca, 0.032f, { 0, 0.07f * (a.bocaAltura - 1), 0.008f * a.bocaSaliente });
+        for (int l = 0; l < 2; ++l) {
+            const float sx = l == 0 ? -1.0f : 1.0f;
+            empujar({ p.boca.x + sx * 0.022f, p.boca.y, p.boca.z - 0.006f }, 0.013f, { sx * 0.002f * a.sonrisa, 0.004f * a.sonrisa, -0.001f * a.sonrisa });
+        }
+        // El craneo, las sienes y la papada.
+        zona({ p.cabeza.x, p.cabeza.y, p.cabeza.z - 0.05f }, R * 1.2f, 1.0f, 1.0f, a.craneo);
+        zona({ p.cabeza.x, p.ojo[0].y + 0.02f, p.ojo[0].z - 0.05f }, 0.06f, a.sienes, 1.0f, 1.0f);
+        empujar({ p.menton.x, p.menton.y - 0.02f, p.menton.z - 0.04f }, 0.045f, { 0, -0.012f * a.papada, 0.010f * a.papada });
         // Las orejas: tamano y lo despegadas.
         for (int l = 0; l < 2; ++l) {
             const float sx = l == 0 ? -1.0f : 1.0f;
             zona(p.oreja[l], 0.035f, a.orejas, a.orejas, a.orejas);
-            empujar(p.oreja[l], 0.035f, { sx * 0.015f * a.orejasDespegadas, 0, 0 });
+            empujar(p.oreja[l], 0.035f, { sx * 0.025f * a.orejasDespegadas, 0.05f * (a.orejasAltura - 1), 0 });
+            empujar({ p.oreja[l].x, p.oreja[l].y + 0.025f, p.oreja[l].z - 0.005f }, 0.018f, { sx * 0.004f * a.orejasPunta, 0.012f * a.orejasPunta, -0.004f * a.orejasPunta });
+            zona({ p.oreja[l].x, p.oreja[l].y - 0.025f, p.oreja[l].z }, 0.014f, a.lobulos, a.lobulos, a.lobulos);
         }
         // El cuello: lo de encima sube (la cabeza con el) y la franja se
         // estira; y su grosor.
@@ -372,10 +455,25 @@ struct MallaImportada {
                 if (std::fabs(v.p.x - p.cuelloBase.x) < 0.35f) v.p.y += dy * u;
             }
         }
+        // El pelo: lo de arriba de la cabeza, mas o menos voluminoso.
+        if (a.peloVolumen != 1.0f)
+            for (VerticeJ& v : base) {
+                const float u = sujetar((v.p.y - (p.ojo[0].y + 0.035f)) / 0.05f, 0.0f, 1.0f);
+                if (u <= 0.0f || largo(resta(v.p, p.cabeza)) > R * 2.0f) continue;
+                const float k = 1.0f + (a.peloVolumen - 1.0f) * u;
+                v.p = suma(p.cabeza, escala(resta(v.p, p.cabeza), k));
+            }
+        // La nuez, los trapecios y los pectorales.
+        empujar({ p.cuelloBase.x, p.cuelloBase.y + 0.03f, p.cuelloBase.z + 0.05f }, 0.025f, { 0, 0, 0.014f * (a.nuez - 0.3f) });
+        for (int l = 0; l < 2; ++l) {
+            const float sx = l == 0 ? -1.0f : 1.0f;
+            empujar({ p.cuelloBase.x + sx * 0.09f, p.cuelloBase.y - 0.03f, p.cuelloBase.z - 0.02f }, 0.06f, { 0, 0.03f * (a.trapecio - 1), 0 });
+            empujar({ p.pecho[l].x, p.pecho[l].y + 0.04f, p.pecho[l].z }, 0.08f, { 0, 0, 0.025f * (a.pectoral - 0.2f) });
+        }
         // El busto, el vientre y los gluteos: abultan hacia fuera.
         for (int l = 0; l < 2; ++l) {
             empujar(p.pecho[l], 0.085f, { 0, -0.010f * a.busto, 0.055f * a.busto });
-            zona(p.gluteo[l], 0.10f, 1.0f, 1.0f, a.gluteos);
+            zona({ p.gluteo[l].x, p.gluteo[l].y + 0.05f * a.cinturaAltura, p.gluteo[l].z }, 0.10f, 1.0f, 1.0f, a.gluteos);
         }
         empujar(p.vientre, 0.14f, { 0, 0, 0.07f * a.abdomen });
         ++versionForma;
@@ -392,22 +490,29 @@ struct MallaImportada {
             return l0 > 1e-4f ? largo(resta(h[b].b, h[b].a)) / l0 : 1.0f;
         };
         S[H_PELVIS] = { a.cadera, 1.0f, 0.5f * (a.cadera + a.cintura) };
-        S[H_PECHO] = { a.pecho, largoRel(H_PECHO), a.pecho };
+        S[H_PECHO] = { a.pecho * a.espalda, largoRel(H_PECHO), a.pecho };
         S[H_CABEZA] = { a.cabeza, a.cabeza, a.cabeza };
         for (int l = 0; l < 2; ++l) {
             auto H = [&](int k) { return huesoDe(l, k); };
             S[H(HL_CLAVICULA)] = { a.hombros, a.hombros, a.hombros };
-            const float brazo = a.brazo * (1.0f + (a.biceps - 1.0f) * 0.6f);
+            const float brazo = a.brazo * (1.0f + (a.biceps - 1.0f) * 0.6f) * (1.0f + (a.triceps - 1.0f) * 0.4f);
             S[H(HL_BRAZO)] = { brazo, largoRel(H(HL_BRAZO)), brazo };
             S[H(HL_ANTE1)] = { a.antebrazo, largoRel(H(HL_ANTE1)), a.antebrazo };
             S[H(HL_ANTE2)] = { a.antebrazo, largoRel(H(HL_ANTE2)), a.antebrazo };
             S[H(HL_MANO)] = { a.mano, a.mano, a.mano };
-            for (int d = 0; d < 15; ++d) S[H(HL_DEDO0 + d)] = { a.mano, a.mano, a.mano };
-            S[H(HL_MUSLO)] = { a.muslo, largoRel(H(HL_MUSLO)), a.muslo };
+            for (int d = 0; d < 15; ++d) S[H(HL_DEDO0 + d)] = { a.mano, a.mano * a.dedosLargo, a.mano };
+            S[H(HL_MUSLO)] = { a.muslo, largoRel(H(HL_MUSLO)), a.muslo * (1.0f + (a.cuadriceps - 1.0f) * 0.7f) };
             S[H(HL_PIERNA)] = { a.gemelo, largoRel(H(HL_PIERNA)), a.gemelo };
             S[H(HL_PIE)] = { a.pie, a.pie, a.pie };
-            S[H(HL_DEDOS_PIE)] = { a.pie, a.pie, a.pie };
-        }
+            S[H(HL_DEDOS_PIE)] = { a.pie, a.pie, a.pie * a.pieDedos };
+            // Los de ayuda: el grosor medio de sus dos vecinos, sin estirar.
+            auto media = [&](int k, int x, int y) { S[H(k)] = { 0.5f * (S[x].x + S[y].x), 1.0f, 0.5f * (S[x].z + S[y].z) }; };
+            media(HL_HOMBRO_M, H(HL_CLAVICULA), H(HL_BRAZO));
+            media(HL_CODO_M, H(HL_BRAZO), H(HL_ANTE1));
+            media(HL_MUNECA_M, H(HL_ANTE2), H(HL_MANO));
+            media(HL_CADERA_M, H_PELVIS, H(HL_MUSLO));
+            media(HL_RODILLA_M, H(HL_MUSLO), H(HL_PIERNA));
+            media(HL_TOBILLO_M, H(HL_PIERNA), H(HL_PIE));        }
     }
 
     // Las matrices de cada hueso para el shader: 3 filas de 4 por hueso
@@ -431,6 +536,19 @@ struct MallaImportada {
         }
     }
 
+    // ⭐ DONDE ESTAN SUS OJOS en la pose del esqueleto `s`: el punto entre los
+    // dos, un poco por dentro, siguiendo a la cabeza (gira, se inclina y
+    // escala con ella). Ahi va la camara en primera persona.
+    V ojos(const Esqueleto& s) const {
+        Hueso h[NUM_HUESOS];
+        huesosDe(s, h);
+        const Junta& r0 = ref[H_CABEZA].marco;
+        const V entre = mezclar(pt.ojo[0], pt.ojo[1], 0.5f);
+        V local = detalle::traspuesta(r0.r).aplicar(resta(entre, r0.p));
+        local.z -= 0.02f;
+        local = escala(local, ajustes.cabeza);
+        return suma(h[H_CABEZA].marco.p, h[H_CABEZA].marco.r.aplicar(local));
+    }
     // La malla en la pose del esqueleto `s`, en la CPU (sin shader, y para
     // las pruebas); sin la cabeza en primera persona.
     void deformar(const Esqueleto& s, Malla& m, bool conCabeza = true) const {

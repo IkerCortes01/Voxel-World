@@ -335,18 +335,25 @@ struct MallaImportada {
             }
         }
         buscarPuntos(s);
-        // En primera persona la camara va en los ojos (ver ojos()). La cabeza
-        // SE QUEDA: con las caras traseras descartadas, desde dentro no se ve,
-        // y el menton y el cuello tapan la vista al mirar abajo como en una
-        // persona. Solo se quita lo que esta pegado a la camara: los parpados
-        // y los globos de los ojos.
+        // En primera persona la camara va en la cabeza (ver ojos()): la cabeza
+        // y el cuello no se dibujan. BUG: dejandolos, al mirar abajo la vista
+        // atravesaba el cuello y el cuello de la camisa por dentro. Al mirar
+        // abajo el cuerpo se echa atras (ver el cuerpo en main.cpp) y la
+        // camara queda delante del pecho: se ve el pecho por fuera, como una
+        // persona, y lo que se quito queda detras de la camara.
         indicesSinCabeza.clear();
         const V entreOjos = mezclar(pt.ojo[0], pt.ojo[1], 0.5f);
+        const float yCuello = ref[H_CABEZA].marco.p.y - 0.02f;
         for (size_t t = 0; t + 2 < indices.size(); t += 3) {
-            bool pegado = false;
-            for (int k = 0; k < 3; ++k)
-                if (largo(resta(modelo[indices[t + k]].p, entreOjos)) < 0.065f) pegado = true;
-            if (!pegado) indicesSinCabeza.insert(indicesSinCabeza.end(), { indices[t], indices[t + 1], indices[t + 2] });
+            bool fuera = false;
+            for (int k = 0; k < 3; ++k) {
+                const uint32_t v = indices[t + k];
+                const bool cabeza = (h0[v] == H_CABEZA && w0[v] > 0.3f) || (h1[v] == H_CABEZA && w0[v] < 0.7f);
+                const bool cuello = modelo[v].p.y > yCuello && std::fabs(modelo[v].p.x - entreOjos.x) < 0.09f &&
+                                    std::fabs(modelo[v].p.z - ref[H_CABEZA].marco.p.z) < 0.09f;
+                if (cabeza || cuello || largo(resta(modelo[v].p, entreOjos)) < 0.08f) fuera = true;
+            }
+            if (!fuera) indicesSinCabeza.insert(indicesSinCabeza.end(), { indices[t], indices[t + 1], indices[t + 2] });
         }
     }
 

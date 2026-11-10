@@ -118,6 +118,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "audio/AudioMixer.h"
 #include "audio/FootstepSynth.h"
 #include "audio/FootstepSystem.h"
+#include "audio/Musica.h"            // las piezas de sounds/Music, al azar y en momentos al azar
 
 // ============================================================================
 // SISTEMA DE UI / INVENTARIO
@@ -31829,6 +31830,7 @@ PlayerSys::PlayerDebug         g_playerDebug;
 // ---- AUDIO ----
 Audio::AudioMixer      g_audioMixer;
 Audio::FootstepSystem  g_footsteps;
+Audio::Musica          g_musica;
 
 // Traduce un bloque del juego al material acústico correspondiente.
 inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
@@ -48089,6 +48091,9 @@ int main() {
         // Si el dispositivo no abre, el juego sigue sin sonido (no es fatal).
         if (g_audioMixer.init()) {
             g_audioMixer.setMasterVolume(0.85f);   // con el limitador suave del mezclador
+            // La musica: las piezas de sounds/Music, barajadas distinto cada vez.
+            g_musica.iniciar(gamePath("sounds/Music"), (uint32_t)time(nullptr));
+            std::cout << "[MUSICA] " << g_musica.cuantas() << " piezas" << std::endl;
             g_footsteps.init(&g_audioMixer);
             std::cout << "Audio inicializado (waveOut " << Audio::AudioMixer::SAMPLE_RATE
                       << " Hz, pasos sintetizados)" << std::endl;
@@ -48567,6 +48572,9 @@ int main() {
 
             // ⭐⭐⭐ ACTUALIZAR SISTEMA DE NIEBLA VOLUMÉTRICA ⭐⭐⭐
             g_gameState->fogSystem.update(deltaTime);
+
+            // La musica: en partida (tambien en pausa) suena cuando le toca.
+            g_musica.actualizar(deltaTime, g_gameState->screenState == SCREEN_IN_GAME && !g_gameState->durmiendo, 0.55f);
 
             // ⭐⭐⭐ CRÍTICO: Detector de freeze - si un frame tarda >500ms, algo está mal
             static auto lastFrameTime = std::chrono::high_resolution_clock::now();
@@ -51151,9 +51159,9 @@ int main() {
                 // los hombros retroceden hasta 0.24.
                 float baja = (-g_gameState->player.pitch - 20.0f) / 60.0f;
                 baja = baja < 0.0f ? 0.0f : (baja > 1.0f ? 1.0f : baja);
-                // Con el modelo realista la camara va en sus ojos y el cuello se
-                // dobla de verdad al mirar abajo: no hace falta echarlo atras.
-                const float atrasPorAlto = modeloImportado().cargada ? 0.0f : 0.24f * baja / 1.45f * (1.0f - pose.tumbado);
+                // Tambien con el modelo realista: si no, al mirar abajo la camara
+                // (en su cabeza) queda encima del cuello y ve el cuerpo por dentro.
+                const float atrasPorAlto = 0.26f * baja / 1.45f * (1.0f - pose.tumbado);
                 // Tumbado, lo que se apoya es la malla entera (pecho, codos):
                 // se ajusta al suelo por su punto mas bajo.
                 float baseMalla = 0.0f;
@@ -51172,7 +51180,9 @@ int main() {
                 if (importado) {
                     const ModeloJugador::V oj = modeloImportado().ojos(esq);
                     const float lx = oj.x - cuelloLocal.x, ly = (oj.y - baseMalla) * ky;
-                    const float lz = oj.z - oj.y * atrasPorAlto - cuelloLocal.z;
+                    // SIN echar atras: la camara se queda donde iria la cabeza y
+                    // el cuerpo se aparta por debajo de ella al mirar abajo.
+                    const float lz = oj.z - cuelloLocal.z;
                     Vec3 meta(cuelloX + rx * lx + fx * lz - ojo.x, pieY + ly - ojo.y, cuelloZ + rz * lx + fz * lz - ojo.z);
                     const float h = std::sqrt(meta.x * meta.x + meta.z * meta.z);
                     if (h > 0.24f) { meta.x *= 0.24f / h; meta.z *= 0.24f / h; }

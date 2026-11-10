@@ -1168,10 +1168,10 @@ void proporcionesConModelo(ModeloJugador::Proporciones& p) {
 }
 // El avatar sobre el modelo importado: la forma de la cara y el cuerpo, y los
 // tintes. Solo rehace la malla si algo cambio.
-void avatarAlModelo() {
+void avatarAlModelo(const ModeloJugador::Proporciones& prop) {
     ModeloJugador::AjustesMalla aj;
     ModeloJugador::aplicarAvatarMalla(g_avatar, aj);
-    modeloImportado().aplicarAjustes(aj);
+    modeloImportado().aplicarAjustes(aj, prop);
 }
 // El modelo importado en la GPU: shader, texturas (de resourcepacks/Modelos)
 // y malla. Se prepara una vez; si algo falla, se dibuja en la CPU.
@@ -42835,7 +42835,7 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
         // (sin bucle se repite con una pausa para verla entera).
         ModeloJugador::aplicarProporciones(g_avatar, pose);
         const bool importado = modeloImportado().cargada;
-        if (importado) { proporcionesConModelo(pose.prop); avatarAlModelo(); }
+        if (importado) { proporcionesConModelo(pose.prop); avatarAlModelo(pose.prop); }
         const Movimiento::Animacion* anim = modoVista == 1 ? animacionLlamada(animVista) : nullptr;
         if (anim) {
             float t = (float)(glfwGetTime() - animDesde);
@@ -51010,7 +51010,7 @@ int main() {
                 cargarAvatar();
                 ModeloJugador::Pose objetivo = ModeloJugador::poseDe(ea);
                 ModeloJugador::aplicarProporciones(g_avatar, objetivo);
-                if (modeloImportado().cargada) { proporcionesConModelo(objetivo.prop); avatarAlModelo(); }
+                if (modeloImportado().cargada) { proporcionesConModelo(objetivo.prop); avatarAlModelo(objetivo.prop); }
                 // ⭐ La postura cabe en su hueco: el ojo de la pose, en la camara
                 // (ver hundirHasta). Asi el cuerpo no se aplasta al agacharse.
                 if (ea.tumbado) ModeloJugador::hundirHasta(objetivo, altoOjo, true);
@@ -51202,6 +51202,7 @@ int main() {
                     // El giro del cuerpo al mundo invierte el sentido de las caras:
                     // con el determinante negativo, las de delante son las horarias.
                     luz.frenteHorario = (rx * fz - fx * rz) * ky < 0.0f;
+                    luz.recorteCerca = 0.45f;
                     glPushMatrix();
                     glMultMatrixf(M);
                     glDisable(GL_CULL_FACE);

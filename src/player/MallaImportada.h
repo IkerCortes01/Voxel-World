@@ -115,8 +115,8 @@ inline void huesosDe(const Esqueleto& s, Hueso* h) {
         auto H = [&](int k) -> Hueso& { return h[huesoDe(l, k)]; };
         const Mano& m = s.mano[l];
         const Pie& pie = s.pie[l];
-        H(HL_CLAVICULA) = { s.pecho, suma(s.cuello.p, s.pecho.r.aplicar({ 0, -0.05f, 0 })), s.hombro[l].p, 0.055f, H_PECHO };
-        H(HL_BRAZO) = { s.hombro[l], s.hombro[l].p, s.codo[l].p, 0.075f, huesoDe(l, HL_CLAVICULA) };
+        H(HL_CLAVICULA) = { s.pecho, suma(s.cuello.p, s.pecho.r.aplicar({ 0, -0.05f, 0 })), s.hombro[l].p, 0.045f, H_PECHO };
+        H(HL_BRAZO) = { s.hombro[l], s.hombro[l].p, s.codo[l].p, 0.090f, huesoDe(l, HL_CLAVICULA) };
         const V medio = mezclar(s.codo[l].p, m.muneca.p, 0.5f);
         H(HL_ANTE1) = { s.codo[l], s.codo[l].p, medio, 0.050f, huesoDe(l, HL_BRAZO) };
         H(HL_ANTE2) = { { medio, s.codo[l].r.por(Rot::enY(s.prono[l] * 0.5f)) }, medio, m.muneca.p, 0.040f,
@@ -135,7 +135,7 @@ inline void huesosDe(const Esqueleto& s, Hueso* h) {
             H(k) = { { p, detalle::medioGiro(h[padre].marco.r, h[hijo].marco.r) }, p, p, radio, padre };
             h[hijo].padre = huesoDe(l, k);
         };
-        ayuda(HL_HOMBRO_M, huesoDe(l, HL_CLAVICULA), huesoDe(l, HL_BRAZO), s.hombro[l].p, 0.075f);
+        ayuda(HL_HOMBRO_M, huesoDe(l, HL_CLAVICULA), huesoDe(l, HL_BRAZO), s.hombro[l].p, 0.055f);
         ayuda(HL_CODO_M, huesoDe(l, HL_BRAZO), huesoDe(l, HL_ANTE1), s.codo[l].p, 0.055f);
         ayuda(HL_MUNECA_M, huesoDe(l, HL_ANTE2), huesoDe(l, HL_MANO), m.muneca.p, 0.035f);
         ayuda(HL_CADERA_M, H_PELVIS, huesoDe(l, HL_MUSLO), s.cadera[l].p, 0.10f);
@@ -198,7 +198,9 @@ struct MallaImportada {
     std::vector<uint32_t> indices, indicesSinCabeza;
     std::vector<uint8_t> h0, h1;         // los dos huesos de cada vertice
     std::vector<float> w0;               // el peso del primero (el segundo, 1 - w0)
-    Hueso ref[NUM_HUESOS];
+    Hueso ref[NUM_HUESOS];               // la pose de referencia del modelo, tal cual
+    Hueso reposo[NUM_HUESOS];            // la misma con las proporciones del avatar
+    Proporciones propReposo;
     AjustesMalla ajustes;
     int versionForma = 0;                // sube cada vez que cambia `base`
 
@@ -277,8 +279,24 @@ struct MallaImportada {
     // Los pesos de cada vertice contra el esqueleto en la pose de referencia,
     // y los puntos de la cara y el cuerpo.
     void atar() {
+        // ⭐ LA MANO DEL ESQUELETO A LA MEDIDA DE LA DEL MODELO: en la cruz,
+        // la punta del dedo medio tiene que llegar a donde acaba la mano del
+        // modelo. Si no, los nudillos del esqueleto caen en mitad de los
+        // dedos de la malla y al cerrar el puno los dedos se rompen.
+        {
+            const Esqueleto s0 = resolver(poseReferencia(), true);
+            float punta = 0.0f;
+            for (const VerticeJ& v : modelo) punta = std::fmax(punta, v.p.x);
+            const float muneca = s0.mano[1].muneca.p.x, dedo = s0.mano[1].dedo[1][3].p.x;
+            if (dedo - muneca > 0.05f && punta > muneca + 0.05f) {
+                const float base = params[21] > 0.3f ? params[21] : 1.0f;
+                params[21] = sujetar(base * (punta - muneca) / (dedo - muneca), 0.6f, 1.4f);
+            }
+        }
         const Esqueleto s = resolver(poseReferencia(), true);
         huesosDe(s, ref);
+        for (int b = 0; b < NUM_HUESOS; ++b) reposo[b] = ref[b];
+        propReposo = proporciones();
         const size_t n = modelo.size();
         // El esqueleto del juego va M::ATRAS por detras del ojo; la malla
         // viene centrada sobre los pies. Se mueve para que el eje del tronco
@@ -374,9 +392,12 @@ struct MallaImportada {
 
     // ⭐ LA CARA Y EL CUERPO POR ZONAS. Cada ajuste mueve los vertices de
     // alrededor de su punto con un peso que se apaga suave hasta su radio.
-    void aplicarAjustes(const AjustesMalla& a) {
-        if (a == ajustes && !base.empty()) return;
+    void aplicarAjustes(const AjustesMalla& a) { aplicarAjustes(a, proporciones()); }
+    void aplicarAjustes(const AjustesMalla& a, const Proporciones& prop) {
+        const bool mismaProp = std::memcmp(&prop, &propReposo, sizeof(prop)) == 0;
+        if (a == ajustes && mismaProp && !base.empty() && versionForma > 1) return;
         ajustes = a;
+        propReposo = prop;
         base = modelo;
         // Escalar alrededor de `c` en cada eje, dentro del radio `r`.
         auto zona = [&](V c, float r, float kx, float ky, float kz) {
@@ -476,6 +497,31 @@ struct MallaImportada {
             zona({ p.gluteo[l].x, p.gluteo[l].y + 0.05f * a.cinturaAltura, p.gluteo[l].z }, 0.10f, 1.0f, 1.0f, a.gluteos);
         }
         empujar(p.vientre, 0.14f, { 0, 0, 0.07f * a.abdomen });
+
+        // ⭐ EL REPOSO CON LAS PROPORCIONES Y GROSORES DEL AVATAR. El esqueleto
+        // de referencia con los largos pedidos, y cada vertice llevado alli
+        // con la escala de sus huesos (grosor y largo). Se hace una vez por
+        // cambio; cada frame solo se GIRA (ver cuaternionesDuales), que es lo
+        // que permite el skinning con cuaterniones duales sin estirar nada.
+        Pose pr = poseReferencia();
+        pr.prop = prop;
+        huesosDe(resolver(pr, true), reposo);
+        V S[NUM_HUESOS];
+        escalas(reposo, S);
+        Rot M[NUM_HUESOS];
+        V T[NUM_HUESOS];
+        for (int b = 0; b < NUM_HUESOS; ++b) {
+            const Rot escalada = reposo[b].marco.r.por(Rot{ { S[b].x, 0, 0, 0, S[b].y, 0, 0, 0, S[b].z } });
+            M[b] = escalada.por(detalle::traspuesta(ref[b].marco.r));
+            T[b] = resta(reposo[b].marco.p, M[b].aplicar(ref[b].marco.p));
+        }
+        for (size_t i = 0; i < base.size(); ++i) {
+            const int x = h0[i], y = h1[i];
+            const V p0 = base[i].p;
+            V q = suma(M[x].aplicar(p0), T[x]);
+            if (x != y) q = suma(escala(q, w0[i]), escala(suma(M[y].aplicar(p0), T[y]), 1.0f - w0[i]));
+            base[i].p = q;
+        }
         ++versionForma;
     }
 
@@ -515,24 +561,28 @@ struct MallaImportada {
             media(HL_TOBILLO_M, H(HL_PIERNA), H(HL_PIE));        }
     }
 
-    // Las matrices de cada hueso para el shader: 3 filas de 4 por hueso
-    // (rotacion*escala y traslacion), de la pose de referencia a la actual.
-    void matrices(const Esqueleto& s, float* filas) const {
+    // ⭐ CADA HUESO COMO CUATERNION DUAL (giro + traslacion), del reposo a la
+    // pose actual: 8 floats por hueso (giro x,y,z,w y la parte dual x,y,z,w).
+    //
+    // Con matrices (skinning lineal) un vertice entre dos huesos muy girados
+    // promedia dos posiciones y se mete hacia dentro: codos y rodillas se
+    // adelgazan, la muneca girada se retuerce como un caramelo y los dedos se
+    // aplastan. Mezclando cuaterniones duales el vertice GIRA alrededor de la
+    // articulacion y conserva el volumen.
+    void cuaternionesDuales(const Esqueleto& s, float* dq) const {
         Hueso h[NUM_HUESOS];
         huesosDe(s, h);
-        V S[NUM_HUESOS];
-        escalas(h, S);
         for (int b = 0; b < NUM_HUESOS; ++b) {
-            const Rot escalada = h[b].marco.r.por(Rot{ { S[b].x, 0, 0, 0, S[b].y, 0, 0, 0, S[b].z } });
-            const Rot R = escalada.por(detalle::traspuesta(ref[b].marco.r));
-            const V T = resta(h[b].marco.p, R.aplicar(ref[b].marco.p));
-            float* f = filas + b * 12;
-            for (int k = 0; k < 3; ++k) {
-                f[k * 4 + 0] = R.m[k * 3 + 0];
-                f[k * 4 + 1] = R.m[k * 3 + 1];
-                f[k * 4 + 2] = R.m[k * 3 + 2];
-                f[k * 4 + 3] = k == 0 ? T.x : (k == 1 ? T.y : T.z);
-            }
+            const Rot R = h[b].marco.r.por(detalle::traspuesta(reposo[b].marco.r));
+            const V t = resta(h[b].marco.p, R.aplicar(reposo[b].marco.p));
+            const detalle::Cuat q = detalle::aCuat(R);
+            float* o = dq + b * 8;
+            o[0] = q.x; o[1] = q.y; o[2] = q.z; o[3] = q.w;
+            // La parte dual: (0, t) * q / 2.
+            o[4] = 0.5f * (t.x * q.w + t.y * q.z - t.z * q.y);
+            o[5] = 0.5f * (-t.x * q.z + t.y * q.w + t.z * q.x);
+            o[6] = 0.5f * (t.x * q.y - t.y * q.x + t.z * q.w);
+            o[7] = -0.5f * (t.x * q.x + t.y * q.y + t.z * q.z);
         }
     }
 
@@ -545,7 +595,10 @@ struct MallaImportada {
         const Junta& r0 = ref[H_CABEZA].marco;
         const V entre = mezclar(pt.ojo[0], pt.ojo[1], 0.5f);
         V local = detalle::traspuesta(r0.r).aplicar(resta(entre, r0.p));
-        local.z -= 0.02f;
+        // Un poco por encima y por detras de los ojos: asi la camara no roza
+        // los parpados ni las cejas al girar o inclinar la cabeza.
+        local.y += 0.035f;
+        local.z -= 0.035f;
         local = escala(local, ajustes.cabeza);
         return suma(h[H_CABEZA].marco.p, h[H_CABEZA].marco.r.aplicar(local));
     }
@@ -554,25 +607,28 @@ struct MallaImportada {
     void deformar(const Esqueleto& s, Malla& m, bool conCabeza = true) const {
         const std::vector<uint32_t>& idx = indicesDe(conCabeza);
         if (m.i.size() != idx.size()) m.i = idx;
-        float F[NUM_HUESOS * 12];
-        matrices(s, F);
-        auto aplicar = [&](int b, V p, float w) {
-            const float* f = F + b * 12;
-            return V{ (f[0] * p.x + f[1] * p.y + f[2] * p.z + f[3] * w), (f[4] * p.x + f[5] * p.y + f[6] * p.z + f[7] * w),
-                      (f[8] * p.x + f[9] * p.y + f[10] * p.z + f[11] * w) };
-        };
+        float DQ[NUM_HUESOS * 8];
+        cuaternionesDuales(s, DQ);
         m.v.resize(base.size());
         for (size_t i = 0; i < base.size(); ++i) {
             const VerticeJ& v = base[i];
-            const int a = h0[i], b = h1[i];
-            V p = aplicar(a, v.p, 1.0f);
-            V nn = aplicar(a, v.n, 0.0f);
-            if (a != b) {
-                const float wa = w0[i], wb = 1.0f - wa;
-                p = suma(escala(p, wa), escala(aplicar(b, v.p, 1.0f), wb));
-                nn = suma(escala(nn, wa), escala(aplicar(b, v.n, 0.0f), wb));
-            }
-            m.v[i] = { p, normalizar(nn), v.r, v.g, v.b };
+            const float* A = DQ + h0[i] * 8;
+            const float* B = DQ + h1[i] * 8;
+            const float wa = w0[i];
+            const float signo = (A[0] * B[0] + A[1] * B[1] + A[2] * B[2] + A[3] * B[3]) < 0.0f ? -1.0f : 1.0f;
+            const float wb = (1.0f - wa) * signo;
+            float r[4], d[4];
+            for (int k = 0; k < 4; ++k) { r[k] = A[k] * wa + B[k] * wb; d[k] = A[4 + k] * wa + B[4 + k] * wb; }
+            const float l = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
+            for (int k = 0; k < 4; ++k) { r[k] /= l; d[k] /= l; }
+            const V qv = { r[0], r[1], r[2] };
+            auto girar = [&](V p) {
+                const V c = suma(cruz(qv, p), escala(p, r[3]));
+                return suma(p, escala(cruz(qv, c), 2.0f));
+            };
+            const V dv = { d[0], d[1], d[2] };
+            const V t = escala(suma(resta(escala(dv, r[3]), escala(qv, d[3])), cruz(qv, dv)), 2.0f);
+            m.v[i] = { suma(girar(v.p), t), normalizar(girar(v.n)), v.r, v.g, v.b };
         }
     }
     const std::vector<uint32_t>& indicesDe(bool conCabeza) const {

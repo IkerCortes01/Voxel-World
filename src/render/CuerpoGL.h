@@ -31,7 +31,7 @@
 
 namespace CuerpoGL {
 
-static_assert(ModeloJugador::NUM_HUESOS * 3 == 189, "uHueso[] del shader debe tener NUM_HUESOS * 3 filas");
+static_assert(ModeloJugador::NUM_HUESOS * 2 == 126, "uDQ[] del shader debe tener NUM_HUESOS * 2 vec4");
 
 using namespace Render;
 
@@ -55,7 +55,7 @@ in vec2 aUV;
 in vec4 aTan;
 in vec2 aHueso;
 in float aPeso;
-uniform vec4 uHueso[189];   // 3 filas por hueso: NUM_HUESOS * 3
+uniform vec4 uDQ[126];      // por hueso: el giro (x,y,z,w) y la parte dual
 uniform float uBase;
 uniform float uAlto;
 out vec2 vUV;
@@ -63,20 +63,27 @@ out vec3 vNor;
 out vec4 vTan;
 out float vAltura;
 out vec3 vOjo;
-vec3 mover(int b, vec4 p) {
-    return vec3(dot(uHueso[b * 3], p), dot(uHueso[b * 3 + 1], p), dot(uHueso[b * 3 + 2], p));
-}
+vec3 girar(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 void main() {
+    // Skinning con cuaterniones duales: mezclar giro+traslacion de los dos
+    // huesos y normalizar conserva el volumen en codos, rodillas y dedos.
     int a = int(aHueso.x + 0.5), b = int(aHueso.y + 0.5);
-    float w = aPeso;
-    vec3 p = mover(a, vec4(aPos, 1.0)) * w + mover(b, vec4(aPos, 1.0)) * (1.0 - w);
-    vec3 n = mover(a, vec4(aNor, 0.0)) * w + mover(b, vec4(aNor, 0.0)) * (1.0 - w);
-    vec3 t = mover(a, vec4(aTan.xyz, 0.0)) * w + mover(b, vec4(aTan.xyz, 0.0)) * (1.0 - w);
+    vec4 r0 = uDQ[a * 2], d0 = uDQ[a * 2 + 1];
+    vec4 r1 = uDQ[b * 2], d1 = uDQ[b * 2 + 1];
+    float w1 = (1.0 - aPeso) * (dot(r0, r1) < 0.0 ? -1.0 : 1.0);
+    vec4 r = r0 * aPeso + r1 * w1;
+    vec4 d = d0 * aPeso + d1 * w1;
+    float l = length(r);
+    r /= l; d /= l;
+    vec3 t = 2.0 * (r.w * d.xyz - d.w * r.xyz + cross(r.xyz, d.xyz));
+    vec3 p = girar(r, aPos) + t;
+    vec3 n = girar(r, aNor);
+    vec3 tg = girar(r, aTan.xyz);
     vec4 ojo = gl_ModelViewMatrix * vec4(p, 1.0);
     gl_Position = gl_ProjectionMatrix * ojo;
     vUV = aUV;
     vNor = n;
-    vTan = vec4(t, aTan.w);
+    vTan = vec4(tg, aTan.w);
     vAltura = clamp((p.y - uBase) / uAlto, 0.0, 1.0);
     vOjo = ojo.xyz;
 }
@@ -98,6 +105,7 @@ uniform float uNieblaIni;
 uniform float uNieblaFin;
 uniform float uNieblaDensidad;
 uniform vec3 uNieblaColor;
+uniform float uRecorteCerca;
 in vec2 vUV;
 in vec3 vNor;
 in vec4 vTan;
@@ -105,6 +113,11 @@ in float vAltura;
 in vec3 vOjo;
 out vec4 colorSalida;
 void main() {
+    // Con la camara dentro de la cabeza, lo que se ve por dentro a menos de
+    // uRecorteCerca no se dibuja. Mas lejos se dibujan las dos caras: algunas
+    // zonas de un modelo importado vienen con las caras al reves, y quitarlas
+    // todas hacia desaparecer trozos del cuerpo.
+    if (!gl_FrontFacing && length(vOjo) < uRecorteCerca) discard;
     vec3 c = texture(uColor, vUV).rgb;
     vec4 m = texture(uMascara, vUV);
     // Cada zona toma el color del avatar con la luminancia de la textura
@@ -149,6 +162,7 @@ struct Recursos {
     GLsizei n[2] = { 0, 0 };
     GLuint tex[T_NUM] = {};
     int versionSubida = -1;
+    GLint uRecorteCerca = -1;
     GLint uHueso = -1, uBase = -1, uAlto = -1, uColor = -1, uNormal = -1, uMascara = -1, uTinte = -1;
     GLint uMezcla = -1, uRugosidad = -1;
     GLint uLuzDir = -1, uLuzPies = -1, uLuzPecho = -1, uUsaNormal = -1;
@@ -202,7 +216,7 @@ inline bool iniciar() {
         return false;
     }
     auto U = [&](const char* n) { return pglGetUniformLocation(r.prog, n); };
-    r.uHueso = U("uHueso"); r.uBase = U("uBase"); r.uAlto = U("uAlto");
+    r.uHueso = U("uDQ"); r.uRecorteCerca = U("uRecorteCerca"); r.uBase = U("uBase"); r.uAlto = U("uAlto");
     r.uColor = U("uColor"); r.uNormal = U("uNormal"); r.uMascara = U("uMascara"); r.uRugosidad = U("uRugosidad"); r.uTinte = U("uTinte"); r.uMezcla = U("uMezcla");
     r.uLuzDir = U("uLuzDir"); r.uLuzPies = U("uLuzPies"); r.uLuzPecho = U("uLuzPecho"); r.uUsaNormal = U("uUsaNormal");
     r.uNieblaModo = U("uNieblaModo"); r.uNieblaIni = U("uNieblaIni"); r.uNieblaFin = U("uNieblaFin");
@@ -277,6 +291,7 @@ struct Luz {
     float base = 0.0f, alto = 1.62f;
     bool niebla = true;
     bool frenteHorario = false;   // la matriz del mundo es un espejo
+    float recorteCerca = 0.0f;    // primera persona: caras traseras a menos de esto, fuera
 };
 
 // Dibuja el modelo con el esqueleto `s`. La matriz de modelo (el personaje
@@ -287,8 +302,8 @@ inline bool dibujar(const ModeloJugador::MallaImportada& m, const ModeloJugador:
     if (!r.listo || m.formato != 2) return false;
     subirMalla(m);
     if (r.versionSubida != m.versionForma) return false;
-    float filas[ModeloJugador::NUM_HUESOS * 12];
-    m.matrices(s, filas);
+    float dq[ModeloJugador::NUM_HUESOS * 8];
+    m.cuaternionesDuales(s, dq);
 
     GLint progAntes = 0, arrayAntes = 0, elemAntes = 0, texActiva = 0;
     glGetIntegerv(PROGRAMA_ACTUAL, &progAntes);
@@ -303,7 +318,8 @@ inline bool dibujar(const ModeloJugador::MallaImportada& m, const ModeloJugador:
     for (int i = 0; i < 4; ++i) { fijo[i] = glIsEnabled(FIJOS[i]); if (fijo[i]) glDisableClientState(FIJOS[i]); }
 
     pglUseProgram(r.prog);
-    r.uniform4fv(r.uHueso, ModeloJugador::NUM_HUESOS * 3, filas);
+    r.uniform4fv(r.uHueso, ModeloJugador::NUM_HUESOS * 2, dq);
+    pglUniform1f(r.uRecorteCerca, luz.recorteCerca);
     pglUniform1f(r.uBase, luz.base);
     pglUniform1f(r.uAlto, luz.alto);
     pglUniform3f(r.uLuzDir, luz.dir[0], luz.dir[1], luz.dir[2]);
@@ -353,19 +369,17 @@ inline bool dibujar(const ModeloJugador::MallaImportada& m, const ModeloJugador:
         pglVertexAttribPointer(i, n, GL_FLOAT, GL_FALSE, paso, (const void*)(size_t)(desde * sizeof(float)));
     };
     atr(A_POS, 3, 0); atr(A_NOR, 3, 3); atr(A_UV, 2, 6); atr(A_TAN, 4, 8); atr(A_HUESO, 2, 12); atr(A_PESO, 1, 14);
-    // Solo las caras de fuera: con la camara dentro del cuerpo (primera
-    // persona) no se ve el interior, y se dibuja la mitad de triangulos.
+    // Las dos caras (ver uRecorteCerca en el shader).
     const GLboolean cullAntes = glIsEnabled(GL_CULL_FACE);
     GLint frenteAntes = GL_CCW;
     glGetIntegerv(GL_FRONT_FACE, &frenteAntes);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-    glFrontFace(luz.frenteHorario ? GL_CW : GL_CCW);
+    glDisable(GL_CULL_FACE);
+    glFrontFace(luz.frenteHorario ? GL_CW : GL_CCW);   // para gl_FrontFacing
     const int k = conCabeza ? 0 : 1;
     r.bindBuffer(ELEMENTOS, r.ibo[k]);
     glDrawElements(GL_TRIANGLES, r.n[k], GL_UNSIGNED_INT, nullptr);
     glFrontFace((GLenum)frenteAntes);
-    if (!cullAntes) glDisable(GL_CULL_FACE);
+    if (cullAntes) glEnable(GL_CULL_FACE);
     for (int i = A_POS; i <= A_PESO; ++i) pglDisableVertexAttribArray(i);
 
     for (int t = T_NUM - 1; t >= 0; --t) {

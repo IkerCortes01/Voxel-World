@@ -121,6 +121,7 @@ add_executable(voxel_tests
     test_pisadas.cpp
     test_posturas_hitbox.cpp
     test_musica.cpp
+    test_corazon_temperatura.cpp
     test_alineacion_bloques.cpp
     test_techo_pilar.cpp
     test_raiz_palos.cpp

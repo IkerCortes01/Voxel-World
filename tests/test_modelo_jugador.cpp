@@ -134,14 +134,15 @@ TEST_CASE("Jugador: picar cierra el puno derecho y deja la izquierda relajada") 
     CHECK(p.brazo[1].dedo[1][1] > 1.5f);
     CHECK(p.brazo[0].dedo[1][1] < 1.0f);
     CHECK(p.apretar == 1.0f);
-    // El golpe pasa por cargar y descargar: el hombro recorre mucho.
+    // El golpe pasa por cargar y descargar: el hombro recorre mucho (el
+    // punetazo sale ahora desde el hombro, no desde encima de la cabeza).
     float lo = 9, hi = -9;
     for (int k = 0; k < 50; ++k) {
         e.tiempo = k * 0.01f;
         const float f = poseDe(e).brazo[1].flex;
         lo = std::fmin(lo, f); hi = std::fmax(hi, f);
     }
-    CHECK(hi - lo > 0.9f);
+    CHECK(hi - lo > 0.7f);
 }
 
 TEST_CASE("Jugador: 5 dedos con el pulgar del lado de fuera y las yemas hacia la palma") {

@@ -122,6 +122,7 @@ target_link_libraries(VoxelWorld PRIVATE
 enable_testing()
 # Herramienta para convertir modelos (ver tools/convertir_jugador_glb.py).
 add_executable(decimar_malla tools/decimar_malla.cpp)
+add_executable(extraer_video tools/extraer_video.cpp)
 
 add_subdirectory(tests)
 

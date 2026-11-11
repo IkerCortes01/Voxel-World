@@ -31,7 +31,7 @@
 
 namespace CuerpoGL {
 
-static_assert(ModeloJugador::NUM_HUESOS * 2 == 126, "uDQ[] del shader debe tener NUM_HUESOS * 2 vec4");
+static_assert(ModeloJugador::NUM_HUESOS * 2 == 412, "uDQ[] del shader debe tener NUM_HUESOS * 2 vec4");
 
 using namespace Render;
 
@@ -55,7 +55,7 @@ in vec2 aUV;
 in vec4 aTan;
 in vec2 aHueso;
 in float aPeso;
-uniform vec4 uDQ[126];      // por hueso: el giro (x,y,z,w) y la parte dual
+uniform vec4 uDQ[412];      // por hueso: el giro (x,y,z,w) y la parte dual
 uniform float uBase;
 uniform float uAlto;
 out vec2 vUV;

@@ -229,6 +229,8 @@ public:
     const std::vector<PecariAgente>& todos() const { return pecaries; }
     const std::vector<Ragdoll>& cuerpos() const { return cadaveres; }
     size_t cuantos() const { return pecaries.size(); }
+    // Para leer sin tocar (el miedo del corazon del jugador, por ejemplo).
+    const std::vector<PecariAgente>& agentes() const { return pecaries; }
 
     // ------------------------------------------------------------------------
     // SOLTAR UN PECARI A MANO (huevo de spawn del creativo)

@@ -106,6 +106,8 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/Movimiento.h"      // canales de cada articulacion y animaciones programables
 #include "player/MallaImportada.h"  // el modelo realista importado (GLB -> jugador.vwm) con el esqueleto
 #include "render/CuerpoGL.h"        // ese modelo en la GPU: skinning en el shader y texturas DXT1
+#include "player/Corazon.h"          // el pulso del jugador (el corazon del HUD)
+#include "player/Temperatura.h"      // la temperatura del jugador y sus efectos
 #include "player/Postura.h"         // SHIFT y ESPACIO: de pie, agachado, tumbado
 #include "player/EngineAdapter.h"
 
@@ -1033,6 +1035,16 @@ struct ClimaFrame {
     float sombraNube = 1.0f;      // 0..1: cuanta nube hay encima (la luz)
 };
 ClimaFrame g_clima;
+
+// ============================================================================
+// EL CORAZON Y LA TEMPERATURA DEL JUGADOR (ver player/Corazon.h y
+// player/Temperatura.h). Los actualiza actualizarVidaCuerpo cada frame; los
+// dibuja renderVidaCuerpo en el HUD; sus efectos los aplican la camara, el
+// cuerpo y el velo de pantalla.
+// ============================================================================
+CorazonJugador::Corazon g_corazon;
+TemperaturaJugador::Estado g_temperatura;
+TemperaturaJugador::Efectos g_efectosTemp;
 
 // ============================================================================
 // EL AVATAR (ver player/Avatar.h): los ajustes del cuerpo y los genes
@@ -37726,6 +37738,269 @@ void actualizarVida(GameState* state, float deltaTime) {
 // Se dibuja SOBRE la hotbar, centrada con ella. Cada corazon puede estar
 // lleno, a la mitad o vacio: las tres texturas ya existen, asi que el HUD
 // soporta medios corazones desde el primer dia aunque todavia nada los quite.
+// Las entradas del corazon y la temperatura, medidas en el mundo.
+void actualizarVidaCuerpo(GameState* state, float dt) {
+    if (!state || state->screenState != SCREEN_IN_GAME) return;
+    const Player& j = state->player;
+    const float rapidez = std::sqrt(j.velocity.x * j.velocity.x + j.velocity.z * j.velocity.z);
+    static float quieto = 0.0f;
+    quieto = rapidez < 0.2f ? quieto + dt : 0.0f;
+    const int px = (int)std::floor(j.position.x), pz = (int)std::floor(j.position.z);
+    const int py = (int)std::floor(j.position.y + 0.01f);
+    auto solido = [&](int x, int y, int z) { return y < 0 || (y < CHUNK_HEIGHT && isBlockSolid(state->world.getBlock(x, y, z))); };
+
+    // Lo que se mide con calma (cada medio segundo): la caida de alrededor,
+    // el fuego cerca y si esta en el agua.
+    static float cada = 0.0f, caida = 0.0f, fuego = 0.0f;
+    static bool enAgua = false;
+    cada -= dt;
+    if (cada <= 0.0f) {
+        cada = 0.5f;
+        // La caida: en su columna y a metro y medio alrededor, lo mas hondo.
+        caida = 0.0f;
+        static const int D[5][2] = { { 0, 0 }, { 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 } };
+        for (const auto& d : D) {
+            int y = py - 1, n = 0;
+            while (n < 64 && !solido(px + d[0], y, pz + d[1])) { --y; ++n; }
+            caida = std::fmax(caida, (float)n);
+        }
+        // El fuego: lava u horno encendido a menos de 4 bloques.
+        fuego = 0.0f;
+        for (int x = -4; x <= 4; ++x)
+            for (int y = -2; y <= 3; ++y)
+                for (int z = -4; z <= 4; ++z) {
+                    const int wy = py + y;
+                    if (wy < 0 || wy >= CHUNK_HEIGHT) continue;
+                    const BlockType b = state->world.getBlock(px + x, wy, pz + z);
+                    if (b == BLOCK_LAVA || b == BLOCK_HORNO_ENCENDIDO) {
+                        const float d2 = (float)(x * x + y * y + z * z);
+                        fuego = std::fmax(fuego, 1.0f / (1.0f + 0.25f * d2));
+                    }
+                }
+        const BlockType pies = py >= 0 && py < CHUNK_HEIGHT ? state->world.getBlock(px, py, pz) : BLOCK_AIR;
+        const BlockType pecho = py + 1 >= 0 && py + 1 < CHUNK_HEIGHT ? state->world.getBlock(px, py + 1, pz) : BLOCK_AIR;
+        enAgua = esAguaCualquiera(pies) || esAguaCualquiera(pecho);
+    }
+    // El miedo: los animales cerca, por su tamano, lo erizados y cerca que esten.
+    float amenaza = 0.0f;
+    if (state->pecaries) {
+        for (const auto& a : state->pecaries->agentes()) {
+            if (a.vidaMedios <= 0) continue;
+            const float dx = a.x - j.position.x, dz = a.z - j.position.z;
+            const float d = std::sqrt(dx * dx + dz * dz);
+            if (d > 20.0f) continue;
+            const float cerca = 1.0f - d / 20.0f;
+            amenaza += a.escala * (0.35f + 0.8f * a.erizado + 0.25f * a.audacia) * cerca * cerca;
+        }
+    }
+    // La temperatura del sitio.
+    TemperaturaJugador::Entorno e;
+    e.bioma = g_clima.lugar.temperatura;
+    e.hora = (float)std::fmod(g_horaDelMundoSegundos / SEGUNDOS_POR_DIA * 24.0, 24.0);
+    e.altura = j.position.y;
+    {
+        const int cy = (int)std::floor(j.position.y + 1.6f);
+        e.cielo = cy >= CHUNK_HEIGHT ? 1.0f : (cy < 0 ? 0.0f : (float)state->world.getLightLevel(px, cy, pz) / 18.0f);
+        e.cielo = e.cielo * e.cielo;
+    }
+    e.lluvia = aguaAqui();
+    e.nieve = nieveAqui();
+    e.viento = g_clima.p.viento;
+    e.nubes = g_clima.p.cobertura;
+    e.enAgua = enAgua;
+    e.fuego = fuego;
+    g_temperatura.avanzar(dt, e, rapidez);
+    g_efectosTemp = TemperaturaJugador::efectos(g_temperatura.cuerpo);
+
+    CorazonJugador::Entradas c;
+    c.rapidez = rapidez;
+    c.corriendo = rapidez > 5.0f;
+    c.durmiendo = state->durmiendo;
+    c.quieto = quieto;
+    c.caida = caida;
+    c.temperatura = g_temperatura.cuerpo;
+    c.amenaza = amenaza;
+    g_corazon.avanzar(dt, c);
+}
+
+// ⭐ EL CORAZON DEL HUD (encima de la casilla 5) Y LA BARRA DE TEMPERATURA.
+//
+// El corazon: los cuadros de resourcepacks/HUD/corazon_cuadros.png (sacados
+// del video corazon.mp4, ver tools/preparar_corazon.py) de ida y vuelta, y
+// encima el LATIDO: se hincha y se enrojece al pulso del jugador. Debajo, las
+// pulsaciones y, si no esta en calma, por que (ESFUERZO, ALTURA, MIEDO...).
+//
+// La temperatura: una linea gruesa con tres bolas (frio, templado, calor) y
+// un marcador que se mueve por ella con el color del nivel; encima, el nombre.
+void renderVidaCuerpo(GameState* state, int width, int height, float dt) {
+    if (!state || state->screenState != SCREEN_IN_GAME) return;
+    static GLuint tex = 0;
+    static bool probado = false;
+    if (!probado) {
+        probado = true;
+        int w = 0, h = 0, c = 0;
+        stbi_set_flip_vertically_on_load(false);
+        unsigned char* px = stbi_load(gamePath("resourcepacks/HUD/corazon_cuadros.png").c_str(), &w, &h, &c, 4);
+        stbi_set_flip_vertically_on_load(true);
+        if (px) {
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+            if (Render::pglGenerateMipmap) {
+                Render::pglGenerateMipmap(GL_TEXTURE_2D);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            } else {
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            }
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F);   // GL_CLAMP_TO_EDGE
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
+            stbi_image_free(px);
+        }
+    }
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_FOG);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_ALPHA_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    const float hotbarAncho = 9 * 50.0f + 8 * 4.0f;
+    const float x0 = (width - hotbarAncho) / 2.0f;
+    const float yFila = height - 80.0f - 18.0f - 6.0f;     // la fila de corazones de vida
+
+    // --- EL CORAZON ---
+    {
+        static float video = 0.0f;
+        video += dt;
+        int cuadro = (int)(video * 12.0f) % 168;
+        if (cuadro >= 84) cuadro = 167 - cuadro;
+        const float lat = g_corazon.latido();
+        const float tam = 66.0f * (1.0f + 0.13f * g_corazon.fuerza * lat);
+        const float cx = width * 0.5f, cy = yFila - 8.0f - 33.0f;
+        if (tex) {
+            const float u0 = (cuadro % 12) / 12.0f, v0 = (cuadro / 12) / 7.0f;
+            const float du = 1.0f / 12.0f, dv = 1.0f / 7.0f;
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+            // En cada latido se enrojece un poco (la sangre que entra).
+            const float rojo = 0.12f * g_corazon.fuerza * lat;
+            glColor4f(1.0f, 1.0f - rojo, 1.0f - rojo, 1.0f);
+            glBegin(GL_QUADS);
+            glTexCoord2f(u0, v0);           glVertex2f(cx - tam / 2, cy - tam / 2);
+            glTexCoord2f(u0 + du, v0);      glVertex2f(cx + tam / 2, cy - tam / 2);
+            glTexCoord2f(u0 + du, v0 + dv); glVertex2f(cx + tam / 2, cy + tam / 2);
+            glTexCoord2f(u0, v0 + dv);      glVertex2f(cx - tam / 2, cy + tam / 2);
+            glEnd();
+            glDisable(GL_TEXTURE_2D);
+            if (g_textureManager) g_textureManager->invalidateBindCache();
+        }
+        char txt[32];
+        std::snprintf(txt, sizeof(txt), "%d", (int)std::lround(g_corazon.pulso));
+        static const char* const CAUSA[] = { "", "ESFUERZO", "DESCANSO", "ALTURA", "FRIO", "CALOR", "MIEDO" };
+        glColor4f(1.0f, 0.88f, 0.85f, 0.95f);
+        renderText(txt, cx + 30.0f, cy + 14.0f, 11.0f);
+        const char* causa = CAUSA[(int)g_corazon.causa];
+        if (causa[0]) {
+            glColor4f(1.0f, 0.55f + 0.4f * (1.0f - lat), 0.45f, 0.9f);
+            renderText(causa, cx - (float)std::strlen(causa) * 4.2f, cy - 46.0f, 9.0f);
+        }
+    }
+
+    // --- LA TEMPERATURA ---
+    {
+        // Arriba a la derecha, grande y sobre un panel oscuro: que se lea
+        // sobre cualquier cielo o terreno.
+        const float ancho = 300.0f, xb = width - 40.0f, xa = xb - ancho, y = 92.0f;   // debajo del aviso de GUARDANDO
+        const float grosor = 14.0f;
+        glColor4f(0.04f, 0.04f, 0.06f, 0.55f);
+        glBegin(GL_QUADS);
+        glVertex2f(xa - 30.0f, y - 42.0f); glVertex2f(xb + 30.0f, y - 42.0f);
+        glVertex2f(xb + 30.0f, y + 38.0f); glVertex2f(xa - 30.0f, y + 38.0f);
+        glEnd();
+        // La linea: del azul marino al blanco y al naranja rojizo.
+        glBegin(GL_QUAD_STRIP);
+        for (int k = 0; k <= 20; ++k) {
+            const float u = k / 20.0f;
+            const TemperaturaJugador::Color c = TemperaturaJugador::colorNivel((u - 0.5f) * 10.0f);
+            glColor4f(c.r, c.g, c.b, 0.9f);
+            glVertex2f(xa + ancho * u, y - grosor / 2);
+            glVertex2f(xa + ancho * u, y + grosor / 2);
+        }
+        glEnd();
+        auto bola = [](float x, float yy, float r, float cr, float cg, float cb, float a) {
+            glColor4f(cr, cg, cb, a);
+            glBegin(GL_TRIANGLE_FAN);
+            glVertex2f(x, yy);
+            for (int k = 0; k <= 20; ++k) {
+                const float t = k * 6.2831853f / 20.0f;
+                glVertex2f(x + std::cos(t) * r, yy + std::sin(t) * r);
+            }
+            glEnd();
+        };
+        const TemperaturaJugador::Color fr = TemperaturaJugador::colorNivel(-5.0f), ca = TemperaturaJugador::colorNivel(5.0f);
+        bola(xa, y, 16.0f, 0.02f, 0.02f, 0.04f, 0.8f); bola(xa, y, 13.0f, fr.r, fr.g, fr.b, 1.0f);
+        bola(xa + ancho / 2, y, 13.0f, 0.02f, 0.02f, 0.04f, 0.8f); bola(xa + ancho / 2, y, 10.5f, 0.95f, 0.95f, 0.90f, 1.0f);
+        bola(xb, y, 16.0f, 0.02f, 0.02f, 0.04f, 0.8f); bola(xb, y, 13.0f, ca.r, ca.g, ca.b, 1.0f);
+        // El marcador: donde esta el cuerpo, con el color de su nivel.
+        const float t = g_temperatura.cuerpo;
+        const float xm = xa + ancho * (0.5f + t / 10.0f);
+        const TemperaturaJugador::Color cm = TemperaturaJugador::colorNivel(t);
+        glColor4f(0.05f, 0.05f, 0.08f, 0.85f);
+        glBegin(GL_TRIANGLES);
+        glVertex2f(xm, y - 6.0f); glVertex2f(xm - 12.0f, y - 26.0f); glVertex2f(xm + 12.0f, y - 26.0f);
+        glEnd();
+        glColor4f(cm.r, cm.g, cm.b, 1.0f);
+        glBegin(GL_TRIANGLES);
+        glVertex2f(xm, y - 10.0f); glVertex2f(xm - 8.0f, y - 23.0f); glVertex2f(xm + 8.0f, y - 23.0f);
+        glEnd();
+        // Y una bola del color del nivel en la linea, para que el punto se vea.
+        bola(xm, y, 9.0f, 0.02f, 0.02f, 0.04f, 0.9f);
+        bola(xm, y, 7.0f, cm.r, cm.g, cm.b, 1.0f);
+        glBegin(GL_TRIANGLES);
+        glEnd();
+        const char* nombre = TemperaturaJugador::nombreNivel(g_temperatura.nivel());
+        glColor4f(cm.r, cm.g, cm.b, 1.0f);
+        renderText(nombre, xa + ancho / 2 - (float)std::strlen(nombre) * 6.3f, y + 16.0f, 13.0f);
+    }
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+// ⭐ EL VELO DE LA TEMPERATURA: el color del nivel sobre toda la pantalla y,
+// en los extremos, los bordes que se oscurecen hacia ese color.
+void renderVeloTemperatura(int width, int height) {
+    const TemperaturaJugador::Efectos& f = g_efectosTemp;
+    if (f.tinte[3] <= 0.0f && f.vineta <= 0.0f) return;
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    const float W = (float)width, H = (float)height;
+    // Con calor el velo respira despacio (el aire que tiembla).
+    const float ondea = 1.0f + 0.25f * f.ondulacion * std::sin((float)glfwGetTime() * 2.1f);
+    glColor4f(f.tinte[0], f.tinte[1], f.tinte[2], f.tinte[3] * ondea);
+    glBegin(GL_QUADS);
+    glVertex2f(0, 0); glVertex2f(W, 0); glVertex2f(W, H); glVertex2f(0, H);
+    glEnd();
+    if (f.vineta > 0.0f) {
+        const float a = 0.55f * f.vineta, r = f.tinte[0] * 0.35f, g = f.tinte[1] * 0.35f, b = f.tinte[2] * 0.35f;
+        const float m = std::fmin(W, H) * 0.30f;
+        auto borde = [&](float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3) {
+            glBegin(GL_QUADS);
+            glColor4f(r, g, b, a); glVertex2f(x0, y0); glVertex2f(x1, y1);
+            glColor4f(r, g, b, 0.0f); glVertex2f(x2, y2); glVertex2f(x3, y3);
+            glEnd();
+        };
+        borde(0, 0, W, 0, W, m, 0, m);
+        borde(0, H, W, H, W, H - m, 0, H - m);
+        borde(0, 0, 0, H, m, H, m, 0);
+        borde(W, 0, W, H, W - m, H, W - m, 0);
+    }
+    glColor4f(1, 1, 1, 1);
+}
+
 void renderCorazones(GameState* state, int width, int height) {
     if (!state) return;
     if (state->currentGameMode != 0) return;   // solo en supervivencia
@@ -48575,6 +48850,8 @@ int main() {
 
             // La musica: en partida (tambien en pausa) suena cuando le toca.
             g_musica.actualizar(deltaTime, g_gameState->screenState == SCREEN_IN_GAME && !g_gameState->durmiendo, 0.55f);
+            // El corazon y la temperatura del jugador.
+            if (!g_gameState->isPaused) actualizarVidaCuerpo(g_gameState, deltaTime);
 
             // ⭐⭐⭐ CRÍTICO: Detector de freeze - si un frame tarda >500ms, algo está mal
             static auto lastFrameTime = std::chrono::high_resolution_clock::now();
@@ -49926,7 +50203,11 @@ int main() {
         const float distBloques = (float)g_gameState->world.distanciaRender() * 16.0f;
         float zFar = distBloques * 1.8f + (float)CHUNK_HEIGHT;
         if (zFar < 256.0f) zFar = 256.0f;
-        float fH = tan(fov * 3.14159f / 360.0f) * zNear;
+        // La temperatura cambia la perspectiva: el frio la cierra y el calor
+        // la abre y la hace latir despacio.
+        const float fovTemp = fov + g_efectosTemp.campo +
+                              1.5f * g_efectosTemp.ondulacion * std::sin((float)glfwGetTime() * 0.7f);
+        float fH = tan(fovTemp * 3.14159f / 360.0f) * zNear;
         float fW = fH * aspect;
         glFrustum(-fW, fW, -fH, fH, zNear, zFar);
 
@@ -49959,6 +50240,17 @@ int main() {
             caidaCamara = t * 1.32f;
         }
 
+        // ⭐ LA TEMPERATURA EN LA CAMARA: con frio tirita (sacudidas cortas e
+        // irregulares); con calor la vista se balancea despacio, mareada.
+        {
+            const float tc = (float)glfwGetTime();
+            const float tb = g_efectosTemp.temblor, on = g_efectosTemp.ondulacion;
+            if (tb > 0.0f) {
+                glRotatef((std::sin(tc * 41.0f) + 0.6f * std::sin(tc * 67.0f)) * 0.45f * tb, 1, 0, 0);
+                glRotatef((std::sin(tc * 37.0f) + 0.5f * std::sin(tc * 59.0f)) * 0.40f * tb, 0, 1, 0);
+            }
+            if (on > 0.0f) glRotatef(std::sin(tc * 0.9f) * 1.6f * on, 0, 0, 1);
+        }
         glRotatef(-g_gameState->player.pitch, 1, 0, 0);
         glRotatef(-g_gameState->player.yaw, 0, 1, 0);
 
@@ -51023,7 +51315,51 @@ int main() {
                 // (ver hundirHasta). Asi el cuerpo no se aplasta al agacharse.
                 if (ea.tumbado) ModeloJugador::hundirHasta(objetivo, altoOjo, true);
                 else if (ea.agachado) ModeloJugador::hundirHasta(objetivo, altoOjo, false);
-                {
+                // ⭐ LA TEMPERATURA EN EL CUERPO (ver Temperatura.h). Solo si las
+                // manos estan libres (sin golpe ni accion).
+                if (ea.accion == ModeloJugador::Accion::NINGUNA && !ea.golpeando && !ea.tumbado) {
+                    const float tc = (float)glfwGetTime();
+                    const float temp = g_temperatura.cuerpo, tb = g_efectosTemp.temblor;
+                    if (tb > 0.0f) {
+                        // Tiritar: los hombros suben y los brazos tiemblan rapido.
+                        for (int l = 0; l < 2; ++l) {
+                            ModeloJugador::Brazo& b = objetivo.brazo[l];
+                            b.encoger += 0.45f * tb;
+                            b.flex += 0.04f * tb * std::sin(tc * 38.0f + l * 1.7f);
+                            b.codo += 0.05f * tb * std::sin(tc * 33.0f + l);
+                        }
+                        objetivo.cuelloFlex += 0.10f * tb;
+                    }
+                    if (temp <= -3.5f && ea.rapidez < 2.0f) {
+                        // Mucho frio: se abraza (los brazos cruzados sobre el pecho).
+                        const float k = std::fmin(1.0f, (-temp - 3.5f) / 1.0f);
+                        for (int l = 0; l < 2; ++l) {
+                            ModeloJugador::Brazo& b = objetivo.brazo[l];
+                            b.flex += (0.75f - b.flex) * k;
+                            b.abd += (-0.05f - b.abd) * k;
+                            b.rot += (0.95f - b.rot) * k;
+                            b.codo += (2.05f - b.codo) * k;
+                            b.prono += (0.9f - b.prono) * k;
+                        }
+                    }
+                    if (temp >= 3.5f) {
+                        // Calor: el cuerpo se afloja y cada ~9 s se seca la frente.
+                        const float k = std::fmin(1.0f, (temp - 3.5f) / 1.5f);
+                        objetivo.inclinacion += 0.06f * k;
+                        for (ModeloJugador::Brazo& b : objetivo.brazo) b.encoger *= 1.0f - 0.5f * k;
+                        const float ciclo = std::fmod(tc, 9.0f);
+                        if (ciclo < 1.6f && ea.rapidez < 4.5f) {
+                            const float u = std::sin(ciclo / 1.6f * 3.14159265f);
+                            ModeloJugador::Brazo& b = objetivo.brazo[1];
+                            b.flex += (2.35f - b.flex) * u;
+                            b.abd += (0.35f - b.abd) * u;
+                            b.codo += (2.35f - b.codo) * u;
+                            b.rot += (0.6f + 0.35f * std::sin(ciclo * 6.0f) - b.rot) * u;
+                            b.prono += (1.2f - b.prono) * u;
+                            objetivo.cuelloFlex -= 0.15f * u;
+                        }
+                    }
+                }                {
                     static float tGesto = -1.0f;
                     if (g_gestoPedido) {
                         g_gestoPedido = false;
@@ -51997,7 +52333,9 @@ int main() {
             renderHotbar(&g_gameState->inventory, width, height);
 
             // Barra de vida encima de la hotbar (solo en supervivencia).
+            renderVeloTemperatura(width, height);
             renderCorazones(g_gameState, width, height);
+            renderVidaCuerpo(g_gameState, width, height, deltaTime);
 
             // Y encima de todo, la tecla F si se mira un pedacito del suelo.
             renderAvisoRecoger(g_gameState, width, height);
@@ -52915,6 +53253,8 @@ int main() {
     // Cerrar el audio antes que nada: el callback de waveOut corre en otro
     // hilo y podría tocar estructuras que estamos a punto de destruir.
     g_audioMixer.shutdown();
+    g_musica.cerrar();     // MCI, antes de salir: en la destruccion de estaticos se colgaba
+    guardarAvatar();
 
     // Liberar el character controller ANTES que GameState: el adaptador de
     // mundo guarda un puntero a g_gameState->world.
@@ -52942,5 +53282,11 @@ int main() {
 
     std::cout << "Juego cerrado correctamente!" << std::endl;
 
-    return 0;
+    // ⭐ SALIR YA. Despues de este punto solo quedaban los destructores de
+    // los objetos globales, y la ventana se quedaba mas de un minuto cerrandose
+    // (medido: el proceso seguia vivo 60 s despues de este mensaje). Todo lo
+    // que hay que guardar ya esta guardado arriba; lo demas lo libera Windows.
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(0);
 }

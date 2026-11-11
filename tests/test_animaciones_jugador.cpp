@@ -47,7 +47,9 @@ TEST_CASE("Animaciones: el pico en piedra carga desde arriba y descarga con todo
         CHECK(p.apretar == 1.0f);
         CHECK(p.enMano == (uint8_t)Herramienta::PICO);
     }
-    CHECK(hi - lo > 1.8f);
+    // La carga ya no sube por encima de la cabeza (pedido: el golpe mas
+    // alejado de la cabeza), pero el recorrido sigue siendo grande.
+    CHECK(hi - lo > 1.2f);
     CHECK(inclMax < 0.02f);          // el cuerpo no se mueve: solo el brazo
     // A UNA mano, como se pidio: la izquierda no sigue al pico.
     const Pose p = poseDe(picando(Herramienta::PICO, ClaseBloque::PIEDRA, 0.1f));
@@ -84,7 +86,7 @@ TEST_CASE("Animaciones: el golpe va hacia donde se mira") {
 TEST_CASE("Animaciones: punetazos al aire alternos que apuntan a la mirada") {
     Estado e;
     e.accion = Accion::GOLPE_AIRE;
-    e.tAccion = 0.17f;                  // impacto
+    e.tAccion = 0.21f;                  // impacto (0.09 recoger + 0.12 soltar)
     e.variante = 0;
     const Pose d = poseDe(e);
     CHECK(d.brazo[1].codo < 0.15f);     // derecha estirada
@@ -171,11 +173,11 @@ TEST_CASE("Animaciones: el golpe acelera hacia el impacto") {
 TEST_CASE("Animaciones: punetazo al aire, un directo que se estira y termina") {
     Estado e;
     e.accion = Accion::GOLPE_AIRE;
-    e.tAccion = 0.07f + 0.10f;           // fin del golpe: el impacto
+    e.tAccion = 0.09f + 0.12f;           // fin del golpe: el impacto
     const Pose p = poseDe(e);
     CHECK(p.brazo[1].codo < 0.15f);
     CHECK(p.brazo[1].flex > 1.4f);
-    e.tAccion = 0.03f;                  // recogiendo el brazo
+    e.tAccion = 0.07f;                  // recogiendo el brazo
     CHECK(poseDe(e).brazo[1].codo > 1.0f);
     e.tAccion = 1.0f;                   // ya termino: brazo normal
     CHECK(poseDe(e).brazo[1].codo < 0.6f);
@@ -184,7 +186,7 @@ TEST_CASE("Animaciones: punetazo al aire, un directo que se estira y termina") {
 TEST_CASE("Animaciones: tres golpes distintos a un animal") {
     Estado e;
     e.accion = Accion::GOLPE_ANIMAL;
-    e.tAccion = 0.10f + 0.12f;          // impacto
+    e.tAccion = 0.11f + 0.13f;          // impacto
     e.variante = 0;
     const Pose directo = poseDe(e);
     CHECK(directo.brazo[1].flex > 1.4f);
@@ -202,7 +204,7 @@ TEST_CASE("Animaciones: tres golpes distintos a un animal") {
     const Pose abajoD = poseDe(e);
     CHECK(abajoD.brazo[1].flex > 1.8f);
     // Antes del impacto, el gancho de abajo arranca con el brazo bajo.
-    e.tAccion = 0.10f;
+    e.tAccion = 0.11f;
     CHECK(poseDe(e).brazo[1].flex < 0.1f);
 }
 
@@ -436,7 +438,7 @@ TEST_CASE("Variacion: los golpes de una serie no son todos iguales") {
 TEST_CASE("Variacion: cuatro punetazos al aire distintos, con los dos brazos") {
     Estado e;
     e.accion = Accion::GOLPE_AIRE;
-    e.tAccion = 0.17f;
+    e.tAccion = 0.21f;
     Pose p[8];
     for (int v = 0; v < 8; ++v) { e.variante = v; p[v] = poseDe(e); }
     CHECK(p[4].brazo[1].abd > p[0].brazo[1].abd + 0.5f);     // gancho: el codo de lado

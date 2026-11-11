@@ -1,7 +1,9 @@
 #pragma once
 
 #include "MallaJugador.h"
+#include <algorithm>
 #include <cstdio>
+#include <tuple>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -51,16 +53,83 @@ struct Hueso {
     int padre;
 };
 
-enum : int { H_PELVIS, H_PECHO, H_CABEZA, H_POR_LADO_INICIO };
-// Por cada lado, en este orden (ver huesosDe).
-// Los _M son huesos de ayuda en cada articulacion: giran la mitad que su
-// vecino (ver huesosDe). Con ellos rodillas, codos y caderas muy dobladas no
-// se colapsan (el defecto tipico del skinning lineal).
-enum : int { HL_CLAVICULA, HL_BRAZO, HL_ANTE1, HL_ANTE2, HL_MANO, HL_DEDO0 = 5,
-             HL_MUSLO = HL_DEDO0 + 15, HL_PIERNA, HL_PIE, HL_DEDOS_PIE,
-             HL_HOMBRO_M, HL_CODO_M, HL_MUNECA_M, HL_CADERA_M, HL_RODILLA_M, HL_TOBILLO_M, HL_NUM };
+// ⭐ LOS 206 HUESOS DEL CUERPO HUMANO (invisibles: solo mueven la malla).
+//
+// PEDIDO: "anadele huesos al cuerpo [...] exactamente 206 huesos para
+// animacion invisibles para mejorar las animaciones y que jamas deformen el
+// modelo 3D del jugador".
+//
+// Son los de un adulto, por regiones:
+//   CRANEO 22      frontal, occipital, esfenoides, etmoides, mandibula, vomer
+//                  y por pares parietal, temporal, maxilar, palatino,
+//                  cigomatico, nasal, lagrimal y cornete
+//   OIDO 6         martillo, yunque y estribo, por oido
+//   HIOIDES 1
+//   COLUMNA 26     7 cervicales, 12 toracicas, 5 lumbares, sacro y coccix
+//   TORAX 25       esternon y 12 pares de costillas
+//   CINTURA ESCAPULAR 4    claviculas y escapulas
+//   BRAZOS 60      humero, radio, cubito, 8 carpos, 5 metacarpos y 14
+//                  falanges por lado
+//   CINTURA PELVICA 2      los coxales
+//   PIERNAS 60     femur, rotula, tibia, perone, 7 tarsos, 5 metatarsos y
+//                  14 falanges por lado
+//   22 + 6 + 1 + 26 + 25 + 4 + 60 + 2 + 60 = 206
+//
+// LO QUE GANA LA ANIMACION:
+//   - La COLUMNA reparte cada giro y cada inclinacion entre sus 24
+//     vertebras: el tronco se curva en vez de doblarse por un punto.
+//   - Los huesos que estan EN la articulacion giran a medias entre sus
+//     vecinos, como en un cuerpo de verdad: la escapula (hombro), el cubito
+//     (el olecranon envuelve el codo), los carpos de la primera fila
+//     (muneca), el coxal (cadera), la rotula (rodilla) y el astragalo
+//     (tobillo). Asi ninguna articulacion muy doblada se colapsa.
+//   - El radio lleva medio giro de la pronacion: el antebrazo se tuerce a lo
+//     largo y no de golpe en la muneca.
+//   - Las costillas y el esternon siguen a su vertebra: el pecho acompana al
+//     tronco sin aplastarse.
+//   - Los dedos tienen sus 14 falanges por mano y por pie.
+// Los del craneo y el oido van juntos con la cabeza.
+//
+// Cada hueso tiene su marco, el segmento que ocupa, su grosor y su padre
+// (la cadena del esqueleto: el vertice se reparte entre un hueso y su padre o
+// su hijo).
+
+// Los huesos sin pareja.
+enum : int {
+    H_SACRO, H_COCCIX,
+    H_VERTEBRA0,                       // L5 .. L1 (5), T12 .. T1 (12): 17 de abajo arriba
+    H_CERVICAL0 = H_VERTEBRA0 + 17,    // C7 .. C1 (7)
+    H_HIOIDES = H_CERVICAL0 + 7,
+    H_ESTERNON,
+    H_FRONTAL, H_OCCIPITAL, H_ESFENOIDES, H_ETMOIDES, H_MANDIBULA, H_VOMER,
+    H_POR_LADO_INICIO
+};
+constexpr int H_CABEZA = H_OCCIPITAL;  // el craneo entero se mueve con este marco
+// Los de cada lado, en este orden.
+enum : int {
+    HL_PARIETAL, HL_TEMPORAL, HL_MAXILAR, HL_PALATINO, HL_CIGOMATICO, HL_NASAL, HL_LAGRIMAL, HL_CORNETE,
+    HL_MARTILLO, HL_YUNQUE, HL_ESTRIBO,
+    HL_COSTILLA0,                      // 12
+    HL_CLAVICULA = HL_COSTILLA0 + 12, HL_ESCAPULA, HL_HUMERO, HL_CUBITO, HL_RADIO,
+    HL_CARPO0,                         // 8: escafoides, semilunar, piramidal, pisiforme | trapecio, trapezoide, grande, ganchoso
+    HL_METACARPO0 = HL_CARPO0 + 8,     // 5: indice, medio, anular, menique, pulgar
+    HL_FALANGE_MANO0 = HL_METACARPO0 + 5,   // 14: 3 por dedo largo y 2 del pulgar
+    HL_COXAL = HL_FALANGE_MANO0 + 14, HL_FEMUR, HL_ROTULA, HL_TIBIA, HL_PERONE,
+    HL_TARSO0,                         // 7: astragalo, calcaneo, navicular, cuboides, 3 cuneiformes
+    HL_METATARSO0 = HL_TARSO0 + 7,     // 5: del gordo al pequeno
+    HL_FALANGE_PIE0 = HL_METATARSO0 + 5,    // 14: 2 del gordo y 3 de cada otro
+    HL_NUM = HL_FALANGE_PIE0 + 14
+};
 constexpr int NUM_HUESOS = H_POR_LADO_INICIO + 2 * HL_NUM;
+static_assert(NUM_HUESOS == 206, "el cuerpo humano adulto tiene 206 huesos");
 inline int huesoDe(int lado, int k) { return H_POR_LADO_INICIO + lado * HL_NUM + k; }
+// Los huesos de la cabeza (craneo, cara y oido).
+inline bool esDeLaCabeza(int b) {
+    if (b >= H_FRONTAL && b <= H_VOMER) return true;
+    if (b < H_POR_LADO_INICIO) return false;
+    const int k = (b - H_POR_LADO_INICIO) % HL_NUM;
+    return k <= HL_ESTRIBO;
+}
 
 namespace detalle {
 // El giro a medio camino entre dos marcos (cuaterniones: la media normalizada
@@ -106,41 +175,171 @@ inline Rot medioGiro(const Rot& a, const Rot& b) {
 // Los huesos de un esqueleto ya colocado. Mismo orden siempre: el de la pose
 // de referencia y el de la actual se emparejan por indice.
 inline void huesosDe(const Esqueleto& s, Hueso* h) {
-    h[H_PELVIS] = { s.pelvis, suma(s.pelvis.p, s.pelvis.r.aplicar({ 0, -0.14f, 0 })),
-                    suma(s.pelvis.p, s.pecho.r.aplicar({ 0, 0.16f, 0 })), 0.14f, -1 };
-    h[H_PECHO] = { s.pecho, suma(s.pelvis.p, s.pecho.r.aplicar({ 0, 0.16f, 0 })),
-                   suma(s.cuello.p, s.pecho.r.aplicar({ 0, -0.04f, 0 })), 0.13f, H_PELVIS };
-    h[H_CABEZA] = { s.cuello, s.cuello.p, suma(s.cuello.p, s.cuello.r.aplicar({ 0, 0.22f, 0.02f })), 0.095f, H_PECHO };
+    using detalle::medioGiro;
+    // El giro a una fraccion entre dos marcos (slerp por mitades sucesivas).
+    auto fraccion = [](const Rot& a, const Rot& b, float t) {
+        detalle::Cuat p = detalle::aCuat(a), q = detalle::aCuat(b);
+        if (p.w * q.w + p.x * q.x + p.y * q.y + p.z * q.z < 0.0f) q = { -q.w, -q.x, -q.y, -q.z };
+        detalle::Cuat m = { p.w + (q.w - p.w) * t, p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, p.z + (q.z - p.z) * t };
+        const float l = std::sqrt(m.w * m.w + m.x * m.x + m.y * m.y + m.z * m.z);
+        if (l < 1e-6f) return a;
+        return detalle::aRot({ m.w / l, m.x / l, m.y / l, m.z / l });
+    };
+    auto en = [](const Junta& j, V d) { return suma(j.p, j.r.aplicar(d)); };
+
+    // --- LA COLUMNA ---
+    const Junta& pel = s.pelvis;
+    h[H_SACRO] = { pel, en(pel, { 0, -0.14f, -0.02f }), en(pel, { 0, 0.02f, -0.01f }), 0.14f, -1 };
+    h[H_COCCIX] = { pel, en(pel, { 0, -0.16f, -0.08f }), en(pel, { 0, -0.11f, -0.10f }), 0.05f, H_SACRO };
+    // 17 vertebras (5 lumbares y 12 toracicas) de la pelvis al cuello, y cada
+    // una con su parte del giro del tronco: las lumbares poco, las toracicas
+    // mas (como columnaGiro).
+    const V baseCol = pel.p;
+    const V topeCol = suma(s.cuello.p, s.pecho.r.aplicar({ 0, -0.03f, 0 }));
+    for (int i = 0; i < 17; ++i) {
+        const float t0 = (float)i / 17.0f, t1 = (float)(i + 1) / 17.0f, tm = 0.5f * (t0 + t1);
+        const float u = sujetar(tm * 1.15f, 0.0f, 1.0f);
+        const Rot r = fraccion(pel.r, s.pecho.r, u * u * (3.0f - 2.0f * u));
+        const V a = mezclar(baseCol, topeCol, t0), b = mezclar(baseCol, topeCol, t1);
+        h[H_VERTEBRA0 + i] = { { a, r }, a, b, i < 5 ? 0.14f : 0.13f, i == 0 ? H_SACRO : H_VERTEBRA0 + i - 1 };
+    }
+    // 7 cervicales: del cuello a la base del craneo, girando de a poco hacia
+    // la cabeza.
+    const V arribaCabeza = s.cuello.r.aplicar({ 0, 1, 0 });
+    for (int i = 0; i < 7; ++i) {
+        const float t0 = (float)i / 7.0f, t1 = (float)(i + 1) / 7.0f;
+        const Rot r = fraccion(s.pecho.r, s.cuello.r, 0.5f * (t0 + t1));
+        const V a = suma(s.cuello.p, escala(arribaCabeza, 0.10f * t0)), b = suma(s.cuello.p, escala(arribaCabeza, 0.10f * t1));
+        h[H_CERVICAL0 + i] = { { a, r }, a, b, 0.065f, i == 0 ? H_VERTEBRA0 + 16 : H_CERVICAL0 + i - 1 };
+    }
+    const int C1 = H_CERVICAL0 + 6;
+    h[H_HIOIDES] = { { suma(s.cuello.p, escala(arribaCabeza, 0.04f)), fraccion(s.pecho.r, s.cuello.r, 0.5f) },
+                     en(s.cuello, { -0.015f, 0.04f, 0.05f }), en(s.cuello, { 0.015f, 0.04f, 0.05f }), 0.025f, H_CERVICAL0 + 3 };
+    // El esternon, con la vertebra de su altura (T6).
+    const Hueso& t6 = h[H_VERTEBRA0 + 5 + 6];
+    const float Le = s.largo.espalda;
+    h[H_ESTERNON] = { t6.marco, suma(pel.p, t6.marco.r.aplicar({ 0, Le * 0.55f, 0.11f })),
+                      suma(pel.p, t6.marco.r.aplicar({ 0, Le * 0.90f, 0.10f })), 0.06f, H_VERTEBRA0 + 5 + 6 };
+
+    // --- EL CRANEO (todos con el marco de la cabeza) ---
+    const Junta& cab = s.cuello;
+    auto craneo = [&](int b, V a, V z, float r) { h[b] = { cab, en(cab, a), en(cab, z), r, C1 }; };
+    craneo(H_FRONTAL, { 0, 0.17f, 0.07f }, { 0, 0.12f, 0.09f }, 0.05f);
+    craneo(H_OCCIPITAL, { 0, 0.12f, -0.07f }, { 0, 0.07f, -0.06f }, 0.06f);
+    craneo(H_ESFENOIDES, { -0.02f, 0.11f, 0.0f }, { 0.02f, 0.11f, 0.0f }, 0.03f);
+    craneo(H_ETMOIDES, { 0, 0.12f, 0.05f }, { 0, 0.115f, 0.065f }, 0.015f);
+    craneo(H_MANDIBULA, { 0, 0.03f, 0.085f }, { 0, 0.07f, 0.0f }, 0.04f);
+    craneo(H_VOMER, { 0, 0.085f, 0.06f }, { 0, 0.095f, 0.075f }, 0.01f);
+
     for (int l = 0; l < 2; ++l) {
-        auto H = [&](int k) -> Hueso& { return h[huesoDe(l, k)]; };
+        const float sx = l == 0 ? -1.0f : 1.0f;
+        auto L = [&](int k) { return huesoDe(l, k); };
+        auto H = [&](int k) -> Hueso& { return h[L(k)]; };
         const Mano& m = s.mano[l];
         const Pie& pie = s.pie[l];
-        H(HL_CLAVICULA) = { s.pecho, suma(s.cuello.p, s.pecho.r.aplicar({ 0, -0.05f, 0 })), s.hombro[l].p, 0.045f, H_PECHO };
-        H(HL_BRAZO) = { s.hombro[l], s.hombro[l].p, s.codo[l].p, 0.090f, huesoDe(l, HL_CLAVICULA) };
-        const V medio = mezclar(s.codo[l].p, m.muneca.p, 0.5f);
-        H(HL_ANTE1) = { s.codo[l], s.codo[l].p, medio, 0.050f, huesoDe(l, HL_BRAZO) };
-        H(HL_ANTE2) = { { medio, s.codo[l].r.por(Rot::enY(s.prono[l] * 0.5f)) }, medio, m.muneca.p, 0.040f,
-                        huesoDe(l, HL_ANTE1) };
-        H(HL_MANO) = { m.muneca, m.muneca.p, m.dedo[1][0].p, 0.034f, huesoDe(l, HL_ANTE2) };
-        for (int d = 0; d < 5; ++d)
+
+        // Cara y oido, con la cabeza.
+        auto par = [&](int k, V a, V z, float r, int padre) { H(k) = { cab, en(cab, { sx * a.x, a.y, a.z }), en(cab, { sx * z.x, z.y, z.z }), r, padre }; };
+        par(HL_PARIETAL, { 0.03f, 0.19f, 0.0f }, { 0.07f, 0.15f, -0.02f }, 0.05f, H_FRONTAL);
+        par(HL_TEMPORAL, { 0.07f, 0.12f, 0.0f }, { 0.07f, 0.08f, -0.02f }, 0.035f, H_OCCIPITAL);
+        par(HL_MAXILAR, { 0.02f, 0.075f, 0.08f }, { 0.03f, 0.06f, 0.07f }, 0.025f, H_ESFENOIDES);
+        par(HL_PALATINO, { 0.012f, 0.065f, 0.05f }, { 0.012f, 0.065f, 0.06f }, 0.01f, L(HL_MAXILAR));
+        par(HL_CIGOMATICO, { 0.05f, 0.095f, 0.06f }, { 0.06f, 0.09f, 0.04f }, 0.02f, L(HL_TEMPORAL));
+        par(HL_NASAL, { 0.006f, 0.115f, 0.095f }, { 0.006f, 0.105f, 0.10f }, 0.008f, H_FRONTAL);
+        par(HL_LAGRIMAL, { 0.028f, 0.115f, 0.08f }, { 0.03f, 0.11f, 0.078f }, 0.006f, H_ETMOIDES);
+        par(HL_CORNETE, { 0.01f, 0.095f, 0.075f }, { 0.012f, 0.09f, 0.07f }, 0.006f, H_ETMOIDES);
+        par(HL_MARTILLO, { 0.06f, 0.105f, -0.010f }, { 0.062f, 0.105f, -0.010f }, 0.003f, L(HL_TEMPORAL));
+        par(HL_YUNQUE, { 0.063f, 0.105f, -0.012f }, { 0.064f, 0.104f, -0.012f }, 0.003f, L(HL_MARTILLO));
+        par(HL_ESTRIBO, { 0.065f, 0.104f, -0.011f }, { 0.066f, 0.104f, -0.011f }, 0.002f, L(HL_YUNQUE));
+
+        // Las costillas: cada una con su vertebra toracica, rodeando el
+        // tronco desde la espalda hacia el costado y delante.
+        for (int k = 0; k < 12; ++k) {
+            const int v = H_VERTEBRA0 + 5 + (11 - k);       // T1 arriba .. T12 abajo
+            const Hueso& vb = h[v];
+            const V c = mezclar(vb.a, vb.b, 0.5f);
+            const float ancho = 0.10f + 0.03f * std::sin((float)k / 11.0f * 3.1416f);
+            H(HL_COSTILLA0 + k) = { vb.marco, suma(c, vb.marco.r.aplicar({ sx * 0.03f, 0, -0.07f })),
+                                    suma(c, vb.marco.r.aplicar({ sx * ancho, -0.03f, 0.04f })), 0.05f, v };
+        }
+
+        // --- EL BRAZO ---
+        H(HL_CLAVICULA) = { s.pecho, en(s.pecho, { 0, 0, 0 }), s.hombro[l].p, 0.045f, H_ESTERNON };
+        H(HL_CLAVICULA).a = suma(s.cuello.p, s.pecho.r.aplicar({ sx * 0.02f, -0.05f, 0.04f }));
+        // La escapula: en el hombro, con medio giro del brazo (el ritmo
+        // escapulohumeral).
+        H(HL_ESCAPULA) = { { s.hombro[l].p, medioGiro(s.pecho.r, s.hombro[l].r) }, s.hombro[l].p,
+                           suma(s.hombro[l].p, s.pecho.r.aplicar({ -sx * 0.06f, -0.07f, -0.05f })), 0.055f, L(HL_CLAVICULA) };
+        H(HL_HUMERO) = { s.hombro[l], s.hombro[l].p, s.codo[l].p, 0.090f, L(HL_ESCAPULA) };
+        // El cubito envuelve el codo: medio giro del codo, en su primer tercio.
+        const V antebrazo = resta(m.muneca.p, s.codo[l].p);
+        H(HL_CUBITO) = { { s.codo[l].p, medioGiro(s.hombro[l].r, s.codo[l].r) }, s.codo[l].p,
+                         suma(s.codo[l].p, escala(antebrazo, 0.30f)), 0.055f, L(HL_HUMERO) };
+        // El radio: el antebrazo con media pronacion (se tuerce a lo largo).
+        H(HL_RADIO) = { { s.codo[l].p, s.codo[l].r.por(Rot::enY(s.prono[l] * 0.5f)) },
+                        suma(s.codo[l].p, escala(antebrazo, 0.15f)), m.muneca.p, 0.045f, L(HL_CUBITO) };
+        // Los carpos: la primera fila con medio giro de la muneca; la segunda,
+        // con la mano.
+        const Rot mitadMuneca = medioGiro(H(HL_RADIO).marco.r, m.muneca.r);
+        static const float CX[4] = { 0.018f, 0.006f, -0.006f, -0.018f };
+        for (int k = 0; k < 4; ++k) {
+            const V p0 = suma(m.muneca.p, m.muneca.r.aplicar({ m.lado * CX[k], -0.006f, 0 }));
+            H(HL_CARPO0 + k) = { { m.muneca.p, mitadMuneca }, p0, p0, 0.022f, L(HL_RADIO) };
+            const V p1 = suma(m.muneca.p, m.muneca.r.aplicar({ m.lado * CX[k], -0.024f, 0 }));
+            H(HL_CARPO0 + 4 + k) = { m.muneca, p1, p1, 0.020f, L(HL_CARPO0 + k) };
+        }
+        // Los metacarpos: de la segunda fila del carpo a los nudillos; el
+        // del pulgar es el primer tramo del pulgar del esqueleto.
+        for (int d = 0; d < 4; ++d)
+            H(HL_METACARPO0 + d) = { m.muneca, suma(m.muneca.p, m.muneca.r.aplicar({ m.lado * CX[d] * 0.8f, -0.03f, 0 })),
+                                     m.dedo[d][0].p, 0.020f, L(HL_CARPO0 + 4 + (d < 2 ? 2 : 3)) };
+        H(HL_METACARPO0 + 4) = { m.dedo[4][0], m.dedo[4][0].p, m.dedo[4][1].p, 0.014f, L(HL_CARPO0 + 4) };
+        // Las falanges: 3 por dedo largo y 2 del pulgar.
+        for (int d = 0; d < 4; ++d)
             for (int f = 0; f < 3; ++f)
-                H(HL_DEDO0 + d * 3 + f) = { m.dedo[d][f], m.dedo[d][f].p, m.dedo[d][f + 1].p, 0.0095f,
-                                            f == 0 ? huesoDe(l, HL_MANO) : huesoDe(l, HL_DEDO0 + d * 3 + f - 1) };
-        H(HL_MUSLO) = { s.cadera[l], s.cadera[l].p, s.rodilla[l].p, 0.085f, H_PELVIS };
-        H(HL_PIERNA) = { s.rodilla[l], s.rodilla[l].p, pie.tobillo.p, 0.060f, huesoDe(l, HL_MUSLO) };
-        H(HL_PIE) = { pie.tobillo, pie.talon, pie.bola, 0.040f, huesoDe(l, HL_PIERNA) };
-        H(HL_DEDOS_PIE) = { { pie.bola, pie.dedo[0][0].r }, pie.bola, pie.dedo[2][2].p, 0.020f, huesoDe(l, HL_PIE) };
-        // Los de ayuda: en la articulacion, con el giro a medias.
-        auto ayuda = [&](int k, int padre, int hijo, V p, float radio) {
-            H(k) = { { p, detalle::medioGiro(h[padre].marco.r, h[hijo].marco.r) }, p, p, radio, padre };
-            h[hijo].padre = huesoDe(l, k);
-        };
-        ayuda(HL_HOMBRO_M, huesoDe(l, HL_CLAVICULA), huesoDe(l, HL_BRAZO), s.hombro[l].p, 0.055f);
-        ayuda(HL_CODO_M, huesoDe(l, HL_BRAZO), huesoDe(l, HL_ANTE1), s.codo[l].p, 0.055f);
-        ayuda(HL_MUNECA_M, huesoDe(l, HL_ANTE2), huesoDe(l, HL_MANO), m.muneca.p, 0.035f);
-        ayuda(HL_CADERA_M, H_PELVIS, huesoDe(l, HL_MUSLO), s.cadera[l].p, 0.10f);
-        ayuda(HL_RODILLA_M, huesoDe(l, HL_MUSLO), huesoDe(l, HL_PIERNA), s.rodilla[l].p, 0.07f);
-        ayuda(HL_TOBILLO_M, huesoDe(l, HL_PIERNA), huesoDe(l, HL_PIE), pie.tobillo.p, 0.05f);
+                H(HL_FALANGE_MANO0 + d * 3 + f) = { m.dedo[d][f], m.dedo[d][f].p, m.dedo[d][f + 1].p, 0.0095f,
+                                                    f == 0 ? L(HL_METACARPO0 + d) : L(HL_FALANGE_MANO0 + d * 3 + f - 1) };
+        for (int f = 0; f < 2; ++f)
+            H(HL_FALANGE_MANO0 + 12 + f) = { m.dedo[4][f + 1], m.dedo[4][f + 1].p, m.dedo[4][f + 2].p, 0.011f,
+                                             f == 0 ? L(HL_METACARPO0 + 4) : L(HL_FALANGE_MANO0 + 12) };
+
+        // --- LA PIERNA ---
+        // El coxal: en la cadera, con medio giro del muslo.
+        H(HL_COXAL) = { { s.cadera[l].p, medioGiro(pel.r, s.cadera[l].r) }, s.cadera[l].p,
+                        suma(s.cadera[l].p, pel.r.aplicar({ -sx * 0.02f, 0.08f, -0.02f })), 0.10f, H_SACRO };
+        H(HL_FEMUR) = { s.cadera[l], s.cadera[l].p, s.rodilla[l].p, 0.085f, L(HL_COXAL) };
+        // La rotula: en la rodilla, con medio giro.
+        H(HL_ROTULA) = { { s.rodilla[l].p, medioGiro(s.cadera[l].r, s.rodilla[l].r) }, s.rodilla[l].p, s.rodilla[l].p, 0.07f, L(HL_FEMUR) };
+        H(HL_TIBIA) = { s.rodilla[l], s.rodilla[l].p, pie.tobillo.p, 0.060f, L(HL_ROTULA) };
+        H(HL_PERONE) = { s.rodilla[l], en(s.rodilla[l], { sx * 0.03f, -0.05f, -0.01f }), en(pie.tobillo, { sx * 0.03f, 0.02f, 0 }), 0.035f, L(HL_TIBIA) };
+        // Los tarsos: el astragalo con medio giro del tobillo; los demas, con el pie.
+        H(HL_TARSO0) = { { pie.tobillo.p, medioGiro(s.rodilla[l].r, pie.tobillo.r) }, pie.tobillo.p, pie.tobillo.p, 0.05f, L(HL_TIBIA) };
+        H(HL_TARSO0 + 1) = { pie.tobillo, pie.tobillo.p, pie.talon, 0.045f, L(HL_TARSO0) };
+        const V medio = mezclar(pie.tobillo.p, pie.bola, 0.45f);
+        const float dentro = -sx;
+        H(HL_TARSO0 + 2) = { pie.tobillo, medio, suma(medio, pie.tobillo.r.aplicar({ dentro * 0.015f, 0, 0.01f })), 0.03f, L(HL_TARSO0) };
+        H(HL_TARSO0 + 3) = { pie.tobillo, suma(medio, pie.tobillo.r.aplicar({ -dentro * 0.025f, 0, 0 })),
+                             suma(medio, pie.tobillo.r.aplicar({ -dentro * 0.025f, 0, 0.02f })), 0.03f, L(HL_TARSO0 + 1) };
+        for (int k = 0; k < 3; ++k) {
+            const V c = suma(medio, pie.tobillo.r.aplicar({ dentro * (0.02f - k * 0.015f), 0, 0.025f }));
+            H(HL_TARSO0 + 4 + k) = { pie.tobillo, c, suma(c, pie.tobillo.r.aplicar({ 0, 0, 0.015f })), 0.022f, L(HL_TARSO0 + 2) };
+        }
+        // Los metatarsos: del mediopie a la base de cada dedo.
+        for (int d = 0; d < 5; ++d) {
+            const int desde = d < 3 ? HL_TARSO0 + 4 + d : HL_TARSO0 + 3;
+            H(HL_METATARSO0 + d) = { pie.tobillo, H(desde).b, pie.dedo[d][0].p, 0.022f, L(desde) };
+        }
+        // Las falanges: el gordo con 2; los otros con 3 (la del medio y la
+        // ultima comparten el marco de la punta del esqueleto).
+        H(HL_FALANGE_PIE0) = { pie.dedo[0][0], pie.dedo[0][0].p, pie.dedo[0][1].p, 0.016f, L(HL_METATARSO0) };
+        H(HL_FALANGE_PIE0 + 1) = { pie.dedo[0][1], pie.dedo[0][1].p, pie.dedo[0][2].p, 0.016f, L(HL_FALANGE_PIE0) };
+        for (int d = 1; d < 5; ++d) {
+            const int b0 = HL_FALANGE_PIE0 + 2 + (d - 1) * 3;
+            const V mitad = mezclar(pie.dedo[d][1].p, pie.dedo[d][2].p, 0.5f);
+            H(b0) = { pie.dedo[d][0], pie.dedo[d][0].p, pie.dedo[d][1].p, 0.011f, L(HL_METATARSO0 + d) };
+            H(b0 + 1) = { pie.dedo[d][1], pie.dedo[d][1].p, mitad, 0.011f, L(b0) };
+            H(b0 + 2) = { pie.dedo[d][1], mitad, pie.dedo[d][2].p, 0.010f, L(b0 + 1) };
+        }
     }
 }
 
@@ -334,6 +533,7 @@ struct MallaImportada {
                 if (w0[i] > 0.97f) { w0[i] = 1.0f; h1[i] = h0[i]; }
             }
         }
+        suavizarPesos();
         buscarPuntos(s);
         // En primera persona la camara va en la cabeza (ver ojos()): la cabeza
         // y el cuello no se dibujan. BUG: dejandolos, al mirar abajo la vista
@@ -348,11 +548,78 @@ struct MallaImportada {
             for (int k = 0; k < 3; ++k) {
                 const uint32_t v = indices[t + k];
                 // La cabeza del menton para arriba; el cuello y los hombros se ven.
-                const bool cabeza = ((h0[v] == H_CABEZA && w0[v] > 0.3f) || (h1[v] == H_CABEZA && w0[v] < 0.7f)) &&
+                const bool cabeza = ((esDeLaCabeza(h0[v]) && w0[v] > 0.3f) || (esDeLaCabeza(h1[v]) && w0[v] < 0.7f)) &&
                                     modelo[v].p.y > pt.menton.y + 0.005f;
                 if (cabeza || largo(resta(modelo[v].p, entreOjos)) < 0.08f) fuera = true;
             }
             if (!fuera) indicesSinCabeza.insert(indicesSinCabeza.end(), { indices[t], indices[t + 1], indices[t + 2] });
+        }
+    }
+
+    // ⭐ LOS PESOS, SUAVIZADOS SOBRE LA MALLA.
+    //
+    // BUG: agachado (rodilla a 130 grados) la rodilla salia rota: un vertice
+    // seguia al femur y su vecino a la tibia, y el triangulo entre los dos se
+    // estiraba como una tira. Ahora cada vertice mezcla sus pesos con los de
+    // sus vecinos unas cuantas veces (y los que comparten posicion en una
+    // costura de la textura, igual): no hay saltos de un vertice al de al
+    // lado. Al final cada uno se queda con sus dos huesos mas fuertes.
+    void suavizarPesos() {
+        const size_t n = modelo.size();
+        constexpr int K = 4;
+        struct Pesos { uint8_t b[K]; float w[K]; int c = 0; };
+        std::vector<Pesos> P(n), Q(n);
+        auto meter = [](Pesos& p, uint8_t b, float w) {
+            for (int k = 0; k < p.c; ++k) if (p.b[k] == b) { p.w[k] += w; return; }
+            if (p.c < K) { p.b[p.c] = b; p.w[p.c] = w; ++p.c; return; }
+            int menor = 0;
+            for (int k = 1; k < K; ++k) if (p.w[k] < p.w[menor]) menor = k;
+            if (w > p.w[menor]) { p.b[menor] = b; p.w[menor] = w; }
+        };
+        for (size_t i = 0; i < n; ++i) {
+            meter(P[i], h0[i], w0[i]);
+            if (h1[i] != h0[i]) meter(P[i], h1[i], 1.0f - w0[i]);
+        }
+        // Los vecinos (por los triangulos) y los gemelos de costura (misma posicion).
+        std::vector<std::vector<uint32_t>> vec(n);
+        for (size_t t = 0; t + 2 < indices.size(); t += 3)
+            for (int a = 0; a < 3; ++a)
+                for (int b = 0; b < 3; ++b)
+                    if (a != b) vec[indices[t + a]].push_back(indices[t + b]);
+        {
+            std::vector<uint32_t> orden(n);
+            for (size_t i = 0; i < n; ++i) orden[i] = (uint32_t)i;
+            auto clave = [&](uint32_t i) { const V p = modelo[i].p; return std::make_tuple(p.x, p.y, p.z); };
+            std::sort(orden.begin(), orden.end(), [&](uint32_t a, uint32_t b) { return clave(a) < clave(b); });
+            for (size_t i = 0; i + 1 < n; ++i)
+                if (clave(orden[i]) == clave(orden[i + 1])) {
+                    vec[orden[i]].push_back(orden[i + 1]);
+                    vec[orden[i + 1]].push_back(orden[i]);
+                }
+        }
+        for (auto& v : vec) { std::sort(v.begin(), v.end()); v.erase(std::unique(v.begin(), v.end()), v.end()); }
+        for (int it = 0; it < 4; ++it) {
+            for (size_t i = 0; i < n; ++i) {
+                Pesos q;
+                for (int k = 0; k < P[i].c; ++k) meter(q, P[i].b[k], 0.5f * P[i].w[k]);
+                const float r = vec[i].empty() ? 0.0f : 0.5f / (float)vec[i].size();
+                for (uint32_t j : vec[i])
+                    for (int k = 0; k < P[j].c; ++k) meter(q, P[j].b[k], r * P[j].w[k]);
+                if (vec[i].empty()) for (int k = 0; k < q.c; ++k) q.w[k] *= 2.0f;
+                Q[i] = q;
+            }
+            std::swap(P, Q);
+        }
+        for (size_t i = 0; i < n; ++i) {
+            const Pesos& p = P[i];
+            int a = 0, b = -1;
+            for (int k = 1; k < p.c; ++k) if (p.w[k] > p.w[a]) a = k;
+            for (int k = 0; k < p.c; ++k) if (k != a && (b < 0 || p.w[k] > p.w[b])) b = k;
+            const float wa = p.w[a], wb = b >= 0 ? p.w[b] : 0.0f;
+            h0[i] = p.b[a];
+            h1[i] = b >= 0 ? p.b[b] : p.b[a];
+            w0[i] = wa + wb > 1e-6f ? wa / (wa + wb) : 1.0f;
+            if (w0[i] > 0.985f) { w0[i] = 1.0f; h1[i] = h0[i]; }
         }
     }
 
@@ -541,30 +808,46 @@ struct MallaImportada {
             const float l0 = largo(resta(ref[b].b, ref[b].a));
             return l0 > 1e-4f ? largo(resta(h[b].b, h[b].a)) / l0 : 1.0f;
         };
-        S[H_PELVIS] = { a.cadera, 1.0f, 0.5f * (a.cadera + a.cintura) };
-        S[H_PECHO] = { a.pecho * a.espalda, largoRel(H_PECHO), a.pecho };
-        S[H_CABEZA] = { a.cabeza, a.cabeza, a.cabeza };
+        auto grosor = [&](int b, float x, float z) { S[b] = { x, largoRel(b), z }; };
+        auto todo = [&](int b, float k) { S[b] = { k, k, k }; };
+        // Los de las articulaciones: el grosor medio de sus vecinos, sin estirar.
+        auto media = [&](int b, int x, int y) { S[b] = { 0.5f * (S[x].x + S[y].x), 1.0f, 0.5f * (S[x].z + S[y].z) }; };
+        // La columna: de la cadera y la cintura abajo al pecho arriba.
+        S[H_SACRO] = { a.cadera, 1.0f, 0.5f * (a.cadera + a.cintura) };
+        S[H_COCCIX] = S[H_SACRO];
+        for (int i = 0; i < 17; ++i) {
+            const float t = (float)i / 16.0f;
+            const float x = i < 5 ? a.cintura + (a.cadera - a.cintura) * (1.0f - i / 4.0f) * 0.5f
+                                  : a.cintura + (a.pecho * a.espalda - a.cintura) * sujetar((t - 0.3f) / 0.5f, 0.0f, 1.0f);
+            const float z = i < 5 ? a.cintura : a.cintura + (a.pecho - a.cintura) * sujetar((t - 0.3f) / 0.5f, 0.0f, 1.0f);
+            grosor(H_VERTEBRA0 + i, x, z);
+        }
+        for (int i = 0; i < 7; ++i) S[H_CERVICAL0 + i] = { a.cuello, 1.0f, a.cuello };
+        S[H_HIOIDES] = { a.cuello, 1.0f, a.cuello };
+        todo(H_ESTERNON, a.pecho);
+        for (int b = 0; b < NUM_HUESOS; ++b) if (esDeLaCabeza(b)) todo(b, a.cabeza);
         for (int l = 0; l < 2; ++l) {
             auto H = [&](int k) { return huesoDe(l, k); };
-            S[H(HL_CLAVICULA)] = { a.hombros, a.hombros, a.hombros };
+            for (int k = 0; k < 12; ++k) S[H(HL_COSTILLA0 + k)] = { a.pecho, 1.0f, a.pecho };
+            todo(H(HL_CLAVICULA), a.hombros);
             const float brazo = a.brazo * (1.0f + (a.biceps - 1.0f) * 0.6f) * (1.0f + (a.triceps - 1.0f) * 0.4f);
-            S[H(HL_BRAZO)] = { brazo, largoRel(H(HL_BRAZO)), brazo };
-            S[H(HL_ANTE1)] = { a.antebrazo, largoRel(H(HL_ANTE1)), a.antebrazo };
-            S[H(HL_ANTE2)] = { a.antebrazo, largoRel(H(HL_ANTE2)), a.antebrazo };
-            S[H(HL_MANO)] = { a.mano, a.mano, a.mano };
-            for (int d = 0; d < 15; ++d) S[H(HL_DEDO0 + d)] = { a.mano, a.mano * a.dedosLargo, a.mano };
-            S[H(HL_MUSLO)] = { a.muslo, largoRel(H(HL_MUSLO)), a.muslo * (1.0f + (a.cuadriceps - 1.0f) * 0.7f) };
-            S[H(HL_PIERNA)] = { a.gemelo, largoRel(H(HL_PIERNA)), a.gemelo };
-            S[H(HL_PIE)] = { a.pie, a.pie, a.pie };
-            S[H(HL_DEDOS_PIE)] = { a.pie, a.pie, a.pie * a.pieDedos };
-            // Los de ayuda: el grosor medio de sus dos vecinos, sin estirar.
-            auto media = [&](int k, int x, int y) { S[H(k)] = { 0.5f * (S[x].x + S[y].x), 1.0f, 0.5f * (S[x].z + S[y].z) }; };
-            media(HL_HOMBRO_M, H(HL_CLAVICULA), H(HL_BRAZO));
-            media(HL_CODO_M, H(HL_BRAZO), H(HL_ANTE1));
-            media(HL_MUNECA_M, H(HL_ANTE2), H(HL_MANO));
-            media(HL_CADERA_M, H_PELVIS, H(HL_MUSLO));
-            media(HL_RODILLA_M, H(HL_MUSLO), H(HL_PIERNA));
-            media(HL_TOBILLO_M, H(HL_PIERNA), H(HL_PIE));        }
+            grosor(H(HL_HUMERO), brazo, brazo);
+            media(H(HL_ESCAPULA), H(HL_CLAVICULA), H(HL_HUMERO));
+            grosor(H(HL_RADIO), a.antebrazo, a.antebrazo);
+            media(H(HL_CUBITO), H(HL_HUMERO), H(HL_RADIO));
+            for (int k = 0; k < 8; ++k) todo(H(HL_CARPO0 + k), a.mano);
+            for (int k = 0; k < 5; ++k) todo(H(HL_METACARPO0 + k), a.mano);
+            for (int k = 0; k < 14; ++k) S[H(HL_FALANGE_MANO0 + k)] = { a.mano, a.mano * a.dedosLargo, a.mano };
+            grosor(H(HL_FEMUR), a.muslo, a.muslo * (1.0f + (a.cuadriceps - 1.0f) * 0.7f));
+            media(H(HL_COXAL), H_SACRO, H(HL_FEMUR));
+            grosor(H(HL_TIBIA), a.gemelo, a.gemelo);
+            grosor(H(HL_PERONE), a.gemelo, a.gemelo);
+            media(H(HL_ROTULA), H(HL_FEMUR), H(HL_TIBIA));
+            for (int k = 1; k < 7; ++k) todo(H(HL_TARSO0 + k), a.pie);
+            media(H(HL_TARSO0), H(HL_TIBIA), H(HL_TARSO0 + 1));
+            for (int k = 0; k < 5; ++k) todo(H(HL_METATARSO0 + k), a.pie);
+            for (int k = 0; k < 14; ++k) S[H(HL_FALANGE_PIE0 + k)] = { a.pie, a.pie, a.pie * a.pieDedos };
+        }
     }
 
     // ⭐ CADA HUESO COMO CUATERNION DUAL (giro + traslacion), del reposo a la

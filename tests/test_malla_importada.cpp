@@ -101,7 +101,7 @@ TEST_CASE("Modelo importado: unos brazos mas gruesos engordan el brazo, no la ma
         float suma = 0.0f;
         int n = 0;
         for (size_t i = 0; i < m.v.size(); ++i)
-            if (mi.h0[i] == huesoDe(1, HL_BRAZO) && mi.w0[i] > 0.9f) {
+            if (mi.h0[i] == huesoDe(1, HL_HUMERO) && mi.w0[i] > 0.9f) {
                 suma += detalle::distSegmento(m.v[i].p, s.hombro[1].p, s.codo[1].p);
                 ++n;
             }

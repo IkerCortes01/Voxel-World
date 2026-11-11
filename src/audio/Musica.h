@@ -159,7 +159,7 @@ public:
         mciSendStringW(L"close vw_musica", nullptr, 0, nullptr);
         abierta = false;
     }
-    ~Musica() { cerrar(); }
+    // Sin MCI en el destructor: en la salida del proceso puede colgarse. Se\n    // cierra a mano (ver el final de main).\n    ~Musica() = default;
 
 private:
     void abrir(int p) {

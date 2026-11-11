@@ -433,34 +433,34 @@ inline const Golpe& golpeDe(Herramienta h, ClaseBloque c) {
     //
     //                     periodo carga   flex           abd           rot            codo          muneca         torso          incl  2manos
     static const Golpe T[(int)Herramienta::NUM][(int)ClaseBloque::NUM] = {
-        { // MANO
-            { 0.42f, 0.55f, { 2.00f, 0.95f }, { 0.12f, 0.10f }, { 0.15f, 0.10f }, { 1.90f, 0.55f }, { -0.3f,  0.4f }, { -0.10f, 0.12f }, 0.08f, false }, // tierra: puno de arriba abajo
-            { 0.40f, 0.55f, { 1.20f, 1.05f }, { 0.85f, 0.20f }, { -0.6f,  0.30f }, { 1.80f, 1.00f }, {  0.0f,  0.2f }, { -0.30f, 0.22f }, 0.04f, false }, // madera: puno de martillo de lado
-            { 0.46f, 0.58f, { 0.75f, 1.45f }, { 0.18f, 0.10f }, { 0.00f, 0.00f }, { 2.10f, 0.12f }, {  0.0f,  0.0f }, { -0.28f, 0.28f }, 0.10f, false }, // piedra: directo
-            { 0.30f, 0.50f, { 1.30f, 1.20f }, { 0.20f, 0.18f }, { 0.10f, 0.10f }, { 1.50f, 1.05f }, { -0.2f,  0.3f }, { -0.06f, 0.06f }, 0.02f, false }, // construido: golpecitos
+        { // MANO: punetazos rectos desde el hombro; el puno sale girando y el tronco empuja
+            { 0.50f, 0.55f, { 0.35f, 1.20f }, { 0.32f, 0.12f }, { -0.25f, 0.05f }, { 2.05f, 0.25f }, {  0.00f, 0.15f }, { -0.30f, 0.22f }, 0.12f, false }, // tierra: hacia abajo y delante
+            { 0.48f, 0.55f, { 0.45f, 1.40f }, { 0.36f, 0.10f }, { -0.30f, 0.00f }, { 2.00f, 0.15f }, {  0.00f, 0.10f }, { -0.32f, 0.26f }, 0.06f, false }, // madera: directo
+            { 0.52f, 0.56f, { 0.45f, 1.42f }, { 0.38f, 0.10f }, { -0.30f, 0.00f }, { 2.05f, 0.12f }, {  0.00f, 0.08f }, { -0.38f, 0.32f }, 0.10f, false }, // piedra: con todo el cuerpo
+            { 0.38f, 0.50f, { 0.95f, 1.30f }, { 0.22f, 0.15f }, { -0.05f, 0.00f }, { 1.60f, 0.70f }, {  0.00f, 0.20f }, { -0.10f, 0.10f }, 0.02f, false }, // construido: golpecitos
         },
         { // PICO: solo el brazo derecho
-            { 0.60f, 0.62f, { 2.45f, 0.80f }, { 0.25f, 0.12f }, { 0.30f, 0.05f }, { 1.90f, 0.35f }, { -0.85f, 0.50f }, { -0.08f, 0.06f }, 0.08f, false }, // tierra
+            { 0.70f, 0.62f, { 2.05f, 0.80f }, { 0.45f, 0.12f }, { 0.30f, 0.05f }, { 1.20f, 0.35f }, { -0.85f, 0.50f }, { -0.08f, 0.06f }, 0.08f, false }, // tierra
             { 0.58f, 0.60f, { 1.90f, 0.95f }, { 1.00f, 0.30f }, { -0.55f, 0.20f }, { 1.85f, 0.40f }, { -0.70f, 0.45f }, { -0.15f, 0.10f }, 0.05f, false }, // madera: en diagonal
-            { 0.66f, 0.64f, { 2.80f, 0.65f }, { 0.20f, 0.10f }, { 0.30f, 0.05f }, { 2.05f, 0.25f }, { -0.95f, 0.60f }, { -0.10f, 0.08f }, 0.12f, false }, // piedra: desde lo alto
-            { 0.46f, 0.56f, { 1.95f, 1.10f }, { 0.20f, 0.14f }, { 0.20f, 0.08f }, { 1.70f, 0.75f }, { -0.55f, 0.30f }, { -0.04f, 0.04f }, 0.03f, false }, // construido: controlado
+            { 0.76f, 0.64f, { 2.15f, 0.65f }, { 0.45f, 0.10f }, { 0.30f, 0.05f }, { 1.20f, 0.25f }, { -0.95f, 0.60f }, { -0.10f, 0.08f }, 0.12f, false }, // piedra: desde lo alto
+            { 0.52f, 0.56f, { 1.80f, 1.10f }, { 0.35f, 0.14f }, { 0.20f, 0.08f }, { 1.55f, 0.75f }, { -0.55f, 0.30f }, { -0.04f, 0.04f }, 0.03f, false }, // construido: controlado
         },
         { // HACHA
-            { 0.58f, 0.60f, { 2.30f, 0.80f }, { 0.25f, 0.12f }, { 0.30f, 0.08f }, { 1.80f, 0.35f }, { -0.80f, 0.45f }, { -0.10f, 0.08f }, 0.08f, false }, // tierra
+            { 0.68f, 0.60f, { 2.00f, 0.80f }, { 0.45f, 0.12f }, { 0.30f, 0.08f }, { 1.20f, 0.35f }, { -0.80f, 0.45f }, { -0.10f, 0.08f }, 0.08f, false }, // tierra
             { 0.66f, 0.60f, { 1.55f, 1.15f }, { 1.30f, 0.15f }, { -0.95f, 0.40f }, { 1.40f, 0.20f }, { -0.50f, 0.30f }, { -0.60f, 0.45f }, 0.14f, true  }, // madera: hachazo en diagonal
-            { 0.66f, 0.62f, { 2.55f, 0.75f }, { 0.20f, 0.10f }, { 0.30f, 0.08f }, { 1.95f, 0.30f }, { -0.85f, 0.50f }, { -0.10f, 0.08f }, 0.10f, false }, // piedra
+            { 0.76f, 0.62f, { 2.10f, 0.75f }, { 0.45f, 0.10f }, { 0.30f, 0.08f }, { 1.20f, 0.30f }, { -0.85f, 0.50f }, { -0.10f, 0.08f }, 0.10f, false }, // piedra
             { 0.46f, 0.55f, { 1.70f, 1.05f }, { 0.60f, 0.30f }, { -0.30f, 0.10f }, { 1.60f, 0.65f }, { -0.50f, 0.30f }, { -0.12f, 0.06f }, 0.03f, false }, // construido
         },
         { // MARTILLO: codo y muneca
             { 0.48f, 0.58f, { 1.55f, 0.95f }, { 0.15f, 0.10f }, { 0.15f, 0.10f }, { 2.20f, 0.70f }, { -0.85f, 0.45f }, { -0.05f, 0.05f }, 0.08f, false }, // tierra: apisonar
             { 0.42f, 0.56f, { 1.35f, 1.10f }, { 0.25f, 0.18f }, { 0.10f, 0.05f }, { 2.25f, 0.85f }, { -0.90f, 0.45f }, { -0.03f, 0.03f }, 0.03f, false }, // madera: clavar
-            { 0.62f, 0.62f, { 2.50f, 0.75f }, { 0.15f, 0.10f }, { 0.20f, 0.08f }, { 1.90f, 0.35f }, { -0.90f, 0.55f }, { -0.12f, 0.10f }, 0.14f, false }, // piedra: mazazo
+            { 0.72f, 0.62f, { 2.05f, 0.75f }, { 0.40f, 0.10f }, { 0.20f, 0.08f }, { 1.20f, 0.35f }, { -0.90f, 0.55f }, { -0.12f, 0.10f }, 0.14f, false }, // piedra: mazazo
             { 0.30f, 0.50f, { 1.25f, 1.12f }, { 0.20f, 0.16f }, { 0.10f, 0.08f }, { 2.10f, 1.25f }, { -0.75f, 0.35f }, { -0.02f, 0.02f }, 0.01f, false }, // construido: golpecitos
         },
         { // AZADA
-            { 0.66f, 0.62f, { 2.40f, 0.50f }, { 0.15f, 0.10f }, { 0.10f, 0.10f }, { 1.30f, 0.30f }, { -0.5f,  0.7f }, { -0.10f, 0.10f }, 0.30f, true  }, // tierra: cavar
+            { 0.76f, 0.62f, { 2.00f, 0.50f }, { 0.30f, 0.10f }, { 0.10f, 0.10f }, { 1.20f, 0.30f }, { -0.5f,  0.7f }, { -0.10f, 0.10f }, 0.30f, true  }, // tierra: cavar
             { 0.58f, 0.60f, { 1.60f, 1.00f }, { 0.90f, 0.20f }, { -0.6f,  0.20f }, { 1.20f, 0.40f }, { -0.3f,  0.4f }, { -0.35f, 0.25f }, 0.10f, true  }, // madera
-            { 0.66f, 0.62f, { 2.30f, 0.80f }, { 0.12f, 0.10f }, { 0.10f, 0.10f }, { 1.40f, 0.40f }, { -0.6f,  0.4f }, { -0.15f, 0.15f }, 0.18f, true  }, // piedra
+            { 0.76f, 0.62f, { 2.00f, 0.80f }, { 0.30f, 0.10f }, { 0.10f, 0.10f }, { 1.25f, 0.40f }, { -0.6f,  0.4f }, { -0.15f, 0.15f }, 0.18f, true  }, // piedra
             { 0.44f, 0.55f, { 1.50f, 1.00f }, { 0.20f, 0.15f }, { 0.10f, 0.10f }, { 1.20f, 0.70f }, { -0.4f,  0.4f }, { -0.06f, 0.06f }, 0.04f, false }, // construido
         },
     };
@@ -475,8 +475,9 @@ inline const Golpe& golpeDe(Herramienta h, ClaseBloque c) {
 // y vuelve a cargar.
 inline float faseGolpe(float u, float carga) {
     if (u < carga) return 1.0f - suave(u / carga);                 // impacto -> cargado
-    const float g = (1.0f - carga) * 0.45f;
-    if (u < carga + g) { const float k = (u - carga) / g; return k * k; }   // cargado -> impacto
+    const float g = (1.0f - carga) * 0.55f;
+    // Arranca suave y llega al impacto a toda velocidad (x^2 (2 - x)).
+    if (u < carga + g) { const float k = (u - carga) / g; return k * k * (2.0f - k); }   // cargado -> impacto
     return 1.0f;                                                    // impacto, se sostiene
 }
 
@@ -501,7 +502,7 @@ inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo, float apunta = 0
     const float kTronco = fase(0.06f), kHombro = fase(0.025f), k = fase(0.0f), kMuneca = fase(-0.035f);
     // El rebote al dar: la herramienta se frena de golpe y vibra un instante.
     const float tImpacto = (u - (cargaF + (1.0f - cargaF) * 0.45f)) * g.periodo;
-    const float rebote = tImpacto > 0.0f ? std::sin(tImpacto * 42.0f) * std::exp(-tImpacto * 16.0f) : 0.0f;
+    const float rebote = tImpacto > 0.0f ? 0.5f * std::sin(tImpacto * 30.0f) * std::exp(-tImpacto * 14.0f) : 0.0f;
     const float carga = 1.0f + 0.10f * ruido(sg, 2);      // mas o menos arriba
     const float impacto = 0.07f * ruido(sg, 3);           // un poco mas alto o bajo
     auto mezclaEn = [](float kk, const float v[2]) { return v[0] + (v[1] - v[0]) * kk; };
@@ -585,7 +586,8 @@ inline float faseDisparo(float t, float cargar, float golpear, float volver) {
 //               cuerpo inclinado).
 inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t, float apunta = 0.0f) {
     const bool animal = a == Accion::GOLPE_ANIMAL;
-    const float f = faseDisparo(t, animal ? 0.10f : 0.07f, animal ? 0.12f : 0.10f, 0.20f);
+    // Un poco menos brusco: recoger, soltar y volver con la guardia.
+    const float f = faseDisparo(t, animal ? 0.11f : 0.09f, animal ? 0.13f : 0.12f, 0.26f);
     if (f < -1.5f) return;
     // c: cuanto esta recogido (0..1); g: cuanto esta en el impacto (0..1).
     const float c = f < 0.0f ? -f : 0.0f;
@@ -606,6 +608,12 @@ inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t, f
         const float s = l == 1 ? 1.0f : -1.0f;
         Brazo& b = p.brazo[l];
         puno(b);
+        // El sacacorchos: el puno sale vertical y gira hasta los nudillos
+        // arriba justo al llegar.
+        b.prono = 0.15f + 0.95f * g;
+        // El cuerpo empuja: las rodillas ceden y la cadera gira con el golpe.
+        for (Pierna& pi : p.pierna) pi.rodilla += 0.06f + 0.08f * g;
+        p.giroPelvis += s * 0.18f * g;
         switch (tipo) {
             case 0: case 1: {
                 const float cuerpo = tipo == 1 ? 1.8f : 1.0f;
@@ -637,9 +645,9 @@ inline void aplicarDisparo(Pose& p, Accion a, int variante, int lado, float t, f
                 break;
         }
         p.apretar = l == 1 ? 1.0f : p.apretar;
-        Brazo& o = p.brazo[1 - l];               // la otra, en guardia
+        Brazo& o = p.brazo[1 - l];               // la otra, en guardia (baja: no tapa la cara)
         puno(o);
-        o.flex = 0.9f; o.codo = 1.9f; o.abd = 0.15f;
+        o.flex = 0.70f; o.codo = 1.75f; o.abd = 0.25f;
         return;
     }
     if (variante == 0) {
@@ -1733,6 +1741,12 @@ inline void hundirHasta(Pose& p, float ojoObjetivo, bool tumbado) {
         if (tumbado) {
             ir(q.levantaPecho, 0.0f);
             ir(q.cuelloFlex, -0.25f);
+            // Los brazos bajan con el pecho: antebrazos delante y palmas planas
+            // en el suelo (si no, se quedaban apoyados en el aire o se hundian).
+            for (Brazo& b : q.brazo) {
+                ir(b.flex, 2.30f); ir(b.codo, 0.60f); ir(b.abd, 0.35f);
+                ir(b.munFlex, -0.35f); ir(b.prono, 1.35f);
+            }
         } else {
             for (Pierna& g : q.pierna) {
                 ir(g.flex, 1.95f); ir(g.rodilla, 2.38f); ir(g.tobillo, -0.30f);

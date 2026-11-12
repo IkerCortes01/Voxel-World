@@ -625,17 +625,21 @@ inline void aplicarHachazo(Pose& p, float periodo, float carga, float tiempo, fl
     const float tImpacto = (u - (carga + (1.0f - carga) * 0.55f)) * periodo;
     const float rebote = tImpacto > 0.0f ? std::sin(tImpacto * 26.0f) * std::exp(-tImpacto * 12.0f) : 0.0f;
     // El tronco lleva el barrido; el rebote lo devuelve un poco hacia atras.
-    p.giroTorso += lado * (0.70f * (1.0f - k) + 0.06f * rebote);
-    p.giroPelvis += lado * 0.20f * (1.0f - k);
+    // PEDIDO: "que las manos que sujetan el mango del hacha esten cerca y el
+    // hacha se mueva mas": ademas del tronco, los dos brazos barren juntos
+    // hacia el lado (los antebrazos giran con el hombro), y la cadera acompana.
+    const float barrido = lado * (1.0f - k) + 0.10f * lado * rebote;
+    p.giroTorso += 0.70f * barrido;
+    p.giroPelvis += 0.30f * barrido;
     Brazo& d = p.brazo[1];
     Brazo& i = p.brazo[0];
-    // Las manos separadas a lo largo del mango, como se agarra un hacha; mas
-    // juntas forzaban el hombro hacia dentro y la camisa se inflaba.
+    // Las manos juntas en el mango (unos 10 cm). Del todo juntas el hombro
+    // se forzaba hacia dentro y la camisa se inflaba.
     for (Brazo* b : { &d, &i }) {
-        b->flex = 1.05f + apunta * 0.9f;
-        b->abd = 0.0f;
-        b->rot = -0.30f;                // los antebrazos hacia el centro
-        b->codo = 0.80f;
+        b->flex = 0.95f + apunta * 0.9f;
+        b->abd = -0.10f;
+        b->rot = -0.48f;                // los antebrazos hacia el centro
+        b->codo = 1.00f;
         b->adelantar = 0.6f;
         b->prono = 1.20f;
         b->munFlex = 0.05f;
@@ -643,9 +647,13 @@ inline void aplicarHachazo(Pose& p, float periodo, float carga, float tiempo, fl
         manoRelajada(*b, 1.0f);
         b->dedo[4][0] = 0.75f; b->dedo[4][1] = 0.65f; b->dedo[4][2] = 0.55f;
     }
-
+    // Los dos brazos hacia el mismo lado: el derecho hacia fuera, el izquierdo
+    // hacia dentro.
+    d.rot += 0.55f * barrido;
+    i.rot -= 0.55f * barrido;
     p.apretar = 1.0f;
 }
+
 // Los golpes de un solo disparo (al aire y a un animal): `t` son los
 // segundos desde el clic. Devuelve 0..1 de la pose cargada a la de impacto,
 // o -1 si ya termino.

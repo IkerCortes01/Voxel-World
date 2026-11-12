@@ -112,21 +112,17 @@ TEST_CASE("Alineacion: todo lo que admite niveles se coloca COMO NIVEL") {
                     "ya no se convierte a nivel 1 en el camino principal");
 }
 
-TEST_CASE("Alineacion: solo piedra labrada, techo de hojas y tablones van enteros") {
-    // La piedra labrada es el material de construccion del juego: obligar a
-    // ocho clics por bloque haria inviable levantar un muro. El techo de
-    // hojas y los tablones se pidieron expresamente como "bloque completo".
-    //
-    // Si alguien anade una tercera excepcion, que sea una decision y no un
-    // descuido: este test la hace visible. Ahora la regla vive en una sola
-    // funcion (seColocaEntero) y aqui se recorren TODOS los bloques.
+TEST_CASE("Alineacion: el item entero va entero; la capa, como capa") {
+    // PEDIDO: "si hay un bloque completo [...] te de uno pero ese bloque al
+    // colocarlo esta totalmente completo que rellena una casilla". Todo item
+    // ENTERO de un material con niveles se coloca entero; las capas (los IDs
+    // de nivel) crecen clic a clic. La regla vive en una sola funcion
+    // (seColocaEntero) y aqui se recorren TODOS los bloques.
     for (int i = 1; i <= BLOCK_TYPE_MAX; ++i) {
         const BlockType t = (BlockType)i;
-        if (!seColocaEntero(t)) continue;
-        const BlockType b = bloqueBaseDe(t);
-        INFO("bloque que se coloca entero: ", i);
-        CHECK((b == BLOCK_COBBLESTONE || b == BLOCK_TECHO_HOJAS ||
-               b == BLOCK_TECHO_SUELO || esTablon(b)));
+        if (!admiteNiveles(t)) continue;
+        INFO("bloque con niveles: ", i);
+        CHECK(seColocaEntero(t) == !esNivelParcial(t));
     }
     CHECK(seColocaEntero(BLOCK_COBBLESTONE));
     CHECK(seColocaEntero(BLOCK_TECHO_HOJAS));

@@ -2,6 +2,8 @@
 
 #include "../BlockType.h"
 #include "../BloqueCompuesto.h"
+#include <string>
+#include <unordered_map>
 
 // ============================================================================
 // EL NOMBRE DE CADA ITEM, EN UN SOLO SITIO
@@ -254,11 +256,29 @@ inline const char* nombreDeFamilia(Compuesto::Familia f) {
 //   - una celda de capas (mixta o pila), como su capa de abajo, que es la
 //     que la define;
 //   - un compuesto, por su familia.
+// Una capa (un nivel parcial) es un item distinto del bloque entero: la capa
+// crece de octavo en octavo y el entero rellena la casilla (ver
+// seColocaEntero). Se llaman distinto para que en el inventario no haya dos
+// "TIERRA". Los que no tienen capa (piedra labrada, techo, tablones) se
+// llaman como su bloque.
+inline const char* nombreDeCapa(BlockType base) {
+    static std::unordered_map<int, std::string> cache;
+    auto it = cache.find((int)base);
+    if (it == cache.end()) {
+        const char* n = nombreDeBase(base);
+        it = cache.emplace((int)base, n ? std::string("CAPA DE ") + n : std::string()).first;
+    }
+    return it->second.empty() ? nullptr : it->second.c_str();
+}
+
 inline const char* nombreDeItem(BlockType t) {
     if (t == BLOCK_AIR) return nullptr;
     if (Compuesto::esCompuesto(t)) return nombreDeFamilia(Compuesto::familiaDe(t));
     if (esCeldaDeCapas(t))         t = materialAbajo(t);
-    if (esNivelParcial(t))         t = bloqueBaseDe(t);
+    if (esNivelParcial(t)) {
+        if (!vaSiempreEntero(t)) return nombreDeCapa(bloqueBaseDe(t));
+        t = bloqueBaseDe(t);
+    }
 
     // Las capas de TRONCO siguen en el enum pero ya no son niveles: los
     // troncos salieron de la tabla de niveles ("un tronco es un tronco

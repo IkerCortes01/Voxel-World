@@ -64,10 +64,18 @@ TEST_CASE("Entero: los tablones de TODAS las maderas son bloques completos") {
     }
 }
 
-TEST_CASE("Entero: el resto de bloques con niveles se coloca como capa") {
-    CHECK_FALSE(seColocaEntero(BLOCK_DIRT));
-    CHECK_FALSE(seColocaEntero(BLOCK_SAND));
-    CHECK_FALSE(seColocaEntero(BLOCK_STONE));
+TEST_CASE("Entero: el item entero rellena la casilla; su capa crece de octavo en octavo") {
+    // PEDIDO: "si hay un bloque completo [...] ese bloque al colocarlo esta
+    // totalmente completo que rellena una casilla".
+    CHECK(seColocaEntero(BLOCK_DIRT));
+    CHECK(seColocaEntero(BLOCK_SAND));
+    CHECK(seColocaEntero(BLOCK_STONE));
+    CHECK_FALSE(seColocaEntero(conNivel(BLOCK_DIRT, 1)));
+    CHECK_FALSE(seColocaEntero(conNivel(BLOCK_SAND, 1)));
+    // Los que no tienen item de capa: un nivel suyo suelta uno entero.
+    CHECK(vaSiempreEntero(BLOCK_COBBLESTONE));
+    CHECK(vaSiempreEntero(BLOCK_PLANKS));
+    CHECK_FALSE(vaSiempreEntero(BLOCK_DIRT));
 }
 
 TEST_CASE("Entero: una capa concreta no es 'entera' aunque sea de piedra labrada") {

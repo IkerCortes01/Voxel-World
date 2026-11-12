@@ -59,7 +59,7 @@ TEST_CASE("Nombres: solo usan letras que la fuente sabe dibujar") {
 }
 
 TEST_CASE("Nombres: una capa se llama como su bloque") {
-    CHECK(std::string(nombreDeItem(conNivel(BLOCK_DIRT, 3))) == "TIERRA");
+    CHECK(std::string(nombreDeItem(conNivel(BLOCK_DIRT, 3))) == "CAPA DE TIERRA");
     CHECK(std::string(nombreDeItem(conNivel(BLOCK_PLANKS, 1))) == "TABLONES DE PINO");
 }
 

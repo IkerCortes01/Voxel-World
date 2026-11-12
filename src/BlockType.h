@@ -1477,11 +1477,23 @@ inline bool esTablon(BlockType t) {
     }
 }
 
+// Los que van enteros SIEMPRE, tambien al soltarse de un nivel: la piedra
+// labrada, el techo de hojas y los tablones no tienen item de capa.
+inline bool vaSiempreEntero(BlockType t) {
+    const BlockType b = bloqueBaseDe(t);
+    return b == BLOCK_COBBLESTONE || esTechoDeHojas(b) || esTablon(b);
+}
+
+// ⭐ Y AHORA TODO ITEM ENTERO SE COLOCA ENTERO. PEDIDO: "si hay un bloque
+// completo, no te de 8 bloques asi maximo, te de uno pero ese bloque al
+// colocarlo esta totalmente completo que rellena una casilla". Las capas
+// tienen su propio item (el nivel 1, que es lo que sueltan los niveles: ver
+// getBlockDrops) y son las que crecen clic a clic; el item del bloque entero
+// rellena la casilla de una vez.
 inline bool seColocaEntero(BlockType t) {
     if (!admiteNiveles(t)) return false;     // sin niveles: no hay eleccion
     if (esNivelParcial(t)) return false;     // ya es una capa concreta
-    const BlockType b = bloqueBaseDe(t);
-    return b == BLOCK_COBBLESTONE || esTechoDeHojas(b) || esTablon(b);
+    return true;
 }
 
 // ============================================================================

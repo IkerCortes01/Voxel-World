@@ -47,7 +47,7 @@ TEST_CASE("Niveles: un material que se coloca por niveles no tapa la capa, la su
     REQUIRE(ini != std::string::npos);
     const size_t fin = s.find("\n}\n", ini) != std::string::npos ? s.find("\n}\n", ini) : s.find("\r\n}\r\n", ini);
     const std::string cuerpo = s.substr(ini, fin - ini);
-    const size_t guarda = cuerpo.find("if (admiteNiveles(enMano)) return BLOCK_AIR;");
+    const size_t guarda = cuerpo.find("if (admiteNiveles(enMano) && !seColocaEntero(enMano)) return BLOCK_AIR;");
     const size_t devuelve = cuerpo.find("return b;");
     REQUIRE(guarda != std::string::npos);
     CHECK(guarda < devuelve);

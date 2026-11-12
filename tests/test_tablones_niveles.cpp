@@ -86,14 +86,18 @@ TEST_CASE("Tablones: las lonchas ya no son bloques muertos") {
     CHECK(esNivelDeMaderaHuerfano(BLOCK_WOODO_L7));
 }
 
-TEST_CASE("Drops: un nivel suelta un item, mida lo que mida") {
-    // Se quito, a peticion, la regla que multiplicaba el drop por los
-    // octavos del nivel. getBlockDrops vive en main.cpp, que no se enlaza con
-    // los tests: se comprueba leyendo el fuente.
+TEST_CASE("Drops: un nivel apilado suelta tantas capas como octavos; un entero, uno") {
+    // PEDIDO: "regresa el sistema que dependiendo del nivel te da la cantidad
+    // de items por su tamano, pero [...] si hay un bloque completo [...] te de
+    // uno". getBlockDrops vive en main.cpp, que no se enlaza con los tests: se
+    // comprueba leyendo el fuente.
     const std::string src = fuenteMotor();
     REQUIRE_FALSE(src.empty());
-    CHECK(src.find("d.count *= octavosDelNivel") == std::string::npos);
-    CHECK(src.find("UN NIVEL SUELTA UN ITEM, MIDA LO QUE MIDA") != std::string::npos);
+    CHECK(src.find("UN NIVEL SUELTA TANTAS CAPAS COMO OCTAVOS TIENE; UN BLOQUE ENTERO, UNO") != std::string::npos);
+    // Solo lo que apilo el jugador se multiplica (el terreno suelta una capa).
+    CHECK(src.find("consumirNivelDelJugador(bx, by, bz) ? nivelDe(blockType) : 1") != std::string::npos);
+    CHECK(src.find("d.count *= capasQueSuelta") != std::string::npos);
+    CHECK(src.find("d.itemType = conNivel(d.itemType, 1)") != std::string::npos);
 }
 
 TEST_CASE("Drops: el nivel vive en el ID, asi que natural y colocado son iguales") {

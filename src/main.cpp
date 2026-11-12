@@ -33815,15 +33815,23 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
     // tiene", con su registro de lo apilado por el jugador. Se quito a
     // peticion: ver la nota de abajo.)
     //
-    // ⭐ UN NIVEL SUELTA UN ITEM, MIDA LO QUE MIDA.
+    // ⭐⭐ UN NIVEL SUELTA TANTAS CAPAS COMO OCTAVOS TIENE; UN BLOQUE ENTERO, UNO
     //
-    // PEDIDO: "elimina el sistema que por tamano de nivel te da una cantidad
-    // de items". Antes un nivel 5 que hubiera apilado el jugador soltaba
-    // cinco. Ahora cualquier nivel suelta lo mismo que su bloque: uno. Se
-    // sigue llevando la cuenta de los niveles puestos por el jugador
-    // (consumirNivelDelJugador), que usan otras partes del motor.
+    // PEDIDO: "regresa el sistema que dependiendo del nivel te da la cantidad
+    // de items por su tamano, pero haz que si hay un bloque completo, no te de
+    // 8 bloques asi maximo, te de uno pero ese bloque al colocarlo esta
+    // totalmente completo que rellena una casilla".
+    //
+    // Ahora hay dos items de cada material con niveles:
+    //   - la CAPA (el nivel 1): se coloca como 1/8 y crece clic a clic;
+    //   - el BLOQUE (el entero): se coloca entero (ver seColocaEntero).
+    // Un nivel n que apilo el jugador suelta n capas: lo puesto se recupera.
+    // Un nivel del terreno suelta una capa, mida lo que mida (si soltara n,
+    // picar las lomas daria material sin fin: el generador pone niveles en
+    // casi toda la superficie). Y un bloque entero suelta UN bloque entero.
+    int capasQueSuelta = 0;          // 0: no era un nivel
     if (esNivelParcial(blockType)) {
-        consumirNivelDelJugador(bx, by, bz);
+        capasQueSuelta = consumirNivelDelJugador(bx, by, bz) ? nivelDe(blockType) : 1;
         blockType = bloqueBaseDe(blockType);
     }
 
@@ -34033,6 +34041,19 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
     // (los que sueltan pedernal, polvo de tierra, cobre...) habrian seguido
     // dando 1 al picarlos en capa, y la perdida de material volveria por esa
     // puerta.
+    //
+    // Lo que sale de un nivel sale como CAPAS (si el material las tiene): asi
+    // al volver a ponerlo crece de octavo en octavo y no aparece un bloque
+    // entero de la nada.
+    // (La piedra labrada, el techo y los tablones no tienen capa: un nivel
+    // suyo suelta uno entero.)
+    if (capasQueSuelta > 0) {
+        for (BlockDrop& d : drops) {
+            if (!admiteNiveles(d.itemType) || vaSiempreEntero(d.itemType)) continue;
+            d.count *= capasQueSuelta;
+            if (!esNivelParcial(d.itemType)) d.itemType = conNivel(d.itemType, 1);
+        }
+    }
     return drops;
 }
 
@@ -34643,7 +34664,11 @@ void updateMining(GameState* state, float deltaTime) {
         // mixta, y de una mixta un nivel -- igual que antes.
         if (esCeldaDeCapas(blockType)) {
             Capas resto = capasDe(blockType);
-            const BlockType relleno = materialArriba(blockType);
+            // La capa de arriba con lo que mide: suelta capas, no un bloque
+            // entero (ver getBlockDrops).
+            const BlockType relleno = resto.n > 0
+                ? conNivel(resto.c[resto.n - 1].material, resto.c[resto.n - 1].octavos)
+                : materialArriba(blockType);
             if (resto.n > 0) --resto.n;
             BlockType queda = celdaDeCapas(resto);
             if (queda == BLOCK_AIR && resto.n > 0)
@@ -35310,14 +35335,38 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
                         float sx = scale, sy = scale;
                         if (mi.ancho > mi.alto) sy = scale * (float)mi.alto / (float)mi.ancho;
                         else if (mi.alto > mi.ancho) sx = scale * (float)mi.ancho / (float)mi.alto;
+                        // ⭐ EL MANGO MAS LARGO. PEDIDO: "mas largos los mangos
+                        // de las herramientas". En la mano, el tramo del mango
+                        // (del agarre hasta donde empieza la cabeza, el 40% del
+                        // final) se estira a lo largo del eje; la cabeza queda
+                        // igual. El palo no es herramienta: sigue como es.
+                        float alUx = 1.0f, alUy = 0.0f, alCabeza = 0.0f;
+                        const float AL_MANGO = 1.55f;
+                        const bool alargar = enMano && forma == Forma::HERRAMIENTA && esHerramientaGastable(t);
+                        auto alargado = [&](float px, float py, float& qx, float& qy) {
+                            qx = px; qy = py;
+                            if (!alargar) return;
+                            const float s = px * alUx + py * alUy;
+                            if (s >= alCabeza) return;
+                            const float d = (alCabeza - (alCabeza - s) * AL_MANGO) - s;
+                            qx += alUx * d; qy += alUy * d;
+                        };
                         if (enMano && forma == Forma::HERRAMIENTA) {
                             // El mango en el puno: el eje de la figura (de la
                             // punta fina a la cabeza) va hacia el pulgar, y el
                             // final del mango asoma un poco por debajo del puno.
                             const float ex = mi.ejeX * sx, ey = mi.ejeY * sy;
                             const float l = std::sqrt(ex * ex + ey * ey);
-                            const float gx = mi.agarreX * sx, gy = mi.agarreY * sy;
                             const float ux = l > 0 ? ex / l : 1.0f, uy = l > 0 ? ey / l : 0.0f;
+                            alUx = ux; alUy = uy;
+                            if (alargar) {
+                                float sMax = -1e9f;
+                                for (const ModeloItem3D::Vert& v : mi.v) sMax = std::fmax(sMax, v.x * sx * ux + v.y * sy * uy);
+                                const float sAgarre = mi.agarreX * sx * ux + mi.agarreY * sy * uy;
+                                alCabeza = sMax - 0.40f * (sMax - sAgarre);
+                            }
+                            float gx, gy;
+                            alargado(mi.agarreX * sx, mi.agarreY * sy, gx, gy);
                             const float a = gx * ux + gy * uy;         // el agarre sobre el eje
                             const float b = -gx * uy + gy * ux;        // y de lado
                             // La cabeza (el filo del hacha, la boca del
@@ -35346,7 +35395,9 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
                             const float f = luzIt * (0.50f + 0.50f * d);
                             glColor3f(f, f, f);
                             glTexCoord2f(v.u, v.v);
-                            glVertex3f(v.x * sx, v.y * sy, v.z * scale);
+                            float qx, qy;
+                            alargado(v.x * sx, v.y * sy, qx, qy);
+                            glVertex3f(qx, qy, v.z * scale);
                         }
                         glEnd();
                         glDisable(GL_ALPHA_TEST);
@@ -38987,7 +39038,9 @@ BlockType enteroQueSustituyeNivel(BlockType enMano, BlockType nivel) {
     // arena...), pero al colocarse entra como un nivel. Esta regla lo tomaba
     // por un cubo y tapaba la capa de abajo con un bloque lleno. Si el
     // material admite niveles, el segundo clic tiene que subir UN nivel.
-    if (admiteNiveles(enMano)) return BLOCK_AIR;
+    // (Ahora el item entero SI es un cubo -- se coloca entero, ver
+    // seColocaEntero --: solo las capas suben de nivel.)
+    if (admiteNiveles(enMano) && !seColocaEntero(enMano)) return BLOCK_AIR;
     if (esTechoDeHojas(enMano)) return BLOCK_TECHO_HOJAS;
     const BlockType b = admiteNiveles(enMano) ? bloqueBaseDe(enMano) : enMano;
     if (Compuesto::esCompuesto(b) || isCrossSprite(b) || isRama(b) || esRaiz(b) ||

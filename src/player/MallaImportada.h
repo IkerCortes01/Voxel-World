@@ -420,12 +420,18 @@ struct MallaImportada {
     Pose poseReferencia() const {
         Pose p;
         p.prop = proporciones();
-        for (Brazo& b : p.brazo) {
+        for (int l = 0; l < 2; ++l) {
+            Brazo& b = p.brazo[l];
             b = Brazo{};
-            b.abd = params[0]; b.flex = 0.0f; b.rot = 0.0f; b.codo = 0.0f;
-            b.prono = 0.0f; b.munFlex = 0.0f; b.munDesv = 0.0f;
+            b.abd = params[0]; b.flex = refBrazo[l][0]; b.rot = 0.0f; b.codo = refBrazo[l][1];
+            b.prono = 0.0f; b.munFlex = refBrazo[l][2]; b.munDesv = refBrazo[l][3];
         }
-        for (Pierna& g : p.pierna) { g = Pierna{}; g.abd = params[1]; g.rodilla = 0.0f; }
+        for (int l = 0; l < 2; ++l) {
+            Pierna& g = p.pierna[l];
+            g = Pierna{};
+            g.abd = params[1] + refPierna[l][2]; g.flex = refPierna[l][0]; g.rodilla = refPierna[l][1];
+            g.tobillo = refPierna[l][3];
+        }
         return p;
     }
     // El color medio de cada zona en la textura (para recolorear).
@@ -478,29 +484,13 @@ struct MallaImportada {
     // Los pesos de cada vertice contra el esqueleto en la pose de referencia,
     // y los puntos de la cara y el cuerpo.
     void atar() {
-        // ⭐ LA MANO DEL ESQUELETO A LA MEDIDA DE LA DEL MODELO: en la cruz,
-        // la punta del dedo medio tiene que llegar a donde acaba la mano del
-        // modelo. Si no, los nudillos del esqueleto caen en mitad de los
-        // dedos de la malla y al cerrar el puno los dedos se rompen.
-        {
-            const Esqueleto s0 = resolver(poseReferencia(), true);
-            float punta = 0.0f;
-            for (const VerticeJ& v : modelo) punta = std::fmax(punta, v.p.x);
-            const float muneca = s0.mano[1].muneca.p.x, dedo = s0.mano[1].dedo[1][3].p.x;
-            if (dedo - muneca > 0.05f && punta > muneca + 0.05f) {
-                const float base = params[21] > 0.3f ? params[21] : 1.0f;
-                params[21] = sujetar(base * (punta - muneca) / (dedo - muneca), 0.6f, 1.4f);
-            }
-        }
-        const Esqueleto s = resolver(poseReferencia(), true);
-        huesosDe(s, ref);
-        for (int b = 0; b < NUM_HUESOS; ++b) reposo[b] = ref[b];
-        propReposo = proporciones();
-        const size_t n = modelo.size();
         // El esqueleto del juego va M::ATRAS por detras del ojo; la malla
         // viene centrada sobre los pies. Se mueve para que el eje del tronco
         // caiga en la columna del esqueleto.
+        for (auto& r : refBrazo) for (float& x : r) x = 0.0f;
+        for (auto& r : refPierna) for (float& x : r) x = 0.0f;
         {
+            const Esqueleto s = resolver(poseReferencia(), true);
             double zx = 0.0, zz = 0.0;
             int cuantos = 0;
             for (const VerticeJ& v : modelo)
@@ -510,6 +500,37 @@ struct MallaImportada {
                 for (VerticeJ& v : modelo) { v.p.x += dx; v.p.z += dz; }
             }
         }
+        ajustarBrazos();
+        ajustarPiernas();
+        // ⭐ LA MANO DEL ESQUELETO A LA MEDIDA DE LA DEL MODELO: en la cruz,
+        // la punta del dedo medio tiene que llegar a donde acaba la mano del
+        // modelo. Si no, los nudillos del esqueleto caen en mitad de los
+        // dedos de la malla y al cerrar el puno los dedos se rompen.
+        // Se mide a lo largo de la mano del esqueleto, que ya sigue a la de
+        // la malla (dos vueltas: el largo y hacia donde va se ajustan juntos).
+        for (int vuelta = 0; vuelta < 2; ++vuelta) {
+            const Esqueleto s0 = resolver(poseReferencia(), true);
+            const V muneca = s0.mano[1].muneca.p;
+            const V eje = resta(s0.mano[1].dedo[1][3].p, muneca);
+            const float dedo = largo(eje);
+            const V dir = escala(eje, 1.0f / std::fmax(dedo, 1e-4f));
+            float punta = 0.0f;
+            for (const VerticeJ& v : modelo) {
+                const V d = resta(v.p, muneca);
+                const float a = d.x * dir.x + d.y * dir.y + d.z * dir.z;
+                if (a > 0.0f && largo(resta(d, escala(dir, a))) < 0.06f) punta = std::fmax(punta, a);
+            }
+            if (dedo > 0.05f && punta > 0.05f) {
+                const float base = params[21] > 0.3f ? params[21] : 1.0f;
+                params[21] = sujetar(base * punta / dedo, 0.6f, 1.4f);
+            }
+            ajustarManos();
+        }
+        const Esqueleto s = resolver(poseReferencia(), true);
+        huesosDe(s, ref);
+        for (int b = 0; b < NUM_HUESOS; ++b) reposo[b] = ref[b];
+        propReposo = proporciones();
+        const size_t n = modelo.size();
         h0.assign(n, 0); h1.assign(n, 0); w0.assign(n, 1.0f);
         for (size_t i = 0; i < n; ++i) {
             const V p = modelo[i].p;
@@ -533,7 +554,9 @@ struct MallaImportada {
                 if (w0[i] > 0.97f) { w0[i] = 1.0f; h1[i] = h0[i]; }
             }
         }
+        atarPies(s);
         suavizarPesos();
+        atarDedos(s);
         buscarPuntos(s);
         // En primera persona la camara va en la cabeza (ver ojos()): la cabeza
         // y el cuello no se dibujan. BUG: dejandolos, al mirar abajo la vista
@@ -553,6 +576,301 @@ struct MallaImportada {
                 if (cabeza || largo(resta(modelo[v].p, entreOjos)) < 0.08f) fuera = true;
             }
             if (!fuera) indicesSinCabeza.insert(indicesSinCabeza.end(), { indices[t], indices[t + 1], indices[t + 2] });
+        }
+    }
+
+    // ⭐ EL ESQUELETO DE REFERENCIA, SOBRE LOS BRAZOS DE LA MALLA.
+    //
+    // BUG: "arregla las manos [...] para que esten perfectas" (las manos
+    // salian rotas en tiras aunque los dedos no se doblaran). Los brazos del
+    // modelo no estan donde los ponia el esqueleto en cruz: van unos 6 cm mas
+    // adelante y la mano cae y se tuerce hacia el pulgar. Los dedos de la
+    // malla quedaban a 3 cm de los del esqueleto y se ataban al antebrazo;
+    // al girar la muneca la mano se rompia.
+    //
+    // Ahora, antes de atar, el esqueleto de referencia se ajusta a la malla:
+    // el hombro y el codo para que el codo y la muneca caigan en el centro
+    // del brazo de la malla, y la muneca para que la mano siga a la de la
+    // malla. El centro se mide en un corte de la malla a la altura de cada
+    // articulacion (los brazos van en cruz, a lo largo de X).
+    float refBrazo[2][4] = {};           // flex, codo, munFlex, munDesv
+    bool centroCorte(V p, const std::vector<V>& brazo, V& c) const {
+        double x = 0, y = 0, z = 0;
+        int n = 0;
+        for (const V& v : brazo) {
+            if (std::fabs(v.x - p.x) > 0.012f || std::fabs(v.y - p.y) > 0.15f || std::fabs(v.z - p.z) > 0.15f) continue;
+            x += v.x; y += v.y; z += v.z; ++n;
+        }
+        if (n < 8) return false;
+        c = { (float)(x / n), (float)(y / n), (float)(z / n) };
+        return true;
+    }
+    template <class F> void buscar(float& x, float lo, float hi, F error) {
+        float mejor = x, e = error();
+        for (float paso : { 0.04f, 0.01f }) {
+            const float c = mejor;
+            for (float v = std::fmax(lo, c - 10 * paso); v <= std::fmin(hi, c + 10 * paso) + 1e-4f; v += paso) {
+                x = v;
+                const float ev = error();
+                if (ev < e) { e = ev; mejor = v; }
+            }
+        }
+        x = mejor;
+    }
+    void ajustarBrazos() {
+        for (int l = 0; l < 2; ++l) {
+            const float signo = resolver(poseReferencia(), true).mano[l].muneca.p.x < 0.0f ? -1.0f : 1.0f;
+            std::vector<V> brazo;
+            for (const VerticeJ& v : modelo) if (v.p.x * signo > 0.30f && v.p.y > 0.9f) brazo.push_back(v.p);
+            auto error = [&]() {
+                const Esqueleto s = resolver(poseReferencia(), true);
+                float e = 0.0f;
+                for (V p : { s.codo[l].p, s.mano[l].muneca.p }) {
+                    V c;
+                    if (centroCorte(p, brazo, c)) { const V d = resta(p, c); e += d.y * d.y + d.z * d.z; }
+                    else e += 0.01f;
+                }
+                return e;
+            };
+            for (int vuelta = 0; vuelta < 3; ++vuelta) {
+                buscar(refBrazo[l][0], -0.8f, 0.8f, error);
+                buscar(refBrazo[l][1], 0.0f, 0.8f, error);
+            }
+        }
+    }
+    // Lo mismo con las piernas. BUG: "las rodillas se estiran y rompen
+    // deformadas al agacharse y tirarse": la rodilla del esqueleto caia en el
+    // borde de delante de la rodilla de la malla (5 cm fuera de su centro) y
+    // al doblarla la piel giraba alrededor de un punto que no era el suyo.
+    // Las piernas van de pie, a lo largo de Y: los cortes son horizontales.
+    float refPierna[2][4] = {};          // flex, rodilla, abd (sobre params[1]), tobillo
+    bool centroCorteY(V p, const std::vector<V>& pierna, V& c) const {
+        double x = 0, z = 0;
+        int n = 0;
+        for (const V& v : pierna) {
+            if (std::fabs(v.y - p.y) > 0.01f || std::fabs(v.x - p.x) > 0.12f || std::fabs(v.z - p.z) > 0.15f) continue;
+            x += v.x; z += v.z; ++n;
+        }
+        if (n < 8) return false;
+        c = { (float)(x / n), p.y, (float)(z / n) };
+        return true;
+    }
+    void ajustarPiernas() {
+        for (int l = 0; l < 2; ++l) {
+            const float signo = resolver(poseReferencia(), true).cadera[l].p.x < 0.0f ? -1.0f : 1.0f;
+            std::vector<V> pierna;
+            for (const VerticeJ& v : modelo) if (v.p.x * signo > 0.015f && std::fabs(v.p.x) < 0.30f && v.p.y < 0.85f) pierna.push_back(v.p);
+            auto error = [&]() {
+                const Esqueleto s = resolver(poseReferencia(), true);
+                const V r = s.rodilla[l].p, t = s.pie[l].tobillo.p;
+                float e = 0.0f;
+                // La rodilla, el muslo por encima y el tobillo (6 cm por encima:
+                // mas abajo el corte se lleva el pie; la espinilla no, la tuerce
+                // el gemelo).
+                for (V p : { r, mezclar(r, s.cadera[l].p, 0.35f), suma(t, V{ 0.0f, 0.06f, 0.0f }) }) {
+                    V c;
+                    if (centroCorteY(p, pierna, c)) { const V d = resta(p, c); e += d.x * d.x + d.z * d.z; }
+                    else e += 0.01f;
+                }
+                return e;
+            };
+            for (int vuelta = 0; vuelta < 3; ++vuelta) {
+                buscar(refPierna[l][0], -0.5f, 0.5f, error);
+                buscar(refPierna[l][1], -0.2f, 0.6f, error);
+                buscar(refPierna[l][2], -0.15f, 0.15f, error);
+            }
+            // El pie, plano en el suelo como en la malla.
+            buscar(refPierna[l][3], -0.6f, 0.6f, [&]() {
+                const Esqueleto s = resolver(poseReferencia(), true);
+                const float d = s.pie[l].bola.y - s.pie[l].talon.y;
+                return d * d;
+            });
+        }
+    }
+    void ajustarManos() {
+        for (int l = 0; l < 2; ++l) {
+            const float signo = resolver(poseReferencia(), true).mano[l].muneca.p.x < 0.0f ? -1.0f : 1.0f;
+            std::vector<V> brazo;
+            for (const VerticeJ& v : modelo) if (v.p.x * signo > 0.30f && v.p.y > 0.9f) brazo.push_back(v.p);
+            auto error = [&]() {
+                const Esqueleto s = resolver(poseReferencia(), true);
+                float e = 0.0f;
+                // Los nudillos y la mitad de los dedos: la palma y hacia donde van.
+                for (V p : { mezclar(s.mano[l].dedo[1][0].p, s.mano[l].dedo[2][0].p, 0.5f),
+                             mezclar(s.mano[l].dedo[1][2].p, s.mano[l].dedo[2][2].p, 0.5f) }) {
+                    V c;
+                    if (centroCorte(p, brazo, c)) { const V d = resta(p, c); e += d.y * d.y + d.z * d.z; }
+                    else e += 0.01f;
+                }
+                return e;
+            };
+            for (int vuelta = 0; vuelta < 3; ++vuelta) {
+                buscar(refBrazo[l][2], -0.9f, 0.9f, error);
+                buscar(refBrazo[l][3], -0.6f, 0.6f, error);
+            }
+        }
+    }
+
+    // ⭐ LOS PIES, CON LOS HUESOS DEL PIE.
+    //
+    // BUG: tirado, de los pies salia un pico. La distancia a cada hueso se
+    // mide en radios del hueso, y la tibia es gruesa: la planta y los dedos
+    // del pie le quedaban "mas cerca" que los huesos del pie, finos, y al
+    // estirar el tobillo el pie se quedaba con la pierna. Lo que esta por
+    // debajo del tobillo se ata solo a los huesos del pie (con la distancia
+    // tal cual); el suavizado lo une luego con la pierna.
+    void atarPies(const Esqueleto& s) {
+        for (int l = 0; l < 2; ++l) {
+            const V tob = s.pie[l].tobillo.p;
+            const int b0 = huesoDe(l, HL_TARSO0), b1 = huesoDe(l, HL_FALANGE_PIE0 + 13);
+            for (size_t i = 0; i < modelo.size(); ++i) {
+                const V p = modelo[i].p;
+                if (p.x * tob.x <= 0.0f || p.y > tob.y - 0.015f || largo(resta(p, tob)) > 0.35f) continue;
+                float d[NUM_HUESOS];
+                int mejor = b0;
+                for (int b = b0; b <= b1; ++b) {
+                    d[b] = detalle::distSegmento(p, ref[b].a, ref[b].b);
+                    if (d[b] < d[mejor]) mejor = b;
+                }
+                int segundo = -1;
+                for (int b = b0; b <= b1; ++b) {
+                    if (b == mejor || (ref[b].padre != mejor && ref[mejor].padre != b)) continue;
+                    if (segundo < 0 || d[b] < d[segundo]) segundo = b;
+                }
+                h0[i] = (uint8_t)mejor;
+                h1[i] = (uint8_t)(segundo < 0 ? mejor : segundo);
+                w0[i] = 1.0f;
+                if (segundo >= 0) {
+                    const float a = std::fmax(d[mejor], 0.002f), b = std::fmax(d[segundo], 0.002f);
+                    const float fa = 1.0f / (a * a * a * a), fb = 1.0f / (b * b * b * b);
+                    w0[i] = fa / (fa + fb);
+                    if (w0[i] > 0.97f) { w0[i] = 1.0f; h1[i] = h0[i]; }
+                }
+            }
+        }
+    }
+
+    // ⭐ LOS DEDOS, MEDIDOS EN LA MALLA.
+    //
+    // BUG: "arregla las manos [...] para que esten perfectas y no asi" (los
+    // dedos salian como garras rotas al cerrar la mano o al apoyarla). Cada
+    // vertice del dedo seguia a la falange del esqueleto MAS CERCANA, pero los
+    // dedos del modelo no caen justo donde los del esqueleto: un vertice del
+    // indice podia seguir al medio, o a la falange equivocada, y al cerrar la
+    // mano el dedo se rompia en tiras.
+    //
+    // Ahora los dedos se reconocen en la propia malla: en la pose de
+    // referencia (en cruz, palmas abajo) lo que esta pasados los nudillos se
+    // reparte en los 4 dedos por su posicion a lo ancho de la palma (k-medias
+    // empezando por donde estan los del esqueleto), y cada dedo, del nudillo a
+    // su punta de verdad, en sus 3 falanges con las proporciones de un dedo
+    // real (cerca de cada articulacion el vertice se reparte entre las dos).
+    // El pulgar, que sale del lado, sigue con lo de antes.
+    void atarDedos(const Esqueleto& s) {
+        for (int l = 0; l < 2; ++l) {
+            const Mano& m = s.mano[l];
+            const Rot Rt = detalle::traspuesta(m.muneca.r);
+            auto local = [&](V p) { return Rt.aplicar(resta(p, m.muneca.p)); };
+            // Lo de cada dedo del esqueleto, en el marco de la mano: a lo
+            // largo (hacia la punta) y a lo ancho (hacia el pulgar).
+            float largoNudillo[4], anchoNudillo[4], nudilloMedio = 0.0f;
+            for (int d = 0; d < 4; ++d) {
+                const V k = local(m.dedo[d][0].p);
+                largoNudillo[d] = -k.y;
+                anchoNudillo[d] = k.x * m.lado;
+                nudilloMedio += 0.25f * largoNudillo[d];
+            }
+            // Del antebrazo tambien: con el radio grueso, la palma y hasta
+            // los dedos le quedaban "mas cerca" que los huesos finos de la mano.
+            auto esDeLaMano = [&](int b) {
+                if (b < H_POR_LADO_INICIO) return false;
+                const int lado = (b - H_POR_LADO_INICIO) / HL_NUM, k = (b - H_POR_LADO_INICIO) % HL_NUM;
+                return lado == l && (k == HL_RADIO || k == HL_CUBITO ||
+                                     (k >= HL_CARPO0 && k < HL_FALANGE_MANO0 + 12 && !(k == HL_METACARPO0 + 4)));
+            };
+            auto delAntebrazo = [&](int b) {
+                const int k = (b - H_POR_LADO_INICIO) % HL_NUM;
+                return k == HL_RADIO || k == HL_CUBITO;
+            };
+            std::vector<uint32_t> palma;
+            std::vector<float> largoP, anchoP;
+            // Los vertices de los 4 dedos: de la mano, pasados los nudillos.
+            std::vector<uint32_t> vs;
+            std::vector<float> largoV, anchoV;
+            for (size_t i = 0; i < modelo.size(); ++i) {
+                if (!esDeLaMano(h0[i])) continue;
+                const V q = local(modelo[i].p);
+                if (-q.y < 0.0f || std::fabs(q.z) > 0.05f || std::fabs(q.x) > 0.09f) continue;
+                if (-q.y < nudilloMedio - 0.004f) {
+                    palma.push_back((uint32_t)i); largoP.push_back(-q.y); anchoP.push_back(q.x * m.lado);
+                    continue;
+                }
+                vs.push_back((uint32_t)i);
+                largoV.push_back(-q.y);
+                anchoV.push_back(q.x * m.lado);
+            }
+            if (vs.size() < 40) continue;
+            // k-medias a lo ancho, empezando por los dedos del esqueleto; el
+            // quinto grupo es el pulgar (lo que cae de su lado no es del indice).
+            float c[5];
+            for (int d = 0; d < 4; ++d) c[d] = anchoNudillo[d];
+            c[4] = local(m.dedo[4][2].p).x * m.lado;
+            std::vector<int> grupo(vs.size(), 0);
+            for (int it = 0; it < 12; ++it) {
+                float suma[5] = {}, n[5] = {};
+                for (size_t k = 0; k < vs.size(); ++k) {
+                    int mejor = 0;
+                    for (int d = 1; d < 5; ++d) if (std::fabs(anchoV[k] - c[d]) < std::fabs(anchoV[k] - c[mejor])) mejor = d;
+                    grupo[k] = mejor;
+                    suma[mejor] += anchoV[k];
+                    n[mejor] += 1.0f;
+                }
+                for (int d = 0; d < 5; ++d) if (n[d] > 0) c[d] = suma[d] / n[d];
+            }
+            // La palma, de la muneca a los nudillos: con el metacarpiano de su
+            // dedo (el del pulgar si cae de su lado), y junto a la muneca
+            // mezclada con el antebrazo (2.5 cm).
+            for (size_t k = 0; k < palma.size(); ++k) {
+                int d = 0;
+                for (int e = 1; e < 5; ++e) if (std::fabs(anchoP[k] - c[e]) < std::fabs(anchoP[k] - c[d])) d = e;
+                const uint32_t i = palma[k];
+                if (d == 4 && !delAntebrazo(h0[i])) continue;     // el pulgar, como estaba
+                const int meta = huesoDe(l, HL_METACARPO0 + d), radio = huesoDe(l, HL_RADIO);
+                h0[i] = (uint8_t)meta; h1[i] = (uint8_t)meta; w0[i] = 1.0f;
+                if (largoP[k] < 0.025f) { h1[i] = (uint8_t)radio; w0[i] = largoP[k] / 0.025f; }
+            }
+            // Donde acaba cada dedo de verdad.
+            float punta[5] = { 0, 0, 0, 0, 0 };
+            for (size_t k = 0; k < vs.size(); ++k) punta[grupo[k]] = std::fmax(punta[grupo[k]], largoV[k]);
+            for (size_t k = 0; k < vs.size(); ++k) {
+                const int d = grupo[k];
+                if (d == 4) continue;        // el pulgar: con su atado de siempre
+                const float a0 = largoNudillo[d], a1 = punta[d];
+                if (a1 <= a0 + 0.02f) continue;
+                const float L0 = M::DEDO[d][0], L1 = M::DEDO[d][1], L2 = M::DEDO[d][2], Lt = L0 + L1 + L2;
+                // Los bordes: el nudillo, las dos articulaciones de los dedos.
+                const float borde[3] = { a0, a0 + (a1 - a0) * L0 / Lt, a0 + (a1 - a0) * (L0 + L1) / Lt };
+                const int hueso[4] = { huesoDe(l, HL_METACARPO0 + d), huesoDe(l, HL_FALANGE_MANO0 + d * 3),
+                                       huesoDe(l, HL_FALANGE_MANO0 + d * 3 + 1), huesoDe(l, HL_FALANGE_MANO0 + d * 3 + 2) };
+                const float x = largoV[k];
+                int tramo = 0;
+                while (tramo < 3 && x >= borde[tramo]) ++tramo;     // 0 palma .. 3 la ultima falange
+                const uint32_t i = vs[k];
+                h0[i] = (uint8_t)hueso[tramo];
+                h1[i] = (uint8_t)hueso[tramo];
+                w0[i] = 1.0f;
+                // Cerca de una articulacion, entre las dos falanges (6 mm).
+                const float ancho = 0.006f;
+                for (int b = 0; b < 3; ++b) {
+                    const float dd = x - borde[b];
+                    if (std::fabs(dd) < ancho) {
+                        const float t = 0.5f + 0.5f * dd / ancho;     // 0 lado de antes, 1 lado de despues
+                        h0[i] = (uint8_t)hueso[b + 1];
+                        h1[i] = (uint8_t)hueso[b];
+                        w0[i] = t;
+                    }
+                }
+            }
         }
     }
 

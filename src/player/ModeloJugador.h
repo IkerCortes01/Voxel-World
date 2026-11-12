@@ -1551,7 +1551,10 @@ inline void resolver(const Pose& p, float subir, Esqueleto& s) {
     // El cuello: gira, se dobla de lado y hacia el pecho (en ese orden: la
     // atlas-axis gira y el resto de las cervicales se doblan).
     s.cuello = { suma(s.pelvis.p, rPecho.aplicar({ 0, L.espalda, 0 })),
-                 rPecho.por(Rot::enY(p.cuelloGiro)).por(Rot::enZ(-p.cuelloLado)).por(Rot::enX(p.cuelloFlex)) };
+                 rPecho.por(Rot::enY(p.cuelloGiro)).por(Rot::enZ(-p.cuelloLado)).por(Rot::enX(-p.cuelloFlex)) };
+    // (enX con + echa atras lo que apunta arriba: con el signo menos, cuelloFlex
+    // positivo baja la barbilla al pecho, como dice la Pose. Antes iba al reves
+    // y al mirar abajo la cabeza del modelo se iba hacia atras.)
     s.ojo = s.cuello.p.y + M::OJO_SOBRE_CUELLO;
     const float kHombro = L.espalda / M::ESPALDA;
 

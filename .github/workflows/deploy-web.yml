@@ -1,10 +1,9 @@
-# Pagina web -> GHCR -> el servidor, segun la guia de
-# despliegue de EnterSys/SCRAM (11-BIS y 11-TER): build en la nube, el servidor
-# solo hace pull, y un solo job para no pagar minutos de mas.
+# Pagina web -> GHCR -> servidor: build en la nube, el servidor solo hace pull,
+# y un solo job para no pagar minutos de mas.
 #
-# Para que el deploy corra, el dueno del repo debe cargar estos secretos:
-#   SSH_HOST, SSH_USER, SSH_PORT y SSH_PRIVATE_KEY
-# Sin ellos el job solo publica la imagen.
+# El deploy usa los secretos SSH_HOST, SSH_USER, SSH_PORT y SSH_PRIVATE_KEY del
+# repo. Sin ellos el job solo publica la imagen. Sus valores NO se escriben en
+# ningun archivo: el repo es publico.
 name: deploy-web
 
 on:

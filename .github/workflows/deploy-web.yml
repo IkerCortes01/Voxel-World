@@ -1,0 +1,86 @@
+# Pagina web -> GHCR -> el servidor, segun la guia de
+# despliegue de EnterSys/SCRAM (11-BIS y 11-TER): build en la nube, el servidor
+# solo hace pull, y un solo job para no pagar minutos de mas.
+#
+# Para que el deploy corra, el dueno del repo debe cargar estos secretos:
+#   SSH_HOST, SSH_USER, SSH_PORT y SSH_PRIVATE_KEY
+# Sin ellos el job solo publica la imagen.
+name: deploy-web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - adquirir.html
+      - estilo.css
+      - icono.png
+      - titulo.mp4
+      - deploy/web/**
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write }
+    env:
+      IMAGE: ghcr.io/ikercortes01/voxel-world-web
+      APP_DIR: /srv/voxel-world
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: meta
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/web/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha,scope=voxel-world-web
+          cache-to: type=gha,scope=voxel-world-web,mode=max
+
+      - name: Desplegar
+        if: env.SSH_HOST != ''
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -e
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          # ssh usa -p minuscula y scp -P mayuscula.
+          SCPOPTS="-i $HOME/.ssh/deploy_key -P ${SSH_PORT:-22} -o StrictHostKeyChecking=accept-new"
+          SSHOPTS="-i $HOME/.ssh/deploy_key -p ${SSH_PORT:-22} -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30"
+          ssh $SSHOPTS "$SSH_USER@$SSH_HOST" "mkdir -p $APP_DIR/dist"
+          scp $SCPOPTS deploy/web/docker-compose.yml "$SSH_USER@$SSH_HOST:$APP_DIR/docker-compose.yml"
+          ssh $SSHOPTS "$SSH_USER@$SSH_HOST" "
+            set -e
+            cd $APP_DIR
+            echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+            IMAGE_TAG=$IMAGE_TAG docker compose --env-file /dev/null pull
+            IMAGE_TAG=$IMAGE_TAG docker compose --env-file /dev/null up -d --remove-orphans
+            docker logout ghcr.io
+          "
+
+      - name: Verificar
+        if: env.SSH_HOST != ''
+        run: |
+          for i in $(seq 1 15); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://voxelworld.scram.com.mx/ || echo 000)
+            [ "$code" = "200" ] && exit 0
+            sleep 5
+          done
+          exit 1

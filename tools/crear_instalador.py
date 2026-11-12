@@ -23,9 +23,11 @@ SALIDA = DIST / "VoxelWorld-Instalador.exe"
 
 # Lo que NO viaja al PC del jugador. Todo lo demas de la carpeta del proyecto, si.
 EXCLUIR_RAIZ = {
-    "build", "dist", "graphify-out",   # generados, 280 MB
+    "build", "build-port", "dist", "graphify-out",   # generados, 280 MB
     "saves",                           # los mundos de quien genera el instalador
-    "HTML.txt", "Voxelworld.com", "nul", "dens.cpp",
+    "nul", "dens.cpp",
+    # La pagina web y su despliegue: viven en el servidor, no en el PC del jugador.
+    "index.html", "adquirir.html", "estilo.css", "icono.png", "titulo.mp4", "deploy",
 }
 # Originales de 1254 px: 254 MB que el juego no carga. Triplicarian la descarga.
 EXCLUIR_DENTRO = {"_hd_original"}
@@ -191,9 +193,13 @@ SourceFiles0={tmp}\\
 
 
 def crear_zip():
-    exe = RAIZ / "build" / "bin" / "Release" / "VoxelWorld.exe"
-    if not exe.exists():
+    # El mas reciente de los dos directorios de build: uno puede estar viejo.
+    candidatos = [p for p in (RAIZ / d / "bin" / "Release" / "VoxelWorld.exe"
+                              for d in ("build", "build-port")) if p.exists()]
+    if not candidatos:
         raise SystemExit("Falta el juego: cmake --build build --config Release")
+    exe = max(candidatos, key=lambda p: p.stat().st_mtime)
+    print(f"Juego: {exe.relative_to(RAIZ)}")
 
     with zipfile.ZipFile(TMP / "juego.zip", "w", zipfile.ZIP_DEFLATED) as z:
         z.write(exe, "VoxelWorld.exe")

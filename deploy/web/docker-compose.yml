@@ -1,0 +1,35 @@
+name: voxel-world        # unico en el host (guia de despliegue, 6.1)
+
+# En el servidor vive en /srv/voxel-world/, junto a dist/ con el instalador.
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/web/Dockerfile
+    image: ghcr.io/ikercortes01/voxel-world-web:${IMAGE_TAG:-latest}
+    container_name: voxel-world-web
+    restart: unless-stopped
+    volumes:
+      - ./dist:/usr/share/nginx/html/dist:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.voxel-world.rule=Host(`voxelworld.scram.com.mx`)"
+      - "traefik.http.routers.voxel-world.entrypoints=websecure"
+      - "traefik.http.routers.voxel-world.tls.certresolver=letsencrypt"
+      - "traefik.http.services.voxel-world.loadbalancer.server.port=8080"
+    # Solo esta red: no hay servicios internos (guia, 2.3).
+    networks:
+      - traefik
+    deploy:
+      resources:
+        reservations:
+          memory: 32M     # SOLO soft limits, nunca limits/mem_limit
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  traefik:
+    external: true

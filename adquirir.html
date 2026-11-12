@@ -22,17 +22,37 @@
             <div id="estado" role="status"></div>
             <progress id="barra-descarga" max="100"></progress>
         </div>
-        <p id="nota">Gratis. El instalador copia a <code>%APPDATA%\VoxelWorld</code> la aplicación, las texturas, los sonidos y los demás archivos, con su propia barra de progreso. Windows puede avisar de que el programa es desconocido: pulsa «Más información» y «Ejecutar de todas formas».</p>
+        <p id="nota">Gratis durante la semana de lanzamiento; después costará 50 pesos mexicanos. El instalador copia a <code>%APPDATA%\VoxelWorld</code> la aplicación, las texturas, los sonidos y los demás archivos, con su propia barra de progreso. Windows puede avisar de que el programa es desconocido: pulsa «Más información» y «Ejecutar de todas formas».</p>
     </main>
 
     <section id="informacion" class="panel seccion">
         <h2>Información del juego</h2>
+        <p>Voxel World es un juego independiente de bloques tipo sandbox, hecho en su propio motor en C++20 con OpenGL. El mundo se genera por semilla con biomas, cordilleras, cerros, volcanes y cuevas, y está poblado de flora y fauna mexicana: nopales, magueyes, agaves, pinos, encinos y pecaríes.</p>
+        <ul>
+            <li>Clima por regiones: lluvia, tormentas eléctricas, granizo, nieve, neblina y tolvaneras, con nubes 3D.</li>
+            <li>Jugador con cuerpo completo: avatar ajustable de la cabeza a los pies, esqueleto con animaciones, posturas y golpes.</li>
+            <li>Corazón y temperatura en el HUD que responden al esfuerzo, al frío, al calor y al miedo.</li>
+            <li>Pisadas que suenan según el material, música y sonidos de ambiente.</li>
+        </ul>
+        <p><span class="etiqueta">Requisitos:</span> Windows 10/11 de 64 bits y una tarjeta gráfica con OpenGL.</p>
     </section>
     <section id="actualizaciones" class="panel seccion">
         <h2>Change logs</h2>
+        <ul>
+            <li><time datetime="2026-11-12">12 nov 2026</time> — Golpes de pico, hacha y martillo copiados de un video de referencia; fuera la fila de corazones sobre la barra de objetos.</li>
+            <li><time datetime="2026-11-11">11 nov 2026</time> — El esqueleto se ajusta al nuevo modelo del jugador: rodillas, manos y pies ya no se deforman agachado ni tumbado.</li>
+            <li><time datetime="2026-11-10">10 nov 2026</time> — Corazón que late en el HUD, temperatura en 11 niveles, música al azar y golpes en cadena.</li>
+            <li><time datetime="2026-11-09">9 nov 2026</time> — Modelo realista del jugador con texturas originales, pisadas con 100 capas por material y 45 ajustes nuevos del avatar.</li>
+            <li><time datetime="2026-11-08">8 nov 2026</time> — Clima gradual por regiones, más articulaciones y animaciones programables, sonido más fuerte, cordilleras y volcanes.</li>
+            <li><time datetime="2026-11-07">7 nov 2026</time> — Lluvias, tormentas, granizo, nieve, neblina y tolvaneras; viento, pájaros y grillos.</li>
+        </ul>
     </section>
     <section id="versiones" class="panel seccion">
         <h2>Versiones</h2>
+        <ul>
+            <li><span class="etiqueta">Actual:</span> alpha 1.0.0, versión <code>260822a</code>, compilada el 12 nov 2026.</li>
+        </ul>
+        <p>El código fuente de todas las versiones está en <a href="https://github.com/IkerCortes01/Voxel-World">github.com/IkerCortes01/Voxel-World</a>.</p>
     </section>
     <script>
         // El navegador no puede escribir en %APPDATA%: descarga el instalador, y

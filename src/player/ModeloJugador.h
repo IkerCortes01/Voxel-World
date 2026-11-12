@@ -557,6 +557,95 @@ inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo, float apunta = 0
     }
 }
 
+// ⭐ EL PICO Y EL MARTILLO, EN LINEA RECTA
+//
+// PEDIDO: "que el hombro y parte del brazo antes del codo se muevan hacia
+// adelante unos 14cm, que el codo mueva el antebrazo hacia adelante unos 10 o
+// 20cm, y que la mano agarre fuerte el mango del pico, que el pico estara
+// recto siempre, y que cuando golpea un bloque, el pico este lo mas alejado
+// de la cabeza pero sin moverse de su posicion, quiero que los movimientos
+// sean rectos [...] y con el martillo sera lo mismo que con el pico pero mas
+// rapida".
+//
+// Cargado: el codo atras junto al costado y el antebrazo hacia arriba y
+// delante, la mano a la altura del hombro. Golpe: el codo se adelanta 14 cm
+// (el brazo sube hacia delante) y el antebrazo se estira otros ~12 cm hasta
+// dejar el brazo recto delante del pecho: lo mas lejos de la cabeza. La mano
+// va por una RECTA de la pose cargada a la del golpe (se resuelve el hombro y
+// el codo en cada instante para que caiga en ella), la muneca va fija y el
+// puno cerrado: el pico no cabecea. El cuerpo no se mueve; el hombro solo se
+// adelanta lo que se adelanta una escapula.
+inline void aplicarGolpeRecto(Pose& p, float periodo, float carga, float tiempo, float apunta) {
+    float u = tiempo / periodo;
+    u -= std::floor(u);
+    const float k = faseGolpe(u, carga);
+    const float L1 = M::BRAZO * p.prop.brazo, L2 = M::ANTEBRAZO * p.prop.antebrazo;
+    // Las dos poses, en el plano del brazo (x delante, y arriba, desde el
+    // hombro), por sus angulos: flex del hombro y codo.
+    auto mano = [&](float f, float c) {
+        return V{ L1 * std::sin(f) + L2 * std::sin(f + c), -L1 * std::cos(f) - L2 * std::cos(f + c), 0 };
+    };
+    const V cargado = mano(0.55f, 2.05f), golpe = mano(1.38f, 0.04f);
+    const V h = { cargado.x + (golpe.x - cargado.x) * k, cargado.y + (golpe.y - cargado.y) * k, 0 };
+    const float d = std::fmin(std::sqrt(h.x * h.x + h.y * h.y), L1 + L2 - 1e-4f);
+    const float cc = sujetar((d * d - L1 * L1 - L2 * L2) / (2.0f * L1 * L2), -1.0f, 1.0f);
+    const float codo = std::acos(cc);
+    const float flex = std::atan2(h.x, -h.y) - std::atan2(L2 * std::sin(codo), L1 + L2 * std::cos(codo));
+    Brazo& b = p.brazo[1];
+    b.flex = flex + apunta * 0.9f;
+    b.codo = codo;
+    b.abd = 0.12f;
+    b.rot = 0.0f;
+    b.adelantar = k;
+    b.prono = 0.55f;
+    b.munFlex = 0.10f;
+    b.munDesv = 0.0f;
+    manoRelajada(b, 1.0f);
+    b.dedo[4][0] = 0.75f; b.dedo[4][1] = 0.65f; b.dedo[4][2] = 0.55f;
+    p.apretar = 1.0f;
+    p.giroTorso += 0.10f * k;          // el hombro derecho acompana un poco
+}
+
+// ⭐ EL HACHA, A DOS MANOS Y EN HORIZONTAL
+//
+// PEDIDO: "con las dos manos agarrando el mango y siendo recto y alejado de la
+// cabeza y golpe en horizontal, de derecha y izquierda pero rebote un poco y
+// el modelo toca el bloque directo".
+//
+// Las dos manos juntas en el mango, delante del pecho y lejos de la cara.
+// Cada golpe carga hacia un lado (uno desde la derecha, el siguiente desde la
+// izquierda) girando el tronco con los brazos, y barre en horizontal hasta el
+// centro, donde esta el bloque: ahi se para en seco y rebota un poco.
+inline void aplicarHachazo(Pose& p, float periodo, float carga, float tiempo, float apunta) {
+    float u = tiempo / periodo;
+    const uint32_t numero = (uint32_t)std::floor(u);
+    u -= std::floor(u);
+    const float k = faseGolpe(u, carga);
+    const float lado = (numero & 1u) ? -1.0f : 1.0f;     // de la derecha, de la izquierda
+    const float tImpacto = (u - (carga + (1.0f - carga) * 0.55f)) * periodo;
+    const float rebote = tImpacto > 0.0f ? std::sin(tImpacto * 26.0f) * std::exp(-tImpacto * 12.0f) : 0.0f;
+    // El tronco lleva el barrido; el rebote lo devuelve un poco hacia atras.
+    p.giroTorso += lado * (0.70f * (1.0f - k) + 0.06f * rebote);
+    p.giroPelvis += lado * 0.20f * (1.0f - k);
+    Brazo& d = p.brazo[1];
+    Brazo& i = p.brazo[0];
+    // Las manos separadas a lo largo del mango, como se agarra un hacha; mas
+    // juntas forzaban el hombro hacia dentro y la camisa se inflaba.
+    for (Brazo* b : { &d, &i }) {
+        b->flex = 1.05f + apunta * 0.9f;
+        b->abd = 0.0f;
+        b->rot = -0.30f;                // los antebrazos hacia el centro
+        b->codo = 0.80f;
+        b->adelantar = 0.6f;
+        b->prono = 1.20f;
+        b->munFlex = 0.05f;
+        b->munDesv = 0.0f;
+        manoRelajada(*b, 1.0f);
+        b->dedo[4][0] = 0.75f; b->dedo[4][1] = 0.65f; b->dedo[4][2] = 0.55f;
+    }
+
+    p.apretar = 1.0f;
+}
 // Los golpes de un solo disparo (al aire y a un animal): `t` son los
 // segundos desde el clic. Devuelve 0..1 de la pose cargada a la de impacto,
 // o -1 si ya termino.
@@ -1313,9 +1402,19 @@ inline Pose poseDe(const Estado& e) {
     // `golpeando` sin accion es el picar de siempre, con la mano.
     const Accion accion = (e.accion == Accion::NINGUNA && e.golpeando) ? Accion::PICAR : e.accion;
     const Pose antes = p;
-    if (accion == Accion::PICAR)
-        aplicarGolpe(p, golpeDe(e.herramienta, e.bloque), e.tiempo, e.mirada * PI / 180.0f,
-                     (uint32_t)e.herramienta * 31u + (uint32_t)e.bloque + e.estilo);
+    const bool aDosManos = accion == Accion::PICAR && e.herramienta == Herramienta::HACHA;
+    if (accion == Accion::PICAR) {
+        const Golpe& g = golpeDe(e.herramienta, e.bloque);
+        const float apunta = e.mirada * PI / 180.0f;
+        if (e.herramienta == Herramienta::PICO)
+            aplicarGolpeRecto(p, g.periodo, g.carga, e.tiempo, apunta);
+        else if (e.herramienta == Herramienta::MARTILLO)
+            aplicarGolpeRecto(p, golpeDe(Herramienta::PICO, e.bloque).periodo * 0.6f, g.carga, e.tiempo, apunta);
+        else if (aDosManos)
+            aplicarHachazo(p, g.periodo, g.carga, e.tiempo, apunta);
+        else
+            aplicarGolpe(p, g, e.tiempo, apunta, (uint32_t)e.herramienta * 31u + (uint32_t)e.bloque + e.estilo);
+    }
     else if (accion == Accion::GOLPE_AIRE || accion == Accion::GOLPE_ANIMAL)
         aplicarDisparo(p, accion, e.variante, e.ladoGolpe, e.tAccion, e.mirada * PI / 180.0f);
     else if (accion == Accion::COLOCAR)
@@ -1339,8 +1438,11 @@ inline Pose poseDe(const Estado& e) {
         p.giroPelvis = antes.giroPelvis;
         p.pelvisLado = antes.pelvisLado;
         p.inclinacion = antes.inclinacion;
-        p.giroTorso = antes.giroTorso + (p.giroTorso - antes.giroTorso) * 0.33f;
-        p.brazo[1 - brazo] = antes.brazo[1 - brazo];
+        // El hacha va a dos manos y barre con el tronco: eso se queda.
+        if (!aDosManos) {
+            p.giroTorso = antes.giroTorso + (p.giroTorso - antes.giroTorso) * 0.33f;
+            p.brazo[1 - brazo] = antes.brazo[1 - brazo];
+        }
     }
 
     // Recoger manda sobre todo lo demas: dura medio segundo.

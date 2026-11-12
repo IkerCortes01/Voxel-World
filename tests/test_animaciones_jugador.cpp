@@ -423,10 +423,11 @@ TEST_CASE("Transiciones: cada articulacion llega con inercia, sin saltos") {
 }
 
 TEST_CASE("Variacion: los golpes de una serie no son todos iguales") {
-    const Golpe& g = golpeDe(Herramienta::PICO, ClaseBloque::PIEDRA);
+    // Con la mano (el pico y el martillo van ahora por una recta, siempre igual).
+    const Golpe& g = golpeDe(Herramienta::MANO, ClaseBloque::PIEDRA);
     Estado e;
     e.accion = Accion::PICAR;
-    e.herramienta = Herramienta::PICO;
+    e.herramienta = Herramienta::MANO;
     e.bloque = ClaseBloque::PIEDRA;
     // El mismo instante de dos golpes seguidos.
     e.tiempo = g.periodo * 0.30f;

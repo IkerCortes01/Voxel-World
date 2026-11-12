@@ -183,6 +183,43 @@ body::before {
 }
 .arriba:hover, .arriba:focus-visible { color: #fff; }
 
+/* --- Formularios (comentarios y correo antes de descargar) --- */
+.formulario {
+    display: grid;
+    gap: 18px;
+    max-width: 62ch;
+    margin: 28px auto 0;
+}
+.formulario label { display: grid; gap: 6px; font: 700 16px var(--mono); color: #fff; }
+.formulario input:not([type=checkbox]), .formulario textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 12px 14px;
+    font: 400 17px/1.4 var(--sans);
+    color: var(--texto);
+    background: rgba(0, 0, 0, .55);
+    border: 1px solid var(--neon);
+    border-radius: 0;
+}
+.formulario textarea { resize: vertical; min-height: 140px; }
+.formulario input:focus-visible, .formulario textarea:focus-visible {
+    outline: none;
+    box-shadow: 0 0 12px var(--neon);
+}
+.formulario .casilla {
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    font: 400 15px/1.5 var(--sans);
+    color: var(--tenue);
+}
+.formulario .casilla input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--neon); }
+.formulario .boton { max-width: 380px; }
+.formulario .respuesta { min-height: 1.5em; margin: 0; font: 400 16px var(--mono); color: #fff; }
+.formulario > p { margin: 0; }
+/* La trampa para bots: fuera de la vista y de la lectura de pantalla. */
+.trampa { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+#registro { text-align: left; }
+
 /* --- Dentro de la seccion VoxelWorld --- */
 .opciones {
     display: flex;

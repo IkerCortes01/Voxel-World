@@ -15,14 +15,25 @@
 
     <main id="adquirir" class="panel">
         <div id="compra">
-            <a id="adquirir-btn" class="boton" href="dist/VoxelWorld-Instalador.exe" download><span>Adquirir</span></a>
+            <a id="adquirir-btn" class="boton" href="dist/VoxelWorld-Instalador.exe" download><span>Descargar</span></a>
             <img src="icono.png" alt="" width="128" height="128">
         </div>
+        <!-- Antes de descargar se pide el correo, para pedir retroalimentacion. -->
+        <form id="registro" class="formulario" hidden>
+            <p>Esta es una versión para testers. Déjanos tu correo y te escribiremos para preguntarte qué te pareció el juego.</p>
+            <label>Correo
+                <input name="correo" type="email" required maxlength="254" autocomplete="email"></label>
+            <label class="casilla"><input name="acepta" type="checkbox" required>
+                Acepto que usen mi correo solo para pedirme retroalimentación sobre Voxel World. No se comparte con nadie y puedo pedir que lo borren cuando quiera.</label>
+            <input name="sitio" class="trampa" tabindex="-1" autocomplete="off" aria-hidden="true">
+            <a class="boton" href="#" role="button" id="continuar"><span>Continuar con la descarga</span></a>
+            <p class="respuesta" role="status"></p>
+        </form>
         <div id="progreso" hidden>
             <div id="estado" role="status"></div>
             <progress id="barra-descarga" max="100"></progress>
         </div>
-        <p id="nota">Gratis durante la semana de lanzamiento; después costará 50 pesos mexicanos. El instalador copia a <code>%APPDATA%\VoxelWorld</code> la aplicación, las texturas, los sonidos y los demás archivos, con su propia barra de progreso. Windows puede avisar de que el programa es desconocido: pulsa «Más información» y «Ejecutar de todas formas».</p>
+        <p id="nota">Versión de prueba para testers, gratis. El instalador copia a <code>%APPDATA%\VoxelWorld</code> la aplicación, las texturas, los sonidos y los demás archivos, con su propia barra de progreso. Windows puede avisar de que el programa es desconocido: pulsa «Más información» y «Ejecutar de todas formas».</p>
     </main>
 
     <section id="informacion" class="panel seccion">
@@ -71,8 +82,44 @@
             ocupado = false;
         };
 
-        boton.addEventListener("click", async (ev) => {
+        // Primer paso: el boton muestra el formulario del correo.
+        const registro = document.getElementById("registro");
+        const respuesta = registro.querySelector(".respuesta");
+        boton.addEventListener("click", (ev) => {
             ev.preventDefault();
+            registro.hidden = false;
+            registro.querySelector("input[name=correo]").focus();
+        });
+
+        // Segundo paso: se guarda el correo y arranca la descarga. Si el
+        // servidor de correos falla, la descarga sigue: no se pierde al tester.
+        const continuar = async (ev) => {
+            ev.preventDefault();
+            if (ocupado || !registro.reportValidity()) return;
+            respuesta.textContent = "";
+            try {
+                const datos = Object.fromEntries(new FormData(registro));
+                datos.acepta = registro.elements.acepta.checked;
+                const r = await fetch("api/descargas", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(datos),
+                });
+                if (r.status >= 400 && r.status < 500) {
+                    const e = await r.json().catch(() => ({}));
+                    respuesta.textContent = e.error || "Revisa tu correo.";
+                    return;
+                }
+            } catch (e) {
+                // Sin red hacia la API: se descarga igual.
+            }
+            registro.hidden = true;
+            descargar();
+        };
+        registro.addEventListener("submit", continuar);
+        document.getElementById("continuar").addEventListener("click", continuar);
+
+        async function descargar() {
             if (ocupado) return;
             ocupado = true;
             progreso.hidden = false;
@@ -115,7 +162,7 @@
                 barra.hidden = true;
                 ocupado = false;
             }
-        });
+        }
     </script>
 </body>
 </html>

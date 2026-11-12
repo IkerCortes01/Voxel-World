@@ -13,9 +13,9 @@
     <main id="bienvenida" class="panel">
         <h1>BIENVENIDO A VOXELWORLD!</h1>
         <p>Esta página web es una recopilación de información, versiones, multijugador y noticias del juego que aquí se promociona, y como el nombre dice, es VoxelWorld.</p>
-        <p>Durante 1 semana será gratis, y cuando acabe costará 50 pesos mexicanos.</p>
+        <p>Esta es una versión para testers: descárgala gratis, juégala y cuéntanos qué te pareció.</p>
         <p>El juego ofrece jugabilidad buena, FPS estables, actualizaciones cada 2 semanas o un mes, escuchar a la comunidad y aceptar ayuda de modders, programadores, etc.</p>
-        <p>Disfruta tu compra y tu juego, y recuerda: aquí lo que compras es tuyo, no una licencia.</p>
+        <p>Disfruta tu juego, y recuerda: aquí lo que tienes es tuyo, no una licencia.</p>
         <div id="github">https://github.com/IkerCortes01/Voxel-World</div>
     </main>
 
@@ -23,6 +23,7 @@
         <a class="boton" href="#voxelworld"><span>VoxelWorld</span></a>
         <a class="boton" href="#ludora"><span>Ludora</span></a>
         <a class="boton" href="#oficinas-scram"><span>Oficinas scram</span></a>
+        <a class="boton" href="#comentarios"><span>Comentarios</span></a>
     </nav>
 
     <section id="voxelworld" class="panel seccion">
@@ -42,7 +43,27 @@
     </section>
     <section id="oficinas-scram" class="panel seccion">
         <h2>Oficinas scram</h2>
-        <p class="etiqueta">Próximamente.</p>
+        <p>Mira en vivo lo que pasa en las oficinas de SCRAM.</p>
+        <div class="opciones">
+            <a class="boton" href="https://oficina.scram.com.mx/mundo/en-vivo" target="_blank" rel="noopener"><span>Ver en vivo</span></a>
+        </div>
+        <a class="arriba" href="#botones">^ volver</a>
+    </section>
+    <section id="comentarios" class="panel seccion">
+        <h2>Deja tus comentarios</h2>
+        <p>¿Encontraste un error, algo te gustó o le falta algo al juego? Escríbenos: leemos todo.</p>
+        <form id="form-comentarios" class="formulario">
+            <label>Nombre <span class="etiqueta">(opcional)</span>
+                <input name="nombre" maxlength="80" autocomplete="name"></label>
+            <label>Correo <span class="etiqueta">(opcional, si quieres respuesta)</span>
+                <input name="correo" type="email" maxlength="254" autocomplete="email"></label>
+            <label>Comentario
+                <textarea name="comentario" required maxlength="2000" rows="6"></textarea></label>
+            <!-- Trampa para bots: una persona no la ve ni la llena. -->
+            <input name="sitio" class="trampa" tabindex="-1" autocomplete="off" aria-hidden="true">
+            <a class="boton" href="#" role="button" id="enviar-comentario"><span>Enviar</span></a>
+            <p class="respuesta" role="status"></p>
+        </form>
         <a class="arriba" href="#botones">^ volver</a>
     </section>
 
@@ -64,6 +85,33 @@
         addEventListener("pointerdown", activarSonido);
         addEventListener("keydown", activarSonido);
         activarSonido();
+
+        // Comentarios: van a /api/comentarios, que los guarda en el servidor.
+        const form = document.getElementById("form-comentarios");
+        const aviso = form.querySelector(".respuesta");
+        let enviando = false;
+        const enviar = async (ev) => {
+            ev.preventDefault();
+            if (enviando || !form.reportValidity()) return;
+            enviando = true;
+            aviso.textContent = "Enviando...";
+            try {
+                const r = await fetch("api/comentarios", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(Object.fromEntries(new FormData(form))),
+                });
+                const datos = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(datos.error || "No se pudo enviar.");
+                form.reset();
+                aviso.textContent = "¡Gracias! Recibimos tu comentario.";
+            } catch (e) {
+                aviso.textContent = e instanceof TypeError ? "No se pudo enviar. Intenta más tarde." : e.message;
+            }
+            enviando = false;
+        };
+        form.addEventListener("submit", enviar);
+        document.getElementById("enviar-comentario").addEventListener("click", enviar);
     </script>
 </body>
 </html>

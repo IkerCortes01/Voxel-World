@@ -16,6 +16,7 @@ on:
       - icono.png
       - titulo.mp4
       - deploy/web/**
+      - deploy/api/**
   workflow_dispatch:
 
 concurrency:
@@ -28,6 +29,7 @@ jobs:
     permissions: { contents: read, packages: write }
     env:
       IMAGE: ghcr.io/ikercortes01/voxel-world-web
+      IMAGE_API: ghcr.io/ikercortes01/voxel-world-api
       APP_DIR: /srv/voxel-world
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
@@ -50,6 +52,16 @@ jobs:
             ${{ env.IMAGE }}:latest
           cache-from: type=gha,scope=voxel-world-web
           cache-to: type=gha,scope=voxel-world-web,mode=max
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: deploy/api
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_API }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_API }}:latest
+          cache-from: type=gha,scope=voxel-world-api
+          cache-to: type=gha,scope=voxel-world-api,mode=max
 
       - name: Desplegar
         if: env.SSH_HOST != ''
@@ -63,7 +75,7 @@ jobs:
           # ssh usa -p minuscula y scp -P mayuscula.
           SCPOPTS="-i $HOME/.ssh/deploy_key -P ${SSH_PORT:-22} -o StrictHostKeyChecking=accept-new"
           SSHOPTS="-i $HOME/.ssh/deploy_key -p ${SSH_PORT:-22} -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30"
-          ssh $SSHOPTS "$SSH_USER@$SSH_HOST" "mkdir -p $APP_DIR/dist"
+          ssh $SSHOPTS "$SSH_USER@$SSH_HOST" "mkdir -p $APP_DIR/dist $APP_DIR/datos"
           scp $SCPOPTS deploy/web/docker-compose.yml "$SSH_USER@$SSH_HOST:$APP_DIR/docker-compose.yml"
           ssh $SSHOPTS "$SSH_USER@$SSH_HOST" "
             set -e

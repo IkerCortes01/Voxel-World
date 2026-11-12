@@ -1,6 +1,7 @@
 name: voxel-world        # unico en el host (guia de despliegue, 6.1)
 
-# En el servidor vive en /srv/voxel-world/, junto a dist/ con el instalador.
+# En el servidor vive en /srv/voxel-world/, junto a dist/ (el instalador) y
+# datos/ (la base de comentarios y correos, propiedad del uid 10001).
 services:
   web:
     build:
@@ -13,23 +14,46 @@ services:
       - ./dist:/usr/share/nginx/html/dist:ro
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
       - "traefik.http.routers.voxel-world.rule=Host(`voxelworld.scram.com.mx`)"
       - "traefik.http.routers.voxel-world.entrypoints=websecure"
       - "traefik.http.routers.voxel-world.tls.certresolver=letsencrypt"
       - "traefik.http.services.voxel-world.loadbalancer.server.port=8080"
-    # Solo esta red: no hay servicios internos (guia, 2.3).
     networks:
       - traefik
+      - internal
     deploy:
       resources:
         reservations:
           memory: 32M     # SOLO soft limits, nunca limits/mem_limit
-    logging:
+    logging: &logs
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
+  # Solo en la red interna: Traefik no lo ve (guia, 2.3).
+  api:
+    build:
+      context: ../api
+    image: ghcr.io/ikercortes01/voxel-world-api:${IMAGE_TAG:-latest}
+    container_name: voxel-world-api
+    restart: unless-stopped
+    volumes:
+      - ./datos:/datos
+    networks:
+      - internal
+    deploy:
+      resources:
+        reservations:
+          memory: 32M
+    logging: *logs
+
 networks:
   traefik:
     external: true
+  internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.58.0.0/24   # libre al 12 nov 2026 (guia, 2.2)

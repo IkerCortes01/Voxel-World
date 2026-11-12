@@ -94,8 +94,10 @@ TEST_CASE("Drops: un nivel apilado suelta tantas capas como octavos; un entero, 
     const std::string src = fuenteMotor();
     REQUIRE_FALSE(src.empty());
     CHECK(src.find("UN NIVEL SUELTA TANTAS CAPAS COMO OCTAVOS TIENE; UN BLOQUE ENTERO, UNO") != std::string::npos);
-    // Solo lo que apilo el jugador se multiplica (el terreno suelta una capa).
-    CHECK(src.find("consumirNivelDelJugador(bx, by, bz) ? nivelDe(blockType) : 1") != std::string::npos);
+    // Cualquier nivel, del jugador o del terreno, suelta tantas como mide.
+    CHECK(src.find("capasQueSuelta = nivelDe(blockType);") != std::string::npos);
+    // Y el pasto no se consigue: suelta tierra.
+    CHECK(src.find("case BLOCK_GRASS:\n            drops.push_back({BLOCK_DIRT, 1, 1.0f});") != std::string::npos);
     CHECK(src.find("d.count *= capasQueSuelta") != std::string::npos);
     CHECK(src.find("d.itemType = conNivel(d.itemType, 1)") != std::string::npos);
 }

@@ -33825,13 +33825,14 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
     // Ahora hay dos items de cada material con niveles:
     //   - la CAPA (el nivel 1): se coloca como 1/8 y crece clic a clic;
     //   - el BLOQUE (el entero): se coloca entero (ver seColocaEntero).
-    // Un nivel n que apilo el jugador suelta n capas: lo puesto se recupera.
-    // Un nivel del terreno suelta una capa, mida lo que mida (si soltara n,
-    // picar las lomas daria material sin fin: el generador pone niveles en
-    // casi toda la superficie). Y un bloque entero suelta UN bloque entero.
+    // Un nivel n suelta n capas, lo haya puesto el jugador o el terreno
+    // (PEDIDO: "quiero que cada nivel te de un bloque por su nivel, 1-8 pero
+    // el 8 sera lo de que te da un bloque completo"). Y el nivel 8, el bloque
+    // entero, suelta UN bloque entero.
     int capasQueSuelta = 0;          // 0: no era un nivel
     if (esNivelParcial(blockType)) {
-        capasQueSuelta = consumirNivelDelJugador(bx, by, bz) ? nivelDe(blockType) : 1;
+        consumirNivelDelJugador(bx, by, bz);     // la celda se rompe: se olvida
+        capasQueSuelta = nivelDe(blockType);
         blockType = bloqueBaseDe(blockType);
     }
 
@@ -33960,6 +33961,16 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         // planta: cae por su propio camino (`esTuna` mas arriba y el bucle de
         // frutos laterales del minado) y se sigue recogiendo entera. Eso es
         // justo lo que se pidio conservar.
+        //
+        // (Y antes de la planta, el suelo:)
+        // ⭐ EL PASTO SUELTA TIERRA. PEDIDO: "que los bloques de pasto no se
+        // puedan conseguir asi de simple, que te de tierra". El pasto es
+        // tierra con raices encima: al picarlo, las raices se quedan. (Si es
+        // un nivel, sale en capas de tierra: ver al final.)
+        case BLOCK_GRASS:
+            drops.push_back({BLOCK_DIRT, 1, 1.0f});
+            break;
+
         case BLOCK_NOPAL_BASE_PASTO:
         case BLOCK_NOPAL_BASE_TIERRA:
         case BLOCK_NOPAL_BASE_ARENA:

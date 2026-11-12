@@ -421,10 +421,13 @@ inline const Golpe& golpeDe(Herramienta h, ClaseBloque c) {
     // con el brazo".
     //
     //   MANO      romper con las manos: punetazos de verdad, con el puno.
-    //   PICO      a UNA mano, el brazo derecho: sube el pico por encima del
-    //             hombro con el codo doblado y la muneca echada atras, y baja
-    //             estirando codo y muneca a la vez (el latigazo que da la
-    //             fuerza). El torso apenas acompana.
+    //   PICO      a UNA mano, el brazo derecho, copiado de un video de
+    //             referencia del jugador picando: el codo sube a la altura del
+    //             hombro con el antebrazo hacia arriba y la mano junto a la
+    //             cabeza (~0.3 s), y el codo se estira de golpe (~0.17 s) hasta
+    //             dejar el brazo casi recto delante del pecho. Un golpe cada
+    //             medio segundo; el tronco casi quieto y el otro brazo colgando.
+    //             Igual el hacha fuera de la madera y el mazazo del martillo.
     //   HACHA     en la madera, el hachazo en diagonal a dos manos con giro de
     //             cadera; en lo demas, a una mano y mas corto.
     //   MARTILLO  como se martillea: el hombro casi quieto, el trabajo lo hacen
@@ -440,21 +443,21 @@ inline const Golpe& golpeDe(Herramienta h, ClaseBloque c) {
             { 0.38f, 0.50f, { 0.95f, 1.30f }, { 0.22f, 0.15f }, { -0.05f, 0.00f }, { 1.60f, 0.70f }, {  0.00f, 0.20f }, { -0.10f, 0.10f }, 0.02f, false }, // construido: golpecitos
         },
         { // PICO: solo el brazo derecho
-            { 0.70f, 0.62f, { 2.05f, 0.80f }, { 0.45f, 0.12f }, { 0.30f, 0.05f }, { 1.20f, 0.35f }, { -0.85f, 0.50f }, { -0.08f, 0.06f }, 0.08f, false }, // tierra
-            { 0.58f, 0.60f, { 1.90f, 0.95f }, { 1.00f, 0.30f }, { -0.55f, 0.20f }, { 1.85f, 0.40f }, { -0.70f, 0.45f }, { -0.15f, 0.10f }, 0.05f, false }, // madera: en diagonal
-            { 0.76f, 0.64f, { 2.15f, 0.65f }, { 0.45f, 0.10f }, { 0.30f, 0.05f }, { 1.20f, 0.25f }, { -0.95f, 0.60f }, { -0.10f, 0.08f }, 0.12f, false }, // piedra: desde lo alto
-            { 0.52f, 0.56f, { 1.80f, 1.10f }, { 0.35f, 0.14f }, { 0.20f, 0.08f }, { 1.55f, 0.75f }, { -0.55f, 0.30f }, { -0.04f, 0.04f }, 0.03f, false }, // construido: controlado
+            { 0.50f, 0.60f, { 1.85f, 1.05f }, { 0.28f, 0.10f }, { 0.10f, 0.00f }, { 1.60f, 0.25f }, { -0.65f, 0.40f }, { -0.04f, 0.04f }, 0.04f, false }, // tierra
+            { 0.48f, 0.58f, { 1.85f, 1.20f }, { 0.40f, 0.12f }, { -0.20f, 0.05f }, { 1.60f, 0.25f }, { -0.60f, 0.35f }, { -0.06f, 0.05f }, 0.03f, false }, // madera: algo en diagonal
+            { 0.52f, 0.62f, { 2.00f, 1.10f }, { 0.28f, 0.10f }, { 0.10f, 0.00f }, { 1.65f, 0.20f }, { -0.75f, 0.45f }, { -0.05f, 0.05f }, 0.05f, false }, // piedra: carga mas alta
+            { 0.44f, 0.55f, { 1.70f, 1.25f }, { 0.25f, 0.12f }, { 0.05f, 0.00f }, { 1.45f, 0.50f }, { -0.45f, 0.30f }, { -0.02f, 0.02f }, 0.02f, false }, // construido: controlado
         },
         { // HACHA
-            { 0.68f, 0.60f, { 2.00f, 0.80f }, { 0.45f, 0.12f }, { 0.30f, 0.08f }, { 1.20f, 0.35f }, { -0.80f, 0.45f }, { -0.10f, 0.08f }, 0.08f, false }, // tierra
+            { 0.56f, 0.60f, { 1.90f, 1.05f }, { 0.28f, 0.10f }, { 0.10f, 0.00f }, { 1.60f, 0.25f }, { -0.65f, 0.40f }, { -0.05f, 0.05f }, 0.05f, false }, // tierra
             { 0.66f, 0.60f, { 1.55f, 1.15f }, { 1.30f, 0.15f }, { -0.95f, 0.40f }, { 1.40f, 0.20f }, { -0.50f, 0.30f }, { -0.60f, 0.45f }, 0.14f, true  }, // madera: hachazo en diagonal
-            { 0.76f, 0.62f, { 2.10f, 0.75f }, { 0.45f, 0.10f }, { 0.30f, 0.08f }, { 1.20f, 0.30f }, { -0.85f, 0.50f }, { -0.10f, 0.08f }, 0.10f, false }, // piedra
+            { 0.58f, 0.62f, { 2.00f, 1.10f }, { 0.28f, 0.10f }, { 0.10f, 0.00f }, { 1.65f, 0.20f }, { -0.75f, 0.45f }, { -0.06f, 0.06f }, 0.06f, false }, // piedra
             { 0.46f, 0.55f, { 1.70f, 1.05f }, { 0.60f, 0.30f }, { -0.30f, 0.10f }, { 1.60f, 0.65f }, { -0.50f, 0.30f }, { -0.12f, 0.06f }, 0.03f, false }, // construido
         },
         { // MARTILLO: codo y muneca
             { 0.48f, 0.58f, { 1.55f, 0.95f }, { 0.15f, 0.10f }, { 0.15f, 0.10f }, { 2.20f, 0.70f }, { -0.85f, 0.45f }, { -0.05f, 0.05f }, 0.08f, false }, // tierra: apisonar
             { 0.42f, 0.56f, { 1.35f, 1.10f }, { 0.25f, 0.18f }, { 0.10f, 0.05f }, { 2.25f, 0.85f }, { -0.90f, 0.45f }, { -0.03f, 0.03f }, 0.03f, false }, // madera: clavar
-            { 0.72f, 0.62f, { 2.05f, 0.75f }, { 0.40f, 0.10f }, { 0.20f, 0.08f }, { 1.20f, 0.35f }, { -0.90f, 0.55f }, { -0.12f, 0.10f }, 0.14f, false }, // piedra: mazazo
+            { 0.56f, 0.62f, { 2.00f, 1.10f }, { 0.28f, 0.10f }, { 0.10f, 0.00f }, { 1.65f, 0.20f }, { -0.80f, 0.50f }, { -0.06f, 0.06f }, 0.06f, false }, // piedra: mazazo
             { 0.30f, 0.50f, { 1.25f, 1.12f }, { 0.20f, 0.16f }, { 0.10f, 0.08f }, { 2.10f, 1.25f }, { -0.75f, 0.35f }, { -0.02f, 0.02f }, 0.01f, false }, // construido: golpecitos
         },
         { // AZADA
@@ -518,7 +521,7 @@ inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo, float apunta = 0
     b.munFlex = mezclaEn(kMuneca, g.muneca) + 0.10f * ruido(sg, 5) * kMuneca - 0.15f * rebote;
     // El cuerpo entra en el golpe: las rodillas ceden un poco al dar, la
     // pelvis gira con el tronco y la cabeza acompana hacia el blanco.
-    for (Pierna& pg : p.pierna) pg.rodilla += 0.04f + 0.10f * kTronco;
+    for (Pierna& pg : p.pierna) pg.rodilla += 0.03f + 0.04f * kTronco;
     p.giroPelvis += 0.35f * mezclaEn(kTronco, g.torso);
     p.pelvisInclina += 0.05f * kTronco;
     p.cuelloFlex += 0.08f * k;
@@ -532,9 +535,10 @@ inline void aplicarGolpe(Pose& p, const Golpe& g, float tiempo, float apunta = 0
     // sube y se adelanta un poco en el impacto.
     if (!g.dosManos) {
         Brazo& o = p.brazo[0];
-        o.flex += 0.25f * k - 0.10f * (1.0f - k);
-        o.abd += 0.08f;
-        o.codo += 0.25f;
+        // (casi nada: en el video de referencia el otro brazo cuelga quieto)
+        o.flex += 0.06f * k - 0.03f * (1.0f - k);
+        o.abd += 0.06f;
+        o.codo += 0.15f;
     }
     // Hacia la mirada: el impacto entero; la carga, la mitad.
     b.flex += apunta * (0.45f + 0.45f * k);

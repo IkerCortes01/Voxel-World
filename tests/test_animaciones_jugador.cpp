@@ -37,19 +37,23 @@ TEST_CASE("Animaciones: 5 herramientas x 4 bloques, todas distintas y validas") 
 }
 
 TEST_CASE("Animaciones: el pico en piedra carga desde arriba y descarga con todo") {
-    float lo = 9, hi = -9, inclMax = 0;
+    float lo = 9, hi = -9, inclMax = 0, codoLo = 9, codoHi = -9;
     const Golpe& g = golpeDe(Herramienta::PICO, ClaseBloque::PIEDRA);
     for (int k = 0; k < 100; ++k) {
         const Pose p = poseDe(picando(Herramienta::PICO, ClaseBloque::PIEDRA, g.periodo * k / 100.0f));
         lo = std::fmin(lo, p.brazo[1].flex);
         hi = std::fmax(hi, p.brazo[1].flex);
+        codoLo = std::fmin(codoLo, p.brazo[1].codo);
+        codoHi = std::fmax(codoHi, p.brazo[1].codo);
         inclMax = std::fmax(inclMax, p.inclinacion);
         CHECK(p.apretar == 1.0f);
         CHECK(p.enMano == (uint8_t)Herramienta::PICO);
     }
-    // La carga ya no sube por encima de la cabeza (pedido: el golpe mas
-    // alejado de la cabeza), pero el recorrido sigue siendo grande.
-    CHECK(hi - lo > 1.2f);
+    // Como en el video de referencia: el hombro sube y baja algo, y el
+    // latigazo lo da el codo, que pasa de muy doblado a casi recto.
+    CHECK(hi - lo > 0.6f);
+    CHECK(codoHi - codoLo > 1.2f);
+    CHECK(codoLo < 0.5f);
     CHECK(inclMax < 0.02f);          // el cuerpo no se mueve: solo el brazo
     // A UNA mano, como se pidio: la izquierda no sigue al pico.
     const Pose p = poseDe(picando(Herramienta::PICO, ClaseBloque::PIEDRA, 0.1f));

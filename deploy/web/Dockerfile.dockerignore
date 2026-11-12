@@ -1,0 +1,8 @@
+# El contexto es la raiz del repo (cientos de MB): solo entra la pagina.
+*
+!index.html
+!adquirir.html
+!estilo.css
+!icono.png
+!titulo.mp4
+!deploy/web/nginx.conf

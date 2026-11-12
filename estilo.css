@@ -154,8 +154,20 @@ body::before {
 }
 .boton:hover span, .boton:focus-visible span { background: var(--neon); }
 
-/* --- Secciones, por ahora vacias --- */
+/* --- Secciones --- */
 .seccion { min-height: 70vh; }
+.seccion p, .seccion li {
+    max-width: 70ch;
+    font-size: clamp(16px, 2vw, 19px);
+    line-height: 1.6;
+}
+.seccion p { margin: 1.1em 0 0; }
+.seccion ul { margin: 1.1em 0 0; padding-left: 1.2em; }
+.seccion li { margin-top: .5em; }
+.seccion li::marker { color: var(--neon); }
+.seccion time, .seccion .etiqueta { font-family: var(--mono); color: var(--tenue); }
+.seccion a:not(.boton):not(.arriba) { color: #fff; text-shadow: 0 0 8px var(--neon); }
+.seccion code { font-family: var(--mono); color: #fff; overflow-wrap: anywhere; }
 .seccion h2 {
     margin: 0;
     font: 700 clamp(26px, 4.4vw, 48px)/1.15 var(--mono);

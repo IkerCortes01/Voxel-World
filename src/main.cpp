@@ -37732,12 +37732,9 @@ void actualizarVida(GameState* state, float deltaTime) {
     }
 }
 
-// ============================================================================
-// BARRA DE CORAZONES (HUD)
-// ============================================================================
-// Se dibuja SOBRE la hotbar, centrada con ella. Cada corazon puede estar
-// lleno, a la mitad o vacio: las tres texturas ya existen, asi que el HUD
-// soporta medios corazones desde el primer dia aunque todavia nada los quite.
+// (La fila de corazones de vida que iba sobre la hotbar se quito: PEDIDO
+// "elimina esta linea de corazones para siempre". La vida se sigue contando
+// en GameState; lo que avisa en el HUD es el corazon que late, abajo.)
 // Las entradas del corazon y la temperatura, medidas en el mundo.
 void actualizarVidaCuerpo(GameState* state, float dt) {
     if (!state || state->screenState != SCREEN_IN_GAME) return;
@@ -37999,113 +37996,6 @@ void renderVeloTemperatura(int width, int height) {
         borde(W, 0, W, H, W - m, H, W - m, 0);
     }
     glColor4f(1, 1, 1, 1);
-}
-
-void renderCorazones(GameState* state, int width, int height) {
-    if (!state) return;
-    if (state->currentGameMode != 0) return;   // solo en supervivencia
-    if (state->vidaMaxMedios <= 0) return;
-
-    // Mismo estado GL explicito que la hotbar: un HUD no debe heredar nada
-    // del render del mundo (ver el comentario largo en renderHotbar).
-    glDisable(GL_DEPTH_TEST);
-    glDepthMask(GL_FALSE);
-    glDisable(GL_FOG);
-    glDisable(GL_LIGHTING);
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_TEXTURE_GEN_S);
-    glDisable(GL_TEXTURE_GEN_T);
-
-    // Los corazones tienen fondo transparente: hace falta blending, y NO
-    // alpha test (recortaria el antialias del borde).
-    glDisable(GL_ALPHA_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    glMatrixMode(GL_TEXTURE);
-    glLoadIdentity();
-    glMatrixMode(GL_MODELVIEW);
-
-    // La textura se pinta tal cual, sin teñir con el color de vertice.
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-
-    const int corazones = (state->vidaMaxMedios +
-                           GameState::MEDIOS_POR_CORAZON - 1) /
-                          GameState::MEDIOS_POR_CORAZON;
-
-    const float TAM = 18.0f;      // lado del corazon en pixeles
-    const float SEP = 2.0f;       // separacion entre corazones
-
-    // Alineados con el borde izquierdo de la hotbar, justo encima.
-    const float hotbarAncho = 9 * 50.0f + 8 * 4.0f;
-    const float x0 = (width - hotbarAncho) / 2.0f;
-    const float y0 = height - 80.0f - TAM - 6.0f;
-
-    glEnable(GL_TEXTURE_2D);
-
-    for (int i = 0; i < corazones; ++i) {
-        // Cuantos medios quedan para ESTE corazon: 2 lleno, 1 mitad, 0 vacio.
-        const int restantes = state->vidaMedios -
-                              i * GameState::MEDIOS_POR_CORAZON;
-        const char* ruta;
-        if (restantes >= 2) {
-            ruta = "../Entitys/Player/corazon del jugador.png";
-        } else if (restantes == 1) {
-            ruta = "../Entitys/Player/corazon del jugador a la mitad.png";
-        } else {
-            ruta = "../Entitys/Player/corazon del jugador vacio.png";
-        }
-
-        // Solo existe la textura de corazon LLENO. Las de mitad y vacio se
-        // usan en cuanto aparezcan en el resourcepack; mientras tanto se cae
-        // a la llena para el medio, y el vacio simplemente no se dibuja (asi
-        // no sale un hueco negro ni un damero de "textura ausente").
-        GLuint tex = g_textureManager->getTexture(ruta);
-        if (tex == 0) {
-            if (restantes <= 0) continue;   // vacio sin textura: no dibujar
-            tex = g_textureManager->getTexture(
-                "../Entitys/Player/corazon del jugador.png");
-            if (tex == 0) continue;
-        }
-        g_textureManager->bindForUI(tex);
-
-        const float x = x0 + i * (TAM + SEP);
-        const float y = y0;
-
-        glBegin(GL_QUADS);
-            glTexCoord2f(0.0f, 1.0f); glVertex2f(x,       y);
-            glTexCoord2f(1.0f, 1.0f); glVertex2f(x + TAM, y);
-            glTexCoord2f(1.0f, 0.0f); glVertex2f(x + TAM, y + TAM);
-            glTexCoord2f(0.0f, 0.0f); glVertex2f(x,       y + TAM);
-        glEnd();
-    }
-
-    // ========================================================================
-    // DEVOLVER EL ESTADO GL Y EL CACHE DE BIND
-    // ========================================================================
-    // bindForUI() deja el cache del TextureManager apuntando al ultimo
-    // corazon dibujado. Si se sale de aqui sin invalidarlo, en el frame
-    // siguiente el MUNDO pide una textura, bindOptimized() cree que ya esta
-    // activa y no hace el glBindTexture: el terreno se dibuja con la textura
-    // del corazon. Como este HUD solo se dibuja en SUPERVIVENCIA, el sintoma
-    // aparecia unicamente en ese modo.
-    // Se devuelve TODO lo que se toco al entrar. Faltaban depth test,
-    // culling, niebla y la mascara de profundidad: sin ellos el mundo del
-    // frame siguiente se dibujaba sin ocultacion ni descarte de caras, y por
-    // eso en supervivencia "no se veia nada". Un renderizador de UI debe
-    // dejar el estado como lo encontro.
-    glDisable(GL_TEXTURE_2D);
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    glDisable(GL_BLEND);
-
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(GL_TRUE);
-    glEnable(GL_CULL_FACE);
-    glEnable(GL_ALPHA_TEST);
-    glAlphaFunc(GL_GREATER, 0.1f);
-
-    if (g_textureManager) g_textureManager->invalidateBindCache();
 }
 
 void renderHotbarDirecto(Inventory* inventory, int width, int height);
@@ -52334,7 +52224,6 @@ int main() {
 
             // Barra de vida encima de la hotbar (solo en supervivencia).
             renderVeloTemperatura(width, height);
-            renderCorazones(g_gameState, width, height);
             renderVidaCuerpo(g_gameState, width, height, deltaTime);
 
             // Y encima de todo, la tecla F si se mira un pedacito del suelo.

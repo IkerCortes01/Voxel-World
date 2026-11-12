@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Voxel World</title>
+    <link rel="stylesheet" href="estilo.css">
+</head>
+<body id="inicio">
+    <video id="titulo" src="titulo.mp4" autoplay muted loop playsinline aria-label="Voxel World"></video>
+
+    <main id="bienvenida" class="panel">
+        <h1>BIENVENIDO A VOXELWORLD!</h1>
+        <p>Esta página web es una recopilación de información, versiones, multijugador y noticias del juego que aquí se promociona, y como el nombre dice, es VoxelWorld.</p>
+        <p>Durante 1 semana será gratis, y cuando acabe costará 50 pesos mexicanos.</p>
+        <p>El juego ofrece jugabilidad buena, FPS estables, actualizaciones cada 2 semanas o un mes, escuchar a la comunidad y aceptar ayuda de modders, programadores, etc.</p>
+        <p>Disfruta tu compra y juego, y recuerda: si una empresa dice que comprar un juego es tener una licencia, piratearlo es comprarlo de verdad.</p>
+        <div id="github">https://github.com/IkerCortes01/Voxel-World</div>
+    </main>
+
+    <nav id="botones">
+        <a class="boton" href="#voxelworld"><span>VoxelWorld</span></a>
+        <a class="boton" href="#ludora"><span>Ludora</span></a>
+        <a class="boton" href="#oficinas-scram"><span>Oficinas scram</span></a>
+    </nav>
+
+    <section id="voxelworld" class="panel seccion">
+        <h2>VoxelWorld</h2>
+        <div class="opciones">
+            <a class="boton" href="adquirir.html"><span>Adquirir juego</span></a>
+            <a class="boton" href="adquirir.html#actualizaciones"><span>Actualizaciones</span></a>
+        </div>
+        <a class="arriba" href="#botones">^ volver</a>
+    </section>
+    <section id="ludora" class="panel seccion">
+        <h2>Ludora</h2>
+        <a class="arriba" href="#botones">^ volver</a>
+    </section>
+    <section id="oficinas-scram" class="panel seccion">
+        <h2>Oficinas scram</h2>
+        <a class="arriba" href="#botones">^ volver</a>
+    </section>
+
+    <script>
+        // El navegador no deja arrancar con sonido hasta que el visitante hace
+        // algo. El video empieza en silencio para verse siempre, intenta sonar,
+        // y si no le dejan, suena con el primer clic o tecla.
+        const titulo = document.getElementById("titulo");
+        const activarSonido = () => {
+            titulo.muted = false;
+            titulo.play().then(() => {
+                removeEventListener("pointerdown", activarSonido);
+                removeEventListener("keydown", activarSonido);
+            }).catch(() => {
+                titulo.muted = true;
+                titulo.play().catch(() => {});
+            });
+        };
+        addEventListener("pointerdown", activarSonido);
+        addEventListener("keydown", activarSonido);
+        activarSonido();
+    </script>
+</body>
+</html>

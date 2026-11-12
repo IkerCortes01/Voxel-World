@@ -1,0 +1,231 @@
+/* El color vive en una sola variable: todo el neon cambia a la vez. */
+@property --neon { syntax: "<color>"; inherits: true; initial-value: #ff1a1a; }
+@keyframes neon {
+    0%, 100% { --neon: #ff1a1a; }
+    33%      { --neon: #b026ff; }
+    66%      { --neon: #1f6bff; }
+}
+
+:root {
+    --fondo: #05060c;
+    --texto: #dfe4f2;
+    --tenue: #8791ad;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
+    --sans: system-ui, "Segoe UI", sans-serif;
+}
+
+html {
+    scroll-behavior: smooth;
+    overflow-y: scroll;
+    scrollbar-color: var(--neon) #000;
+    background: var(--fondo);
+    animation: neon 9s linear infinite;
+}
+body {
+    margin: 0;
+    min-height: 100%;
+    color: var(--texto);
+    font-family: var(--sans);
+}
+
+/* La reticula de fondo: fija, y se apaga hacia los bordes de la pantalla. */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image:
+        linear-gradient(rgba(130, 150, 220, .09) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(130, 150, 220, .09) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(ellipse at 50% 35%, #000 25%, transparent 78%);
+    mask-image: radial-gradient(ellipse at 50% 35%, #000 25%, transparent 78%);
+}
+
+/* Con "screen" el negro del video desaparece y se ve la reticula detras. */
+#titulo {
+    display: block;
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    mix-blend-mode: screen;
+}
+
+/* --- Paneles --- */
+.panel {
+    position: relative;
+    box-sizing: border-box;
+    width: calc(100% - 32px);
+    max-width: 1100px;
+    margin: 96px auto 64px;
+    padding: clamp(28px, 5vw, 60px) clamp(18px, 4vw, 52px);
+    background: linear-gradient(160deg, rgba(20, 24, 44, .86), rgba(6, 7, 14, .92));
+    border: 1px solid var(--neon);
+    box-shadow: 0 0 10px var(--neon), 0 0 42px -6px var(--neon),
+                inset 0 0 40px -18px var(--neon);
+    scroll-margin-top: 32px;
+}
+/* Escuadras en las esquinas, como un visor. */
+.panel::before, .panel::after {
+    content: "";
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border: 3px solid var(--neon);
+    filter: drop-shadow(0 0 6px var(--neon));
+}
+.panel::before { top: -3px; left: -3px; border-right: 0; border-bottom: 0; }
+.panel::after { right: -3px; bottom: -3px; border-left: 0; border-top: 0; }
+
+#bienvenida { min-height: 160vh; }
+#bienvenida h1 {
+    margin: 0 0 1em;
+    text-align: center;
+    font: 800 clamp(30px, 6vw, 70px)/1.12 var(--sans);
+    letter-spacing: .02em;
+    color: #fff;
+    text-shadow: 0 0 8px var(--neon), 0 0 26px var(--neon), 0 0 52px var(--neon);
+    overflow-wrap: anywhere;
+}
+#bienvenida p {
+    max-width: 62ch;
+    margin: 1.2em auto 0;
+    padding-left: 16px;
+    border-left: 2px solid var(--neon);
+    font-size: clamp(17px, 2.2vw, 21px);
+    line-height: 1.6;
+}
+
+/* user-select: all -> un clic selecciona la direccion entera, lista para
+   Ctrl+C. El ">" va en ::before, asi que no se copia. */
+#github {
+    margin: 2.4em auto 0;
+    padding: .7em .8em;
+    max-width: max-content;
+    text-align: center;
+    font: 700 clamp(15px, 2.5vw, 31px)/1.3 var(--mono);
+    color: #fff;
+    background: rgba(0, 0, 0, .55);
+    border: 1px solid var(--neon);
+    text-shadow: 0 0 10px var(--neon);
+    overflow-wrap: anywhere;
+    user-select: all;
+    -webkit-user-select: all;
+    cursor: text;
+}
+#github::before { content: "> "; color: var(--neon); user-select: none; -webkit-user-select: none; }
+#github::selection { background: #fff; color: #000; text-shadow: none; }
+
+/* --- Botones --- */
+#botones {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 32px;
+    box-sizing: border-box;
+    width: calc(100% - 32px);
+    max-width: 1100px;
+    margin: 70vh auto 120px;   /* este margen es lo que alarga el scroll */
+}
+/* Las esquinas cortadas recortarian un box-shadow: el brillo va en filter. */
+.boton {
+    flex: 1 1 260px;
+    filter: drop-shadow(0 0 7px var(--neon));
+    text-decoration: none;
+}
+.boton span {
+    display: block;
+    padding: 28px 20px;
+    text-align: center;
+    font: 700 clamp(19px, 2.4vw, 28px)/1.2 var(--mono);
+    color: #fff;
+    background:
+        linear-gradient(135deg, var(--neon) 14px, transparent 14px) top left,
+        linear-gradient(315deg, var(--neon) 14px, transparent 14px) bottom right,
+        #0a0c18;
+    box-shadow: inset 0 0 0 2px var(--neon);
+    clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px),
+                       calc(100% - 14px) 100%, 0 100%, 0 14px);
+    transition: background-color .15s;
+}
+.boton:hover, .boton:focus-visible {
+    outline: none;
+    filter: drop-shadow(0 0 18px var(--neon));
+}
+.boton:hover span, .boton:focus-visible span { background: var(--neon); }
+
+/* --- Secciones, por ahora vacias --- */
+.seccion { min-height: 70vh; }
+.seccion h2 {
+    margin: 0;
+    font: 700 clamp(26px, 4.4vw, 48px)/1.15 var(--mono);
+    color: #fff;
+    text-shadow: 0 0 10px var(--neon), 0 0 30px var(--neon);
+}
+.arriba {
+    position: absolute;
+    right: 22px;
+    bottom: 18px;
+    font: 400 16px var(--mono);
+    color: var(--tenue);
+}
+.arriba:hover, .arriba:focus-visible { color: #fff; }
+
+/* --- Dentro de la seccion VoxelWorld --- */
+.opciones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 32px;
+}
+
+/* --- Pagina de adquirir --- */
+#barra {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px clamp(16px, 4vw, 40px);
+    font: 700 18px var(--mono);
+    border-bottom: 1px solid var(--neon);
+    box-shadow: 0 0 14px -3px var(--neon);
+}
+#barra a { color: #fff; text-shadow: 0 0 8px var(--neon); }
+#barra span { color: var(--tenue); }
+#adquirir { margin-top: 48px; }
+#compra {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+}
+#compra .boton { flex: 0 1 380px; }
+#compra img {
+    width: clamp(96px, 16vw, 128px);
+    height: auto;
+    filter: drop-shadow(0 0 14px var(--neon));
+}
+#nota {
+    max-width: 62ch;
+    margin: 28px auto 0;
+    text-align: center;
+    color: var(--tenue);
+    font-size: 16px;
+    line-height: 1.6;
+}
+#nota code { font-family: var(--mono); color: #fff; overflow-wrap: anywhere; }
+
+#progreso {
+    max-width: 62ch;
+    margin: 28px auto 0;
+    text-align: center;
+    font: 400 17px/1.5 var(--mono);
+    color: #fff;
+}
+#barra-descarga {
+    display: block;
+    width: 100%;
+    height: 14px;
+    margin-top: 10px;
+    accent-color: var(--neon);
+}

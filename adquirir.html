@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Adquirir Voxel World</title>
+    <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+    <header id="barra">
+        <a href="index.html">Inicio</a>
+        <span>Voxel World</span>
+    </header>
+
+    <main id="adquirir" class="panel">
+        <div id="compra">
+            <a id="adquirir-btn" class="boton" href="dist/VoxelWorld-Instalador.exe" download><span>Adquirir</span></a>
+            <img src="icono.png" alt="" width="128" height="128">
+        </div>
+        <div id="progreso" hidden>
+            <div id="estado" role="status"></div>
+            <progress id="barra-descarga" max="100"></progress>
+        </div>
+        <p id="nota">Gratis. El instalador copia a <code>%APPDATA%\VoxelWorld</code> la aplicación, las texturas, los sonidos y los demás archivos, con su propia barra de progreso. Windows puede avisar de que el programa es desconocido: pulsa «Más información» y «Ejecutar de todas formas».</p>
+    </main>
+
+    <section id="informacion" class="panel seccion">
+        <h2>Información del juego</h2>
+    </section>
+    <section id="actualizaciones" class="panel seccion">
+        <h2>Change logs</h2>
+    </section>
+    <section id="versiones" class="panel seccion">
+        <h2>Versiones</h2>
+    </section>
+    <script>
+        // El navegador no puede escribir en %APPDATA%: descarga el instalador, y
+        // es este quien instala. La barra mide la descarga de verdad, y desde
+        // file:// no se puede medir: ahi descarga el propio navegador.
+        const boton = document.getElementById("adquirir-btn");
+        const progreso = document.getElementById("progreso");
+        const estado = document.getElementById("estado");
+        const barra = document.getElementById("barra-descarga");
+        const MB = n => (n / 1048576).toFixed(1) + " MB";
+        let ocupado = false;
+
+        const terminar = () => {
+            barra.value = 100;
+            estado.textContent = "Descarga lista. Abre VoxelWorld-Instalador.exe para instalar el juego.";
+            ocupado = false;
+        };
+
+        boton.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            if (ocupado) return;
+            ocupado = true;
+            progreso.hidden = false;
+            estado.textContent = "Descargando...";
+            barra.hidden = false;
+            barra.removeAttribute("value");
+            const url = boton.getAttribute("href");
+            try {
+                if (location.protocol === "file:") throw new Error("sin medida");
+                const r = await fetch(url);
+                if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
+                const total = +r.headers.get("Content-Length") || 0;
+                const trozos = [];
+                let llevado = 0;
+                for (const lector = r.body.getReader();;) {
+                    const { done, value } = await lector.read();
+                    if (done) break;
+                    trozos.push(value);
+                    llevado += value.length;
+                    if (total) {
+                        barra.value = 100 * llevado / total;
+                        estado.textContent = "Descargando: " + Math.floor(100 * llevado / total) + " % (" + MB(llevado) + " de " + MB(total) + ")";
+                    } else {
+                        estado.textContent = "Descargando: " + MB(llevado);
+                    }
+                }
+                const enlace = document.createElement("a");
+                enlace.href = URL.createObjectURL(new Blob(trozos, { type: "application/octet-stream" }));
+                enlace.download = "VoxelWorld-Instalador.exe";
+                enlace.click();
+                setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
+                terminar();
+            } catch (e) {
+                // Sin medir, pero la descarga no se pierde.
+                const enlace = document.createElement("a");
+                enlace.href = url;
+                enlace.download = "VoxelWorld-Instalador.exe";
+                enlace.click();
+                estado.textContent = "Descarga iniciada: mira el avance en la barra de descargas del navegador. Al terminar, abre VoxelWorld-Instalador.exe.";
+                barra.hidden = true;
+                ocupado = false;
+            }
+        });
+    </script>
+</body>
+</html>

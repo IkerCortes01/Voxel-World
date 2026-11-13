@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Adquirir Voxel World</title>
-    <link rel="stylesheet" href="estilo.css">
+    <link rel="stylesheet" href="estilo.css?v=2">
 </head>
 <body>
     <header id="barra">
@@ -21,8 +21,8 @@
         <!-- Antes de descargar se pide el correo, para pedir retroalimentacion. -->
         <form id="registro" class="formulario" hidden>
             <p>Esta es una versión para testers. Déjanos tu correo y te escribiremos para preguntarte qué te pareció el juego.</p>
-            <label>Correo
-                <input name="correo" type="email" required maxlength="254" autocomplete="email"></label>
+            <label><span class="campo">Correo</span>
+                <input name="correo" type="email" required maxlength="254" autocomplete="email" placeholder="tu@correo.com"></label>
             <label class="casilla"><input name="acepta" type="checkbox" required>
                 Acepto que usen mi correo solo para pedirme retroalimentación sobre Voxel World. No se comparte con nadie y puedo pedir que lo borren cuando quiera.</label>
             <input name="sitio" class="trampa" tabindex="-1" autocomplete="off" aria-hidden="true">

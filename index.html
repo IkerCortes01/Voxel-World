@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Voxel World</title>
-    <link rel="stylesheet" href="estilo.css">
+    <link rel="stylesheet" href="estilo.css?v=2">
 </head>
 <body id="inicio">
     <video id="titulo" src="titulo.mp4" autoplay muted loop playsinline aria-label="Voxel World"></video>
@@ -53,12 +53,14 @@
         <h2>Deja tus comentarios</h2>
         <p>¿Encontraste un error, algo te gustó o le falta algo al juego? Escríbenos: leemos todo.</p>
         <form id="form-comentarios" class="formulario">
-            <label>Nombre <span class="etiqueta">(opcional)</span>
-                <input name="nombre" maxlength="80" autocomplete="name"></label>
-            <label>Correo <span class="etiqueta">(opcional, si quieres respuesta)</span>
-                <input name="correo" type="email" maxlength="254" autocomplete="email"></label>
-            <label>Comentario
-                <textarea name="comentario" required maxlength="2000" rows="6"></textarea></label>
+            <div class="fila">
+                <label><span class="campo">Nombre <span class="etiqueta">opcional</span></span>
+                    <input name="nombre" maxlength="80" autocomplete="name" placeholder="Tu nombre o apodo"></label>
+                <label><span class="campo">Correo <span class="etiqueta">si quieres respuesta</span></span>
+                    <input name="correo" type="email" maxlength="254" autocomplete="email" placeholder="tu@correo.com"></label>
+            </div>
+            <label><span class="campo">Comentario</span>
+                <textarea name="comentario" required maxlength="2000" rows="6" placeholder="Cuéntanos qué encontraste, qué te gustó o qué le falta al juego..."></textarea></label>
             <!-- Trampa para bots: una persona no la ve ni la llena. -->
             <input name="sitio" class="trampa" tabindex="-1" autocomplete="off" aria-hidden="true">
             <a class="boton" href="#" role="button" id="enviar-comentario"><span>Enviar</span></a>

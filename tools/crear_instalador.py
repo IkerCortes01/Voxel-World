@@ -21,16 +21,22 @@ DIST = RAIZ / "dist"
 TMP = Path(tempfile.gettempdir()) / "voxelworld_instalador"
 SALIDA = DIST / "VoxelWorld-Instalador.exe"
 
-# Lo que NO viaja al PC del jugador. Todo lo demas de la carpeta del proyecto, si.
-EXCLUIR_RAIZ = {
-    "build", "build-port", "dist", "graphify-out",   # generados, 280 MB
-    "saves",                           # los mundos de quien genera el instalador
-    "nul", "dens.cpp",
-    # La pagina web y su despliegue: viven en el servidor, no en el PC del jugador.
-    "index.html", "adquirir.html", "estilo.css", "icono.png", "titulo.mp4", "deploy",
-}
-# Originales de 1254 px: 254 MB que el juego no carga. Triplicarian la descarga.
-EXCLUIR_DENTRO = {"_hd_original"}
+# ⭐ SOLO LO QUE EL JUEGO LEE. PEDIDO: "que no pese tanto el juego". Antes
+# viajaba todo el proyecto menos unas excepciones: el codigo, las pruebas,
+# external, la documentacion, las herramientas, el simulador de fauna y los
+# originales de las texturas llegaban al PC del jugador sin que el juego los
+# abriera nunca. Ahora es al reves: solo estas carpetas (el ejecutable va
+# aparte). Ver gamePath() en main.cpp: el juego lee resourcepacks/ y sounds/,
+# y las poses guardadas en animaciones/.
+INCLUIR_RAIZ = {"resourcepacks", "sounds", "animaciones"}
+# Dentro de ellas, lo que tampoco se carga: los originales de 1254 px (254 MB),
+# las fuentes y copias de las texturas, y el codigo de los sonidos sintetizados.
+EXCLUIR_DENTRO = {"_hd_original", "_borde_original", "_original", "_fuente", "ambiental"}
+# Archivos sueltos que no se cargan: el video del corazon (se usan sus cuadros,
+# HUD/corazon_cuadros.png), la imagen de referencia del titulo y la banda
+# sonora vieja (la musica sale de sounds/Music).
+EXCLUIR_RUTAS = ("resourcepacks/HUD/corazon.mp4", "resourcepacks/HUD/VoxelWorld titulo.jfif",
+                 "resourcepacks/sounds/SoundTrack/")
 
 INSTALAR = r"""param(
     [string]$Destino = (Join-Path $env:APPDATA 'VoxelWorld'),
@@ -207,9 +213,9 @@ def crear_zip():
         for f in sorted(RAIZ.rglob("*")):
             relativo = f.relative_to(RAIZ)
             primero = relativo.parts[0]
-            # Lo que empieza por punto (.git, .claude...) tampoco viaja.
-            if (primero.startswith(".") or primero in EXCLUIR_RAIZ or
+            if (primero not in INCLUIR_RAIZ or
                     EXCLUIR_DENTRO.intersection(relativo.parts) or
+                    relativo.as_posix().startswith(EXCLUIR_RUTAS) or
                     "__pycache__" in relativo.parts or not f.is_file()):
                 continue
             z.write(f, relativo.as_posix())

@@ -64,7 +64,9 @@ src/
 tests/                Tests unitarios (doctest)
 external/             GLFW, stb, doctest (vendorizados)
 resourcepacks/        Texturas
-documentación/        Notas técnicas
+docs/                 Auditorias y pendientes; docs/historial/ las notas tecnicas viejas
+tools/                Herramientas (instalador, texturas, modelo del jugador...)
+sounds/               Musica (sounds/Music)
 ```
 
 ---

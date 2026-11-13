@@ -1,3 +1,6 @@
+// Herramienta suelta: cuenta las manadas de pecaris en 2x2 km reales (para
+// calibrar PecariSpawn). No entra en el build; se compila a mano con src/ en
+// el include path.
 #include "fauna/PecariSpawn.h"
 #include <cstdio>
 using namespace Fauna; using namespace TerrainGen;

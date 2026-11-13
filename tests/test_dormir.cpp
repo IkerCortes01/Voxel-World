@@ -69,29 +69,26 @@ TEST_CASE("Dormir: en una habitacion cerrada se puede") {
     CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::PUEDE);
 }
 
-TEST_CASE("Dormir: a cielo abierto NO se puede") {
-    // ⭐ LA REGLA QUE SOSTIENE TODO LO DEMAS.
-    //
-    // Sin ella basta pulsar Z en cualquier parte para saltarse la noche, y el
-    // refugio deja de tener sentido como coste.
+TEST_CASE("Dormir: a cielo abierto SI se puede") {
+    // PEDIDO: "elimina la dependencia de tener un techo y paredes al rededor
+    // de la mecanica de dormir".
     MundoFalso m;
     // Solo suelo: nada encima.
     for (int x = -4; x <= 4; ++x)
         for (int z = -4; z <= 4; ++z)
             m.ponSolido(x, 63, z);
 
-    CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::SIN_TECHO);
+    CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::PUEDE);
 }
 
-TEST_CASE("Dormir: con techo pero sin paredes NO se puede") {
-    // Un tejado sobre cuatro postes no es un refugio.
+TEST_CASE("Dormir: con techo pero sin paredes SI se puede") {
     MundoFalso m;
     for (int x = -4; x <= 4; ++x)
         for (int z = -4; z <= 4; ++z) {
             m.ponSolido(x, 63, z);        // suelo
             m.ponSolido(x, 67, z);        // techo alto
         }
-    CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::SIN_PAREDES);
+    CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::PUEDE);
 }
 
 TEST_CASE("Dormir: en un agujero de 1x1 NO se puede") {
@@ -145,9 +142,8 @@ TEST_CASE("Dormir: hacen falta 3 paredes, no 4") {
     CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::PUEDE);
 }
 
-TEST_CASE("Dormir: con dos paredes abiertas ya NO se puede") {
-    // El otro lado de la frontera. Un cobertizo con dos lados al aire no
-    // protege de nada.
+TEST_CASE("Dormir: con dos paredes abiertas tambien se puede") {
+    // Ya no hacen falta paredes.
     MundoFalso m;
     m.habitacion(0, 64, 0, 1);
 
@@ -155,7 +151,7 @@ TEST_CASE("Dormir: con dos paredes abiertas ya NO se puede") {
         m.solidos.erase({ 2, y, 0});
         m.solidos.erase({-2, y, 0});
     }
-    CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::SIN_PAREDES);
+    CHECK(m.prueba(0, 64, 0) == Dormir::Motivo::PUEDE);
 }
 
 TEST_CASE("Dormir: en el aire NO se puede") {

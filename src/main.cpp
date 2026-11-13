@@ -313,7 +313,7 @@ struct Vec3i {
 // Los mechones de aciculas del ocote: la hoja del pino no es un cubo, es un
 // fasciculo de agujas que sale radialmente de la ramilla.
 #include "AciculaOcote.h"
-// Dormir con Z: acostarse, el fundido a negro y las reglas del refugio.
+// Dormir con Z: acostarse, el fundido a negro y donde se puede dormir.
 #include "Dormir.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "ModeloItem3D.h"  // y su forma de verdad: la silueta inflada
@@ -49749,10 +49749,11 @@ int main() {
                 // ============================================================
                 // ⭐ DORMIR CON Z
                 // ============================================================
-                // Se MANTIENE pulsada: soltar antes de tiempo despierta al
-                // jugador. Es lo que permite las dos salidas del ciclo --
-                // dormir del tiron hasta la manana, o cortar a media noche y
-                // levantarse de madrugada.
+                // PEDIDO: "que no sea necesario dejar presionado Z, solo con
+                // presionarlo una vez ya duerme". Una pulsacion acuesta y se
+                // duerme del tiron hasta la manana; pulsar Z OTRA VEZ mientras
+                // duerme lo despierta antes (de madrugada, si ya durmio lo
+                // bastante). Asi siguen las dos salidas del ciclo.
                 //
                 // La comprobacion del refugio se hace UNA VEZ, al empezar. No
                 // se repite cada frame a proposito: si un bloque cambiara
@@ -49761,15 +49762,19 @@ int main() {
                 {
                     const bool zPulsada = (g_gameState->keys['Z'] ||
                                            g_gameState->keys['z']);
+                    // Solo cuenta el momento de pulsar, no tenerla apretada.
+                    static bool zWasPressed = false;
+                    const bool zRecien = zPulsada && !zWasPressed;
+                    zWasPressed = zPulsada;
 
                     if (g_gameState->durmiendo) {
                         g_gameState->tiempoDurmiendo += deltaTime;
 
-                        const bool soltó = !zPulsada;
+                        const bool despierta = zRecien;
                         const bool acabó  =
                             Dormir::Terminado(g_gameState->tiempoDurmiendo);
 
-                        if (soltó || acabó) {
+                        if (despierta || acabó) {
                             // ¿Ha dormido lo suficiente como para que la hora
                             // cambie? Del tiron amanece entero; cortando a
                             // media noche, se levanta de madrugada.
@@ -49808,8 +49813,7 @@ int main() {
                     }
                     else {
                         // No esta durmiendo: ¿acaba de pulsar Z?
-                        static bool zWasPressed = false;
-                        if (zPulsada && !zWasPressed &&
+                        if (zRecien &&
                             !g_gameState->inventoryOpen &&
                             !g_gameState->isPaused &&
                             !g_gameState->isSaving) {
@@ -49849,7 +49853,6 @@ int main() {
                                 g_gameState->avisoDormirTimer = 2.5f;
                             }
                         }
-                        zWasPressed = zPulsada;
                     }
 
                     // La cuenta atras del aviso.

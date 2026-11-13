@@ -6,38 +6,28 @@
 // ============================================================================
 // DORMIR: ACOSTARSE, PASAR LA NOCHE Y DESPERTAR
 // ============================================================================
-// Con Z el jugador se tumba: la camara baja despacio hasta el suelo, la
+// Con UNA pulsacion de Z el jugador se tumba (otra lo despierta antes): la camara baja despacio hasta el suelo, la
 // pantalla se va a negro, y al despertar ya es de dia.
 //
 // ----------------------------------------------------------------------------
-// POR QUE HACE FALTA UN REFUGIO, Y POR QUE NO VALE UN AGUJERO DE 1x1
+// DONDE SE PUEDE DORMIR
 // ----------------------------------------------------------------------------
-// Dormir a la intemperie tiene que estar prohibido, porque si no la noche deja
-// de existir como problema: bastaria pulsar Z en cualquier parte para saltarsela.
-// El refugio es el COSTE de saltarse la noche -- hay que haberlo construido o
-// encontrado antes.
+// En cualquier parte, tambien a cielo abierto. PEDIDO: "elimina la dependencia
+// de tener un techo y paredes al rededor de la mecanica de dormir". (Antes se
+// pedia un refugio: techo y 3 paredes.)
 //
-// Pero un hueco de un bloque tampoco cuenta. Cavar 1x1 en una pared es trivial
-// (dos golpes) y dejaria el requisito en nada: seria "pulsa Z mirando a una
-// pared". Se pide sitio para TUMBARSE, que es lo que se esta haciendo.
+// Quedan tres condiciones, cada una con su aviso:
 //
-// De ahi las tres condiciones, y las tres se comprueban por separado para que
-// el aviso pueda decir cual falta:
-//
-//   TECHO     Algo solido sobre la cabeza, no el cielo. Es lo que distingue
-//             un refugio de un claro del bosque.
-//   PAREDES   Al menos 3 de los 4 lados cerrados. Tres y no cuatro para que
-//             valga una habitacion con puerta -- un cuarto sellado por los
-//             cuatro costados no se puede ni construir sin quedarse dentro.
+//   SUELO     Algo firme bajo los pies.
+//   AGUA      No estar dentro de agua ni lava.
 //   ESPACIO   Que quepa tumbarse: hace falta al menos una celda libre
-//             adyacente. Es justo lo que descarta el agujero de 1x1.
-//
-// ----------------------------------------------------------------------------
+//             adyacente. Es lo que descarta el agujero de 1x1.
+//// ----------------------------------------------------------------------------
 // EL CICLO, EN SEGUNDOS REALES
 // ----------------------------------------------------------------------------
 //     0.0 -> 10.0   dormido. La camara baja y la pantalla se oscurece.
 //     >= 10.0       despierta y AMANECE.
-//     interrupcion  si se suelta antes, despierta donde toque:
+//     interrupcion  si se pulsa Z otra vez, despierta donde toque:
 //                   antes de DESPERTAR_TEMPRANO no cambia la hora,
 //                   despues, amanece igual pero mas temprano.
 //
@@ -167,22 +157,6 @@ inline const char* TextoDeMotivo(Motivo m) {
     return "";
 }
 
-// ----------------------------------------------------------------------------
-// LOS PARAMETROS DEL REFUGIO
-// ----------------------------------------------------------------------------
-
-// Hasta que altura se busca techo sobre la cabeza. Con 6 vale una casa de
-// techo alto o una cueva; mas arriba ya es una montana que pasa por encima, no
-// un refugio.
-constexpr int ALTURA_TECHO = 6;
-
-// Cuantos lados de los cuatro tienen que estar cerrados. Tres, para que valga
-// una habitacion con puerta o con una entrada abierta.
-constexpr int PAREDES_MINIMAS = 3;
-
-// A que distancia se busca la pared. 3 bloques: una habitacion normal cuenta,
-// pero un claro rodeado de arboles lejanos no.
-constexpr int ALCANCE_PARED = 3;
 
 // ----------------------------------------------------------------------------
 // ¿SE PUEDE DORMIR AQUI?
@@ -203,32 +177,12 @@ inline Motivo PuedeDormir(int px, int py, int pz,
     if (liquido(px, py, pz) || liquido(px, py + 1, pz)) return Motivo::EN_AGUA;
     if (!solido(px, py - 1, pz)) return Motivo::EN_EL_AIRE;
 
-    // --- TECHO ---
-    // Se mira hacia arriba desde la cabeza. Si se llega al tope sin encontrar
-    // nada solido, esta a cielo abierto.
-    bool hayTecho = false;
-    for (int h = 2; h <= ALTURA_TECHO; ++h) {
-        if (solido(px, py + h, pz)) { hayTecho = true; break; }
-    }
-    if (!hayTecho) return Motivo::SIN_TECHO;
-
-    // --- PAREDES ---
-    // Los cuatro rumbos, a la altura del cuerpo. Un lado cuenta como cerrado
-    // si hay algo solido dentro del alcance.
+    // ⭐ SIN TECHO NI PAREDES. PEDIDO: "elimina la dependencia de tener un
+    // techo y paredes al rededor de la mecanica de dormir". Se puede dormir a
+    // cielo abierto; solo hace falta suelo, no estar en el agua y sitio para
+    // tumbarse. (SIN_TECHO y SIN_PAREDES siguen en Motivo con su texto, pero
+    // ya no se devuelven.)
     static const int DIRS[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-
-    int cerrados = 0;
-    for (const auto& d : DIRS) {
-        bool cerrado = false;
-        for (int r = 1; r <= ALCANCE_PARED && !cerrado; ++r) {
-            // Se mira a la altura del pecho (py+1): es donde una pared de
-            // verdad esta, y evita que un escalon de un bloque cuente como
-            // muro.
-            if (solido(px + d[0] * r, py + 1, pz + d[1] * r)) cerrado = true;
-        }
-        if (cerrado) ++cerrados;
-    }
-    if (cerrados < PAREDES_MINIMAS) return Motivo::SIN_PAREDES;
 
     // --- ESPACIO PARA TUMBARSE ---
     //
@@ -237,8 +191,7 @@ inline Motivo PuedeDormir(int px, int py, int pz,
     // Tumbarse ocupa dos celdas: la del cuerpo y una contigua para las piernas.
     // Se exige que al menos UNA de las cuatro adyacentes este libre a la altura
     // del cuerpo. En un hueco de 1x1 las cuatro estan tapadas -- es justo lo
-    // que lo convierte en 1x1 -- asi que ahi no se puede dormir por mucho techo
-    // y paredes que tenga.
+    // que lo convierte en 1x1 -- asi que ahi no se puede dormir.
     bool hayHueco = false;
     for (const auto& d : DIRS) {
         const int ax = px + d[0], az = pz + d[1];

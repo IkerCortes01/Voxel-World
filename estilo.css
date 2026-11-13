@@ -255,6 +255,14 @@ body::before {
 /* Sin la imagen de Voxel World, el boton no debe estirarse de lado a lado. */
 #compra .boton:only-child { flex: 0 1 420px; }
 
+/* Portada de Ludora: los dos botones, centrados y sin estirarse. */
+#portada-ludora { margin-top: 48px; text-align: center; }
+#opciones-ludora {
+    justify-content: center;
+    margin-top: 40px;
+}
+#opciones-ludora .boton { flex: 0 1 300px; }
+
 /* --- Formularios --- */
 .campo {
     margin: 26px 0 0;

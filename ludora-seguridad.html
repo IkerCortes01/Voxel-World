@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Seguridad de Ludora</title>
+    <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+    <header id="barra">
+        <a href="index.html">Inicio</a>
+        <span>Ludora · Seguridad</span>
+    </header>
+
+    <main id="adquirir" class="panel">
+        <h1 id="titulo-seguridad">Reportar a seguridad</h1>
+        <p id="nota">Si encontraste un fallo, contenido robado, un juego que hace algo que no debería o cualquier otro problema de seguridad, cuéntanoslo aquí. El reporte llega al soporte técnico por correo.</p>
+        <p id="alternativa">Para algo urgente, escribe directo a <a href="mailto:armando.cortes@scram.com.mx">armando.cortes@scram.com.mx</a>.</p>
+    </main>
+
+    <section id="reportar" class="panel seccion">
+        <h2>Formulario de reporte</h2>
+
+        <form id="reporte" novalidate>
+            <fieldset class="campo">
+                <legend>Tipo de reporte</legend>
+                <div class="tipos">
+                    <label><input type="radio" name="tipo" value="Error o fallo" checked><span>Error o fallo</span></label>
+                    <label><input type="radio" name="tipo" value="Robo de contenido"><span>Robo de contenido</span></label>
+                    <label><input type="radio" name="tipo" value="Juego sospechoso o malware"><span>Juego sospechoso</span></label>
+                    <label><input type="radio" name="tipo" value="Cuenta o compras"><span>Cuenta o compras</span></label>
+                    <label><input type="radio" name="tipo" value="Otro"><span>Otro</span></label>
+                </div>
+            </fieldset>
+
+            <div class="campo">
+                <label for="gravedad">Gravedad</label>
+                <select id="gravedad" name="gravedad">
+                    <option value="Baja">Baja — molesta, pero puedo seguir usándolo</option>
+                    <option value="Media" selected>Media — me impide hacer algo</option>
+                    <option value="Alta">Alta — pierdo datos o dinero</option>
+                    <option value="Crítica">Crítica — hay riesgo para otros usuarios</option>
+                </select>
+            </div>
+
+            <div class="campo">
+                <label for="correo">Tu correo <span class="opcional">(para poder responderte)</span></label>
+                <input id="correo" name="correo" type="email" autocomplete="email" placeholder="tucorreo@ejemplo.com">
+            </div>
+
+            <div class="campo">
+                <label for="juego">Juego o parte afectada <span class="opcional">(opcional)</span></label>
+                <input id="juego" name="juego" type="text" placeholder="Nombre del juego, o la sección de Ludora">
+            </div>
+
+            <div class="campo">
+                <label for="descripcion">Qué pasó</label>
+                <textarea id="descripcion" name="descripcion" rows="7" placeholder="Cuenta qué ocurrió, con el mayor detalle que puedas."></textarea>
+            </div>
+
+            <div class="campo">
+                <label for="pasos">Cómo repetirlo <span class="opcional">(opcional, pero ayuda mucho)</span></label>
+                <textarea id="pasos" name="pasos" rows="5" placeholder="1. Abrí la tienda&#10;2. Pulsé Descargar&#10;3. ..."></textarea>
+            </div>
+
+            <div class="acciones">
+                <button class="boton" type="submit"><span>Enviar reporte</span></button>
+            </div>
+            <p id="aviso" role="status"></p>
+        </form>
+    </section>
+
+    <section id="que-hacemos" class="panel seccion">
+        <h2>Qué pasa con tu reporte</h2>
+        <ul>
+            <li>Llega al correo del soporte técnico y se lee. Si dejaste tu correo, se te responde.</li>
+            <li>Un juego señalado como sospechoso se revisa antes de tocar nada: no se retira de la tienda por una sola denuncia sin comprobarla.</li>
+            <li>Si el fallo afecta a la seguridad de otros usuarios, se arregla primero y se cuenta después, cuando ya no pueda aprovecharse.</li>
+            <li>Un reporte de robo de contenido necesita pruebas de autoría: enlaces, fechas, archivos originales. Sin eso no se puede decidir nada.</li>
+        </ul>
+    </section>
+
+    <section id="proteccion" class="panel seccion">
+        <h2>Cómo te protege Ludora</h2>
+        <ul>
+            <li><span class="etiqueta">Al descargar:</span> cada bloque del juego se revisa con el antivirus del equipo <em>antes</em> de llegar al disco. Si aparece algo, la descarga se corta y se borra lo escrito.</li>
+            <li><span class="etiqueta">Al terminar:</span> se analizan los archivos ya formados, que es donde se ve lo que un bloque suelto no puede mostrar — por ejemplo un ejecutable disfrazado de textura.</li>
+            <li><span class="etiqueta">Los paquetes:</span> van cifrados y cada bloque lleva su propia verificación, así que uno alterado se detecta en vez de instalarse.</li>
+            <li><span class="etiqueta">Tus compras:</span> lo que compras es tuyo. Si un juego se retira de la tienda, tu copia se libera en claro y sigue siendo jugable.</li>
+        </ul>
+        <p>El código está abierto en <a href="https://github.com/IkerCortes01/Ludora-Engine">github.com/IkerCortes01/Ludora-Engine</a>: puedes revisar tú mismo cómo funciona todo esto.</p>
+    </section>
+
+    <script>
+        // No hay servidor que reciba formularios: esta pagina es HTML estatico
+        // servido por nginx. Se compone un mailto, que funciona sin backend y
+        // ademas deja el reporte a la vista antes de enviarlo: nadie manda nada
+        // sin verlo primero.
+        const form = document.getElementById("reporte");
+        const aviso = document.getElementById("aviso");
+        const descripcion = document.getElementById("descripcion");
+        const SOPORTE = "armando.cortes@scram.com.mx";
+
+        const valor = id => document.getElementById(id).value.trim();
+
+        form.addEventListener("submit", (ev) => {
+            ev.preventDefault();
+
+            const texto = valor("descripcion");
+            if (!texto) {
+                aviso.textContent = "Cuenta qué pasó antes de enviar el reporte.";
+                aviso.className = "error";
+                descripcion.focus();
+                return;
+            }
+
+            // Un correo mal escrito se avisa, pero no bloquea: el campo es
+            // opcional, y quedarse sin reporte por una errata seria peor que
+            // recibirlo sin poder contestar.
+            const correo = valor("correo");
+            if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+                aviso.textContent = "Ese correo no parece válido. Revísalo, o déjalo vacío si prefieres no dejarlo.";
+                aviso.className = "error";
+                document.getElementById("correo").focus();
+                return;
+            }
+
+            const tipo = form.querySelector('input[name="tipo"]:checked').value;
+            const gravedad = document.getElementById("gravedad").value;
+            const juego = valor("juego");
+            const pasos = valor("pasos");
+
+            let cuerpo =
+                "Reporte de seguridad de Ludora\n\n" +
+                "Tipo: " + tipo + "\n" +
+                "Gravedad: " + gravedad + "\n" +
+                "Contacto: " + (correo || "no indicado") + "\n";
+            if (juego) cuerpo += "Afecta a: " + juego + "\n";
+            cuerpo += "\nQué pasó:\n" + texto + "\n";
+            if (pasos) cuerpo += "\nCómo repetirlo:\n" + pasos + "\n";
+
+            location.href = "mailto:" + SOPORTE +
+                "?subject=" + encodeURIComponent("[Seguridad Ludora] " + tipo + " (" + gravedad + ")") +
+                "&body=" + encodeURIComponent(cuerpo);
+
+            aviso.textContent = "Se abrió tu correo con el reporte escrito. Revísalo y envíalo para que llegue al soporte.";
+            aviso.className = "ok";
+        });
+    </script>
+</body>
+</html>

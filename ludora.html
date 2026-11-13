@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Instalar Ludora</title>
+    <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+    <header id="barra">
+        <a href="index.html">Inicio</a>
+        <span>Ludora</span>
+    </header>
+
+    <main id="adquirir" class="panel">
+        <div id="compra">
+            <a id="instalar-btn" class="boton" href="dist/Ludora-Instalador.exe" download><span>Instalar Ludora</span></a>
+        </div>
+        <div id="progreso" hidden>
+            <div id="estado" role="status"></div>
+            <progress id="barra-descarga" max="100"></progress>
+        </div>
+        <p id="nota">Ludora Engine es un motor propio para comprar, vender, guardar y jugar videojuegos en digital, con una idea detrás: que el juego sea del comprador y no una licencia. Está hecho en C++17 sobre Win32 puro, sin frameworks, y corre a 60 FPS estables en cualquier Windows&nbsp;10/11 de 64&nbsp;bits. Windows puede avisar de que el programa es desconocido: pulsa «Más información» y «Ejecutar de todas formas».</p>
+        <p id="alternativa">¿Prefieres el código? Está entero en <a href="https://github.com/IkerCortes01/Ludora-Engine">github.com/IkerCortes01/Ludora-Engine</a>, con sus versiones y sus compilaciones.</p>
+    </main>
+
+    <section id="noticias" class="panel seccion">
+        <h2>Noticias</h2>
+        <ul>
+            <li><time datetime="2026-11-13">13 nov 2026</time> — Descargar un juego ya no congela la aplicación, pese a su peso: el trabajo se fue a su propio hilo, con porcentaje a la vista y opción de cancelar.</li>
+            <li><time datetime="2026-11-13">13 nov 2026</time> — Al escribir, Enter salta de línea y una palabra que no cabe baja entera en vez de partirse.</li>
+            <li><time datetime="2026-11-12">12 nov 2026</time> — Subir un juego va por pasos: la ficha se confirma, los archivos se guardan y el precio se fija antes de poder publicar.</li>
+            <li><time datetime="2026-11-11">11 nov 2026</time> — Los juegos de la tienda vuelven a descargarse: un paquete guardado con el formato nuevo se leía como dañado.</li>
+            <li><time datetime="2026-11-10">10 nov 2026</time> — Antivirus al descargar: cada bloque se revisa antes de llegar al disco, y una amenaza corta la descarga en el acto.</li>
+            <li><time datetime="2026-11-09">9 nov 2026</time> — Paquetes de juego en flujo: más rápidos, más seguros y sin depender de la memoria del equipo.</li>
+        </ul>
+    </section>
+
+    <section id="criticas" class="panel seccion">
+        <h2>Críticas y comentarios</h2>
+        <p>¿Lo has probado? Cuenta qué tal. Se abre tu correo con el mensaje ya escrito; tú decides si lo envías.</p>
+
+        <form id="opinion" novalidate>
+            <div class="campo">
+                <label for="nombre">Tu nombre</label>
+                <input id="nombre" name="nombre" type="text" autocomplete="name" placeholder="Como quieras que aparezca">
+            </div>
+
+            <fieldset class="campo" id="estrellas-campo">
+                <legend>Puntuación</legend>
+                <div id="estrellas" role="radiogroup" aria-label="Puntuación de 1 a 5">
+                    <label><input type="radio" name="estrellas" value="1"><span>1</span></label>
+                    <label><input type="radio" name="estrellas" value="2"><span>2</span></label>
+                    <label><input type="radio" name="estrellas" value="3"><span>3</span></label>
+                    <label><input type="radio" name="estrellas" value="4"><span>4</span></label>
+                    <label><input type="radio" name="estrellas" value="5"><span>5</span></label>
+                </div>
+            </fieldset>
+
+            <div class="campo">
+                <label for="comentario">Tu comentario</label>
+                <textarea id="comentario" name="comentario" rows="6" placeholder="Qué te gustó, qué no, qué le falta..."></textarea>
+                <p class="ayuda"><span id="cuenta">0</span> caracteres</p>
+            </div>
+
+            <div class="acciones">
+                <button class="boton" type="submit"><span>Enviar comentario</span></button>
+            </div>
+            <p id="aviso-opinion" role="status"></p>
+        </form>
+    </section>
+
+    <section id="requisitos" class="panel seccion">
+        <h2>Qué necesitas</h2>
+        <ul>
+            <li>Windows 10 u 11 de 64 bits.</li>
+            <li>No hace falta nada más: Ludora no depende de bibliotecas externas ni de tiempos de ejecución que instalar aparte.</li>
+            <li>Espacio en disco: el motor ocupa unos cientos de KB; lo que pesa son los juegos que descargues.</li>
+        </ul>
+        <p>¿Encontraste un fallo, un robo de contenido o algo que no debería estar ahí? Cuéntanoslo en <a href="ludora-seguridad.html">Seguridad</a>.</p>
+    </section>
+
+    <script>
+        // --- descarga del instalador, con barra de progreso real ---
+        // Es el mismo planteamiento que en adquirir.html: se descarga con fetch
+        // para poder medir el avance. Desde file:// no se puede medir, y
+        // entonces descarga el propio navegador.
+        const boton = document.getElementById("instalar-btn");
+        const progreso = document.getElementById("progreso");
+        const estado = document.getElementById("estado");
+        const barra = document.getElementById("barra-descarga");
+        const MB = n => (n / 1048576).toFixed(1) + " MB";
+        let ocupado = false;
+
+        boton.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            if (ocupado) return;
+            ocupado = true;
+            progreso.hidden = false;
+            estado.textContent = "Descargando...";
+            barra.hidden = false;
+            barra.removeAttribute("value");
+            const url = boton.getAttribute("href");
+            try {
+                if (location.protocol === "file:") throw new Error("sin medida");
+                const r = await fetch(url);
+                if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
+                const total = +r.headers.get("Content-Length") || 0;
+                const trozos = [];
+                let llevado = 0;
+                for (const lector = r.body.getReader();;) {
+                    const { done, value } = await lector.read();
+                    if (done) break;
+                    trozos.push(value);
+                    llevado += value.length;
+                    if (total) {
+                        barra.value = 100 * llevado / total;
+                        estado.textContent = "Descargando: " + Math.floor(100 * llevado / total) + " % (" + MB(llevado) + " de " + MB(total) + ")";
+                    } else {
+                        estado.textContent = "Descargando: " + MB(llevado);
+                    }
+                }
+                const enlace = document.createElement("a");
+                enlace.href = URL.createObjectURL(new Blob(trozos, { type: "application/octet-stream" }));
+                enlace.download = "Ludora-Instalador.exe";
+                enlace.click();
+                setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
+                barra.value = 100;
+                estado.textContent = "Descarga lista. Abre Ludora-Instalador.exe para instalar el motor.";
+                ocupado = false;
+            } catch (e) {
+                // Si el instalador todavia no esta en el servidor, decirlo tal
+                // cual y ofrecer el camino que SI funciona, en vez de dejar al
+                // visitante con una descarga que falla sin explicacion.
+                barra.hidden = true;
+                estado.innerHTML = 'No se pudo descargar el instalador desde aquí. Puedes conseguir Ludora en <a href="https://github.com/IkerCortes01/Ludora-Engine">github.com/IkerCortes01/Ludora-Engine</a>.';
+                ocupado = false;
+            }
+        });
+
+        // --- comentario ---
+        // No hay servidor que reciba formularios: esta pagina es HTML estatico
+        // servido por nginx. Se compone un mailto, que funciona sin backend y
+        // deja el mensaje a la vista antes de enviarlo -- nadie manda nada sin
+        // verlo. Guardarlo en el navegador no serviria: solo lo veria quien
+        // escribio.
+        const form = document.getElementById("opinion");
+        const comentario = document.getElementById("comentario");
+        const cuenta = document.getElementById("cuenta");
+        const aviso = document.getElementById("aviso-opinion");
+        const SOPORTE = "armando.cortes@scram.com.mx";
+
+        comentario.addEventListener("input", () => {
+            cuenta.textContent = comentario.value.length;
+        });
+
+        form.addEventListener("submit", (ev) => {
+            ev.preventDefault();
+            const texto = comentario.value.trim();
+            if (!texto) {
+                aviso.textContent = "Escribe un comentario antes de enviarlo.";
+                aviso.className = "error";
+                comentario.focus();
+                return;
+            }
+
+            const nombre = document.getElementById("nombre").value.trim() || "Anónimo";
+            const puntuada = form.querySelector('input[name="estrellas"]:checked');
+            const estrellas = puntuada ? puntuada.value + " de 5" : "sin puntuar";
+
+            const cuerpo =
+                "Comentario sobre Ludora\n\n" +
+                "De: " + nombre + "\n" +
+                "Puntuación: " + estrellas + "\n\n" +
+                texto + "\n";
+
+            location.href = "mailto:" + SOPORTE +
+                "?subject=" + encodeURIComponent("Comentario sobre Ludora — " + nombre) +
+                "&body=" + encodeURIComponent(cuerpo);
+
+            aviso.textContent = "Se abrió tu correo con el comentario escrito. Revísalo y envíalo.";
+            aviso.className = "ok";
+        });
+    </script>
+</body>
+</html>

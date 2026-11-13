@@ -234,6 +234,120 @@ body::before {
     font: 400 17px/1.5 var(--mono);
     color: #fff;
 }
+
+/* --- Paginas de Ludora --- */
+#titulo-seguridad {
+    margin: 0 0 .6em;
+    text-align: center;
+    font: 700 clamp(28px, 5vw, 52px)/1.15 var(--mono);
+    color: #fff;
+    text-shadow: 0 0 10px var(--neon), 0 0 30px var(--neon);
+}
+#alternativa {
+    max-width: 62ch;
+    margin: 18px auto 0;
+    text-align: center;
+    color: var(--tenue);
+    font-size: 16px;
+    line-height: 1.6;
+}
+#alternativa a { color: #fff; text-shadow: 0 0 8px var(--neon); }
+/* Sin la imagen de Voxel World, el boton no debe estirarse de lado a lado. */
+#compra .boton:only-child { flex: 0 1 420px; }
+
+/* --- Formularios --- */
+.campo {
+    margin: 26px 0 0;
+    padding: 0;
+    border: 0;
+}
+.campo > label, .campo > legend {
+    display: block;
+    margin-bottom: .5em;
+    padding: 0;
+    font: 700 15px var(--mono);
+    color: #fff;
+    text-shadow: 0 0 8px var(--neon);
+}
+.campo .opcional { color: var(--tenue); font-weight: 400; text-shadow: none; }
+
+.campo input[type="text"],
+.campo input[type="email"],
+.campo textarea,
+.campo select {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 70ch;
+    padding: 12px 14px;
+    color: var(--texto);
+    background: rgba(0, 0, 0, .5);
+    border: 1px solid var(--neon);
+    border-radius: 0;
+    font: 400 16px/1.5 var(--sans);
+}
+.campo textarea { resize: vertical; font-family: var(--mono); font-size: 15px; }
+.campo input:focus, .campo textarea:focus, .campo select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--neon), 0 0 16px -2px var(--neon);
+}
+.campo input::placeholder, .campo textarea::placeholder { color: #5e6880; }
+.campo select { appearance: none; cursor: pointer; }
+.campo select option { background: #0a0c18; color: var(--texto); }
+
+.ayuda { margin: .5em 0 0; color: var(--tenue); font: 400 14px var(--mono); }
+
+/* Opciones en casillas: la propia casilla se oculta y se pinta la etiqueta,
+   que es mucho mas facil de pulsar en un movil. */
+.tipos, #estrellas { display: flex; flex-wrap: wrap; gap: 12px; }
+.tipos label, #estrellas label { cursor: pointer; }
+.tipos input, #estrellas input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.tipos span, #estrellas span {
+    display: block;
+    padding: 10px 16px;
+    font: 400 15px var(--mono);
+    color: var(--texto);
+    background: rgba(0, 0, 0, .5);
+    border: 1px solid rgba(130, 150, 220, .35);
+    transition: color .15s, border-color .15s;
+}
+#estrellas span { min-width: 2.4em; text-align: center; }
+.tipos label:hover span, #estrellas label:hover span { color: #fff; border-color: var(--neon); }
+.tipos input:checked + span, #estrellas input:checked + span {
+    color: #fff;
+    border-color: var(--neon);
+    box-shadow: inset 0 0 0 1px var(--neon), 0 0 12px -2px var(--neon);
+}
+/* El foco del teclado tiene que verse: la casilla real esta oculta. */
+.tipos input:focus-visible + span, #estrellas input:focus-visible + span {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+.acciones { margin-top: 32px; }
+/* Un <button> no hereda el ancho flexible de los enlaces .boton. */
+.acciones .boton {
+    display: inline-block;
+    padding: 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+}
+.acciones .boton span { padding: 20px 40px; }
+
+#aviso, #aviso-opinion {
+    margin: 18px 0 0;
+    max-width: 70ch;
+    font: 400 16px/1.5 var(--mono);
+    min-height: 1.5em;
+}
+#aviso.ok, #aviso-opinion.ok { color: #7dffa8; }
+#aviso.error, #aviso-opinion.error { color: #ff8e8e; }
 #barra-descarga {
     display: block;
     width: 100%;

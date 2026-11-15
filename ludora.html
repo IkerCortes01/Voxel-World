@@ -101,6 +101,8 @@
     <section id="noticias" class="panel seccion">
         <h2>Noticias</h2>
         <ul>
+            <li><time datetime="2026-11-15">15 nov 2026</time> — Ya se puede instalar desde aquí: el instalador copia Ludora a tu equipo, crea los accesos directos y, si creaste la cuenta en esta página, la deja lista junto a Ludora.exe.</li>
+            <li><time datetime="2026-11-15">15 nov 2026</time> — Ludora abre en la Tienda la primera vez, y después en la sección donde te quedaste. Se recuerda por cuenta, así que dos personas en el mismo equipo no se heredan el sitio.</li>
             <li><time datetime="2026-11-13">13 nov 2026</time> — Descargar un juego ya no congela la aplicación, pese a su peso: el trabajo se fue a su propio hilo, con porcentaje a la vista y opción de cancelar.</li>
             <li><time datetime="2026-11-13">13 nov 2026</time> — Al escribir, Enter salta de línea y una palabra que no cabe baja entera en vez de partirse.</li>
             <li><time datetime="2026-11-12">12 nov 2026</time> — Subir un juego va por pasos: la ficha se confirma, los archivos se guardan y el precio se fija antes de poder publicar.</li>
@@ -410,7 +412,7 @@
                     document.getElementById("progreso").hidden = false;
                     document.getElementById("barra-descarga").hidden = true;
                     document.getElementById("estado").textContent =
-                        "Cuenta creada. Se ha descargado cuenta.dat: después de instalar, ponlo en la carpeta de Ludora, junto a Ludora.exe, y entra con tu contraseña. Ya puedes instalar.";
+                        "Cuenta creada. Se ha descargado cuenta.dat: déjalo en Descargas y el instalador lo pondrá junto a Ludora.exe; luego entra con tu contraseña. Ya puedes instalar.";
                 } catch (e) {
                     avisar("No se pudo crear la cuenta: " + e.message, false);
                 }

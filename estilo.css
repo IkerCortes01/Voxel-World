@@ -627,3 +627,21 @@ html.sin-scroll { overflow: hidden; }
 #noti-items strong { font: 700 13px var(--mono); color: #fff; }
 #noti-items time { font: 400 12px var(--mono); color: var(--tenue); }
 #ludora-caja > .boton { width: 100%; }
+#compra.en-columna { flex-direction: column; align-items: center; gap: 16px; }
+#compra.en-columna .boton { flex: 0 0 auto; width: min(420px, 100%); }
+/* El perfil de la cuenta de Ludora: ocupa el sitio del formulario de crear. */
+#ludora-crear[hidden], #ludora-perfil[hidden] { display: none; }
+#ludora-caja { max-height: calc(100vh - 32px); overflow-y: auto; }
+#ludora-caja textarea, #ludora-caja select {
+    display: block; width: 100%; margin-top: 7px; padding: 11px 12px; box-sizing: border-box;
+    background: #040404; color: #fff; border: 1px solid #4a2c2e; font: 400 16px var(--sans); resize: vertical;
+}
+#ludora-caja textarea:focus-visible, #ludora-caja select:focus-visible { outline: 2px solid #e01e23; outline-offset: 1px; }
+#ludora-caja input[type="color"] { display: block; margin-top: 7px; width: 72px; height: 36px; padding: 2px; background: #040404; border: 1px solid #4a2c2e; cursor: pointer; }
+.perfil-foto { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; flex-wrap: wrap; }
+.perfil-foto label { flex: 1 1 180px; margin: 0 !important; }
+#p-vista {
+    flex: 0 0 72px; width: 72px; height: 72px; border-radius: 50%; border: 2px solid #fff;
+    display: grid; place-items: center; background: #2a3260 center / cover no-repeat;
+    font: 700 28px var(--mono); color: #fff;
+}

@@ -5,28 +5,69 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Instalar Ludora</title>
-    <link rel="stylesheet" href="estilo.css?v=4">
+    <link rel="stylesheet" href="estilo.css?v=6">
 </head>
 <body>
     <!-- La cuenta va primero: mientras este abierta, la pagina de detras queda
          borrosa y no se puede tocar (ver el ultimo script). -->
     <div id="cuenta-velo" hidden>
         <form id="ludora-caja" role="dialog" aria-modal="true" aria-labelledby="ludora-titulo" novalidate>
-            <h2 id="ludora-titulo">Crea tu cuenta de Ludora</h2>
-            <p class="intro">Antes de instalar hace falta una cuenta. Se crea aqu&iacute;, en tu navegador: la contrase&ntilde;a no se env&iacute;a a ning&uacute;n sitio.</p>
-            <label>Tu nombre
-                <input id="l-nombre" type="text" maxlength="24" autocomplete="name" required>
-            </label>
-            <label>Cuenta <small>(tu nombre m&aacute;s @ludora.engine)</small>
-                <span class="con-sufijo"><input id="l-cuenta" type="text" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" required><span>@ludora.engine</span></span>
-            </label>
-            <label>Contrase&ntilde;a <small>(6 o m&aacute;s caracteres)</small>
-                <input id="l-clave" type="password" maxlength="64" autocomplete="new-password" required>
-            </label>
-            <label>Repite la contrase&ntilde;a
-                <input id="l-clave2" type="password" maxlength="64" autocomplete="new-password" required>
-            </label>
-            <button type="submit" class="boton"><span>Crear cuenta</span></button>
+            <!-- Sin cuenta: crearla. -->
+            <div id="ludora-crear">
+                <h2 id="ludora-titulo">Crea tu cuenta de Ludora</h2>
+                <p class="intro">Antes de instalar hace falta una cuenta. Se crea aqu&iacute;, en tu navegador: la contrase&ntilde;a no se env&iacute;a a ning&uacute;n sitio.</p>
+                <label>Tu nombre
+                    <input id="l-nombre" type="text" maxlength="24" autocomplete="name" required>
+                </label>
+                <label>Cuenta <small>(tu nombre m&aacute;s @ludora.engine)</small>
+                    <span class="con-sufijo"><input id="l-cuenta" type="text" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" required><span>@ludora.engine</span></span>
+                </label>
+                <label>Contrase&ntilde;a <small>(6 o m&aacute;s caracteres)</small>
+                    <input id="l-clave" type="password" maxlength="64" autocomplete="new-password" required>
+                </label>
+                <label>Repite la contrase&ntilde;a
+                    <input id="l-clave2" type="password" maxlength="64" autocomplete="new-password" required>
+                </label>
+                <button type="submit" class="boton"><span>Crear cuenta</span></button>
+            </div>
+            <!-- Con cuenta: ya no se cambia por otra. Esta seccion ocupa el
+                 sitio de la anterior y deja retocar el perfil, no la contrasena. -->
+            <div id="ludora-perfil" hidden>
+                <h2>Tu perfil de Ludora</h2>
+                <p class="intro">Cuenta: <strong id="p-cuenta"></strong>. La cuenta y la contrase&ntilde;a no se cambian aqu&iacute;.</p>
+                <div class="perfil-foto">
+                    <span id="p-vista" aria-hidden="true"></span>
+                    <label>Foto de perfil
+                        <input id="p-foto" type="file" accept="image/png,image/jpeg,image/bmp,image/webp">
+                    </label>
+                    <button type="button" id="p-sin-foto" class="plano">Quitar foto</button>
+                </div>
+                <label>Nombre
+                    <input id="p-nombre" type="text" maxlength="24" autocomplete="name" required>
+                </label>
+                <label>Descripci&oacute;n <small>(hasta 160 caracteres)</small>
+                    <textarea id="p-desc" maxlength="160" rows="3" placeholder="Cu&eacute;ntale a los dem&aacute;s qui&eacute;n eres o a qu&eacute; juegas"></textarea>
+                </label>
+                <label>Estado
+                    <select id="p-estado">
+                        <option value="">Sin estado</option>
+                        <option>Disponible</option>
+                        <option>Jugando</option>
+                        <option>Ocupado</option>
+                        <option>Ausente</option>
+                    </select>
+                </label>
+                <label>Juego favorito <small>(opcional)</small>
+                    <input id="p-juego" type="text" maxlength="40">
+                </label>
+                <label>Color de tu insignia
+                    <input id="p-color" type="color" value="#e01e23">
+                </label>
+                <div class="fila">
+                    <button type="button" id="p-cerrar" class="plano">Cerrar</button>
+                    <button type="submit" class="boton"><span>Guardar</span></button>
+                </div>
+            </div>
             <p id="ludora-aviso" role="alert"></p>
         </form>
     </div>
@@ -35,7 +76,7 @@
     <aside id="cuenta-insignia" hidden>
         <span id="insignia-foto" aria-hidden="true"></span>
         <span id="insignia-texto"><strong id="insignia-nombre"></strong><small id="insignia-cuenta"></small></span>
-        <button type="button" id="insignia-cambiar" class="plano" title="Crear otra cuenta">Cambiar</button>
+        <button type="button" id="insignia-cambiar" class="plano" title="Editar tu perfil">Perfil</button>
     </aside>
 
     <header id="barra">
@@ -44,8 +85,10 @@
     </header>
 
     <main id="adquirir" class="panel">
-        <div id="compra">
-            <a id="instalar-btn" class="boton" href="dist/Ludora-Instalador.exe" download><span>Instalar Ludora</span></a>
+        <!-- Arriba la de PC, debajo la de movil. -->
+        <div id="compra" class="en-columna">
+            <a id="instalar-btn" class="boton" href="dist/Ludora-Instalador.exe" download><span>Instalar en PC (Windows)</span></a>
+            <a id="instalar-movil" class="boton" href="dist/Ludora.apk" download><span>Instalar en m&oacute;vil (Android)</span></a>
         </div>
         <div id="progreso" hidden>
             <div id="estado" role="status"></div>
@@ -104,7 +147,8 @@
     <section id="requisitos" class="panel seccion">
         <h2>Qué necesitas</h2>
         <ul>
-            <li>Windows 10 u 11 de 64 bits.</li>
+            <li><span class="etiqueta">PC:</span> Windows 10 u 11 de 64 bits.</li>
+            <li><span class="etiqueta">M&oacute;vil:</span> Android 8.0 o posterior. Es una aplicaci&oacute;n aparte, con su propia cuenta en el tel&eacute;fono: todav&iacute;a no se sincroniza con el PC.</li>
             <li>No hace falta nada más: Ludora no depende de bibliotecas externas ni de tiempos de ejecución que instalar aparte.</li>
             <li>Espacio en disco: el motor ocupa unos cientos de KB; lo que pesa son los juegos que descargues.</li>
         </ul>
@@ -116,58 +160,66 @@
         // Es el mismo planteamiento que en adquirir.html: se descarga con fetch
         // para poder medir el avance. Desde file:// no se puede medir, y
         // entonces descarga el propio navegador.
-        const boton = document.getElementById("instalar-btn");
         const progreso = document.getElementById("progreso");
         const estado = document.getElementById("estado");
         const barra = document.getElementById("barra-descarga");
         const MB = n => (n / 1048576).toFixed(1) + " MB";
         let ocupado = false;
 
-        boton.addEventListener("click", async (ev) => {
-            ev.preventDefault();
-            if (ocupado) return;
-            ocupado = true;
-            progreso.hidden = false;
-            estado.textContent = "Descargando...";
-            barra.hidden = false;
-            barra.removeAttribute("value");
-            const url = boton.getAttribute("href");
-            try {
-                if (location.protocol === "file:") throw new Error("sin medida");
-                const r = await fetch(url);
-                if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
-                const total = +r.headers.get("Content-Length") || 0;
-                const trozos = [];
-                let llevado = 0;
-                for (const lector = r.body.getReader();;) {
-                    const { done, value } = await lector.read();
-                    if (done) break;
-                    trozos.push(value);
-                    llevado += value.length;
-                    if (total) {
-                        barra.value = 100 * llevado / total;
-                        estado.textContent = "Descargando: " + Math.floor(100 * llevado / total) + " % (" + MB(llevado) + " de " + MB(total) + ")";
-                    } else {
-                        estado.textContent = "Descargando: " + MB(llevado);
+        // Las dos versiones se descargan igual; cambia el archivo y lo que se
+        // dice al acabar o si el archivo no esta en el servidor.
+        function prepararDescarga(boton, archivo, alAcabar, siFalta) {
+            boton.addEventListener("click", async (ev) => {
+                ev.preventDefault();
+                if (ocupado) return;
+                ocupado = true;
+                progreso.hidden = false;
+                estado.textContent = "Descargando...";
+                barra.hidden = false;
+                barra.removeAttribute("value");
+                const url = boton.getAttribute("href");
+                try {
+                    if (location.protocol === "file:") throw new Error("sin medida");
+                    const r = await fetch(url);
+                    if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
+                    const total = +r.headers.get("Content-Length") || 0;
+                    const trozos = [];
+                    let llevado = 0;
+                    for (const lector = r.body.getReader();;) {
+                        const { done, value } = await lector.read();
+                        if (done) break;
+                        trozos.push(value);
+                        llevado += value.length;
+                        if (total) {
+                            barra.value = 100 * llevado / total;
+                            estado.textContent = "Descargando: " + Math.floor(100 * llevado / total) + " % (" + MB(llevado) + " de " + MB(total) + ")";
+                        } else {
+                            estado.textContent = "Descargando: " + MB(llevado);
+                        }
                     }
+                    const enlace = document.createElement("a");
+                    enlace.href = URL.createObjectURL(new Blob(trozos, { type: "application/octet-stream" }));
+                    enlace.download = archivo;
+                    enlace.click();
+                    setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
+                    barra.value = 100;
+                    estado.textContent = alAcabar;
+                } catch (e) {
+                    // Si el archivo todavia no esta en el servidor, decirlo tal
+                    // cual, en vez de dejar al visitante con una descarga que
+                    // falla sin explicacion.
+                    barra.hidden = true;
+                    estado.innerHTML = siFalta;
                 }
-                const enlace = document.createElement("a");
-                enlace.href = URL.createObjectURL(new Blob(trozos, { type: "application/octet-stream" }));
-                enlace.download = "Ludora-Instalador.exe";
-                enlace.click();
-                setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
-                barra.value = 100;
-                estado.textContent = "Descarga lista. Abre Ludora-Instalador.exe para instalar el motor.";
                 ocupado = false;
-            } catch (e) {
-                // Si el instalador todavia no esta en el servidor, decirlo tal
-                // cual y ofrecer el camino que SI funciona, en vez de dejar al
-                // visitante con una descarga que falla sin explicacion.
-                barra.hidden = true;
-                estado.innerHTML = 'No se pudo descargar el instalador desde aquí. Puedes conseguir Ludora en <a href="https://github.com/IkerCortes01/Ludora-Engine">github.com/IkerCortes01/Ludora-Engine</a>.';
-                ocupado = false;
-            }
-        });
+            });
+        }
+        prepararDescarga(document.getElementById("instalar-btn"), "Ludora-Instalador.exe",
+            "Descarga lista. Abre Ludora-Instalador.exe para instalar el motor.",
+            'No se pudo descargar el instalador desde aquí. Puedes conseguir Ludora en <a href="https://github.com/IkerCortes01/Ludora-Engine">github.com/IkerCortes01/Ludora-Engine</a>.');
+        prepararDescarga(document.getElementById("instalar-movil"), "Ludora.apk",
+            "Descarga lista. Abre Ludora.apk en tu teléfono Android (8.0 o más) y permite instalar desde este origen.",
+            "La versión de móvil todavía no está disponible para descargar. Vuelve pronto.");
 
         // --- comentario ---
         // No hay servidor que reciba formularios: esta pagina es HTML estatico
@@ -235,21 +287,92 @@
             const hex = b => [...new Uint8Array(b)].map(v => v.toString(16).padStart(2, "0")).join("");
             const avisar = (t, bueno) => { aviso.textContent = t; aviso.className = bueno ? "ok" : "error"; };
 
+            const crear = el("ludora-crear"), perfil = el("ludora-perfil");
+            const LIMPIO = /[^\x20-\x7e\xa1-\xff]/g;
+            let cuenta = null;         // { nombre, cuenta, desc, estado, juego, color, foto }
+            let fotoNueva = null;      // null = sin tocar; "" = quitada; data: = otra
+
             function bloquear(si) {
                 velo.hidden = !si;
                 for (const e of fondo) { e.inert = si; e.classList.toggle("tras-el-velo", si); }
                 document.documentElement.classList.toggle("sin-scroll", si);
-                if (si) el("l-nombre").focus();
             }
-            function ensenarInsignia(nombre, cuenta) {
-                el("insignia-nombre").textContent = nombre;
-                el("insignia-cuenta").textContent = cuenta;
-                el("insignia-foto").textContent = (nombre[0] || "?").toUpperCase();
+            function pintarFoto(donde, foto, nombre) {
+                donde.textContent = foto ? "" : (nombre[0] || "?").toUpperCase();
+                donde.style.backgroundImage = foto ? "url(" + foto + ")" : "";
+            }
+            function ensenarInsignia() {
+                el("insignia-nombre").textContent = cuenta.nombre;
+                el("insignia-cuenta").textContent = cuenta.estado ? cuenta.estado + " · " + cuenta.cuenta : cuenta.cuenta;
+                pintarFoto(el("insignia-foto"), cuenta.foto, cuenta.nombre);
+                insignia.style.borderColor = cuenta.color || "";
+                insignia.title = cuenta.desc || "";
                 insignia.hidden = false;
+            }
+            function guardar() {
+                try { localStorage.setItem("ludora-cuenta", JSON.stringify(cuenta)); return true; }
+                catch (e) { return false; }      // sin sitio o sin almacenamiento
+            }
+            // CON CUENTA NO SE CREA OTRA: el formulario de crear deja su sitio
+            // al del perfil.
+            function abrirPerfil() {
+                crear.hidden = true;
+                perfil.hidden = false;
+                fotoNueva = null;
+                el("p-cuenta").textContent = cuenta.cuenta;
+                el("p-nombre").value = cuenta.nombre;
+                el("p-desc").value = cuenta.desc || "";
+                el("p-estado").value = cuenta.estado || "";
+                el("p-juego").value = cuenta.juego || "";
+                el("p-color").value = cuenta.color || "#e01e23";
+                el("p-foto").value = "";
+                pintarFoto(el("p-vista"), cuenta.foto, cuenta.nombre);
+                avisar("", true);
+                bloquear(true);
+                el("p-nombre").focus();
+            }
+            // La foto se guarda pequena (128 px) para que quepa en el navegador.
+            el("p-foto").addEventListener("change", (ev) => {
+                const f = ev.target.files[0];
+                if (!f) return;
+                const img = new Image();
+                img.onload = () => {
+                    const L = 128, c = document.createElement("canvas");
+                    c.width = c.height = L;
+                    const m = Math.min(img.width, img.height);
+                    c.getContext("2d").drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, L, L);
+                    fotoNueva = c.toDataURL("image/jpeg", 0.85);
+                    pintarFoto(el("p-vista"), fotoNueva, el("p-nombre").value);
+                    URL.revokeObjectURL(img.src);
+                };
+                img.onerror = () => avisar("Esa imagen no se pudo leer.", false);
+                img.src = URL.createObjectURL(f);
+            });
+            el("p-sin-foto").addEventListener("click", () => {
+                fotoNueva = "";
+                el("p-foto").value = "";
+                pintarFoto(el("p-vista"), "", el("p-nombre").value);
+            });
+            el("p-cerrar").addEventListener("click", () => bloquear(false));
+
+            function guardarPerfil() {
+                const nombre = el("p-nombre").value.replace(/ +/g, " ").trim();
+                if (!/^[\x20-\x7e\xa1-\xff]{1,24}$/.test(nombre))
+                    return avisar("Tu nombre: hasta 24 caracteres.", false);
+                cuenta.nombre = nombre;
+                cuenta.desc = el("p-desc").value.replace(/\s+/g, " ").trim().slice(0, 160);
+                cuenta.estado = el("p-estado").value;
+                cuenta.juego = el("p-juego").value.replace(/ +/g, " ").trim().slice(0, 40);
+                cuenta.color = el("p-color").value;
+                if (fotoNueva !== null) cuenta.foto = fotoNueva;
+                ensenarInsignia();
+                if (!guardar()) return avisar("Guardado para esta visita: el navegador no deja recordarlo.", false);
+                bloquear(false);
             }
 
             caja.addEventListener("submit", async (ev) => {
                 ev.preventDefault();
+                if (cuenta) return guardarPerfil();
                 if (!window.crypto || !crypto.subtle)
                     return avisar("Este navegador no deja crear la cuenta aquí (hace falta abrir la página por https). Puedes crearla dentro de Ludora.", false);
                 const nombre = el("l-nombre").value.replace(/ +/g, " ").trim();
@@ -278,11 +401,11 @@
                     enlace.download = "cuenta.dat";
                     enlace.click();
                     setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
-                    try { localStorage.setItem("ludora-cuenta", JSON.stringify({ nombre, cuenta: local + DOMINIO })); }
-                    catch (e) { /* sin almacenamiento: la insignia vale para esta visita */ }
+                    cuenta = { nombre, cuenta: local + DOMINIO, desc: "", estado: "", juego: "", color: "", foto: "" };
+                    guardar();
                     el("l-clave").value = el("l-clave2").value = "";
                     avisar("", true);
-                    ensenarInsignia(nombre, local + DOMINIO);
+                    ensenarInsignia();
                     bloquear(false);
                     document.getElementById("progreso").hidden = false;
                     document.getElementById("barra-descarga").hidden = true;
@@ -292,14 +415,19 @@
                     avisar("No se pudo crear la cuenta: " + e.message, false);
                 }
             });
-            el("insignia-cambiar").addEventListener("click", () => { avisar("", true); bloquear(true); });
+            el("insignia-cambiar").addEventListener("click", abrirPerfil);
 
             // Al entrar: con cuenta ya creada en este navegador, la insignia;
-            // sin ella, el formulario por delante de todo.
-            let guardada = null;
-            try { guardada = JSON.parse(localStorage.getItem("ludora-cuenta") || "null"); } catch (e) { guardada = null; }
-            if (guardada && guardada.nombre && guardada.cuenta) ensenarInsignia(guardada.nombre, guardada.cuenta);
-            else bloquear(true);
+            // sin ella, el formulario de crear por delante de todo.
+            try { cuenta = JSON.parse(localStorage.getItem("ludora-cuenta") || "null"); } catch (e) { cuenta = null; }
+            if (cuenta && cuenta.nombre && cuenta.cuenta) {
+                cuenta.nombre = String(cuenta.nombre).replace(LIMPIO, "").slice(0, 24) || "?";
+                ensenarInsignia();
+            } else {
+                cuenta = null;
+                bloquear(true);
+                el("l-nombre").focus();
+            }
         })();
     </script>
 </body>

@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -210,4 +212,76 @@ TEST_CASE("Renombrar: un nombre con espacios y acentos pasa tal cual") {
     for (const std::string& l : despues)
         if (l == "LevelName=Valle del Ocote") ok = true;
     CHECK(ok);
+}
+
+// ⭐ RENOMBRAR SIN MOVER LA CARPETA. PEDIDO: "que en cualquier momento, sin
+// bugs, el usuario pueda modificar el nombre de su mundo como quiera y cuando
+// quiera y que se vea realmente la modificacion". Se vigila el texto del
+// motor: son reglas que, si alguien las deshace, devuelven los fallos.
+namespace {
+std::string motorEntero() {
+    std::string r;
+#ifdef RAIZ_PROYECTO
+    r = RAIZ_PROYECTO;
+    if (!r.empty() && r.back() != '/' && r.back() != '\\') r += '/';
+#endif
+    std::ifstream f(r + "src/main.cpp", std::ios::binary);
+    if (!f.good()) return {};
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+std::string cuerpoDe(const std::string& src, const std::string& cabecera, const std::string& hasta) {
+    const size_t a = src.find(cabecera);
+    if (a == std::string::npos) return {};
+    const size_t b = src.find(hasta, a + cabecera.size());
+    return src.substr(a, b == std::string::npos ? std::string::npos : b - a);
+}
+} // namespace
+
+TEST_CASE("Renombrar: no mueve la carpeta, asi que no puede fallar a medias ni con el mundo abierto") {
+    const std::string src = motorEntero();
+    REQUIRE_FALSE(src.empty());
+    const std::string f = cuerpoDe(src, "bool renameWorld(GameState* state, int worldIndex, const std::string& newName) {",
+                                   "int indiceDelMundoAbierto");
+    REQUIRE_FALSE(f.empty());
+    CHECK(f.find("std::filesystem::rename(") == std::string::npos);   // la carpeta se queda
+    CHECK(f.find("renombrarEnLevelDat(w.folderPath, titulo)") != std::string::npos);
+    CHECK(f.find("w.name = titulo;") != std::string::npos);            // la lista, al instante
+    CHECK(f.find("state->currentWorldTitle = titulo;") != std::string::npos);   // y la partida abierta
+    CHECK(f.find("w.name = anterior;") != std::string::npos);          // si no se pudo escribir, como estaba
+}
+
+TEST_CASE("Renombrar: el mundo se abre y se guarda por su carpeta, no por su nombre") {
+    const std::string src = motorEntero();
+    REQUIRE_FALSE(src.empty());
+    CHECK(src.find("state->currentWorldName = carpetaDe(state->savedWorlds[worldIndex]);") != std::string::npos);
+    CHECK(src.find("state->currentWorldName = state->savedWorlds[worldIndex].name;") == std::string::npos);
+    CHECK(src.find("worldInfo.name == state->currentWorldName") == std::string::npos);
+    CHECK(src.find("\"MUNDO\", st->currentWorldName }") == std::string::npos);   // se ve el titulo
+}
+
+TEST_CASE("Renombrar: ENTER y GUARDAR van por la misma ruta, tambien desde la pausa, y el fallo se ve") {
+    const std::string src = motorEntero();
+    REQUIRE_FALSE(src.empty());
+    const std::string enPausa = "confirmarNombreEditado(g_gameState, indiceDelMundoAbierto(g_gameState))";
+    size_t n = 0;
+    for (size_t p = src.find(enPausa); p != std::string::npos; p = src.find(enPausa, p + 1)) ++n;
+    CHECK(n == 2);                                                       // ENTER y el boton, en la pausa
+    CHECK(src.find("confirmarNombreEditado(g_gameState, g_gameState->selectedWorldIndex);") != std::string::npos);
+    CHECK(src.find("confirmarNombreEditado(state, state->selectedWorldIndex);") != std::string::npos);
+    const std::string f = cuerpoDe(src, "bool confirmarNombreEditado(GameState* state, int worldIndex) {",
+                                   "// Renderizar");
+    CHECK(f.find("EL NOMBRE NO PUEDE ESTAR VACIO") != std::string::npos);
+    CHECK(f.find("NO SE PUDO GUARDAR EL NOMBRE") != std::string::npos);
+    CHECK(src.find("\"CAMBIAR NOMBRE\"") != std::string::npos);
+}
+
+TEST_CASE("Renombrar: level.dat se cambia por un temporal, nunca truncando el bueno") {
+    const std::string src = motorEntero();
+    REQUIRE_FALSE(src.empty());
+    const size_t a = src.find("bool renombrarEnLevelDat(const std::string& worldPath,");
+    const size_t def = src.find("bool renombrarEnLevelDat(const std::string& worldPath,", a + 1);   // la definicion
+    REQUIRE(def != std::string::npos);
+    const std::string g = src.substr(def, src.find("void saveLevelDat(", def) - def);
+    CHECK(g.find("level.dat.nombre") != std::string::npos);
+    CHECK(g.find("std::ofstream out(levelPath") == std::string::npos);
 }

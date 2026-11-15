@@ -99,3 +99,55 @@ TEST_CASE("WorldName: describe da un mensaje para cada motivo") {
         CHECK(std::string(WorldName::describe(v)).length() > 0);
     }
 }
+
+TEST_CASE("WorldName: limpiar deja el nombre escrito listo para ser carpeta") {
+    // BUG: el mundo salia siempre como "Mundo N" en vez del nombre escrito.
+    CHECK(WorldName::limpiar("Mi Casa") == "Mi Casa");
+    CHECK(WorldName::limpiar("  Mi Casa  ") == "Mi Casa");
+    CHECK(WorldName::limpiar("a/b:c") == "abc");
+    CHECK(WorldName::limpiar("") == "Nuevo Mundo");
+    CHECK(WorldName::limpiar("   ") == "Nuevo Mundo");
+    CHECK(WorldName::limpiar("CON") == "Nuevo Mundo");
+    CHECK(WorldName::limpiar(std::string(80, 'x')).size() == WorldName::MAX_LENGTH);
+    CHECK(WorldName::isValid(WorldName::limpiar("hola   ")));
+}
+
+// ⭐ EL TITULO: lo que se ve, que ya no es la carpeta. PEDIDO: "que en
+// cualquier momento, sin bugs, el usuario pueda modificar el nombre de su
+// mundo como quiera y cuando quiera".
+TEST_CASE("WorldName: como titulo vale lo que antes no valia como carpeta") {
+    using namespace WorldName;
+    // Reservados de Windows, puntos, parentesis, barras: ya no son una ruta.
+    CHECK(limpiarTitulo("CON") == "CON");
+    CHECK(limpiarTitulo("Mi mundo (v2.0)") == "Mi mundo (v2.0)");
+    CHECK(limpiarTitulo("Casa/Granja + 50%") == "Casa/Granja + 50%");
+    CHECK(limpiarTitulo("El rancho de 'Iker', 2026") == "El rancho de 'Iker', 2026");
+    CHECK(limpiarTitulo("a") == "a");
+    CHECK_FALSE(isValid("CON"));            // como carpeta sigue sin valer
+    CHECK_FALSE(isValid("Mi mundo (v2.0)"));
+}
+
+TEST_CASE("WorldName: el titulo se limpia y nunca queda vacio por descuido") {
+    using namespace WorldName;
+    CHECK(limpiarTitulo("   Mundo 1   ") == "Mundo 1");
+    CHECK(limpiarTitulo("") == "");
+    CHECK(limpiarTitulo("     ") == "");
+    // (Despues entro todo el teclado: la enie y los signos ya se dibujan y se
+    // quedan. Lo que se quita son los caracteres de control.)
+    CHECK(limpiarTitulo("Ni\xC3\xB1o*<>|?\"\\:") == "Ni\xC3\xB1o*<>|?\"\\:");
+    CHECK(limpiarTitulo("a\x01\x7f" "b\n") == "ab");
+    // Un texto viejo en Latin-1 se lee y queda en UTF-8.
+    CHECK(limpiarTitulo("\xF1\xE9") == "\xC3\xB1\xC3\xA9");
+    // El largo maximo, y sin espacio colgando al cortar.
+    const std::string largo = std::string(49, 'a') + " bcd";
+    CHECK(limpiarTitulo(largo) == std::string(49, 'a'));
+    CHECK(limpiarTitulo(std::string(200, 'z')).size() == MAX_LENGTH);
+    // Limpiar dos veces da lo mismo.
+    for (const char* t : { "  hola  mundo ", "CON", "x.y.z", "(a)+(b)" })
+        CHECK(limpiarTitulo(limpiarTitulo(t)) == limpiarTitulo(t));
+    for (int c = 0; c < 256; ++c) (void)esDeTitulo((char)c);     // no revienta con ningun byte
+    CHECK(esDeTitulo(' '));
+    CHECK_FALSE(esDeTitulo('\n'));
+    CHECK(esDeTitulo('\\'));              // el titulo ya no es una ruta: vale
+    CHECK_FALSE(esDeTitulo('\x7f'));
+}

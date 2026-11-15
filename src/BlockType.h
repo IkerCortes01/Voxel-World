@@ -826,7 +826,51 @@ enum BlockType {
     //
     // ⚠️ AL FINAL DEL ENUM, como todo lo nuevo: insertar en medio correria
     // los IDs y los mundos guardados leerian otro bloque.
-    BLOCK_CADAVER_PECARI            // 226
+    BLOCK_CADAVER_PECARI,           // 226
+
+    // ========================================================================
+    // LA PENCA DE NOPAL (el item BLOCK_NOPAL_CLADODIO) UNA VEZ COLOCADA
+    // ========================================================================
+    // PEDIDO: "arregla que la penca de nopal no coloque el bloque de nivel
+    // raro, que de el item 3D acostado y el maguey tambien".
+    //
+    // Antes, al colocarla se convertia en el acto en la BASE del nopal (el
+    // bloque con el suelo incrustado: el "bloque de nivel raro"). Ahora queda
+    // posada, como el item en 3D, igual que el nopal de Castilla y las pencas
+    // de maguey (ver esItemPosado). Al romperla vuelve a ser su item.
+    //
+    // ⚠️ AL FINAL DEL ENUM, como todo lo nuevo.
+    BLOCK_PENCA_NOPAL_PUESTA,       // 227
+
+    // --- EL MAGUEY ESPADIN ---
+    // Como en el tequilana y el abisaii, la planta es un bloque compuesto
+    // (FAM_MAGUEY_ESPADIN) y estas dos son solo ETIQUETAS DE TEXTURA para el
+    // mesher: la cara de la hoja y la espina.
+    BLOCK_MAGUEY_ESPADIN_PENCA,     // 228
+    BLOCK_MAGUEY_ESPADIN_PUNTA,     // 229
+
+    // --- EL AGAVE ALBOMARGINATA Y EL MAGUEY SALMIANA ---
+    // Etiquetas de textura de sus hojas (las plantas son bloques compuestos:
+    // FAM_AGAVE_ALBOMARGINATA y FAM_MAGUEY_SALMIANA). La espina sale de la
+    // misma imagen, asi que basta una por especie.
+    BLOCK_AGAVE_ALBOMARGINATA_PENCA, // 230
+    BLOCK_MAGUEY_SALMIANA_PENCA,     // 231
+
+    // ========================================================================
+    // LA MESA DE REFINERIA
+    // ========================================================================
+    // PEDIDO: "implementa un nuevo bloque, el de Mesa de Refineria". Al darle
+    // clic derecho abre su pantalla: se le pone un bloque y una herramienta y
+    // devuelve ese bloque con otra forma (ver Formas.h y g_refineria).
+    BLOCK_MESA_REFINERIA,            // 232
+
+    // Etiquetas de textura de las hojas de cinco magueyes mas (las plantas son
+    // bloques compuestos: ver FAM_AGAVE_POTATORUM y siguientes).
+    BLOCK_AGAVE_POTATORUM_PENCA,     // 233
+    BLOCK_AGAVE_KARWINSKII_PENCA,    // 234
+    BLOCK_MAGUEY_MADRECUIXE_PENCA,   // 235
+    BLOCK_MAGUEY_CUISHE_PENCA,       // 236
+    BLOCK_MAGUEY_CIRIAL_PENCA        // 237
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -1105,6 +1149,69 @@ inline bool esAgavePuesto(BlockType t) {
 inline BlockType agaveAlColocar(BlockType item) {
     return item == BLOCK_PENCA_AGAVE_AZUL ? BLOCK_AGAVE_AZUL_PUESTO
                                           : BLOCK_MAGUEY_PUESTO;
+}
+
+// ============================================================================
+// ⭐ LAS PIEZAS POSADAS: UN SOLO CODIGO PARA EL NOPAL Y EL MAGUEY
+// ============================================================================
+// PEDIDO: "que el maguey pueda ser colocado como la Penca de Nopal y tengan el
+// mismo codigo de colocarlo [...] que de el item 3D acostado y el maguey
+// tambien".
+//
+// Cuatro items de planta se colocan igual: quedan POSADOS sobre lo que tengan
+// debajo y se ven como el propio item en 3D, acostado. Cada uno tiene un
+// bloque "puesto" (hace falta: el ID del item es tambien el de la pieza que
+// crece en la mata, y puesto junto a una planta se uniria a ella):
+//
+//     NOPAL DE CASTILLA    BLOCK_NOPAL_FRUTO       -> BLOCK_NOPAL_PUESTO
+//     PENCA DE NOPAL       BLOCK_NOPAL_CLADODIO    -> BLOCK_PENCA_NOPAL_PUESTA
+//     PENCA DE MAGUEY      BLOCK_IXTLE_HOJA        -> BLOCK_MAGUEY_PUESTO
+//     PENCA DE AGAVE AZUL  BLOCK_PENCA_AGAVE_AZUL  -> BLOCK_AGAVE_AZUL_PUESTO
+//
+// Estas tres funciones son TODO lo que distingue a uno de otro. El motor
+// coloca con posadoAlColocar, dibuja con itemDePosado (que es tambien lo que
+// suelta al romperse) y pregunta con esItemPosado: no hay una rama por planta.
+
+// Las que no son el nopal de Castilla: no se mojan ni se unen a ninguna mata.
+inline bool esPiezaPosada(BlockType t) {
+    return esAgavePuesto(t) || t == BLOCK_PENCA_NOPAL_PUESTA;
+}
+// Todo lo que se dibuja como su item en 3D, acostado.
+inline bool esItemPosado(BlockType t) {
+    return t == BLOCK_NOPAL_PUESTO || esPiezaPosada(t);
+}
+// El item de una pieza posada: el que se ve y el que devuelve al romperla.
+inline BlockType itemDePosado(BlockType t) {
+    switch ((int)t) {
+        case BLOCK_NOPAL_PUESTO:       return BLOCK_NOPAL_FRUTO;
+        case BLOCK_PENCA_NOPAL_PUESTA: return BLOCK_NOPAL_CLADODIO;
+        case BLOCK_MAGUEY_PUESTO:      return BLOCK_IXTLE_HOJA;
+        case BLOCK_AGAVE_AZUL_PUESTO:  return BLOCK_PENCA_AGAVE_AZUL;
+        default:                       return BLOCK_AIR;
+    }
+}
+// En que se convierte un item al colocarlo. Lo que no es de estos cuatro se
+// queda como esta. (El nopal de Castilla, tocando agua, se lava: ver
+// nopalAlColocar.)
+inline BlockType posadoAlColocar(BlockType item, bool enAgua) {
+    switch ((int)item) {
+        case BLOCK_NOPAL_FRUTO:      return nopalAlColocar(enAgua);
+        case BLOCK_NOPAL_CLADODIO:   return BLOCK_PENCA_NOPAL_PUESTA;
+        case BLOCK_IXTLE_HOJA:
+        case BLOCK_PENCA_AGAVE_AZUL: return agaveAlColocar(item);
+        default:                     return item;
+    }
+}
+
+// ⭐ DESPUES: YA NO SE CONVIERTEN EN BLOQUE. PEDIDO: "que solo de el item
+// tirado en 3D [...] y que si colocas mas y mas en el mismo lugar se acumulan
+// y tienen fisica y gravedad". Estos cuatro items, al "colocarlos", se dejan
+// en el mundo tal cual: el propio item, acostado, que cae y se amontona (ver
+// ItemsTirados.h). Los bloques posados de arriba se conservan solo para los
+// que ya estuvieran puestos en mundos guardados.
+inline bool seTiraAlColocar(BlockType item) {
+    return item == BLOCK_NOPAL_FRUTO || item == BLOCK_NOPAL_CLADODIO ||
+           item == BLOCK_IXTLE_HOJA || item == BLOCK_PENCA_AGAVE_AZUL;
 }
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
@@ -1596,6 +1703,7 @@ inline bool esBloqueRetirado(BlockType t) {
         case BLOCK_NOPAL_PUESTO:
         case BLOCK_MAGUEY_PUESTO:
         case BLOCK_AGAVE_AZUL_PUESTO:
+        case BLOCK_PENCA_NOPAL_PUESTA:
             return true;
         default:
             return false;
@@ -1642,6 +1750,15 @@ inline bool fueraDelCreativo(BlockType t) {
         case BLOCK_AGAVE_AZUL_FLOR:
         case BLOCK_AGAVE_ABISAII_PENCA:
         case BLOCK_AGAVE_ABISAII_PUNTA:
+        case BLOCK_MAGUEY_ESPADIN_PENCA:
+        case BLOCK_MAGUEY_ESPADIN_PUNTA:
+        case BLOCK_AGAVE_ALBOMARGINATA_PENCA:
+        case BLOCK_MAGUEY_SALMIANA_PENCA:
+        case BLOCK_AGAVE_POTATORUM_PENCA:
+        case BLOCK_AGAVE_KARWINSKII_PENCA:
+        case BLOCK_MAGUEY_MADRECUIXE_PENCA:
+        case BLOCK_MAGUEY_CUISHE_PENCA:
+        case BLOCK_MAGUEY_CIRIAL_PENCA:
             return true;
         default:
             return false;
@@ -3189,7 +3306,7 @@ inline bool esOrganicoParaHacha(BlockType t) {
     if (esRaiz(t)) return true;
 
     // --- Nopal: cladodio, penca, tallo, tunas y sus bases ---
-    if (esCladodio(t) || esNopalDeCastilla(t) || esAgavePuesto(t) || esTuna(t) ||
+    if (esCladodio(t) || esNopalDeCastilla(t) || esPiezaPosada(t) || esTuna(t) ||
         t == BLOCK_NOPAL_TALLO || t == BLOCK_NOPAL_MOJADO ||
         t == BLOCK_NOPAL_TIRAS || t == BLOCK_NOPAL_SIN_BABA ||
         t == BLOCK_NOPAL_BABA ||
@@ -3275,7 +3392,10 @@ inline bool esRocaParaPico(BlockType t) {
         // El abisaii, por lo mismo: sus dos piezas son hoja carnosa y espina,
         // no roca. Se excluyen AQUI y no en otro sitio para que la lista de
         // "esto es planta" siga siendo una sola.
-        t == BLOCK_AGAVE_ABISAII_PENCA || t == BLOCK_AGAVE_ABISAII_PUNTA)
+        t == BLOCK_AGAVE_ABISAII_PENCA || t == BLOCK_AGAVE_ABISAII_PUNTA ||
+        t == BLOCK_MAGUEY_ESPADIN_PENCA || t == BLOCK_MAGUEY_ESPADIN_PUNTA ||
+        t == BLOCK_AGAVE_ALBOMARGINATA_PENCA || t == BLOCK_MAGUEY_SALMIANA_PENCA ||
+        (t >= BLOCK_AGAVE_POTATORUM_PENCA && t <= BLOCK_MAGUEY_CIRIAL_PENCA))
         return false;
 
     // Las herramientas, los tazones y los items sueltos no son bloques del
@@ -3329,7 +3449,7 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // ve hasta que alguien recarga un mundo. Por eso hay un test que ata este
 // valor al ultimo del enum (test_agave_azul.cpp), para que la proxima vez que
 // se olvide falle el build de tests en vez de salir a produccion.
-constexpr int BLOCK_TYPE_MAX = BLOCK_CADAVER_PECARI;
+constexpr int BLOCK_TYPE_MAX = BLOCK_MAGUEY_CIRIAL_PENCA;
 
 // ============================================================================
 //  CARAS OCULTAS Y VISION DEL INTERIOR

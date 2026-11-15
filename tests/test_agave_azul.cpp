@@ -596,8 +596,9 @@ TEST_CASE("BLOCK_TYPE_MAX cubre hasta el ultimo bloque del enum") {
     // propiedad de abajo -- que ningun bloque quede por encima del tope.
     // Hoy el ultimo son los TABLONES DE PSEUDOSTROBUS, la cuarta pieza del
     // ultimo de los cuatro pinos mexicanos que entraron al enum.
-    // Hoy el ultimo es el cadaver de pecari, el item que da la tecla F.
-    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_CADAVER_PECARI);
+    // Hoy el ultimo es la penca de nopal posada (lo que queda al colocar el
+    // item Penca de Nopal).
+    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_MAGUEY_CIRIAL_PENCA);
     CHECK((int)BLOCK_AGAVE_AZUL_PUESTO <= (int)BLOCK_TYPE_MAX);
 
     // Y las dos orientaciones del techo caben bajo el tope: si alguna se

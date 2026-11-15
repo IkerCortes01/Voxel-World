@@ -197,6 +197,7 @@ struct MovementState {
 
     // --- Estados de movimiento ---
     bool isSprinting   = false;
+    bool sinEnergia    = false;  // agotado (ver player/Barras.h): no puede correr; lo pone el motor
     bool isCrouching   = false;
     bool isProne       = false;  // tumbado; implica isCrouching
     bool isSigilo      = false;  // andando despacio (ver Postura.h)

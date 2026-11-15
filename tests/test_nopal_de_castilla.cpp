@@ -80,7 +80,11 @@ TEST_CASE("Nopal de Castilla: el motor usa estas reglas") {
     CHECK(encadena.find("b == BLOCK_NOPAL_PUESTO") == std::string::npos);
 
     // Al colocar se decide con cualquier agua.
-    CHECK(src.find("blockToPlace = nopalAlColocar(tocaAgua(") != std::string::npos);
+    // (La conversion la hace posadoAlColocar, la misma para el nopal y el
+    // maguey; al nopal de Castilla le sigue tocando nopalAlColocar.)
+    CHECK(src.find("const BlockType posado = posadoAlColocar(blockToPlace, tocaAgua(") != std::string::npos);
+    CHECK(posadoAlColocar(BLOCK_NOPAL_FRUTO, false) == BLOCK_NOPAL_PUESTO);
+    CHECK(posadoAlColocar(BLOCK_NOPAL_FRUTO, true) == BLOCK_NOPAL_MOJADO);
 
     // Roto vuelve a ser el item.
     CHECK(src.find("case BLOCK_NOPAL_PUESTO:\n            drops.push_back({BLOCK_NOPAL_FRUTO, 1, 1.0f});")

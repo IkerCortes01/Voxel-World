@@ -192,8 +192,9 @@ public:
         state.isInspeccion = state.isSigilo && input.inspeccion;
 
         // Sprint: requiere avanzar y no estar agachado ni en sigilo.
+        // Y con energia: agotado (la barra de energia a cero) no corre.
         state.isSprinting = input.sprint && input.moveForward > 0.1f && !state.isCrouching &&
-                            !state.isSigilo;
+                            !state.isSigilo && !state.sinEnergia;
 
         // ---- 4. Timers de salto ----
         jump.updateTimers(state, input, dt);

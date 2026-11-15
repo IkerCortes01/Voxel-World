@@ -49,10 +49,11 @@ TEST_CASE("Animaciones: el pico en piedra carga desde arriba y descarga con todo
         CHECK(p.apretar == 1.0f);
         CHECK(p.enMano == (uint8_t)Herramienta::PICO);
     }
-    // Como en el video de referencia: el hombro sube y baja algo, y el
-    // latigazo lo da el codo, que pasa de muy doblado a casi recto.
-    CHECK(hi - lo > 0.6f);
-    CHECK(codoHi - codoLo > 1.2f);
+    // PEDIDO: "con el movimiento solo del antebrazo, mano y muneca". El hombro
+    // ya no sube y baja (antes recorria mas de 0.6 rad): el golpe entero lo
+    // da el codo, que pasa de muy doblado a casi recto.
+    CHECK(hi - lo < 0.01f);
+    CHECK(codoHi - codoLo > 1.0f);
     CHECK(codoLo < 0.5f);
     CHECK(inclMax < 0.02f);          // el cuerpo no se mueve: solo el brazo
     // A UNA mano, como se pidio: la izquierda no sigue al pico.
@@ -495,4 +496,151 @@ TEST_CASE("Marcha: la cadera se balancea y cada personaje anda a su manera") {
         lo = std::fmin(lo, f); hi = std::fmax(hi, f);
     }
     CHECK(hi - lo > 0.02f);
+}
+
+// ----------------------------------------------------------------------------
+// EL PICO: SOLO EL ANTEBRAZO Y LA MUNECA, LEJOS DE LA CARA
+// ----------------------------------------------------------------------------
+TEST_CASE("Pico: el hombro y el codo no se mueven; baja el antebrazo, lejos de la cara") {
+    const float periodo = 1.0f, carga = 0.4f;
+    V hombro0{}, codo0{};
+    float manoArriba = -1e9f, manoAbajo = 1e9f, cercaDeLaCara = 1e9f, delanteMin = 1e9f;
+    for (int k = 0; k < 100; ++k) {
+        Pose p;
+        aplicarGolpeRecto(p, periodo, carga, periodo * k / 100.0f, 0.0f);
+        limitar(p);
+        const Esqueleto s = resolver(p, true);
+        if (k == 0) { hombro0 = s.hombro[1].p; codo0 = s.codo[1].p; }
+        // El brazo de arriba, clavado: ni el hombro ni el codo cambian de sitio.
+        CHECK(largo(resta(s.hombro[1].p, hombro0)) < 0.002f);
+        CHECK(largo(resta(s.codo[1].p, codo0)) < 0.002f);
+        const V mano = s.mano[1].muneca.p;
+        manoArriba = std::fmax(manoArriba, mano.y);
+        manoAbajo = std::fmin(manoAbajo, mano.y);
+        // Recto: la mano no se sale del plano de delante (no barre de lado).
+        CHECK(std::fabs(mano.x - s.codo[1].p.x) < 0.06f);
+        delanteMin = std::fmin(delanteMin, mano.z - s.hombro[1].p.z);
+        const V cara = { s.cuello.p.x, s.ojo, s.cuello.p.z + 0.08f };
+        cercaDeLaCara = std::fmin(cercaDeLaCara, largo(resta(agarre(s).p, cara)));
+    }
+    CHECK(manoArriba - manoAbajo > 0.20f);       // de arriba a abajo
+    CHECK(delanteMin > 0.30f);                   // siempre por delante del hombro
+    CHECK(cercaDeLaCara > 0.38f);                // y lejos de la cara
+}
+
+TEST_CASE("Pico: la muneca remata el golpe en el mismo sentido que el antebrazo") {
+    // El antebrazo gira sobre el codo como una bisagra. La muneca tiene que
+    // girar la mano EN ESE MISMO SENTIDO al golpear (remata) y en el contrario
+    // al cargar (arma el golpe); al reves frenaria la herramienta.
+    auto esqueleto = [](float k, float muneca) {
+        Pose p;
+        Brazo& b = p.brazo[1];
+        b.flex = GolpeRecto::HOMBRO;
+        b.codo = GolpeRecto::CODO_CARGADO + (GolpeRecto::CODO_GOLPE - GolpeRecto::CODO_CARGADO) * k;
+        b.abd = 0.14f; b.rot = 0.0f; b.prono = 0.55f; b.munFlex = 0.10f; b.munDesv = muneca;
+        limitar(p);
+        return resolver(p, true);
+    };
+    auto antebrazo = [](const Esqueleto& s) { return normalizar(resta(s.mano[1].muneca.p, s.codo[1].p)); };
+    auto mano = [](const Esqueleto& s) { return normalizar(resta(s.mano[1].dedo[1][0].p, s.mano[1].muneca.p)); };
+    // El eje de la bisagra: de la direccion cargada a la del golpe.
+    const V eje = normalizar(cruz(antebrazo(esqueleto(0.0f, 0.0f)), antebrazo(esqueleto(1.0f, 0.0f))));
+    // Cuanto gira la mano, en el sentido del golpe, por culpa de la muneca.
+    auto giro = [&](float k, float muneca) {
+        const V sin = mano(esqueleto(k, 0.0f)), con = mano(esqueleto(k, muneca));
+        const V c = cruz(sin, con);
+        return c.x * eje.x + c.y * eje.y + c.z * eje.z;
+    };
+    CHECK(giro(1.0f, GolpeRecto::GOLPE_MUNECA) > 0.10f);       // en el impacto, remata
+    CHECK(giro(0.0f, -GolpeRecto::GOLPE_MUNECA) < -0.10f);     // cargada, va al reves
+}
+
+TEST_CASE("Hacha: la mano va delante del pecho, por debajo de los ojos") {
+    for (int k = 0; k < 40; ++k) {
+        Pose p;
+        aplicarHachazo(p, 1.0f, 0.4f, k / 20.0f, 0.0f);
+        limitar(p);
+        const Esqueleto s = resolver(p, true);
+        CHECK(s.mano[1].muneca.p.y < s.ojo - 0.22f);
+        const V cara = { s.cuello.p.x, s.ojo, s.cuello.p.z + 0.08f };
+        CHECK(largo(resta(s.mano[1].muneca.p, cara)) > 0.38f);
+    }
+}
+
+TEST_CASE("Hacha: con una sola mano, mas adelante que el pico, y solo se mueve el antebrazo") {
+    const float periodo = 1.0f, carga = 0.4f;
+    V hombro0{}, codo0{};
+    float arriba = -1e9f, abajo = 1e9f;
+    for (int k = 0; k < 100; ++k) {
+        const float t = periodo * k / 100.0f;
+        Pose p;
+        const Pose quieto = p;
+        aplicarHachazo(p, periodo, carga, t, 0.0f);
+        // Ni el tronco ni la cadera, ni el brazo izquierdo: no es suyo.
+        CHECK(p.giroTorso == doctest::Approx(quieto.giroTorso));
+        CHECK(p.giroPelvis == doctest::Approx(quieto.giroPelvis));
+        CHECK(p.brazo[0].flex == doctest::Approx(quieto.brazo[0].flex));
+        CHECK(p.brazo[0].codo == doctest::Approx(quieto.brazo[0].codo));
+        CHECK(p.brazo[0].rot == doctest::Approx(quieto.brazo[0].rot));
+        CHECK(p.brazo[1].rot == doctest::Approx(0.0f));          // recto, sin cruzarse al centro
+        limitar(p);
+        const Esqueleto s = resolver(p, true);
+        if (k == 0) { hombro0 = s.hombro[1].p; codo0 = s.codo[1].p; }
+        CHECK(largo(resta(s.hombro[1].p, hombro0)) < 0.002f);
+        CHECK(largo(resta(s.codo[1].p, codo0)) < 0.002f);
+        arriba = std::fmax(arriba, s.mano[1].muneca.p.y);
+        abajo = std::fmin(abajo, s.mano[1].muneca.p.y);
+        // Mas adelante que el pico en el mismo instante.
+        Pose q;
+        aplicarGolpeRecto(q, periodo, carga, t, 0.0f);
+        limitar(q);
+        const Esqueleto sp = resolver(q, true);
+        CAPTURE(k);
+        CHECK(s.codo[1].p.z > sp.codo[1].p.z + 0.03f);
+    }
+    CHECK(arriba - abajo > 0.15f);       // de arriba a abajo
+    CHECK(Hachazo::HOMBRO > GolpeRecto::HOMBRO + 0.15f);
+}
+
+TEST_CASE("Hacha: en la pose del juego el brazo izquierdo sigue con lo suyo") {
+    Estado e;
+    e.enSuelo = true;
+    e.tiempo = 0.3f;
+    const Pose sin = poseDe(e);
+    e.accion = Accion::PICAR;
+    e.herramienta = Herramienta::HACHA;
+    const Pose con = poseDe(e);
+    CHECK(con.brazo[0].flex == doctest::Approx(sin.brazo[0].flex));
+    CHECK(con.brazo[0].codo == doctest::Approx(sin.brazo[0].codo));
+    CHECK(con.brazo[0].abd == doctest::Approx(sin.brazo[0].abd));
+    CHECK(con.brazo[1].flex > sin.brazo[1].flex + 0.5f);
+}
+
+TEST_CASE("Suavizado rigido: llega a su sitio sin pasarse") {
+    Pose a, b;
+    b.brazo[1].flex = 1.0f;
+    SuavizadoPose blando, seco;
+    seco.rigido = true;
+    blando.avanzar(a, 0.016f, false);
+    seco.avanzar(a, 0.016f, false);
+    float maxBlando = 0.0f, maxSeco = 0.0f, alSeco = 0.0f;
+    for (int i = 0; i < 120; ++i) {
+        maxBlando = std::fmax(maxBlando, blando.avanzar(b, 0.016f, false).brazo[1].flex);
+        alSeco = seco.avanzar(b, 0.016f, false).brazo[1].flex;
+        maxSeco = std::fmax(maxSeco, alSeco);
+    }
+    CHECK(maxBlando > 1.01f);            // el de siempre rebota
+    CHECK(maxSeco <= 1.0005f);           // el rigido no
+    CHECK(alSeco == doctest::Approx(1.0f).epsilon(0.002));
+}
+
+TEST_CASE("Hacha: tras el impacto rebota un poco y se asienta") {
+    const float periodo = 1.0f, carga = 0.4f;
+    // El impacto llega en u = carga + (1 - carga) * 0.55 = 0.73.
+    Pose justo, despues, final;
+    aplicarHachazo(justo, periodo, carga, 0.73f, 0.0f);
+    aplicarHachazo(despues, periodo, carga, 0.79f, 0.0f);
+    aplicarHachazo(final, periodo, carga, 0.99f, 0.0f);
+    CHECK(despues.brazo[1].codo > justo.brazo[1].codo + 0.03f);                    // se levanta
+    CHECK(final.brazo[1].codo == doctest::Approx(Hachazo::CODO_GOLPE).epsilon(0.05));   // y vuelve
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include "ui/TextoUtf8.h"
 #include <algorithm>
 #include <cctype>
 
@@ -80,6 +81,58 @@ inline Validity validate(const std::string& name) {
 
 inline bool isValid(const std::string& name) {
     return validate(name) == Validity::Ok;
+}
+
+// El nombre que escribio el jugador, listo para ser carpeta: sin caracteres
+// prohibidos, sin espacios al principio ni al final y con el largo maximo. Si
+// no queda nada usable (vacio o reservado por Windows), `siVacio`.
+inline std::string limpiar(const std::string& escrito, const std::string& siVacio = "Nuevo Mundo") {
+    std::string s;
+    for (char c : escrito) if (isAllowedChar(c)) s += c;
+    const size_t a = s.find_first_not_of(' ');
+    if (a == std::string::npos) return siVacio;
+    s = s.substr(a, s.find_last_not_of(' ') - a + 1);
+    if (s.size() > MAX_LENGTH) s = s.substr(0, MAX_LENGTH);
+    while (!s.empty() && s.back() == ' ') s.pop_back();
+    return isValid(s) ? s : siVacio;
+}
+
+// ============================================================================
+// ⭐ EL TITULO DEL MUNDO: LO QUE SE VE, QUE YA NO ES LA CARPETA
+// ============================================================================
+// PEDIDO: "que en cualquier momento, sin bugs, el usuario pueda modificar el
+// nombre de su mundo como quiera y cuando quiera, y que se vea realmente la
+// modificacion".
+//
+// Antes el nombre ERA la carpeta: renombrar movia saves/<viejo> a
+// saves/<nuevo>. Eso fallaba (y sin avisar en pantalla) si ya existia otra
+// carpeta con ese nombre, si el nombre nuevo era el mismo con otras
+// mayusculas, si era un nombre reservado de Windows... y con el mundo abierto
+// no se podia ni intentar: sus archivos estan en uso.
+//
+// Ahora la carpeta se queda como esta para siempre y el nombre que se ve es
+// solo el `LevelName` de level.dat. Cambiarlo es escribir una linea: no hay
+// nada que mover, asi que se puede hacer cuando sea -- tambien jugando --, y
+// vale casi cualquier cosa: repetido, "CON", con puntos y parentesis...
+//
+// Lo unico que se pide es que se pueda DIBUJAR (la fuente del juego tiene
+// letras, numeros y estos signos) y que no quede vacio.
+//
+// ⭐ DESPUES: TODO EL TECLADO. PEDIDO: "que puedas escribir con minusculas, poner
+// acentos, simbolos, signos y poner manual mayusculas y el @, y otros mas". La
+// fuente ya dibuja minusculas, acentos, enie y todos los signos (FuenteBits.h),
+// asi que el titulo admite cualquier caracter que se pueda escribir
+// (Utf8::seEscribe), guardado en UTF-8, y conserva las mayusculas y minusculas
+// tal como se teclearon.
+inline bool esDeTitulo(char c) {
+    const unsigned char uc = static_cast<unsigned char>(c);
+    return uc >= 32 && uc <= 126;         // (un byte suelto: solo ASCII; lo demas va en UTF-8)
+}
+// Lo que escribio el jugador, listo para ser titulo: sin lo que no se puede
+// dibujar, sin espacios al principio ni al final y con el largo maximo. Vacio
+// si no queda nada.
+inline std::string limpiarTitulo(const std::string& escrito) {
+    return Utf8::limpiar(escrito, MAX_LENGTH);     // el largo, en caracteres
 }
 
 inline const char* describe(Validity v) {

@@ -184,6 +184,77 @@ enum Familia : int {
     // Una pieza dentro del agua (ver esPlantaEnAgua en BlockType.h).
     FAM_PLANTA_EN_AGUA,
 
+    // ========================================================================
+    // EL MAGUEY ESPADIN (Agave angustifolia): EL MAS COMUN
+    // ========================================================================
+    // PEDIDO: "anade un maguey, el mas comun sera el Maguey Espadin: pencas
+    // largas, estrechas y terminadas en punta, como una espada; de 1,2 a 1,5 m
+    // de alto (hasta 2 en condiciones optimas); verde azulado o grisaceo, con
+    // espinas pequenas y rigidas en los bordes y una espina terminal fuerte".
+    //
+    // Es el pariente silvestre del tequilana (el agave azul es una variedad
+    // suya), y se le parece: la misma roseta de hojas RIGIDAS y rectas. Por
+    // eso no repite su geometria: su estado tiene EXACTAMENTE los mismos
+    // campos que AgaveAzul (etapa, giro, segmento...) y el mesher lo dibuja
+    // con la misma rama, mas bajo, mas estrecho y con su textura. Ver
+    // namespace MagueyEspadin.
+    //
+    // Familia propia (y no un bit del tequilana) por lo de siempre: alli no
+    // queda sitio, y asi estrena 16 bits sin tocar nada de lo guardado.
+    //
+    // ⚠️ VA AL FINAL, despues de FAM_PLANTA_EN_AGUA.
+    FAM_MAGUEY_ESPADIN,
+
+    // ========================================================================
+    // DOS MAGUEYES MAS: EL ALBOMARGINATA Y EL SALMIANA
+    // ========================================================================
+    // PEDIDO: "anade la generacion y forma de dos magueys".
+    //
+    //   AGAVE ALBOMARGINATA  roseta BAJA y abierta: 70 cm a 1 m de alto y cerca
+    //                        de 1,5 m de diametro, de 16 a 30 hojas en forma de
+    //                        espada, rigidas a arqueadas, con el margen blanco.
+    //
+    //   MAGUEY SALMIANA      el GIGANTE: de 1,5 a casi 4 m de alto y mas de 3 m
+    //                        de ancho, con pencas gruesas, carnosas y pesadas
+    //                        que salen de una pina grande.
+    //
+    // Como el espadin, comparten el estado y la rama de dibujo del tequilana;
+    // lo que distingue a cada especie esta en UNA tabla: AgaveRigido::formaDe.
+    //
+    // ⚠️ VAN AL FINAL, despues de FAM_MAGUEY_ESPADIN.
+    FAM_AGAVE_ALBOMARGINATA,
+    FAM_MAGUEY_SALMIANA,
+
+    // Las piezas de la MESA DE REFINERIA: un bloque entero convertido en
+    // escalera, pared, piso, techo o columna. El material, la forma y el giro
+    // van en el estado (ver Formas.h). ⚠️ AL FINAL, como todas.
+    FAM_FORMA,
+
+    // ========================================================================
+    // CINCO MAGUEYES MAS: EL POTATORUM Y LOS CUATRO DE TRONCO
+    // ========================================================================
+    // PEDIDO: "anade estos nuevos tipos de maguey: Agave potatorum, Agave
+    // karwinskii, Madrecuixe, Cuishe, Cirial".
+    //
+    //   POTATORUM   (tobala) roseta pequena y densa, de 30 a 80 cm de alto y
+    //               60 a 120 de diametro; hojas anchas, cortas y gruesas.
+    //   KARWINSKII  el agave con TRONCO: un tallo de mas de un metro con la
+    //               roseta de hojas estrechas arriba.
+    //   MADRECUIXE  tallo largo y grueso; pencas cortas, angostas, gruesas y
+    //               numerosas, apretadas.
+    //   CUISHE      tronco alto y delgado, roseta estrecha.
+    //   CIRIAL      el mas alto y fino de todos, como un cirio.
+    //
+    // Los cuatro ultimos son variedades de karwinskii: lo que los distingue
+    // de los demas agaves del juego es el TRONCO (ver Forma::tronco).
+    //
+    // ⚠️ AL FINAL, despues de FAM_FORMA.
+    FAM_AGAVE_POTATORUM,
+    FAM_AGAVE_KARWINSKII,
+    FAM_MAGUEY_MADRECUIXE,
+    FAM_MAGUEY_CUISHE,
+    FAM_MAGUEY_CIRIAL,
+
     FAM_COUNT
 };
 
@@ -1554,9 +1625,172 @@ inline int componentesDe(BlockType t) {
             // Cuerpo + puntas, igual que la roseta del tequilana: la espina
             // terminal de cada hoja es lo que se selecciona aparte.
             return 2;
+        case FAM_MAGUEY_ESPADIN:
+        case FAM_AGAVE_ALBOMARGINATA:
+        case FAM_MAGUEY_SALMIANA:
+        case FAM_AGAVE_POTATORUM:
+        case FAM_AGAVE_KARWINSKII:
+        case FAM_MAGUEY_MADRECUIXE:
+        case FAM_MAGUEY_CUISHE:
+        case FAM_MAGUEY_CIRIAL:
+            return 2;       // como la roseta del tequilana
         default:
             return 1;
     }
+}
+
+// ============================================================================
+// FAMILIA: MAGUEY ESPADIN
+// ============================================================================
+// El mismo estado que el tequilana (ver FAM_MAGUEY_ESPADIN), con otra familia.
+// Los lectores de AgaveAzul (etapaDe, giroDe, segmentoDe...) valen tal cual:
+// solo miran los 16 bits del estado. Aqui esta lo que lo hace OTRA planta.
+namespace MagueyEspadin {
+    // Mas bajo y bastante mas estrecho que el tequilana (2 m x 3 m): la
+    // roseta hecha mide 1,3 a 1,45 m de alto y cerca de 1,7 m de ancho.
+    constexpr float ESCALA_ALTO = 0.72f;
+    constexpr float ESCALA_ANCHO = 0.58f;
+
+    inline bool esEspadin(BlockType t) {
+        return esCompuesto(t) && familiaDe(t) == FAM_MAGUEY_ESPADIN;
+    }
+    // La mata nueva, siempre en roseta (no se jima ni echa quiote).
+    inline BlockType nuevo(uint16_t etapa, uint16_t giro) {
+        return hacer(FAM_MAGUEY_ESPADIN, estadoDe(AgaveAzul::nuevo(etapa, giro)));
+    }
+    inline BlockType conSegmento(BlockType t, uint16_t s) {
+        return hacer(FAM_MAGUEY_ESPADIN, escribir(estadoDe(t), AgaveAzul::SEGMENTO, s));
+    }
+    inline float alturaReal(uint16_t etapa) { return AgaveAzul::alturaReal(etapa) * ESCALA_ALTO; }
+    inline float radioDeEtapa(uint16_t etapa) { return AgaveAzul::radioDeEtapa(etapa) * ESCALA_ANCHO; }
+    // Las celdas que ocupa: 1 hasta medio metro largo, 2 las hechas.
+    inline int celdasDeEtapa(uint16_t etapa) { return alturaReal(etapa) > 1.0f ? 2 : 1; }
+    inline int celdasDe(BlockType t) { return celdasDeEtapa(AgaveAzul::etapaDe(t)); }
+} // namespace MagueyEspadin
+
+// ============================================================================
+// ⭐ LOS AGAVES DE ROSETA: UNA TABLA, NO UNA RAMA POR ESPECIE
+// ============================================================================
+// El tequilana, el espadin, el albomarginata y el salmiana son la misma
+// arquitectura -- una roseta de hojas que salen de una pina -- con medidas
+// distintas. El mesher los dibuja con UNA rama (la del tequilana) y aqui esta
+// lo que cambia de uno a otro. Anadir otra especie de este tipo es una fila.
+//
+//   alto, ancho   por cuanto se multiplican el alto y el radio del tequilana
+//                 (2 m de alto x 3 m de ancho). El radio nunca pasa de 1,45:
+//                 mas alla la planta cruzaria el borde de su chunk.
+//   grueso        lo carnosa que es la hoja.
+//   caida         cuanto MAS se arquea que la del tequilana, que es recta.
+//   hojas         por cuanto se multiplica el numero de hojas.
+//   penca, punta  las etiquetas de textura de la hoja y de la espina.
+namespace AgaveRigido {
+    //   tronco        lo que mide el tallo desnudo bajo la roseta, en la planta
+    //                 madura (0 = la roseta nace a ras de suelo).
+    //   radioTronco   medio grosor de ese tallo.
+    struct Forma {
+        float alto, ancho, grueso, caida, hojas;
+        BlockType penca, punta;
+        float tronco, radioTronco;
+    };
+    inline bool esRigido(Familia f) {
+        return f == FAM_AGAVE_AZUL || f == FAM_MAGUEY_ESPADIN ||
+               f == FAM_AGAVE_ALBOMARGINATA || f == FAM_MAGUEY_SALMIANA ||
+               f == FAM_AGAVE_POTATORUM || f == FAM_AGAVE_KARWINSKII ||
+               f == FAM_MAGUEY_MADRECUIXE || f == FAM_MAGUEY_CUISHE || f == FAM_MAGUEY_CIRIAL;
+    }
+    inline Forma formaDe(Familia f) {
+        switch (f) {
+            // Espadin: mas bajo y bastante mas estrecho; hoja de espada.
+            case FAM_MAGUEY_ESPADIN:
+                return { MagueyEspadin::ESCALA_ALTO, MagueyEspadin::ESCALA_ANCHO, 1.0f, 0.0f, 1.0f,
+                         BLOCK_MAGUEY_ESPADIN_PENCA, BLOCK_MAGUEY_ESPADIN_PUNTA };
+            // Albomarginata: 0,96 m de alto y 1,5 m de diametro la madura;
+            // hoja mas fina, algo arqueada; de 16 a 30 hojas.
+            case FAM_AGAVE_ALBOMARGINATA:
+                return { 0.48f, 0.52f, 0.80f, 0.16f, 0.94f,
+                         BLOCK_AGAVE_ALBOMARGINATA_PENCA, BLOCK_AGAVE_ALBOMARGINATA_PENCA };
+            // Salmiana: 3,2 m de alto la madura y 2,9 m de ancho (el tope);
+            // pencas muy gruesas y pesadas, que se vencen; menos, y enormes.
+            case FAM_MAGUEY_SALMIANA:
+                return { 1.60f, 1.34f, 1.75f, 0.24f, 0.62f,
+                         BLOCK_MAGUEY_SALMIANA_PENCA, BLOCK_MAGUEY_SALMIANA_PENCA };
+            // Potatorum: 0,72 m de alto y 1,1 m de diametro; hojas cortas,
+            // gruesas y pocas (anchas), casi sin arquear.
+            case FAM_AGAVE_POTATORUM:
+                return { 0.36f, 0.37f, 1.50f, 0.05f, 0.70f,
+                         BLOCK_AGAVE_POTATORUM_PENCA, BLOCK_AGAVE_POTATORUM_PENCA };
+            // Los de TRONCO. La roseta es pequena y de hoja estrecha y recta;
+            // lo que cambia de uno a otro es el tallo.
+            //   karwinskii  1,4 m de tronco + 0,8 de roseta = 2,2 m
+            case FAM_AGAVE_KARWINSKII:
+                return { 0.40f, 0.42f, 0.80f, 0.0f, 1.10f,
+                         BLOCK_AGAVE_KARWINSKII_PENCA, BLOCK_AGAVE_KARWINSKII_PENCA, 1.40f, 0.16f };
+            //   madrecuixe  tronco grueso de 1,1 m; hojas cortas, gruesas y muchas
+            case FAM_MAGUEY_MADRECUIXE:
+                return { 0.35f, 0.34f, 1.20f, 0.0f, 1.30f,
+                         BLOCK_MAGUEY_MADRECUIXE_PENCA, BLOCK_MAGUEY_MADRECUIXE_PENCA, 1.10f, 0.20f };
+            //   cuishe      tronco alto y delgado: 1,7 m + 0,76 = 2,5 m
+            case FAM_MAGUEY_CUISHE:
+                return { 0.38f, 0.36f, 0.90f, 0.0f, 1.00f,
+                         BLOCK_MAGUEY_CUISHE_PENCA, BLOCK_MAGUEY_CUISHE_PENCA, 1.70f, 0.14f };
+            //   cirial      el mas alto y fino: 2,2 m + 0,68 = 2,9 m
+            case FAM_MAGUEY_CIRIAL:
+                return { 0.34f, 0.30f, 0.80f, 0.0f, 0.90f,
+                         BLOCK_MAGUEY_CIRIAL_PENCA, BLOCK_MAGUEY_CIRIAL_PENCA, 2.20f, 0.11f };
+            default:
+                return { 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, BLOCK_AGAVE_AZUL_PENCA, BLOCK_AGAVE_AZUL_PUNTA };
+        }
+    }
+    constexpr float RADIO_MAX = 1.45f;
+    inline float alturaReal(Familia f, uint16_t etapa) {
+        return AgaveAzul::alturaReal(etapa) * formaDe(f).alto;
+    }
+    inline float radioDeEtapa(Familia f, uint16_t etapa) {
+        // Del alto del tequilana, no del suyo: asi el ancho se elige aparte.
+        const float r = AgaveAzul::alturaReal(etapa) * 0.75f * formaDe(f).ancho;
+        return r > RADIO_MAX ? RADIO_MAX : r;
+    }
+    // El tronco a esa edad: crece con la planta (el hijuelo casi no tiene).
+    inline float troncoDeEtapa(Familia f, uint16_t etapa) {
+        return formaDe(f).tronco * AgaveAzul::alturaReal(etapa) / AgaveAzul::alturaReal(AgaveAzul::MADURA);
+    }
+    // Del suelo a la punta de la hoja mas alta: el tronco y la roseta.
+    inline float alturaTotal(Familia f, uint16_t etapa) {
+        return alturaReal(f, etapa) + troncoDeEtapa(f, etapa);
+    }
+    inline int hojasDeEtapa(Familia f, uint16_t etapa) {
+        const int n = (int)((float)AgaveAzul::pencasDeEtapa(etapa) * formaDe(f).hojas + 0.5f);
+        return n < 6 ? 6 : n;
+    }
+    // Las celdas que llena la roseta, de abajo arriba (las que chocan).
+    inline int celdasDeEtapa(Familia f, uint16_t etapa) {
+        if (f == FAM_AGAVE_AZUL) return AgaveAzul::celdasDeEtapa(etapa);
+        const float a = alturaTotal(f, etapa);
+        int n = 1;
+        while ((float)n < a - 0.05f && n < 4) ++n;
+        return n;
+    }
+    // Una mata nueva de esa especie, en roseta, y una celda de mas arriba.
+    inline BlockType nuevo(Familia f, uint16_t etapa, uint16_t giro) {
+        return hacer(f, estadoDe(AgaveAzul::nuevo(etapa, giro)));
+    }
+    inline BlockType conSegmento(BlockType t, uint16_t s) {
+        return hacer(familiaDe(t), escribir(estadoDe(t), AgaveAzul::SEGMENTO, s));
+    }
+    inline int celdasDe(BlockType t) { return celdasDeEtapa(familiaDe(t), AgaveAzul::etapaDe(t)); }
+} // namespace AgaveRigido
+
+// ⭐ PEDIDO: "que los magueyes tengan una sola caja de casilla".
+// El trozo de la planta que va en esta celda (0 = la de abajo), sea el maguey
+// que sea; -1 si el bloque no es un maguey. Con esto el selector junta todas
+// las celdas de una mata en UNA caja (ver formaDeSeleccion en main.cpp).
+inline int segmentoDeMaguey(BlockType t) {
+    if (!esCompuesto(t)) return -1;
+    const Familia f = familiaDe(t);
+    if (f == FAM_MAGUEY) return (int)Maguey::segmentoDe(t);
+    if (f == FAM_AGAVE_ABISAII) return (int)AgaveAbisaii::segmentoDe(t);
+    if (AgaveRigido::esRigido(f)) return (int)AgaveAzul::segmentoDe(t);
+    return -1;
 }
 
 // ¿Que componente es el indice i?
@@ -1597,6 +1831,12 @@ inline bool familiaTieneModelo(Familia f) {
         case FAM_AGAVE_ABISAII: return true;
         case FAM_NOPAL:         return true;
         case FAM_PLANTA_EN_AGUA: return true;
+        case FAM_MAGUEY_ESPADIN: return true;
+        case FAM_AGAVE_ALBOMARGINATA: return true;
+        case FAM_MAGUEY_SALMIANA: return true;
+        case FAM_FORMA: return true;
+        case FAM_AGAVE_POTATORUM: case FAM_AGAVE_KARWINSKII: case FAM_MAGUEY_MADRECUIXE:
+        case FAM_MAGUEY_CUISHE: case FAM_MAGUEY_CIRIAL: return true;
         default:                return false;   // reservada, aun sin geometria
     }
 }

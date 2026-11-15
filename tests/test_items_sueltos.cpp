@@ -432,7 +432,7 @@ TEST_CASE("Cactus: el largo y el ancho salen de la textura, no de una constante"
         "resourcepacks/Textures/Blocks/Penca de nopal de castilla mojado sin espinas.png",
         "resourcepacks/Textures/Blocks/Penca de nopal de castilla seco sin espinas.png",
         "resourcepacks/Textures/Items/Espinas de Nopal de castilla.png",
-        "resourcepacks/Textures/Items/Tuna verde crecida.png",
+        "resourcepacks/Textures/Items/Tuna verde.png",
         "resourcepacks/Textures/Items/Baba de nopal.png",
     };
     for (const char* p : PNGS) {

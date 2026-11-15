@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include <mmsystem.h>
+#include <shellapi.h>   // ShellExecute: abrir carpetas desde el menu de pausa
 #pragma comment(lib, "opengl32.lib")
 #pragma comment(lib, "winmm.lib")
 #endif
@@ -106,6 +107,7 @@ using namespace VoxelWorld::SaveSystem;
 #include "player/Movimiento.h"      // canales de cada articulacion y animaciones programables
 #include "player/MallaImportada.h"  // el modelo realista importado (GLB -> jugador.vwm) con el esqueleto
 #include "render/CuerpoGL.h"        // ese modelo en la GPU: skinning en el shader y texturas DXT1
+#include "player/Barras.h"           // vida, resistencia y energia (las tres barras del HUD)
 #include "player/Corazon.h"          // el pulso del jugador (el corazon del HUD)
 #include "player/Temperatura.h"      // la temperatura del jugador y sus efectos
 #include "player/Postura.h"         // SHIFT y ESPACIO: de pie, agachado, tumbado
@@ -118,6 +120,16 @@ using namespace VoxelWorld::SaveSystem;
 // FootstepSynth: genera los sonidos de pisada por síntesis (no hay .wav).
 // FootstepSystem: cadencia por distancia recorrida y variación por paso.
 #include "audio/AudioMixer.h"
+#include "audio/ClicBoton.h"         // el mini sonido de los botones
+#include "ItemsTirados.h"            // el nopal y el maguey dejados en el suelo: caen y se amontonan
+#include "Formas.h"                  // las 50 piezas de la mesa de refineria
+#include "Cuenta.h"                  // la cuenta del jugador: contrasena y autenticador
+#include "ui/FuenteBits.h"           // minusculas, acentos, arroba y signos de la fuente
+#include "ui/TextoUtf8.h"            // el texto que escribe el jugador, en UTF-8
+#include <commdlg.h>                 // elegir la foto de la cuenta
+#include <ctime>
+#include <random>
+#pragma comment(lib, "comdlg32.lib")
 #include "audio/FootstepSynth.h"
 #include "audio/FootstepSystem.h"
 #include "audio/Musica.h"            // las piezas de sounds/Music, al azar y en momentos al azar
@@ -134,6 +146,13 @@ using namespace VoxelWorld::SaveSystem;
 #include "ui/IconoAnimal3D.h"
 #include "ui/NombreItem.h"
 #include "ui/InventarioLayout.h"
+#include "ui/MenuVivo.h"               // la mini IA que juega sola en el fondo del menu principal
+#include "ui/MenuPausa.h"              // los 20 botones de la pausa, en pared de ladrillo
+// Escribir PNG (la captura de pantalla del menu de pausa). Va vendorizado con
+// GLFW; STATIC para que sus simbolos no salgan de este archivo.
+#define STB_IMAGE_WRITE_STATIC
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "glfw/deps/stb_image_write.h"
 
 // ============================================================================
 // VBO FUNCTION LOADER
@@ -315,6 +334,8 @@ struct Vec3i {
 #include "AciculaOcote.h"
 // Dormir con Z: acostarse, el fundido a negro y donde se puede dormir.
 #include "Dormir.h"
+// Las estadisticas del jugador, por mundo (el boton ESTADISTICAS de la pausa).
+#include "Estadisticas.h"
 #include "SiluetaItem.h"   // modelo 3D de items finos a partir de su PNG
 #include "ModeloItem3D.h"  // y su forma de verdad: la silueta inflada
 #include "render/MallaChunk.h"  // geometria de chunk SIN OpenGL (movible entre hilos)
@@ -389,6 +410,7 @@ inline Render::PaseSaturacion g_paseSaturacion;
 
 void getBlockColor(BlockType type, float& r, float& g, float& b) {
     type = plantaSeca(type);
+    if (Formas::esPieza(type)) type = Formas::materialBloque(type);   // el color de su material
     if (esNivelParcial(type)) type = bloqueBaseDe(type);
     // Una celda de capas (mixta o pila) toma el color de su capa de abajo.
     if (esCeldaDeCapas(type)) type = materialAbajo(type);
@@ -414,6 +436,29 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
                 // Verde glauco: mas claro y mas gris que el pulquero, pero
                 // sin llegar al azul del tequilana.
                 r = 0.42f; g = 0.54f; b = 0.38f;
+                return;
+            case Compuesto::FAM_MAGUEY_ESPADIN:
+                // Verde azulado y grisaceo: el de su hoja.
+                r = 0.30f; g = 0.47f; b = 0.36f;
+                return;
+            case Compuesto::FAM_AGAVE_ALBOMARGINATA:
+                // Verde con el amarillo palido de la linea central.
+                r = 0.36f; g = 0.52f; b = 0.30f;
+                return;
+            case Compuesto::FAM_MAGUEY_SALMIANA:
+                // Verde oscuro y grisaceo.
+                r = 0.26f; g = 0.46f; b = 0.32f;
+                return;
+            case Compuesto::FAM_AGAVE_POTATORUM:
+                // Glauco, casi plateado por la pruina.
+                r = 0.46f; g = 0.60f; b = 0.56f;
+                return;
+            case Compuesto::FAM_AGAVE_KARWINSKII:
+            case Compuesto::FAM_MAGUEY_MADRECUIXE:
+            case Compuesto::FAM_MAGUEY_CUISHE:
+            case Compuesto::FAM_MAGUEY_CIRIAL:
+                // Verde azulado.
+                r = 0.32f; g = 0.50f; b = 0.42f;
                 return;
             case Compuesto::FAM_NOPAL:
                 // El verde del cladodio de Opuntia: mas vivo y amarillento que
@@ -608,7 +653,7 @@ bool isCrossSprite(BlockType type) {
            type == BLOCK_NOPAL_MOJADO ||
            type == BLOCK_NOPAL_TIRAS ||
            type == BLOCK_NOPAL_SIN_BABA ||
-           esAgavePuesto(type) ||
+           esPiezaPosada(type) ||
            type == BLOCK_NOPAL_BABA ||
            // La penca SECA es la misma pieza que la mojada, solo que sin
            // agua: mismo sprite, otra textura.
@@ -1043,7 +1088,42 @@ ClimaFrame g_clima;
 // cuerpo y el velo de pantalla.
 // ============================================================================
 CorazonJugador::Corazon g_corazon;
+BarrasJugador::Estado g_barras;      // vida, resistencia y energia (ver player/Barras.h)
+float g_desmayo = 0.0f;              // segundos que quedan del aviso "TE DESMAYASTE"
 TemperaturaJugador::Estado g_temperatura;
+
+// ⭐ LAS ESTADISTICAS DEL MUNDO ABIERTO (ver Estadisticas.h). Se leen al
+// entrar al mundo y se escriben al guardarlo, en saves/<mundo>/estadisticas.txt.
+Estadisticas::Registro g_estad;
+std::string g_estadMundo;            // de que mundo son las que hay en memoria
+void cargarEstadisticas(const std::string& mundo) {
+    g_estad.reiniciar();
+    g_estadMundo = mundo;
+    if (FILE* f = fopen(("saves/" + mundo + "/estadisticas.txt").c_str(), "rb")) {
+        std::string s;
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) s.append(buf, n);
+        fclose(f);
+        g_estad.leer(s);
+    }
+    g_estad.contar(Estadisticas::SESIONES);
+}
+void guardarEstadisticas(const std::string& mundo) {
+    if (mundo.empty() || mundo != g_estadMundo) return;     // nunca las de otro mundo
+    if (FILE* f = fopen(("saves/" + mundo + "/estadisticas.txt").c_str(), "wb")) {
+        const std::string s = g_estad.texto();
+        fwrite(s.data(), 1, s.size(), f);
+        fclose(f);
+    }
+}
+// ⭐ AVATAR, GUARDADO PERO SIN USAR. PEDIDO: "elimina la modificacion de
+// Avatar, pero solo guardalo para no usarlo". El editor y su codigo siguen
+// aqui; con esto en false no se entra a el (ni desde el menu principal ni
+// desde la pausa) y el jugador se dibuja con el modelo tal cual viene, sin
+// las proporciones, la forma ni los colores del avatar. Poner true lo
+// devuelve todo como estaba.
+constexpr bool AVATAR_ACTIVO = false;
 TemperaturaJugador::Efectos g_efectosTemp;
 
 // ============================================================================
@@ -1183,7 +1263,7 @@ void proporcionesConModelo(ModeloJugador::Proporciones& p) {
 // tintes. Solo rehace la malla si algo cambio.
 void avatarAlModelo(const ModeloJugador::Proporciones& prop) {
     ModeloJugador::AjustesMalla aj;
-    ModeloJugador::aplicarAvatarMalla(g_avatar, aj);
+    if (AVATAR_ACTIVO) ModeloJugador::aplicarAvatarMalla(g_avatar, aj);
     modeloImportado().aplicarAjustes(aj, prop);
 }
 // El modelo importado en la GPU: shader, texturas (de resourcepacks/Modelos)
@@ -1286,6 +1366,7 @@ inline void cieloConClima(Atmosfera::Cielo& c, const Clima::Perfil& p, float des
         c.halo[k] *= tapa;
         c.resplandor[k] *= tapa;
         c.contraluz[k] *= tapa;
+        c.arco[k] *= tapa;
         c.brilloNocturno[k] *= tapa;
     }
     // El rayo: todo el cielo se enciende un instante, frio.
@@ -1810,7 +1891,7 @@ template <typename TGet>
 inline bool pencaPuestaPorJugador(BlockType tipo, TGet get) {
     tipo = plantaSeca(tipo);
     // La hoja de maguey colocada siempre va acostada.
-    if (esAgavePuesto(tipo)) return true;
+    if (esPiezaPosada(tipo)) return true;
     if (!esNopalDeCastilla(tipo) && tipo != BLOCK_NOPAL_MOJADO) return false;
 
     return Render::pencaSuelta([&](int dx, int dy, int dz) {
@@ -3353,6 +3434,17 @@ FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
     type = plantaSeca(type);
     FormaBloque f;
 
+    // --- LAS PIEZAS DE LA MESA DE REFINERIA: sus cajas, tal cual ---
+    // Las mismas que dibuja el mesher (Formas::cajasDePieza): por una escalera
+    // se sube peldano a peldano, bajo un techo se pasa y a una columna se la
+    // rodea.
+    if (Formas::esPieza(type)) {
+        float c[4][6];
+        const int n = Formas::cajasDePieza(type, c);
+        for (int i = 0; i < n; ++i) f.anadir(c[i][0], c[i][1], c[i][2], c[i][3], c[i][4], c[i][5]);
+        return f;
+    }
+
     // --- EL MAGUEY CAPADO CON JUGO: SOLIDO SOLO EL CUENCO ---
     //
     // Va antes del caso general de las compartidas porque su forma NO es la
@@ -3476,6 +3568,55 @@ FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
     return f;
 }
 
+// ⭐ LA FORMA QUE SE MARCA: UN MAGUEY, UNA SOLA CAJA.
+//
+// PEDIDO: "que los magueyes tengan una sola caja de casilla". Una mata alta
+// ocupa varias celdas, y cada una traia la suya: al apuntar se marcaba un
+// trozo de la planta, y otro distinto al subir la vista. Ahora el selector y
+// las grietas reciben UNA caja que va del suelo a la ultima celda de la mata,
+// se apunte a la que se apunte.
+//
+// Solo cambia lo que se MARCA. La colision y el raycast siguen celda a celda
+// con formaDeBloque(): el motor los consulta por voxel y una caja no puede
+// salirse del suyo.
+template <typename TGet>
+FormaBloque formaDeSeleccion(BlockType type, TGet get, int wx, int wy, int wz) {
+    FormaBloque f = formaDeBloque(type, get, wx, wy, wz);
+    const BlockType aqui = plantaSeca(type);
+    const int seg = Compuesto::segmentoDeMaguey(aqui);
+    if (seg < 0 || f.n <= 0) return f;
+    const Compuesto::Familia fam = Compuesto::familiaDe(aqui);
+    auto esTrozo = [&](int dy, int segmento) {
+        const BlockType b = plantaSeca(get(0, dy, 0));
+        return Compuesto::esCompuesto(b) && Compuesto::familiaDe(b) == fam &&
+               Compuesto::segmentoDeMaguey(b) == segmento;
+    };
+    int abajo = 0, arriba = 0;
+    while (abajo < seg && esTrozo(-(abajo + 1), seg - abajo - 1)) ++abajo;
+    while (arriba < 8 && esTrozo(arriba + 1, seg + arriba + 1)) ++arriba;
+
+    // El ancho, el de la celda mas ancha de la mata; el alto, de la base a la
+    // ultima celda.
+    CajaForma c = f.piezas[0];
+    for (int dy = -abajo; dy <= arriba; ++dy) {
+        if (dy == 0) continue;
+        const FormaBloque g = formaDeBloque(get(0, dy, 0),
+            [&](int dx, int ddy, int dz) { return get(dx, dy + ddy, dz); },
+            wx, wy + dy, wz);
+        if (g.n <= 0) continue;
+        const CajaForma& o = g.piezas[0];
+        if (o.x0 < c.x0) c.x0 = o.x0;
+        if (o.z0 < c.z0) c.z0 = o.z0;
+        if (o.x1 > c.x1) c.x1 = o.x1;
+        if (o.z1 > c.z1) c.z1 = o.z1;
+        if (o.y0 + (float)dy < c.y0) c.y0 = o.y0 + (float)dy;
+        if (o.y1 + (float)dy > c.y1) c.y1 = o.y1 + (float)dy;
+    }
+    f.n = 0;
+    f.anadir(c.x0, c.y0, c.z0, c.x1, c.y1, c.z1);
+    return f;
+}
+
 // ============================================================================
 // RAMAS: PALOS DE 4x4 PIXELES QUE CONECTAN EN 6 DIRECCIONES
 // ============================================================================
@@ -3593,7 +3734,7 @@ bool isBlockOpaque(BlockType type) {
     if (esCladodio(type) || esNopalDeCastilla(type) ||
         type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
         type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
-        esAgavePuesto(type) || esTuna(type)) return false;
+        esPiezaPosada(type) || esTuna(type)) return false;
     // El maguey capado es un CUENCO, no un cubo: por su agujero se ve el
     // interior, asi que no puede tapar las caras de sus vecinos (dejaria
     // huecos negros al mirar dentro). El aguamiel, por lo mismo: es una
@@ -3727,7 +3868,7 @@ inline bool llenaSuVoxelFrenteALiquido(BlockType type) {
     if (esCladodio(type) || esNopalDeCastilla(type) ||
         type == BLOCK_NOPAL_MOJADO || type == BLOCK_NOPAL_TIRAS ||
         type == BLOCK_NOPAL_SIN_BABA || type == BLOCK_NOPAL_BABA ||
-        esAgavePuesto(type) || esTuna(type)) return false;
+        esPiezaPosada(type) || esTuna(type)) return false;
     if (esRaiz(type)) return false;
     if (isRama(type)) return false;
     if (esGuijarro(type)) return false;
@@ -3740,6 +3881,13 @@ inline bool llenaSuVoxelFrenteALiquido(BlockType type) {
 // Obtener tiempo de rotura de un bloque en segundos (como Minecraft)
 float getBlockBreakTime(BlockType type) {
     type = plantaSeca(type);
+    // ⭐ UNA PIEZA DE LA MESA DE REFINERIA ES SU MATERIAL CON OTRA FORMA.
+    // PEDIDO: "que tengan las mismas propiedades de los tablones de madera
+    // enteros pero solo cambia su forma, hitbox y espacio [...] la misma
+    // duracion y dureza de la madera, y los demas igual". Dureza, herramienta
+    // que la corta, desgaste, particulas y sonido salen del bloque del que
+    // esta hecha.
+    if (Formas::esPieza(type)) type = Formas::materialBloque(type);
     // El AGUA no se rompe: se atraviesa. Va antes de la regla de los
     // compuestos porque vive en su rango, y sin esto se "picaria" como si
     // fuera una planta de 0.6 s.
@@ -3777,6 +3925,7 @@ float getBlockBreakTime(BlockType type) {
         // penca con espinas (3 s).
         case BLOCK_NOPAL_MOJADO: return 1.5f;
         case BLOCK_MAGUEY_PUESTO:
+        case BLOCK_PENCA_NOPAL_PUESTA:
         case BLOCK_AGAVE_AZUL_PUESTO: return 1.5f;
         case BLOCK_NOPAL_TIRAS:
         case BLOCK_NOPAL_SIN_BABA:
@@ -3880,6 +4029,7 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_TECHO_HOJAS:
         case BLOCK_TECHO_SUELO:      return 0.4f;
         case BLOCK_HORNO:            return 2.0f;
+        case BLOCK_MESA_REFINERIA:   return 2.0f;
         case BLOCK_HORNO_ENCENDIDO:  return 2.0f;
         // La punta del maguey maduro: dura y fibrosa. El tiempo real lo
         // decide getBlockBreakTimeForMode segun la herramienta (13 minutos
@@ -3969,6 +4119,7 @@ constexpr float TABLON_HERRAMIENTA_BREAK_TIME = 0.8f;
 float getBlockBreakTimeForMode(BlockType type, int gameMode,
                                BlockType herramienta) {
     type = plantaSeca(type);
+    if (Formas::esPieza(type)) type = Formas::materialBloque(type);   // como su material
     // gameMode: 0 = Survival, 1 = Creative, 2 = Adventure
     const bool isSurvival = (gameMode != 1);
 
@@ -7446,7 +7597,7 @@ public:
         // la barrera.
         //
         // Son TRES archivos para cuatro casos: el fruto sin madurar y la
-        // variedad verde comparten "Tuna verde crecida.png" (uno nace verde y
+        // variedad verde comparten "Tuna verde.png" (uno nace verde y
         // el otro se queda verde, pero la imagen es la misma).
         //
         // Estan enumerados a mano porque son los que el switch de
@@ -8032,6 +8183,8 @@ public:
 
     GLuint getBlockTexture(BlockType type, int face) {
     type = plantaSeca(type);
+        // Una pieza de la mesa de refineria lleva la textura de su material.
+        if (Formas::esPieza(type)) type = Formas::materialBloque(type);
         // face: 0=top, 1=bottom, 2=north, 3=south, 4=east, 5=west
 
         // ⭐ NIVELES: un bloque parcial usa la MISMA textura que el entero.
@@ -8123,6 +8276,20 @@ public:
         // romper, niebla, icono del inventario -- llega aqui con el ID del
         // compuesto entero. La textura que se devuelve depende de la FASE,
         // porque una planta jimada ya no tiene hojas azules que mostrar.
+        // El espadin entero (particulas, icono): su hoja.
+        if (Compuesto::MagueyEspadin::esEspadin(type))
+            return getTexture("Maguey Espadin.png");
+        // Los cinco de despues (potatorum y los de tronco): la hoja de su tabla.
+        if (Compuesto::esCompuesto(type) &&
+            Compuesto::familiaDe(type) >= Compuesto::FAM_AGAVE_POTATORUM &&
+            Compuesto::familiaDe(type) <= Compuesto::FAM_MAGUEY_CIRIAL)
+            return getBlockTexture(Compuesto::AgaveRigido::formaDe(Compuesto::familiaDe(type)).penca, face);
+        if (Compuesto::esCompuesto(type) &&
+            Compuesto::familiaDe(type) == Compuesto::FAM_AGAVE_ALBOMARGINATA)
+            return getTexture("Agave albomarginata penca.png");
+        if (Compuesto::esCompuesto(type) &&
+            Compuesto::familiaDe(type) == Compuesto::FAM_MAGUEY_SALMIANA)
+            return getTexture("Maguey de salmiana.png");
         if (Compuesto::esCompuesto(type) &&
             Compuesto::familiaDe(type) == Compuesto::FAM_AGAVE_AZUL) {
             namespace A = Compuesto::AgaveAzul;
@@ -8222,6 +8389,21 @@ public:
             case BLOCK_AGAVE_ABISAII_PUNTA:
                 return getTexture("Agave abisaii punta.png");
 
+            // El maguey espadin: la cara de la hoja y su espina.
+            case BLOCK_MAGUEY_ESPADIN_PENCA:
+                return getTexture("Maguey Espadin.png");
+            case BLOCK_AGAVE_POTATORUM_PENCA:   return getTexture("Agave potatorum.png");
+            case BLOCK_AGAVE_KARWINSKII_PENCA:  return getTexture("Agave karwinskii.png");
+            case BLOCK_MAGUEY_MADRECUIXE_PENCA: return getTexture("Agave Madrecuixe.png");
+            case BLOCK_MAGUEY_CUISHE_PENCA:     return getTexture("Agave Cuishe.png");
+            case BLOCK_MAGUEY_CIRIAL_PENCA:     return getTexture("Agave Cirial.png");
+            case BLOCK_AGAVE_ALBOMARGINATA_PENCA:
+                return getTexture("Agave albomarginata penca.png");
+            case BLOCK_MAGUEY_SALMIANA_PENCA:
+                return getTexture("Maguey de salmiana.png");
+            case BLOCK_MAGUEY_ESPADIN_PUNTA:
+                return getTexture("Maguey Espadin.png");   // la espina sale de la misma foto
+
             // ⭐ TECHO DE HOJAS: entramado de ramas con follaje.
             // Teselable y 100% opaca, asi que no necesita recorte por alfa.
             // Las DOS orientaciones comparten textura: es el mismo material,
@@ -8249,6 +8431,13 @@ public:
             //   cara 1  abajo      la base que toca el suelo
             //   cara 2  frente     donde va el fuego cuando esta encendido
             //   3..5    costados   el barro liso
+            // La mesa de refineria: el tablero de trabajo arriba, la base de
+            // piedra abajo y el armazon de madera y piedra en los cuatro lados.
+            case BLOCK_MESA_REFINERIA:
+                if (face == 0) return getTexture("mesa de refineria arriba.png");
+                if (face == 1) return getTexture("mesa de refineria de abajo.png");
+                return getTexture("mesa de refineria de lado.png");
+
             case BLOCK_HORNO:
                 if (face == 0) return getTexture("Horno de Barro por arriba.png");
                 if (face == 1) return getTexture("Horno de Barro por abajo.png");
@@ -8644,6 +8833,7 @@ public:
             // misma pieza fisica y ahora se ven iguales.
             case BLOCK_NOPAL_FRUTO:
             case BLOCK_NOPAL_PUESTO:
+            case BLOCK_PENCA_NOPAL_PUESTA:
                 return getTexture("Tallo de Nopal de Castilla.png");
 
             // Nopal ya lavado y desespinado.
@@ -8806,7 +8996,7 @@ public:
                     "resourcepacks/Textures/Items/Tuna verde.png"));
             case BLOCK_TUNA_AMARILLA:
                 return loadTextureFromPath(gamePath(
-                    "resourcepacks/Textures/Items/tuna amarilla.png"));
+                    "resourcepacks/Textures/Items/Tuna amarilla.png"));
             case BLOCK_TUNA_ROJA:
                 return loadTextureFromPath(gamePath(
                     "resourcepacks/Textures/Items/Tuna roja.png"));
@@ -9772,7 +9962,7 @@ struct Chunk {
                esCladodio(b) || esNopalDeCastilla(b) ||
                b == BLOCK_NOPAL_MOJADO || b == BLOCK_NOPAL_TIRAS ||
                b == BLOCK_NOPAL_SIN_BABA || b == BLOCK_NOPAL_BABA ||
-               esAgavePuesto(b) || esTuna(b);
+               esPiezaPosada(b) || esTuna(b);
     }
 
     // ========================================================================
@@ -10620,12 +10810,20 @@ struct ItemEntity {
     // que quien la reciba interpreta como vida completa.
     int vidaMedios;
 
+    // ⭐ DEJADO A PROPOSITO (ver ItemsTirados.h): acostado donde el jugador lo
+    // puso. No flota, no gira, no va hacia el jugador y no se recoge al pasar:
+    // cae, se posa y se amontona con los demas, y se recoge con F. Su
+    // `position.y` es su BASE (lo que toca el suelo), no su centro.
+    bool tirado = false;
+    float giro = 0.0f;       // grados, para que no queden todos iguales
+
     ItemEntity(Vec3 pos, BlockType type, int vida = 0)
         : position(pos), velocity(0, 0, 0), blockType(type),
           lifetime(0), pickupDelay(0.5f), onGround(false),
           isBeingAttracted(false), floatOffset(0), vidaMedios(vida) {}
 
     void update(float deltaTime, Vec3 playerPos) {
+        if (tirado) { lifetime += deltaTime; return; }    // su fisica es la de ItemsTirados
         lifetime += deltaTime;
         floatOffset += deltaTime * 3.0f;  // ⭐ Animación de flotación
 
@@ -11009,6 +11207,38 @@ public:
             recipe.pattern[4] = BLOCK_STICK;           // centro: mango
             recipe.pattern[7] = BLOCK_STICK;           // abajo centro: mango
             recipes.push_back(recipe);
+        }
+
+        // ⭐ MESA DE REFINERIA.
+        //
+        //     H  P  K      H = hacha      P = pedernal      K = pico
+        //     T  M  T      T = tablones   M = martillo
+        //     S  S  S      S = pedazo de piedra
+        //
+        // Vale cualquier hacha, pico y martillo (de piedra o de pedernal) y
+        // cualquier tablon, los dos del mismo tipo. Las herramientas no se
+        // consumen: se gastan un uso, como en las demas recetas.
+        {
+            const BlockType HACHAS[] = { BLOCK_HACHA_PIEDRA, BLOCK_HACHA_PEDERNAL };
+            const BlockType PICOS[] = { BLOCK_PICO_PIEDRA, BLOCK_PICO_PEDERNAL };
+            const BlockType MARTILLOS[] = { BLOCK_MARTILLO_PIEDRA, BLOCK_MARTILLO_PEDERNAL };
+            const BlockType TABLONES[] = { BLOCK_PLANKS, BLOCK_PLANKS_ENCINO, BLOCK_PLANKS_OYAMEL,
+                                           BLOCK_PLANKS_OCOTE, BLOCK_PLANKS_PATULA,
+                                           BLOCK_PLANKS_PINONERO, BLOCK_PLANKS_PSEUDOSTROBUS };
+            for (BlockType h : HACHAS) for (BlockType k : PICOS)
+                for (BlockType m : MARTILLOS) for (BlockType t : TABLONES) {
+                    CraftingRecipe recipe(BLOCK_MESA_REFINERIA, 1, false);
+                    recipe.pattern[0] = h;
+                    recipe.pattern[1] = BLOCK_PEDAZO_PEDERNAL;
+                    recipe.pattern[2] = k;
+                    recipe.pattern[3] = t;
+                    recipe.pattern[4] = m;
+                    recipe.pattern[5] = t;
+                    recipe.pattern[6] = BLOCK_PEDAZO_PIEDRA;
+                    recipe.pattern[7] = BLOCK_PEDAZO_PIEDRA;
+                    recipe.pattern[8] = BLOCK_PEDAZO_PIEDRA;
+                    recipes.push_back(recipe);
+                }
         }
 
         // ⭐ PICO DE PEDERNAL: el mismo montaje, mejores puntas.
@@ -15264,6 +15494,170 @@ public:
                                 }
                             }
                         }
+                    }
+                }
+                // ================================================================
+                // ---- MAGUEY ESPADIN ----
+                // ================================================================
+                // PEDIDO: "anade un maguey, el mas comun sera el Maguey
+                // Espadin". Es el agave silvestre mas extendido de Mexico y
+                // crece casi en cualquier parte seca o templada, asi que no
+                // se le pide un bioma: sale donde haya tierra, pasto o arena
+                // con aire encima, sea llano, bosque, desierto o ladera.
+                //
+                // Para que sea EL MAS COMUN sin tapizar el suelo:
+                //   - rejilla de 16 (la del pulquero) y 1 de cada 2 focos
+                //     activos, frente a 1 de 4 del pulquero y 1 de 6 del
+                //     tequilana;
+                //   - manchones de 3 a 5 bloques de radio, ralos (como mucho
+                //     una de cada cinco casillas en el centro): matas sueltas
+                //     con sitio entre ellas, no un seto.
+                //
+                // Constante de hash propia (0x3c6ef372): no cae sobre las
+                // colonias de las otras especies. Y donde ya haya otra planta
+                // no se pone (el hueco tiene que ser AIRE).
+                if (esSueloParaNopal(ground) &&
+                    chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
+                    const int fx = (worldX >= 0 ? worldX : worldX - 15) / 16;
+                    const int fz = (worldZ >= 0 ? worldZ : worldZ - 15) / 16;
+                    unsigned hf = (unsigned)(fx * 2654435761u) ^
+                                  (unsigned)(fz * 2246822519u) ^ 0x3c6ef372u;
+                    hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
+                    if ((hf & 1u) == 0u) {
+                        const int cx = fx * 16 + (int)((hf >> 3) % 16u);
+                        const int cz = fz * 16 + (int)((hf >> 11) % 16u);
+                        const int dx = worldX - cx, dz = worldZ - cz;
+                        const int d2 = dx * dx + dz * dz;
+                        const int radio = 3 + (int)((hf >> 19) % 3u);
+                        if (d2 <= radio * radio) {
+                            unsigned ha = (unsigned)(worldX * 6151) ^
+                                          (unsigned)(worldZ * 7919) ^ 0x1f83d9abu;
+                            ha ^= ha >> 13; ha *= 2246822519u; ha ^= ha >> 16;
+                            const int borde = radio * radio;
+                            const unsigned prob = 20u - (unsigned)((14 * d2) / (borde > 0 ? borde : 1));
+                            if ((ha % 100u) < prob) {
+                                namespace AG = Compuesto::AgaveAzul;
+                                namespace ES = Compuesto::MagueyEspadin;
+                                // Casi todas hechas (1,3 a 1,45 m), algun hijuelo
+                                // al pie y, de tarde en tarde, una de las grandes.
+                                const unsigned d100 = (ha >> 7) % 100u;
+                                uint16_t etapa;
+                                if      (d100 < 15u) etapa = AG::HIJUELO;
+                                else if (d100 < 32u) etapa = AG::JOVEN;
+                                else if (d100 < 55u) etapa = AG::MEDIA;
+                                else if (d100 < 88u) etapa = AG::HECHA;
+                                else                 etapa = AG::MADURA;
+                                const uint16_t giro = (uint16_t)((ha >> 17) & 7u);
+                                const BlockType planta = ES::nuevo(etapa, giro);
+                                const int celdas = ES::celdasDe(planta);
+                                for (int dy = 0; dy < celdas; ++dy) {
+                                    const int yy = surfaceY + 1 + dy;
+                                    if (yy >= CHUNK_HEIGHT) break;
+                                    if (chunk->getBlock(x, yy, z) != BLOCK_AIR) break;
+                                    chunk->setBlock(x, yy, z, ES::conSegmento(planta, (uint16_t)dy));
+                                }
+                            }
+                        }
+                    }
+                }
+                // ================================================================
+                // ---- AGAVE ALBOMARGINATA Y MAGUEY SALMIANA ----
+                // ================================================================
+                // PEDIDO: "anade la generacion y forma de dos magueys".
+                //
+                //   ALBOMARGINATA. En la naturaleza crece en laderas y paredes
+                //   de roca caliza. Aqui: en MONTANA y en BOSQUE (las faldas),
+                //   sobre tierra o pasto. Roseta baja, en grupitos apretados:
+                //   rejilla de 20, 1 de cada 3 focos, radio de 2 a 3.
+                //
+                //   SALMIANA. El maguey pulquero del Altiplano: PLANICIES y
+                //   los claros del bosque. Es enorme (3 m de ancho), asi que
+                //   se siembra MUY ralo -- rejilla de 28, 1 de cada 3 focos, y
+                //   dentro de cada foco solo unas pocas casillas -- y nunca
+                //   pegado a otro: se salta la casilla si hay algo a menos de
+                //   dos bloques. Son hitos sueltos, no una mancha.
+                //
+                // Constantes de hash propias, y el hueco tiene que ser AIRE.
+                if (esSueloParaNopal(ground) &&
+                    chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR) {
+                    namespace AG = Compuesto::AgaveAzul;
+                    namespace AR = Compuesto::AgaveRigido;
+                    struct Siembra { Compuesto::Familia fam; int rejilla; unsigned unoDe, sal; int radio0, radioMas;
+                                     unsigned prob; bool aqui; int separa; };
+                    const bool falda = col.biome == TerrainGen::BIOME_MOUNTAINS ||
+                                       col.biome == TerrainGen::BIOME_FOREST;
+                    const bool altiplano = col.biome == TerrainGen::BIOME_PLAINS ||
+                                           col.biome == TerrainGen::BIOME_FOREST;
+                    // ⭐ Y CINCO MAS. PEDIDO: "anade estos nuevos tipos de maguey:
+                    // Agave potatorum, Agave karwinskii, Madrecuixe, Cuishe,
+                    // Cirial".
+                    //   POTATORUM   (tobala) de monte: MONTANA y BOSQUE, en
+                    //               matas sueltas y pequenas.
+                    //   Los cuatro de TRONCO son de los valles secos: DESIERTO
+                    //   y PLANICIES. Ralos y con sitio alrededor, porque son
+                    //   altos y se ven de lejos; cada uno con su rejilla y su
+                    //   sal para que no caigan en los mismos puntos.
+                    const bool valleSeco = col.biome == TerrainGen::BIOME_DESERT ||
+                                           col.biome == TerrainGen::BIOME_PLAINS;
+                    const Siembra SIEMBRAS[] = {
+                        { Compuesto::FAM_AGAVE_ALBOMARGINATA, 20, 3u, 0x510e527fu, 2, 2, 34u, falda, 0 },
+                        { Compuesto::FAM_MAGUEY_SALMIANA,     28, 3u, 0x6a09e667u, 3, 3, 7u, altiplano, 2 },
+                        { Compuesto::FAM_AGAVE_POTATORUM,     18, 3u, 0xbb67ae85u, 2, 3, 22u, falda, 1 },
+                        { Compuesto::FAM_AGAVE_KARWINSKII,    26, 3u, 0x3c6ef372u ^ 0x55u, 3, 3, 12u, valleSeco, 1 },
+                        { Compuesto::FAM_MAGUEY_MADRECUIXE,   30, 3u, 0xa54ff53au, 3, 2, 12u, valleSeco, 1 },
+                        { Compuesto::FAM_MAGUEY_CUISHE,       30, 4u, 0x9b05688cu, 3, 3, 10u, valleSeco, 1 },
+                        { Compuesto::FAM_MAGUEY_CIRIAL,       34, 4u, 0x1f83d9abu ^ 0x77u, 3, 3, 9u, valleSeco, 1 },
+                    };
+                    for (const Siembra& sb : SIEMBRAS) {
+                        if (!sb.aqui) continue;
+                        if (chunk->getBlock(x, surfaceY + 1, z) != BLOCK_AIR) break;   // la puso la otra
+                        const int R = sb.rejilla;
+                        const int fx = (worldX >= 0 ? worldX : worldX - (R - 1)) / R;
+                        const int fz = (worldZ >= 0 ? worldZ : worldZ - (R - 1)) / R;
+                        unsigned hf = (unsigned)(fx * 2654435761u) ^ (unsigned)(fz * 2246822519u) ^ sb.sal;
+                        hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
+                        if ((hf % sb.unoDe) != 0u) continue;
+                        const int cx = fx * R + (int)((hf >> 3) % (unsigned)R);
+                        const int cz = fz * R + (int)((hf >> 11) % (unsigned)R);
+                        const int dx = worldX - cx, dz = worldZ - cz;
+                        const int d2 = dx * dx + dz * dz;
+                        const int radio = sb.radio0 + (int)((hf >> 19) % (unsigned)sb.radioMas);
+                        if (d2 > radio * radio) continue;
+                        unsigned ha = (unsigned)(worldX * 6151) ^ (unsigned)(worldZ * 7919) ^ (sb.sal * 3u + 1u);
+                        ha ^= ha >> 13; ha *= 2246822519u; ha ^= ha >> 16;
+                        if ((ha % 100u) >= sb.prob) continue;
+                        // Con sitio alrededor (dentro de este chunk): un maguey
+                        // de 3 m no nace pegado a otra planta.
+                        bool libre = true;
+                        for (int ox = -sb.separa; ox <= sb.separa && libre; ++ox)
+                            for (int oz = -sb.separa; oz <= sb.separa && libre; ++oz) {
+                                if (!ox && !oz) continue;
+                                const int nx = x + ox, nz = z + oz;
+                                if (nx < 0 || nz < 0 || nx >= CHUNK_SIZE || nz >= CHUNK_SIZE) continue;
+                                for (int oy = 0; oy <= 2 && libre; ++oy)
+                                    if (surfaceY + oy < CHUNK_HEIGHT &&
+                                        Compuesto::esCompuesto(chunk->getBlock(nx, surfaceY + oy, nz)))
+                                        libre = false;
+                            }
+                        if (!libre) continue;
+                        const unsigned d100 = (ha >> 7) % 100u;
+                        uint16_t etapa;
+                        if      (d100 < 12u) etapa = AG::HIJUELO;
+                        else if (d100 < 28u) etapa = AG::JOVEN;
+                        else if (d100 < 52u) etapa = AG::MEDIA;
+                        else if (d100 < 82u) etapa = AG::HECHA;
+                        else                 etapa = AG::MADURA;
+                        const BlockType planta = AR::nuevo(sb.fam, etapa, (uint16_t)((ha >> 17) & 7u));
+                        const int celdas = AR::celdasDe(planta);
+                        // La planta entera, y solo si cabe entera: un salmiana
+                        // de 4 celdas no se queda a medias bajo una rama.
+                        bool cabe = true;
+                        for (int dy = 0; dy < celdas; ++dy)
+                            if (surfaceY + 1 + dy >= CHUNK_HEIGHT ||
+                                chunk->getBlock(x, surfaceY + 1 + dy, z) != BLOCK_AIR) cabe = false;
+                        if (!cabe) continue;
+                        for (int dy = 0; dy < celdas; ++dy)
+                            chunk->setBlock(x, surfaceY + 1 + dy, z, AR::conSegmento(planta, (uint16_t)dy));
                     }
                 }
                 // ================================================================
@@ -22176,6 +22570,67 @@ public:
                     }
 
                     // ================================================
+                    // ⭐ LAS PIEZAS DE LA MESA DE REFINERIA
+                    // ================================================
+                    // Una pieza es una lista de cajas (Formas.h) pintadas con
+                    // la textura de su material. Cada cara lleva el trozo de
+                    // textura que le toca, asi el dibujo no se estira: una
+                    // pared de tablones se ve como un corte del tablon.
+                    if (Formas::esPieza(block)) {
+                        const BlockType mat = Formas::materialBloque(block);
+                        GLuint texCara[6];
+                        // arriba, abajo y los cuatro lados (las caras 2..5 del
+                        // material: en casi todos son la misma).
+                        static const int CARA_MAT[6] = { 0, 1, 4, 5, 3, 2 };
+                        for (int k = 0; k < 6; ++k) texCara[k] = texSegura(mat, CARA_MAT[k]);
+                        auto tope1 = [](float v) { return v > 1.0f ? 1.0f : v; };
+                        const float lz = faceLightFactor(x, y, z, 0, 1, 0);
+                        const float R = tope1(lz * lightColorR);
+                        const float G = tope1(lz * lightColorG);
+                        const float B = tope1(lz * lightColorB);
+                        // La sombra de cada cara, como en cualquier bloque.
+                        static const float SOMBRA[6] = { 1.0f, 0.55f, 0.80f, 0.80f, 0.90f, 0.70f };
+                        float cajas[4][6];
+                        const int nCajas = Formas::cajasDePieza(block, cajas);
+                        for (int q = 0; q < nCajas; ++q) {
+                            const float x0 = cajas[q][0], y0 = cajas[q][1], z0 = cajas[q][2];
+                            const float x1 = cajas[q][3], y1 = cajas[q][4], z1 = cajas[q][5];
+                            const float P[6][4][3] = {
+                              {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}}, // arriba
+                              {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}}, // abajo
+                              {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}}, // +X
+                              {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}}, // -X
+                              {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}}, // +Z
+                              {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}}, // -Z
+                            };
+                            const float T[6][4][2] = {
+                              {{x0,z0},{x0,z1},{x1,z1},{x1,z0}},
+                              {{x0,z0},{x1,z0},{x1,z1},{x0,z1}},
+                              {{z0,1-y0},{z0,1-y1},{z1,1-y1},{z1,1-y0}},
+                              {{z0,1-y0},{z1,1-y0},{z1,1-y1},{z0,1-y1}},
+                              {{x0,1-y0},{x1,1-y0},{x1,1-y1},{x0,1-y1}},
+                              {{x0,1-y0},{x0,1-y1},{x1,1-y1},{x1,1-y0}},
+                            };
+                            for (int cara = 0; cara < 6; ++cara) {
+                                auto& V = verticesByTexture[texCara[cara]];
+                                auto& C = colorsByTexture[texCara[cara]];
+                                auto& U = uvsByTexture[texCara[cara]];
+                                const float s = SOMBRA[cara];
+                                for (int i = 0; i < 4; ++i) {
+                                    V.push_back(wx + P[cara][i][0]);
+                                    V.push_back(wy + P[cara][i][1]);
+                                    V.push_back(wz + P[cara][i][2]);
+                                    C.push_back(R * s); C.push_back(G * s);
+                                    C.push_back(B * s); C.push_back(1.0f);
+                                    U.push_back(T[cara][i][0]);
+                                    U.push_back(T[cara][i][1]);
+                                }
+                            }
+                        }
+                        continue;   // no emitir las caras del cubo
+                    }
+
+                    // ================================================
                     // EL AGAVE TEQUILANA AZUL: TRES SILUETAS
                     // ================================================
                     // La misma planta se dibuja de tres formas distintas
@@ -22200,9 +22655,21 @@ public:
                     // decima parte de la del pulquero, y no un valor
                     // parecido: si se acercan, las dos especies se
                     // confunden y el trabajo de modelarlas aparte se pierde.
+                    //
+                    // ⭐ Y EL MAGUEY ESPADIN, CON ESTA MISMA RAMA. Es la misma
+                    // roseta de hojas rigidas (el tequilana es una variedad
+                    // suya) y su estado tiene los mismos campos, asi que no se
+                    // repite la geometria: cambian el alto, el ancho y las
+                    // texturas (ver Compuesto::MagueyEspadin).
+                    //
+                    // ⭐ Y EL ALBOMARGINATA Y EL SALMIANA. Ya no se pregunta
+                    // "eres el espadin": cada especie trae su FORMA de la tabla
+                    // (Compuesto::AgaveRigido::formaDe) y la rama es la misma.
                     if (Compuesto::esCompuesto(block) &&
-                        Compuesto::familiaDe(block) == Compuesto::FAM_AGAVE_AZUL) {
+                        Compuesto::AgaveRigido::esRigido(Compuesto::familiaDe(block))) {
                         namespace A = Compuesto::AgaveAzul;
+                        const Compuesto::Familia ESPECIE = Compuesto::familiaDe(block);
+                        const Compuesto::AgaveRigido::Forma FORMA = Compuesto::AgaveRigido::formaDe(ESPECIE);
 
                         const uint16_t fase  = A::faseDe(block);
                         const uint16_t etapa = A::etapaDe(block);
@@ -22253,8 +22720,10 @@ public:
                         // Aqui NO: la descripcion dice 2 m de alto por 3 m de
                         // ancho, o sea 1:1.5. El radio se saca del alto con
                         // ese factor, dentro de radioDeEtapa().
-                        const float ALTO  = A::alturaReal(etapa);
-                        const float RADIO = A::radioDeEtapa(etapa);
+                        const float ALTO  = Compuesto::AgaveRigido::alturaReal(ESPECIE, etapa);
+                        const float RADIO = ESPECIE == Compuesto::FAM_AGAVE_AZUL
+                            ? A::radioDeEtapa(etapa)
+                            : Compuesto::AgaveRigido::radioDeEtapa(ESPECIE, etapa);
 
                         // Se posa sobre el suelo real, igual que el maguey:
                         // si debajo hay un nivel parcial, la planta baja lo
@@ -22273,7 +22742,11 @@ public:
                         // celda base llega a dibujar (ver el `continue` de
                         // arriba). Se deja la expresion completa para que siga
                         // siendo correcta si algun dia se reparte otra vez.
-                        const float DESP_Y = -(float)SEG - POSADA + ELEVADO;
+                        // ⭐ EL TRONCO (karwinskii, madrecuixe, cuishe, cirial): la
+                        // roseta no nace del suelo, va subida en su tallo. Todo lo
+                        // que dibuja la roseta sale desplazado esa altura.
+                        const float TRONCO = Compuesto::AgaveRigido::troncoDeEtapa(ESPECIE, etapa);
+                        const float DESP_Y = -(float)SEG - POSADA + ELEVADO + TRONCO;
 
                         const float lzm = faceLightFactor(x, y, z, 0, 1, 0);
                         auto tope1 = [](float v) { return v > 1.0f ? 1.0f : v; };
@@ -22292,14 +22765,55 @@ public:
                         // Las demas se apoyan en ella antes que no dibujarse:
                         // un quiote con el azul de la hoja es tolerable; un
                         // quiote invisible es el bug.
-                        const GLuint texPenca  = texSegura(BLOCK_AGAVE_AZUL_PENCA, 0);
+                        const GLuint texPenca  = texSegura(FORMA.penca, 0);
                         auto oPenca = [&](GLuint t) { return t != 0 ? t : texPenca; };
-                        const GLuint texPunta  = oPenca(texSegura(BLOCK_AGAVE_AZUL_PUNTA, 0));
+                        const GLuint texPunta  = oPenca(texSegura(FORMA.punta, 0));
                         const GLuint texPina   = oPenca(texSegura(BLOCK_AGAVE_AZUL_PINA, 0));
                         const GLuint texQuiote = oPenca(texSegura(BLOCK_AGAVE_AZUL_QUIOTE, 0));
                         const GLuint texFlor   = oPenca(texSegura(BLOCK_AGAVE_AZUL_FLOR, 0));
 
                         const float CEN = 0.5f;
+
+                        // El tallo: una columna del suelo a la base de la roseta
+                        // (y un poco dentro de ella, para que no quede un hueco),
+                        // con la hoja de la planta oscurecida: son las bases
+                        // secas de las pencas viejas.
+                        if (TRONCO > 0.02f) {
+                            const float rt = FORMA.radioTronco * (0.6f + 0.4f * (float)etapa / 4.0f);
+                            const float x0 = CEN - rt, x1 = CEN + rt, z0 = CEN - rt, z1 = CEN + rt;
+                            const float y0 = -POSADA, y1 = -POSADA + ELEVADO + TRONCO + 0.12f;
+                            const float lt = tope1(lzm);
+                            auto& V = verticesByTexture[texPenca];
+                            auto& C = colorsByTexture[texPenca];
+                            auto& U = uvsByTexture[texPenca];
+                            const float P[5][4][3] = {
+                              {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}}, // arriba
+                              {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}}, // +X
+                              {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}}, // -X
+                              {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}}, // +Z
+                              {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}}, // -Z
+                            };
+                            static const float SOMBRA[5] = { 0.85f, 0.70f, 0.70f, 0.78f, 0.62f };
+                            // La textura, a lo alto: un trozo por cada bloque de tallo.
+                            const float T[5][4][2] = {
+                              {{0.3f,0.3f},{0.3f,0.7f},{0.7f,0.7f},{0.7f,0.3f}},
+                              {{0.2f,y0},{0.2f,y1},{0.8f,y1},{0.8f,y0}},
+                              {{0.2f,y0},{0.8f,y0},{0.8f,y1},{0.2f,y1}},
+                              {{0.2f,y0},{0.8f,y0},{0.8f,y1},{0.2f,y1}},
+                              {{0.2f,y0},{0.2f,y1},{0.8f,y1},{0.8f,y0}},
+                            };
+                            for (int cara = 0; cara < 5; ++cara)
+                                for (int i = 0; i < 4; ++i) {
+                                    V.push_back(wx + P[cara][i][0]);
+                                    V.push_back(wy + P[cara][i][1]);
+                                    V.push_back(wz + P[cara][i][2]);
+                                    const float s = SOMBRA[cara] * lt;
+                                    C.push_back(tope1(s * lightColorR)); C.push_back(tope1(s * lightColorG));
+                                    C.push_back(tope1(s * lightColorB)); C.push_back(1.0f);
+                                    U.push_back(T[cara][i][0]);
+                                    U.push_back(T[cara][i][1]);
+                                }
+                        }
 
                         // Semilla estable: la misma planta se dibuja igual
                         // siempre, y dos vecinas no salen calcadas.
@@ -22440,9 +22954,9 @@ public:
                             constexpr int PASOS = 7;
                             constexpr int LADOS = 4;
 
-                            const int NPENCAS = A::pencasDeEtapa(etapa);
-                            const float GRUESO = A::engrosado(etapa);
-                            const float CAIDA  = A::caidaDeEtapa(etapa);
+                            const int NPENCAS = Compuesto::AgaveRigido::hojasDeEtapa(ESPECIE, etapa);
+                            const float GRUESO = A::engrosado(etapa) * FORMA.grueso;
+                            const float CAIDA  = A::caidaDeEtapa(etapa) + FORMA.caida;
                             const int   NDIENTES = A::dientesDeEtapa(etapa);
                             constexpr float ANG_ORO = 2.39996f;   // 137.5 grados
 
@@ -22863,8 +23377,8 @@ public:
                             if (SEG < CELDAS) {
                                 constexpr int PASOS = 6;
                                 constexpr int LADOS = 4;
-                                const int NPENCAS = A::pencasDeEtapa(etapa);
-                                const float GRUESO = A::engrosado(etapa);
+                                const int NPENCAS = Compuesto::AgaveRigido::hojasDeEtapa(ESPECIE, etapa);
+                                const float GRUESO = A::engrosado(etapa) * FORMA.grueso;
                                 constexpr float ANG_ORO = 2.39996f;
 
                                 for (int p = 0; p < NPENCAS; ++p) {
@@ -25296,6 +25810,13 @@ public:
                         // cubo y la mata no se dibujaria nunca. Dentro hay una
                         // rama propia para el (busca "LA MATA: LAS PENCAS
                         // EXTRA").
+                        // ⭐ LA PENCA COLOCADA NO SE MALLA: se dibuja aparte,
+                        // con el modelo 3D del item (ver g_pencasPuestas y
+                        // "LAS PENCAS DE NOPAL COLOCADAS" en el bucle principal).
+                        // (Las cuatro piezas posadas: nopal de Castilla, penca
+                        // de nopal y pencas de maguey. Ver esItemPosado.)
+                        if (esItemPosado(block)) continue;
+
                         if (esCladodio(block) ||
                             esNopalDeCastilla(block) ||
                             block == BLOCK_NOPAL_MOJADO ||
@@ -31844,8 +32365,28 @@ Audio::AudioMixer      g_audioMixer;
 Audio::FootstepSystem  g_footsteps;
 Audio::Musica          g_musica;
 
+// ⭐ EL CLIC DE LOS BOTONES (ver audio/ClicBoton.h). Quien DIBUJA un boton con
+// el raton encima llama a `ratonSobreBoton()`; el clic izquierdo suena solo si
+// eso paso hace un instante. Asi no hay que tocar cada manejador de clic, y un
+// clic en el vacio del menu no suena.
+double g_tRatonSobreBoton = -1.0e9;
+double g_tUltimoClicBoton = -1.0e9;
+inline void ratonSobreBoton() { g_tRatonSobreBoton = glfwGetTime(); }
+inline void sonarClicDeBoton() {
+    static Audio::SoundBuffer clic;
+    if (clic.samples.empty()) {
+        clic.samples = Audio::ClicBoton::generar(Audio::AudioMixer::SAMPLE_RATE);
+        clic.sampleRate = Audio::AudioMixer::SAMPLE_RATE;
+    }
+    const double ahora = glfwGetTime();
+    if (!Audio::ClicBoton::debeSonar(ahora, g_tRatonSobreBoton, g_tUltimoClicBoton)) return;
+    g_tUltimoClicBoton = ahora;
+    g_audioMixer.play(&clic, Audio::ClicBoton::VOLUMEN, 1.0f);
+}
+
 // Traduce un bloque del juego al material acústico correspondiente.
 inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
+    if (Formas::esPieza(b)) b = Formas::materialBloque(b);    // suena como su material
     switch (b) {
         case BLOCK_STONE:
         case BLOCK_COBBLESTONE:
@@ -32166,7 +32707,16 @@ void updatePlayerPhysics(Player& player, World& world, float deltaTime,
 enum PauseMenuState {
     PAUSE_MENU_MAIN,
     PAUSE_MENU_GRAPHICS,
-    PAUSE_MENU_SENSITIVITY
+    PAUSE_MENU_SENSITIVITY,
+    // Las pantallas de dentro del menu de 20 botones (ver ui/MenuPausa.h).
+    // Van AL FINAL: el menu principal reutiliza GRAPHICS y SENSITIVITY para
+    // sus propios submenus y los compara por valor.
+    PAUSE_MENU_ESTADISTICAS,
+    PAUSE_MENU_LOGROS,
+    PAUSE_MENU_BUGS,
+    PAUSE_MENU_INFO_MUNDO,
+    PAUSE_MENU_CONTROLES,
+    PAUSE_MENU_ACERCA
 };
 
 enum GameScreenState {
@@ -32229,6 +32779,12 @@ struct WorldInfo {
           gameMode(0) {}
 };
 
+// La carpeta de un mundo de la lista (el ultimo tramo de su ruta): lo que lo
+// identifica. Su `name` es solo el titulo, y puede repetirse o cambiar.
+inline std::string carpetaDe(const WorldInfo& w) {
+    return std::filesystem::path(w.folderPath).filename().string();
+}
+
 struct Button {
     float x, y, width, height;
     const char* text;
@@ -32240,8 +32796,10 @@ struct Button {
         : x(x), y(y), width(w), height(h), text(txt), isHovered(false) {}
 
     bool contains(float mouseX, float mouseY) const {
-        return mouseX >= x && mouseX <= x + width &&
-               mouseY >= y && mouseY <= y + height;
+        const bool dentro = mouseX >= x && mouseX <= x + width &&
+                            mouseY >= y && mouseY <= y + height;
+        if (dentro && width > 0.0f) ratonSobreBoton();   // para el clic (ClicBoton.h)
+        return dentro;
     }
 };
 
@@ -32489,7 +33047,13 @@ struct GameState {
 
     // Sistema de mundos
     std::vector<WorldInfo> savedWorlds;
+    // ⭐ currentWorldName es la CARPETA del mundo abierto (saves/<esto>): su
+    // identidad, que no cambia nunca. Lo que el jugador ve y puede cambiar
+    // cuando quiera es currentWorldTitle (ver WorldName::limpiarTitulo).
     std::string currentWorldName;
+    std::string currentWorldTitle;
+    std::string avisoNombre;             // por que no se guardo el nombre que se escribio
+    bool renombrandoEnPausa = false;     // el cuadro de CAMBIAR NOMBRE, en la pausa
 
     // ⭐ MODO DE JUEGO DEL MUNDO ACTUAL: 0=Survival, 1=Creative, 2=Adventure
     // Se lee del level.dat al entrar al mundo. Antes se leía en una variable
@@ -32801,9 +33365,9 @@ struct GameState {
 
             // La hoja de maguey colocada vuelve a ser su item.
             case BLOCK_MAGUEY_PUESTO:
-                return BLOCK_IXTLE_HOJA;
             case BLOCK_AGAVE_AZUL_PUESTO:
-                return BLOCK_PENCA_AGAVE_AZUL;
+            case BLOCK_PENCA_NOPAL_PUESTA:
+                return itemDePosado(brokenBlock);
 
             // Una rama da un PALO: es exactamente lo que es.
             case BLOCK_RAMA_PINO:
@@ -32939,7 +33503,76 @@ struct GameState {
         items.push_back(item);
     }
 
+    // ⭐ DEJAR UN ITEM EN EL SUELO (ver ItemsTirados.h): el nopal y el maguey
+    // ya no se convierten en bloque. `donde` es de donde sale y `impulso` la
+    // velocidad con la que se suelta (un empujoncito hacia donde se mira).
+    void dejarItem(Vec3 donde, BlockType tipo, Vec3 impulso = Vec3(0.0f, 0.0f, 0.0f)) {
+        ItemEntity it(donde, tipo);
+        it.tirado = true;
+        it.pickupDelay = 0.0f;
+        it.giro = (float)(rand() % 360);
+        it.velocity = impulso;
+        items.push_back(it);
+    }
+    // El mundo para la fisica de los items dejados: lo que mide de alto lo
+    // macizo de una celda (0 = vacia, 1 = bloque entero, una capa de 3 px lo
+    // suyo) y negativo donde no hay mundo cargado (ahi no hay fisica).
+    float celdaParaItem(int x, int y, int z) {
+        if (y < 0) return 0.0f;
+        if (y >= CHUNK_HEIGHT) return 0.0f;
+        if (!world.chunkCargadoEn(x, z)) return -1.0f;
+        const BlockType b = world.getBlock(x, y, z);
+        if (!(isBlockSolid(b) || esNivelParcial(b))) return 0.0f;
+        return (std::min)(1.0f, (std::max)(0.05f, alturaDe(b)));
+    }
+
     void updateItems(float deltaTime) {
+        // Los items dejados a proposito: cuerpos con fisica. Chocan con el
+        // suelo, las paredes y el techo, se amontonan, y los empujan el
+        // jugador y los animales (ver ItemsTirados.h).
+        {
+            static std::vector<ItemsTirados::Cuerpo> cuerpos;
+            static std::vector<size_t> cual;
+            static std::vector<ItemsTirados::Empujador> empujan;
+            cuerpos.clear();
+            cual.clear();
+            for (size_t i = 0; i < items.size(); ++i) {
+                if (!items[i].tirado) continue;
+                cual.push_back(i);
+                ItemsTirados::Cuerpo c;
+                c.x = items[i].position.x; c.y = items[i].position.y; c.z = items[i].position.z;
+                c.vx = items[i].velocity.x; c.vy = items[i].velocity.y; c.vz = items[i].velocity.z;
+                c.enSuelo = items[i].onGround;
+                cuerpos.push_back(c);
+            }
+            if (!cuerpos.empty()) {
+                empujan.clear();
+                ItemsTirados::Empujador yo;
+                yo.x = player.position.x; yo.z = player.position.z;
+                yo.yPies = player.position.y; yo.alto = 1.8f; yo.radio = 0.32f;
+                empujan.push_back(yo);
+                if (pecaries) {
+                    for (const auto& a : pecaries->agentes()) {
+                        if (a.vidaMedios <= 0) continue;
+                        const float dx = a.x - player.position.x, dz = a.z - player.position.z;
+                        if (dx * dx + dz * dz > 48.0f * 48.0f) continue;
+                        ItemsTirados::Empujador e;
+                        e.x = a.x; e.z = a.z; e.yPies = a.y;
+                        e.alto = 0.7f * a.escala + 0.2f; e.radio = 0.38f * a.escala + 0.1f;
+                        empujan.push_back(e);
+                    }
+                }
+                ItemsTirados::paso(cuerpos, deltaTime,
+                                   [&](int x, int y, int z) { return celdaParaItem(x, y, z); },
+                                   empujan.data(), (int)empujan.size());
+                for (size_t k = 0; k < cual.size(); ++k) {
+                    ItemEntity& it = items[cual[k]];
+                    it.position = Vec3(cuerpos[k].x, cuerpos[k].y, cuerpos[k].z);
+                    it.velocity = Vec3(cuerpos[k].vx, cuerpos[k].vy, cuerpos[k].vz);
+                    it.onGround = cuerpos[k].enSuelo;
+                }
+            }
+        }
         for (size_t i = 0; i < items.size(); ) {
             // ⭐⭐⭐ Pasar posición del jugador para atracción magnética
             items[i].update(deltaTime, player.position);
@@ -32953,6 +33586,15 @@ struct GameState {
                 if (esAguaCualquiera(world.getBlock(ix, iy, iz)) ||
                     esAguaCualquiera(world.getBlock(ix, iy - 1, iz)))
                     items[i].blockType = BLOCK_NOPAL_MOJADO;
+            }
+
+            // Un item dejado a proposito no pasa por lo de abajo (rebote,
+            // flotar a 1,2 del suelo, recogerse al pasar): ya se movio arriba.
+            // Si se cae del mundo, desaparece.
+            if (items[i].tirado) {
+                if (items[i].position.y < -32.0f) items.erase(items.begin() + i);
+                else ++i;
+                continue;
             }
 
             // ⭐ COLISIÓN CON EL SUELO (solo si NO está siendo atraído)
@@ -32997,6 +33639,7 @@ struct GameState {
                         continue;
                     }
                     if (inventory.addItem(items[i].blockType, 1)) {
+                        g_estad.contar(Estadisticas::ITEMS_RECOGIDOS);
                         items.erase(items.begin() + i);
                         continue;
                     }
@@ -33306,6 +33949,56 @@ int g_windowedHeight = 720;
 int g_windowedPosX = 100;
 int g_windowedPosY = 100;
 
+// Pantalla completa <-> ventana. Lo usan F11 y el boton del menu de pausa.
+void alternarPantallaCompleta(GLFWwindow* window) {
+    g_isFullscreen = !g_isFullscreen;
+
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+    if (g_isFullscreen) {
+        // Guardar posición y tamaño de ventana antes de ir a pantalla completa
+        glfwGetWindowPos(window, &g_windowedPosX, &g_windowedPosY);
+        glfwGetWindowSize(window, &g_windowedWidth, &g_windowedHeight);
+
+        // Cambiar a pantalla completa
+        glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+    } else {
+        // Volver a modo ventana
+        glfwSetWindowMonitor(window, nullptr, g_windowedPosX, g_windowedPosY, g_windowedWidth, g_windowedHeight, 0);
+    }
+}
+
+// ⭐ LO QUE ENCIENDEN Y APAGAN LOS BOTONES DEL MENU DE PAUSA.
+bool g_hudOculto = false;        // HUD: sin hotbar, corazon ni avisos
+bool g_capturaPedida = false;    // CAPTURA: el siguiente frame se guarda en PNG
+int g_paginaEstad = 0;           // ESTADISTICAS: la pagina que se ve
+
+// Cuanto mas adelante que la palma va lo que se lleva en la mano (metros).
+// PEDIDO: "pon un poco mas adelante las herramientas y mas adelante los items
+// y items de bloques". Las herramientas iban a 5 cm y pasan a 8; los items y
+// los bloques iban en la palma (0) y pasan a 6.
+constexpr float HERRAMIENTA_ADELANTE = 0.08f;
+constexpr float ITEM_ADELANTE = 0.06f;
+// ⭐ LAS PENCAS DE NOPAL COLOCADAS QUE HAY CERCA DEL JUGADOR.
+//
+// PEDIDO: "que al colocarlo sea su forma de antes, no un bloque" -- el mismo
+// modelo 3D que el item en la mano y tirado en el suelo. Ese modelo sale de la
+// silueta del PNG del item y se pinta con su textura; el mallado de chunks no
+// puede llevarlo (su geometria va con el array de texturas del terreno). Asi
+// que la penca colocada no se malla y se dibuja aparte, cada frame, como los
+// items sueltos.
+//
+// Para saber cuales hay sin recorrer el mundo entero cada frame, se barre una
+// capa horizontal por frame alrededor del jugador (la lista entera se renueva
+// en 17 frames) y la que se acaba de colocar se apunta en el acto.
+std::vector<Vec3i> g_pencasPuestas;
+constexpr int PENCAS_RADIO = 20, PENCAS_ALTO = 8;      // bloques alrededor del jugador
+
+// La penca de nopal en la mano: cuanto se corre a la derecha (metros) y a que
+// escala se dibuja.
+constexpr float PENCA_A_LA_DERECHA = 0.06f, PENCA_TAMANO = 0.70f;
+
 // ============================================================================
 // SISTEMA DE RAYCAST PARA BLOQUES
 // ============================================================================
@@ -33465,7 +34158,11 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
             //
             // ⭐ El bucle va hasta piezasDe(block), no hasta 2: una celda de
             // tres piezas funcionaria aqui sin tocar nada.
-            if (esCompartido(block) || Compuesto::esCompuesto(block)) {
+            // (Las piezas de la mesa de refineria no van por aqui: este camino
+            // prueba las cajas de "cuerpo y puntas" de las plantas, que no son
+            // las suyas, y por eso una pared no se dejaba seleccionar. Van por
+            // el de abajo, con las cajas de su forma.)
+            if ((esCompartido(block) || Compuesto::esCompuesto(block)) && !Formas::esPieza(block)) {
                 float mejorT = 0.0f;
                 bool  hayImpacto = false;
                 int   cualIdx = 0;
@@ -33537,7 +34234,11 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
                         return world.getBlock(x + dx, y + dy, z + dz);
                     }, x, y, z);
 
-                if (fm.n > 1) {
+                // ⭐ PEDIDO: "que las paredes sean seleccionables sin problemas".
+                // Una pieza se selecciona si el rayo toca ALGUNA de sus cajas,
+                // tenga una (pared, piso, columna) o varias (escalera): antes
+                // esto solo se miraba con mas de una caja.
+                if (fm.n > 1 || (fm.n == 1 && Formas::esPieza(block))) {
                     bool tocaAlguna = false;
                     for (int pz = 0; pz < fm.n && !tocaAlguna; ++pz) {
                         const CajaForma& c = fm.piezas[pz];
@@ -34019,6 +34720,10 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
         case BLOCK_AGAVE_AZUL_PUESTO:
             drops.push_back({BLOCK_PENCA_AGAVE_AZUL, 1, 1.0f});
             break;
+        // La penca de nopal posada devuelve la penca.
+        case BLOCK_PENCA_NOPAL_PUESTA:
+            drops.push_back({BLOCK_NOPAL_CLADODIO, 1, 1.0f});
+            break;
 
         case BLOCK_TALLGRASS:
         case BLOCK_ORANGE_FLOWER:
@@ -34110,6 +34815,7 @@ GLuint texturaHerida() {
     return tex;
 }
 
+void contarMinado(GameState* state, BlockType b, int x, int y, int z);   // estadisticas, mas abajo
 void updateMining(GameState* state, float deltaTime) {
     // ⭐ Romper un bloque es accion del jugador: su chunk adelanta a todo el
     // terreno nuevo que haya en cola de mallado. Ver AccionDelJugador.
@@ -34206,6 +34912,10 @@ void updateMining(GameState* state, float deltaTime) {
                 idTocado, dano,
                 state->player.position.x, state->player.position.z,
                 adaptador);
+            g_estad.contar(Estadisticas::GOLPES_ANIMALES);
+            g_estad.contar(Estadisticas::GOLPES);
+            g_estad.sumar(Estadisticas::DANO_ANIMALES, dano);
+            if (murio) g_estad.contar(Estadisticas::ANIMALES_CAZADOS);
 
             // Un poco de eco: polvo donde se dio el golpe.
             state->particles.spawnBlockBreakParticles(
@@ -34358,7 +35068,8 @@ void updateMining(GameState* state, float deltaTime) {
         // toca no le quita vida -- ya se paga con los 13 minutos.
         // Sin herramienta en la mano, esto no hace nada.
         if (state->inventory.gastarHerramienta(
-                desgasteHerramienta(herramienta, blockType))) {
+                desgasteHerramienta(herramienta, Formas::esPieza(blockType)
+                                                     ? Formas::materialBloque(blockType) : blockType))) {
             std::cout << "La herramienta se ha roto" << std::endl;
         }
 
@@ -34550,6 +35261,17 @@ void updateMining(GameState* state, float deltaTime) {
                         for (int i = 0; i < pencas; ++i)
                             state->spawnItem(pos, BLOCK_PENCA_AGAVE_AZUL);
                     }
+                } else if (fam == Compuesto::FAM_FORMA) {
+                    state->spawnItem(pos, Formas::conGiro(blockType, 0));
+                } else if (Compuesto::AgaveRigido::esRigido(fam)) {
+                    // El espadin, el albomarginata y el salmiana dan pencas de
+                    // maguey: tantas como celdas llena la mata, y una mas si
+                    // esta hecha (el salmiana grande, hasta cinco).
+                    const uint16_t et = Compuesto::AgaveAzul::etapaDe(blockType);
+                    const int pencas = Compuesto::AgaveRigido::celdasDeEtapa(fam, et) +
+                                       (et >= Compuesto::AgaveAzul::HECHA ? 1 : 0);
+                    for (int i = 0; i < pencas; ++i)
+                        state->spawnItem(pos, BLOCK_IXTLE_HOJA);
                 }
             }
 
@@ -34592,7 +35314,7 @@ void updateMining(GameState* state, float deltaTime) {
                     if (!Compuesto::esCompuesto(b)) return -1;
                     if (Compuesto::familiaDe(b) == Compuesto::FAM_MAGUEY)
                         return (int)Compuesto::Maguey::segmentoDe(b);
-                    if (Compuesto::familiaDe(b) == Compuesto::FAM_AGAVE_AZUL)
+                    if (Compuesto::AgaveRigido::esRigido(Compuesto::familiaDe(b)))
                         return (int)Compuesto::AgaveAzul::segmentoDe(b);
                     return 0;   // familias de una sola celda
                 };
@@ -34614,7 +35336,8 @@ void updateMining(GameState* state, float deltaTime) {
                 }
             }
             state->world.setBlock(bx, by, bz, BLOCK_AIR);
-            state->particles.spawnBlockBreakParticles(pos, BLOCK_IXTLE_HOJA);
+            state->particles.spawnBlockBreakParticles(
+                pos, Formas::esPieza(blockType) ? Formas::materialBloque(blockType) : BLOCK_IXTLE_HOJA);
             state->isMining = false;
             state->miningProgress = 0.0f;
             state->miningParticleTimer = 0.0f;
@@ -34645,6 +35368,7 @@ void updateMining(GameState* state, float deltaTime) {
             const BlockType queda = quitarPieza(blockType,
                                                 result.piezaSegunda);
 
+            contarMinado(state, rota, bx, by, bz);
             // Suelta el item de la pieza rota, no el de la celda entera.
             const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
             for (const auto& d : getBlockDrops(rota)) {
@@ -34689,6 +35413,7 @@ void updateMining(GameState* state, float deltaTime) {
             // Se pasa la posicion: el relleno de una celda mixta puede ser un
             // nivel parcial, y de la posicion depende saber si lo apilo el
             // jugador (ver g_nivelesDelJugador).
+            contarMinado(state, relleno, bx, by, bz);
             for (const auto& d : getBlockDrops(relleno, bx, by, bz)) {
                 if (d.chance < 1.0f) continue;
                 for (int i = 0; i < d.count; ++i)
@@ -34935,6 +35660,7 @@ void updateMining(GameState* state, float deltaTime) {
             blockType
         );
 
+        contarMinado(state, blockType, result.blockPos.x, result.blockPos.y, result.blockPos.z);
         // ⭐ SISTEMA DE DROPS: Spawnear items según el tipo de bloque
         Vec3 itemPos(result.blockPos.x + 0.5f, result.blockPos.y + 0.5f, result.blockPos.z + 0.5f);
         // Se pasa la POSICION: los minerales la necesitan para saber cuantos
@@ -35014,14 +35740,49 @@ bool recogerCadaverMirado(GameState* state) {
 }
 
 // Lo que suelta va directo al inventario. Si no cabe, cae al suelo.
+// El item dejado en el suelo que se esta mirando (indice en state->items), o -1.
+// No se coge a traves de una pared: tiene que estar antes que el primer bloque
+// macizo de la mirada.
+int itemTiradoMirado(GameState* state) {
+    static std::vector<ItemsTirados::Cuerpo> cuerpos;
+    static std::vector<int> cual;
+    cuerpos.clear();
+    cual.clear();
+    for (size_t i = 0; i < state->items.size(); ++i) {
+        const ItemEntity& it = state->items[i];
+        if (!it.tirado) continue;
+        cual.push_back((int)i);
+        cuerpos.push_back({ it.position.x, it.position.y, it.position.z, 0.0f, it.onGround });
+    }
+    if (cuerpos.empty()) return -1;
+    const Vec3 o = ojoDelJugador(state->player), d = state->player.getForward();
+    float alcance = ItemsTirados::ALCANCE_F;
+    const RaycastResult r = raycastBlock(state->world, o, d, 5.0f);
+    if (r.hit && isBlockSolid(state->world.getBlock(r.blockPos.x, r.blockPos.y, r.blockPos.z)))
+        alcance = (std::min)(alcance, r.distance + 0.6f);
+    const int k = ItemsTirados::mirado(cuerpos, o.x, o.y, o.z, d.x, d.y, d.z, alcance);
+    return k < 0 ? -1 : cual[(size_t)k];
+}
+bool recogerItemTirado(GameState* state) {
+    const int i = itemTiradoMirado(state);
+    if (i < 0) return false;
+    if (!state->inventory.addItem(state->items[(size_t)i].blockType, 1)) return false;   // sin sitio
+    g_estad.contar(Estadisticas::ITEMS_RECOGIDOS);
+    state->items.erase(state->items.begin() + i);
+    return true;
+}
+
 void recogerPedazoMirado(GameState* state) {
     // El cuerpo va primero: esta tirado encima del suelo, asi que si se le
     // mira, se le mira a el y no al pedacito que tenga debajo.
     if (recogerCadaverMirado(state)) { ++g_recogidas; return; }
+    // Luego lo que el jugador dejo a proposito (nopal, maguey).
+    if (recogerItemTirado(state)) { ++g_recogidas; return; }
 
     Vec3i p;
     if (!pedazoMirado(state, p)) return;
     ++g_recogidas;       // el cuerpo hace el gesto de recoger
+    g_estad.contar(Estadisticas::PEDAZOS_RECOGIDOS);
     const BlockType t = state->world.getBlock(p.x, p.y, p.z);
 
     const Vec3 suelo(p.x + 0.5f, p.y + 0.5f, p.z + 0.5f);
@@ -35310,11 +36071,11 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
 
                 // Las tunas: fruto redondo, cada variedad con su color.
                 case BLOCK_TUNA:
-                    siluetaPNG = "Textures/Items/Tuna verde crecida.png"; break;
+                    siluetaPNG = "Textures/Items/Tuna verde.png"; break;
                 case BLOCK_TUNA_AMARILLA:
-                    siluetaPNG = "Textures/Items/Tuna amarilla crecida.png"; break;
+                    siluetaPNG = "Textures/Items/Tuna amarilla.png"; break;
                 case BLOCK_TUNA_ROJA:
-                    siluetaPNG = "Textures/Items/Tuna roja crecida.png"; break;
+                    siluetaPNG = "Textures/Items/Tuna roja.png"; break;
 
                 default: break;
             }
@@ -35702,7 +36463,7 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
 // El aviso sobre la hotbar: la tecla F y lo que hace.
 void renderAvisoRecoger(GameState* state, int width, int height) {
     Vec3i p;
-    if (cadaverMirado(state) < 0 && !pedazoMirado(state, p)) return;
+    if (cadaverMirado(state) < 0 && itemTiradoMirado(state) < 0 && !pedazoMirado(state, p)) return;
 
     // Las medidas de la hotbar (ver renderHotbar): la tecla va centrada sobre
     // el quinto slot, que es el del medio.
@@ -35756,6 +36517,7 @@ void dropSelectedItem(GameState* state) {
     if (!state->inventory.hasSelectedBlock()) {
         return;
     }
+    g_estad.contar(Estadisticas::ITEMS_TIRADOS);
 
     // Obtener el item seleccionado
     BlockType itemType = state->inventory.getSelectedBlock();
@@ -35828,9 +36590,9 @@ void prewarmItemTextures() {
         // dibuja el icono como un quad y no como un cubo isometrico). Se
         // registra aqui para que use la textura de fruto maduro, en vez de
         // heredar la del bloque, que es la verde tierna.
-        { BLOCK_TUNA,          "Tuna verde crecida.png"    },
-        { BLOCK_TUNA_AMARILLA, "Tuna amarilla crecida.png" },
-        { BLOCK_TUNA_ROJA,     "Tuna roja crecida.png"     },
+        { BLOCK_TUNA,          "Tuna verde.png"    },
+        { BLOCK_TUNA_AMARILLA, "Tuna amarilla.png" },
+        { BLOCK_TUNA_ROJA,     "Tuna roja.png"     },
         // ⭐ LA PENCA RECOGIDA USA EL DIBUJO DE ITEM, NO EL DE LA PLANTA.
         //
         // Es el item que sueltan TODAS las partes del nopal al romperse (ver
@@ -36099,8 +36861,66 @@ void drawInfinitySymbol(float cx, float cy, float size) {
     glLineWidth(1.0f);
 }
 
+// ⭐ EL ICONO DE UNA PIEZA ES SU FORMA. PEDIDO: "haz que los iconos de los
+// bloques que se modifican sean igual a la forma fisica al ser colocados".
+// Antes salia el cubo de su material y una escalera, una pared y una columna de
+// tablones eran tres casillas iguales.
+//
+// Se dibujan las mismas cajas que en el mundo (Formas.h), vistas en diagonal
+// desde arriba como el cubo de los demas bloques, cada cara con su trozo de la
+// textura del material. De cada caja se ven tres caras (arriba y las dos de
+// delante) y las cajas se pintan de atras adelante.
+void dibujarIconoDePieza(BlockType pieza, float cx, float cy, float size) {
+    if (!g_textureManager) return;
+    const BlockType mat = Formas::materialBloque(pieza);
+    const Formas::Forma& f = Formas::forma(Formas::formaDePieza(pieza));
+    // Media vuelta: asi lo bajo queda delante (en una escalera, los peldanos).
+    Formas::Caja cajas[4];
+    int orden[4];
+    for (int i = 0; i < f.n; ++i) { cajas[i] = Formas::girar(f.c[i], 2); orden[i] = i; }
+    // El que mira esta en +X +Z, arriba: va primero lo de mas atras y mas abajo.
+    auto fondo = [&](int i) { return cajas[i].x0 + cajas[i].z0 + cajas[i].y0; };
+    for (int a = 0; a < f.n; ++a)
+        for (int b = a + 1; b < f.n; ++b)
+            if (fondo(orden[b]) < fondo(orden[a])) std::swap(orden[a], orden[b]);
+
+    const float A = size * 0.46f, B = size * 0.23f, C = size * 0.52f;
+    auto px = [&](float x, float z) { return cx + (x - z) * A; };
+    auto py = [&](float x, float y, float z) { return cy + (x + z - 1.0f) * B - (y - 0.5f) * C; };
+    const GLuint tex[3] = { g_textureManager->getBlockTexture(mat, 0),      // arriba
+                            g_textureManager->getBlockTexture(mat, 4),      // +X
+                            g_textureManager->getBlockTexture(mat, 5) };    // +Z
+    static const float SOMBRA[3] = { 1.0f, 0.62f, 0.80f };
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    for (int k = 0; k < f.n; ++k) {
+        const Formas::Caja& c = cajas[orden[k]];
+        const float x0 = c.x0 / 16.0f, y0 = c.y0 / 16.0f, z0 = c.z0 / 16.0f;
+        const float x1 = c.x1 / 16.0f, y1 = c.y1 / 16.0f, z1 = c.z1 / 16.0f;
+        // Cada cara: cuatro esquinas (x, y, z) y su (u, v) en la textura.
+        const float Q[3][4][5] = {
+            { {x0,y1,z0, x0,z0}, {x1,y1,z0, x1,z0}, {x1,y1,z1, x1,z1}, {x0,y1,z1, x0,z1} },      // arriba
+            { {x1,y1,z0, z0,y1}, {x1,y1,z1, z1,y1}, {x1,y0,z1, z1,y0}, {x1,y0,z0, z0,y0} },      // +X
+            { {x0,y1,z1, x0,y1}, {x1,y1,z1, x1,y1}, {x1,y0,z1, x1,y0}, {x0,y0,z1, x0,y0} },      // +Z
+        };
+        for (int cara = 0; cara < 3; ++cara) {
+            glBindTexture(GL_TEXTURE_2D, tex[cara]);
+            glColor4f(SOMBRA[cara], SOMBRA[cara], SOMBRA[cara], 1.0f);
+            glBegin(GL_QUADS);
+            for (int i = 0; i < 4; ++i) {
+                glTexCoord2f(Q[cara][i][3], Q[cara][i][4]);
+                glVertex2f(px(Q[cara][i][0], Q[cara][i][2]), py(Q[cara][i][0], Q[cara][i][1], Q[cara][i][2]));
+            }
+            glEnd();
+        }
+    }
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
 void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
     if (blockType == BLOCK_AIR) return;
+    if (Formas::esPieza(blockType)) { dibujarIconoDePieza(blockType, cx, cy, size); return; }
 
     // ---- HUEVOS DE SPAWN: EL ANIMAL DE VERDAD, EN 3D ----
     //
@@ -37374,6 +38194,25 @@ void actualizarBloquesCayendo(GameState* state, float deltaTime) {
 // sobre la que se montara el combate mas adelante.
 //
 // Solo cuenta en SUPERVIVENCIA: en creativo la vida no pinta nada.
+// ⭐ LO QUE CRECE DE UN NOPAL PLANTADO SON CUBOS ENTEROS.
+//
+// PEDIDO: "que lo que crece del nopal de castilla sean bloques". La planta que
+// genera el mundo esta hecha de cladodios y pencas: cajas estrechas que se
+// sueldan entre si. La que crece de una penca que planto el jugador usa el
+// mismo plano (generarNopal), pero cada casilla de cladodio o de penca se pone
+// como BLOCK_NOPAL_TALLO: el cubo completo de nopal, con su misma piel, macizo
+// y que al romperlo devuelve una penca. Las tunas siguen siendo tunas.
+//
+// BLOCK_NOPAL_TALLO estaba "retirado" de la generacion (hacia que el nopal
+// silvestre pareciera un arbolito), pero su dibujo, su dureza y su drop siguen
+// vivos para los mundos que ya lo tenian: aqui vuelve a tener uso. Los nopales
+// silvestres no cambian.
+inline BlockType bloqueDeNopalQueCrece(BlockType plano) {
+    if (esCladodio(plano) || esNopalDeCastilla(plano) || Compuesto::Nopal::esNopal(plano))
+        return BLOCK_NOPAL_TALLO;
+    return plano;
+}
+
 void actualizarVida(GameState* state, float deltaTime) {
     if (!state) return;
     if (state->currentGameMode != 0) return;   // 0 = supervivencia
@@ -37578,7 +38417,12 @@ void actualizarVida(GameState* state, float deltaTime) {
             std::vector<CeldaNopal> plan, orden;
             for (size_t i = 0; i < g_nopalesCreciendo.size(); ) {
                 const NopalCreciendo n = g_nopalesCreciendo[i];
-                if (!esBase(state->world.getBlock(n.x, n.y, n.z))) {
+                // La penca recien plantada sigue POSADA (se ve como su item)
+                // hasta que brota la primera pieza; entonces pasa a ser la base.
+                const BlockType enCelda = state->world.getBlock(n.x, n.y, n.z);
+                const bool semilla = enCelda == BLOCK_PENCA_NOPAL_PUESTA;
+                const BlockType sueloSemilla = state->world.getBlock(n.x, n.y - 1, n.z);
+                if ((!esBase(enCelda) && !semilla) || (semilla && !esSueloParaNopal(sueloSemilla))) {
                     g_nopalesCreciendo[i] = g_nopalesCreciendo.back();
                     g_nopalesCreciendo.pop_back();
                     continue;
@@ -37600,10 +38444,13 @@ void actualizarVida(GameState* state, float deltaTime) {
                     if (!vista) orden.push_back(c);
                 }
                 const size_t k = (size_t)(f * (double)orden.size() + 1e-6);
+                if (semilla && (k > 0 || f >= 1.0))
+                    state->world.setBlock(n.x, n.y, n.z, World::baseParaSuelo(
+                        esNivelParcial(sueloSemilla) ? bloqueBaseDe(sueloSemilla) : sueloSemilla));
                 for (size_t j = 0; j < k && j < orden.size(); ++j) {
                     const CeldaNopal& c = orden[j];
                     if (state->world.getBlock(c.x, c.y, c.z) == BLOCK_AIR)
-                        state->world.setBlock(c.x, c.y, c.z, c.b);
+                        state->world.setBlock(c.x, c.y, c.z, bloqueDeNopalQueCrece(c.b));
                 }
                 if (f >= 1.0) {
                     g_nopalesCreciendo[i] = g_nopalesCreciendo.back();
@@ -37797,6 +38644,185 @@ void actualizarVida(GameState* state, float deltaTime) {
 // (La fila de corazones de vida que iba sobre la hotbar se quito: PEDIDO
 // "elimina esta linea de corazones para siempre". La vida se sigue contando
 // en GameState; lo que avisa en el HUD es el corazon que late, abajo.)
+// ⭐ LAS ESTADISTICAS QUE CRECEN CON EL TIEMPO (ver Estadisticas.h): las
+// distancias, los tiempos y los records salen de mirar al jugador cada frame;
+// lo que es un suceso (minar, colocar, recoger...) se cuenta donde pasa.
+void actualizarEstadisticas(GameState* state, float dt, float rapidez, bool enAgua,
+                            const TemperaturaJugador::Entorno& e, float amenaza) {
+    using namespace Estadisticas;
+    if (!state || dt <= 0.0f || dt > 0.5f) return;
+    if (g_estadMundo != state->currentWorldName) cargarEstadisticas(state->currentWorldName);
+    Registro& E = g_estad;
+    const Player& j = state->player;
+    static std::string mundo;
+    static Vec3 antes;
+    static bool enAireAntes = false, aguaAntes = false, agachAntes = false, tumbAntes = false;
+    static float yMaxAire = 0.0f, sesion = 0.0f;
+    static long long diaAntes = -1;
+    static int slotAntes = -1, cancionesAntes = -1;
+    if (mundo != state->currentWorldName) {          // mundo nuevo: nada de lo anterior
+        mundo = state->currentWorldName;
+        antes = j.position;
+        enAireAntes = !j.onGround;
+        yMaxAire = j.position.y;
+        sesion = 0.0f;
+        diaAntes = -1;
+        slotAntes = state->inventory.selectedSlot;
+    }
+    sesion += dt;
+    E.record(SESION_LARGA, sesion);
+    if (state->inventoryOpen) E.sumar(TIEMPO_INVENTARIO, dt);
+
+    // --- El estado del cuerpo ---
+    bool agachado = false, tumbado = false, corriendo = false;
+    if (g_playerController) {
+        const auto& st = g_playerController->getState();
+        agachado = st.isCrouching; tumbado = st.isProne; corriendo = st.isSprinting;
+    }
+    const bool volando = j.isFlying;
+    const bool agua = enAgua || j.isInWater;
+    const bool suelo = j.onGround;
+    const BlockType enMano = state->inventory.getSelectedBlock();
+    const bool herramienta = esHerramientaGastable(enMano);
+    const double hora = e.hora;
+    const bool noche = hora >= 19.0 || hora < 5.0;
+    const bool lluvia = e.lluvia > 0.1f;
+    const bool cueva = e.cielo < 0.05f && j.position.y < 60.0f;
+    const bool alturas = j.position.y >= 100.0f;
+    const int temp = g_temperatura.nivel();
+
+    // --- Distancias ---
+    Vec3 d(j.position.x - antes.x, j.position.y - antes.y, j.position.z - antes.z);
+    antes = j.position;
+    float h = std::sqrt(d.x * d.x + d.z * d.z);
+    if (h > 20.0f || std::fabs(d.y) > 40.0f) { h = 0.0f; d = Vec3(0, 0, 0); }   // teletransporte o carga
+    if (h > 0.0005f) {
+        if (volando) E.sumar(VOLADO, h);
+        else if (agua) E.sumar(NADADO, h);
+        else if (tumbado) E.sumar(ARRASTRADO, h);
+        else if (agachado) E.sumar(AGACHADO, h);
+        else if (corriendo) E.sumar(CORRIDO, h);
+        else if (suelo) E.sumar(CAMINADO, h);
+        if (suelo && !volando && !agua) E.sumar(PASOS, h / (corriendo ? 1.1f : 0.75f));
+        E.sumar(RECORRIDO_TOTAL, h);
+        if (noche) E.sumar(RECORRIDO_NOCHE, h);
+        if (lluvia) E.sumar(RECORRIDO_LLUVIA, h);
+        if (cueva) E.sumar(RECORRIDO_CUEVA, h);
+        if (alturas) E.sumar(RECORRIDO_ALTURA, h);
+        if (herramienta) E.sumar(RECORRIDO_CARGADO, h);
+        if (temp <= -1) E.sumar(RECORRIDO_FRIO, h);
+        if (temp >= 1) E.sumar(RECORRIDO_CALOR, h);
+    }
+    if (!volando) {
+        if (d.y < 0.0f) E.sumar(CAIDO, -d.y);
+        else if (d.y > 0.0f && suelo) E.sumar(SUBIDO, d.y);
+    }
+
+    // --- Tiempos ---
+    E.sumar(TIEMPO_JUGADO, dt);
+    E.sumar(noche ? TIEMPO_NOCHE : TIEMPO_DIA, dt);
+    if (hora >= 5.0 && hora < 7.5) E.sumar(TIEMPO_AMANECER, dt);
+    if (hora >= 17.5 && hora < 19.5) E.sumar(TIEMPO_ATARDECER, dt);
+    if (lluvia) E.sumar(TIEMPO_LLUVIA, dt);
+    if (agua) E.sumar(TIEMPO_AGUA, dt);
+    if (j.isUnderwater) E.sumar(TIEMPO_BUCEANDO, dt);
+    if (agachado) E.sumar(TIEMPO_AGACHADO, dt);
+    if (tumbado) E.sumar(TIEMPO_TUMBADO, dt);
+    if (rapidez < 0.2f) E.sumar(TIEMPO_QUIETO, dt);
+    if (!suelo && !volando && !agua) E.sumar(TIEMPO_AIRE, dt);
+    if (volando) E.sumar(TIEMPO_VOLANDO, dt);
+    if (corriendo && rapidez > 2.0f) E.sumar(TIEMPO_CORRIENDO, dt);
+    else if (suelo && rapidez > 0.5f) E.sumar(TIEMPO_CAMINANDO, dt);
+    if (state->durmiendo) E.sumar(TIEMPO_DURMIENDO, dt);
+    if (cueva) E.sumar(TIEMPO_CUEVA, dt);
+    if (alturas) E.sumar(TIEMPO_ALTURA, dt);
+    if (state->isMining) E.sumar(TIEMPO_MINANDO, dt);
+    if (herramienta) E.sumar(TIEMPO_HERRAMIENTA, dt);
+    else if (enMano == BLOCK_AIR) E.sumar(TIEMPO_MANOS_VACIAS, dt);
+    if (g_musica.sonando()) E.sumar(TIEMPO_MUSICA, dt);
+    if (g_corazon.pulso > 100.0f) E.sumar(TIEMPO_PULSO_ALTO, dt);
+    if (amenaza > 0.05f) E.sumar(TIEMPO_CERCA_ANIMAL, dt);
+    E.sumar((Id)(TEMP_DEMASIADO_FRIO + std::clamp(temp, -5, 5) + 5), dt);
+
+    // --- El cuerpo ---
+    E.sumar(LATIDOS, g_corazon.pulso / 60.0f * dt);
+    E.sumar(RESPIRACIONES, (14.0f + (g_corazon.pulso - 70.0f) * 0.25f) / 60.0f * dt);
+    const bool enAire = !suelo && !volando && !agua;
+    if (enAire && !enAireAntes) {
+        yMaxAire = j.position.y;
+        if (j.velocity.y > 1.0f) E.contar(SALTOS);
+    }
+    if (enAire) yMaxAire = std::fmax(yMaxAire, j.position.y);
+    if (!enAire && enAireAntes && suelo) {
+        E.contar(ATERRIZAJES);
+        const float caida = yMaxAire - j.position.y;
+        if (caida > 0.0f) E.record(CAIDA_MAX, caida);
+        if (caida > 4.0f) E.contar(CAIDAS_FUERTES);
+    }
+    enAireAntes = enAire;
+    if (agachado && !agachAntes) E.contar(VECES_AGACHADO);
+    if (tumbado && !tumbAntes) E.contar(VECES_TUMBADO);
+    if (agua && !aguaAntes) E.contar(ZAMBULLIDAS);
+    agachAntes = agachado; tumbAntes = tumbado; aguaAntes = agua;
+
+    // --- Los dias, la hotbar y la musica ---
+    const long long dia = (long long)(g_horaDelMundoSegundos / SEGUNDOS_POR_DIA);
+    if (diaAntes >= 0 && dia > diaAntes) E.sumar(DIAS_VIVIDOS, (double)(dia - diaAntes));
+    diaAntes = dia;
+    if (state->inventory.selectedSlot != slotAntes) { if (slotAntes >= 0) E.contar(CAMBIOS_HOTBAR); slotAntes = state->inventory.selectedSlot; }
+    if (cancionesAntes >= 0 && g_musica.tocadas() > cancionesAntes) E.contar(CANCIONES);
+    cancionesAntes = g_musica.tocadas();
+
+    // --- Records ---
+    E.record(ALTURA_MAX, j.position.y);
+    E.minimo(ALTURA_MIN, j.position.y);
+    if (!volando && dt > 0.0f && h > 0.0f) E.record(VELOCIDAD_MAX, std::fmin(h / dt, 40.0f));
+    E.record(LEJOS_CENTRO, std::sqrt(j.position.x * j.position.x + j.position.z * j.position.z));
+}
+
+// Un bloque roto por el jugador: cuantos, de que, con que, y los arboles.
+void contarMinado(GameState* state, BlockType b, int x, int y, int z) {
+    using namespace Estadisticas;
+    if (!state || g_estadMundo != state->currentWorldName) return;
+    Registro& E = g_estad;
+    E.contar(BLOQUES_MINADOS);
+    E.contar(GOLPES);
+    const BlockType enMano = state->inventory.getSelectedBlock();
+    E.contar(esPico(enMano) ? MINADOS_PICO : esHacha(enMano) ? MINADOS_HACHA : esMartillo(enMano) ? MINADOS_MARTILLO
+             : enMano == BLOCK_HOE ? MINADOS_AZADA : MINADOS_MANO);
+    const BlockType base = bloqueBaseDe(plantaSeca(b));
+    const bool construido = base == BLOCK_PLANKS || base == BLOCK_PLANKS_ENCINO || base == BLOCK_PLANKS_OYAMEL ||
+                            base == BLOCK_COBBLESTONE || base == BLOCK_BRICKS || esTablon(base);
+    if (construido) E.contar(MINADOS_CONSTRUIDO);
+    else if (esOrganicoParaHacha(b) || esTroncoDeArbol(b) || esHojaDeArbol(b)) E.contar(MINADOS_MADERA);
+    else if (esRocaParaPico(b)) E.contar(MINADOS_PIEDRA);
+    else E.contar(MINADOS_TIERRA);
+    if (esTroncoDeArbol(b)) {
+        E.contar(TRONCOS);
+        // Un arbol talado: el tronco de abajo del todo (lo de debajo ya no es tronco).
+        const BlockType abajo = y > 0 ? state->world.getBlock(x, y - 1, z) : BLOCK_AIR;
+        if (!esTroncoDeArbol(abajo)) E.contar(ARBOLES_TALADOS);
+    }
+    if (esHojaDeArbol(b)) E.contar(HOJAS);
+    if (esTuna(b)) E.contar(TUNAS);
+    if (esCladodio(b) || esNopalDeCastilla(b)) E.contar(PENCAS);
+    const double h = std::fmod(g_horaDelMundoSegundos / SEGUNDOS_POR_DIA * 24.0, 24.0);
+    if (h >= 19.0 || h < 5.0) E.contar(MINADOS_NOCHE);
+    // La racha: bloques seguidos sin parar mas de 3 s entre uno y otro.
+    static double ultimo = -100.0;
+    static int racha = 0;
+    const double ahora = glfwGetTime();
+    racha = ahora - ultimo < 3.0 ? racha + 1 : 1;
+    ultimo = ahora;
+    E.record(RACHA_MINADO, racha);
+}
+// Un bloque colocado: capa (crece de octavo en octavo) o entero.
+void contarColocado(BlockType b) {
+    using namespace Estadisticas;
+    g_estad.contar(BLOQUES_COLOCADOS);
+    g_estad.contar(esNivelParcial(b) ? CAPAS_COLOCADAS : ENTEROS_COLOCADOS);
+}
+
 // Las entradas del corazon y la temperatura, medidas en el mundo.
 void actualizarVidaCuerpo(GameState* state, float dt) {
     if (!state || state->screenState != SCREEN_IN_GAME) return;
@@ -37880,43 +38906,216 @@ void actualizarVidaCuerpo(GameState* state, float dt) {
     c.temperatura = g_temperatura.cuerpo;
     c.amenaza = amenaza;
     g_corazon.avanzar(dt, c);
+    actualizarEstadisticas(state, dt, rapidez, enAgua, e, amenaza);
+
+    // ========================================================================
+    // ⭐ LAS TRES BARRAS: VIDA, RESISTENCIA Y ENERGIA (ver player/Barras.h)
+    // ========================================================================
+    // Aqui solo se MIDE lo que le pasa al jugador; las reglas (cuanto quita
+    // cada cosa, cuanto recarga) estan en la cabecera, con sus tests.
+    {
+        using namespace BarrasJugador;
+        // Un mundo nuevo: barras llenas. (No se guardan con la partida.)
+        static std::string mundo;
+        static float enEsteMundo = 0.0f;
+        if (mundo != state->currentWorldName) {
+            mundo = state->currentWorldName;
+            g_barras.reponer();
+            g_desmayo = 0.0f;
+            enEsteMundo = 0.0f;
+        }
+        enEsteMundo += dt;
+        g_desmayo = (std::max)(0.0f, g_desmayo - dt);
+        const bool creativo = state->currentGameMode == 1;
+        bool corre = false, sigilo = false;
+        if (g_playerController) {
+            const auto& st = g_playerController->getState();
+            corre = st.isSprinting; sigilo = st.isSigilo;
+        }
+
+        // El salto y la caida: de donde despego (lo mas alto) a donde aterriza.
+        // Volando, en el agua o recien entrado al mundo no cuenta.
+        static bool enAireAntes = false;
+        static float yMaxAire = 0.0f;
+        const bool enAire = !j.onGround && !j.isFlying && !j.isInWater && !enAgua;
+        if (enAire && !enAireAntes) {
+            yMaxAire = j.position.y;
+            if (j.velocity.y > 1.0f && !creativo) g_barras.saltar();
+        }
+        if (enAire) yMaxAire = std::fmax(yMaxAire, j.position.y);
+        if (!enAire && enAireAntes && j.onGround && !creativo && enEsteMundo > 5.0f && !state->durmiendo)
+            g_barras.aterrizar(yMaxAire - j.position.y);
+        if (j.isFlying || j.isInWater || enAgua) yMaxAire = j.position.y;     // el agua frena la caida
+        enAireAntes = enAire;
+
+        // Los animales: el que se defiende (lo acaban de golpear, o cuida a sus
+        // crias) y alcanza al jugador, lo embiste. Un golpe cada 1,2 s.
+        static float entreGolpes = 0.0f;
+        entreGolpes -= dt;
+        if (!creativo && entreGolpes <= 0.0f && state->pecaries) {
+            for (const auto& a : state->pecaries->agentes()) {
+                if (a.vidaMedios <= 0 || a.conducta != Fauna::ConductaPecari::DEFENSA) continue;
+                const float dx = a.x - j.position.x, dz = a.z - j.position.z, dy = a.y - j.position.y;
+                if (dx * dx + dz * dz > 1.9f * 1.9f || std::fabs(dy) > 2.0f) continue;
+                g_barras.danar(6.0f + 6.0f * a.escala, Causa::ANIMAL);
+                entreGolpes = 1.2f;
+                break;
+            }
+        }
+
+        // La lava: dentro de ella (se mira cada frame: quema deprisa).
+        bool enLava = false;
+        for (int dy = 0; dy <= 1 && !enLava; ++dy) {
+            const int wy = py + dy;
+            enLava = wy >= 0 && wy < CHUNK_HEIGHT && state->world.getBlock(px, wy, pz) == BLOCK_LAVA;
+        }
+
+        Entradas b;
+        b.rapidez = rapidez;
+        b.corriendo = corre;
+        b.sigilo = sigilo;
+        b.durmiendo = state->durmiendo;
+        b.enSuelo = j.onGround;
+        b.nadando = j.isInWater || enAgua;
+        b.bajoAgua = j.isUnderwater;
+        b.enLava = enLava;
+        b.golpeando = state->isMining;
+        b.volando = j.isFlying;
+        b.fuego = fuego;
+        b.temperatura = g_temperatura.cuerpo;
+        b.creativo = creativo;
+        g_barras.avanzar(dt, b);
+        if (g_playerController) g_playerController->getState().sinEnergia = !creativo && !g_barras.puedeCorrer();
+
+        // Sin vida: se desmaya y despierta donde empezo, con las barras llenas.
+        if (g_barras.sinVida()) {
+            std::cout << "El jugador se desmayo (" << nombre(g_barras.ultimaCausa) << ")" << std::endl;
+            state->player.position = state->targetSpawnPosition;
+            state->player.velocity = Vec3(0.0f, 0.0f, 0.0f);
+            syncControllerFromPlayer();
+            g_barras.reponer();
+            g_desmayo = 4.0f;
+            enEsteMundo = 0.0f;         // y la caida del traslado no cuenta
+            enAireAntes = false;
+        }
+    }
 }
 
-// ⭐ EL CORAZON DEL HUD (encima de la casilla 5) Y LA BARRA DE TEMPERATURA.
+// ⭐ LAS TRES BARRAS, ARRIBA A LA IZQUIERDA.
 //
-// El corazon: los cuadros de resourcepacks/HUD/corazon_cuadros.png (sacados
-// del video corazon.mp4, ver tools/preparar_corazon.py) de ida y vuelta, y
-// encima el LATIDO: se hincha y se enrojece al pulso del jugador. Debajo, las
-// pulsaciones y, si no esta en calma, por que (ESFUERZO, ALTURA, MIEDO...).
+// PEDIDO: "pon 3 barras del lado izquierdo hasta arriba": VIDA (roja),
+// RESISTENCIA (azul) y ENERGIA (amarilla), cada una con su nombre y sus puntos.
+// Lo que se acaba de perder se queda un instante en blanco y se va encogiendo,
+// para que se note cuanto fue; por debajo de 25 la barra parpadea. La de
+// energia avisa AGOTADO cuando no deja correr.
+static void renderBarrasJugador(int width, int height, float dt) {
+    (void)height;
+    const float x = 16.0f, ancho = (std::min)(260.0f, width * 0.30f), alto = 20.0f, paso = 27.0f;
+    struct Fila { const char* nombre; float valor; float r, g, b; };
+    const Fila filas[3] = {
+        { "VIDA", g_barras.vida, 0.84f, 0.17f, 0.17f },
+        { "RESISTENCIA", g_barras.resistencia, 0.22f, 0.48f, 0.86f },
+        { g_barras.agotado ? "AGOTADO" : "ENERGIA", g_barras.energia, 0.93f, 0.76f, 0.16f },
+    };
+    static float estela[3] = { 100.0f, 100.0f, 100.0f };
+    const float tiempo = (float)glfwGetTime();
+    glDisable(GL_TEXTURE_2D);
+    auto caja = [](float x0, float y0, float x1, float y1) {
+        glBegin(GL_QUADS);
+        glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+        glEnd();
+    };
+    // El panel de fondo.
+    glColor4f(0.03f, 0.03f, 0.05f, 0.50f);
+    caja(x - 6.0f, 10.0f, x + ancho + 6.0f, 16.0f + 3 * paso + 1.0f);
+    for (int i = 0; i < 3; ++i) {
+        const Fila& f = filas[i];
+        const float y = 16.0f + i * paso, v = (std::max)(0.0f, (std::min)(100.0f, f.valor));
+        if (estela[i] < v) estela[i] = v;
+        else estela[i] = (std::max)(v, estela[i] - 35.0f * dt);
+        const float lleno = ancho * v / 100.0f, hasta = ancho * estela[i] / 100.0f;
+        const bool bajo = v < 25.0f && i != 1;
+        const float late = bajo ? 0.65f + 0.35f * std::sin(tiempo * 9.0f) : 1.0f;
+        glColor4f(0.0f, 0.0f, 0.0f, 0.85f);                    // el borde
+        caja(x - 2.0f, y - 2.0f, x + ancho + 2.0f, y + alto + 2.0f);
+        glColor4f(f.r * 0.22f, f.g * 0.22f, f.b * 0.22f, 0.95f);   // el canal vacio
+        caja(x, y, x + ancho, y + alto);
+        glColor4f(1.0f, 1.0f, 1.0f, 0.85f);                    // lo que se acaba de perder
+        if (hasta > lleno) caja(x + lleno, y, x + hasta, y + alto);
+        glBegin(GL_QUADS);                                      // lo que queda, con degradado
+        glColor4f((std::min)(1.0f, f.r * 1.25f) * late, (std::min)(1.0f, f.g * 1.25f) * late, (std::min)(1.0f, f.b * 1.25f) * late, 1.0f);
+        glVertex2f(x, y); glVertex2f(x + lleno, y);
+        glColor4f(f.r * 0.70f * late, f.g * 0.70f * late, f.b * 0.70f * late, 1.0f);
+        glVertex2f(x + lleno, y + alto); glVertex2f(x, y + alto);
+        glEnd();
+        glColor4f(1.0f, 1.0f, 1.0f, 0.22f);                    // el brillo de arriba
+        caja(x, y, x + lleno, y + 3.0f);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.30f);                    // las marcas de 25 en 25
+        for (int k = 1; k < 4; ++k) caja(x + ancho * k / 4.0f - 0.5f, y, x + ancho * k / 4.0f + 0.5f, y + alto);
+        // El nombre a la izquierda y los puntos a la derecha.
+        char num[16];
+        std::snprintf(num, sizeof(num), "%d", (int)std::ceil(v - 0.001f));
+        const float letra = 11.0f, ty = y + (alto - letra) / 2.0f;
+        const float xn = x + ancho - 6.0f - (float)std::strlen(num) * letra * 0.7f;
+        glColor4f(0.0f, 0.0f, 0.0f, 0.85f);
+        renderText(f.nombre, x + 7.0f, ty + 1.0f, letra);
+        renderText(num, xn + 1.0f, ty + 1.0f, letra);
+        glColor4f(1.0f, 1.0f, 1.0f, 0.97f);
+        renderText(f.nombre, x + 6.0f, ty, letra);
+        renderText(num, xn, ty, letra);
+    }
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+// El dano en la pantalla: un fogonazo rojo en los bordes al recibirlo, y el
+// aviso del desmayo. Va aunque el HUD este oculto: es lo que le pasa al cuerpo.
+void renderVeloDeDano(int width, int height) {
+    const float W = (float)width, H = (float)height;
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    const float poca = g_barras.vida < 25.0f ? (25.0f - g_barras.vida) / 25.0f * 0.30f : 0.0f;
+    const float a = (std::max)(0.55f * g_barras.golpe, poca);
+    if (a > 0.004f) {
+        const float m = (std::min)(W, H) * 0.28f;
+        auto borde = [&](float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3) {
+            glBegin(GL_QUADS);
+            glColor4f(0.75f, 0.02f, 0.02f, a); glVertex2f(x0, y0); glVertex2f(x1, y1);
+            glColor4f(0.75f, 0.02f, 0.02f, 0.0f); glVertex2f(x2, y2); glVertex2f(x3, y3);
+            glEnd();
+        };
+        glShadeModel(GL_SMOOTH);
+        borde(0, 0, W, 0, W, m, 0, m);
+        borde(0, H, W, H, W, H - m, 0, H - m);
+        borde(0, 0, 0, H, m, H, m, 0);
+        borde(W, 0, W, H, W - m, H, W - m, 0);
+    }
+    if (g_desmayo > 0.0f) {
+        const float k = (std::min)(1.0f, g_desmayo / 1.5f);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.75f * k);
+        glBegin(GL_QUADS);
+        glVertex2f(0, 0); glVertex2f(W, 0); glVertex2f(W, H); glVertex2f(0, H);
+        glEnd();
+        const char* txt = "TE DESMAYASTE";
+        const float letra = (std::max)(22.0f, H * 0.05f);
+        glColor4f(1.0f, 0.85f, 0.80f, k);
+        renderText(txt, W / 2.0f - (float)std::strlen(txt) * letra * 0.35f, H * 0.42f, letra);
+    }
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+// ⭐ LAS BARRAS DEL JUGADOR Y LA DE TEMPERATURA.
+//
+// (El corazon que latia encima de la casilla 5, con sus pulsaciones y su
+// causa, se quito: PEDIDO "elimina el corazon". El pulso se sigue calculando
+// -- lo usan las estadisticas --, pero ya no se dibuja. En su lugar estan las
+// tres barras de arriba a la izquierda: ver renderBarrasJugador.)
 //
 // La temperatura: una linea gruesa con tres bolas (frio, templado, calor) y
 // un marcador que se mueve por ella con el color del nivel; encima, el nombre.
 void renderVidaCuerpo(GameState* state, int width, int height, float dt) {
     if (!state || state->screenState != SCREEN_IN_GAME) return;
-    static GLuint tex = 0;
-    static bool probado = false;
-    if (!probado) {
-        probado = true;
-        int w = 0, h = 0, c = 0;
-        stbi_set_flip_vertically_on_load(false);
-        unsigned char* px = stbi_load(gamePath("resourcepacks/HUD/corazon_cuadros.png").c_str(), &w, &h, &c, 4);
-        stbi_set_flip_vertically_on_load(true);
-        if (px) {
-            glGenTextures(1, &tex);
-            glBindTexture(GL_TEXTURE_2D, tex);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
-            if (Render::pglGenerateMipmap) {
-                Render::pglGenerateMipmap(GL_TEXTURE_2D);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            } else {
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            }
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F);   // GL_CLAMP_TO_EDGE
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
-            stbi_image_free(px);
-        }
-    }
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_FOG);
     glDisable(GL_LIGHTING);
@@ -37925,104 +39124,106 @@ void renderVidaCuerpo(GameState* state, int width, int height, float dt) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    const float hotbarAncho = 9 * 50.0f + 8 * 4.0f;
-    const float x0 = (width - hotbarAncho) / 2.0f;
-    const float yFila = height - 80.0f - 18.0f - 6.0f;     // la fila de corazones de vida
-
-    // --- EL CORAZON ---
-    {
-        static float video = 0.0f;
-        video += dt;
-        int cuadro = (int)(video * 12.0f) % 168;
-        if (cuadro >= 84) cuadro = 167 - cuadro;
-        const float lat = g_corazon.latido();
-        const float tam = 66.0f * (1.0f + 0.13f * g_corazon.fuerza * lat);
-        const float cx = width * 0.5f, cy = yFila - 8.0f - 33.0f;
-        if (tex) {
-            const float u0 = (cuadro % 12) / 12.0f, v0 = (cuadro / 12) / 7.0f;
-            const float du = 1.0f / 12.0f, dv = 1.0f / 7.0f;
-            glEnable(GL_TEXTURE_2D);
-            glBindTexture(GL_TEXTURE_2D, tex);
-            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-            // En cada latido se enrojece un poco (la sangre que entra).
-            const float rojo = 0.12f * g_corazon.fuerza * lat;
-            glColor4f(1.0f, 1.0f - rojo, 1.0f - rojo, 1.0f);
-            glBegin(GL_QUADS);
-            glTexCoord2f(u0, v0);           glVertex2f(cx - tam / 2, cy - tam / 2);
-            glTexCoord2f(u0 + du, v0);      glVertex2f(cx + tam / 2, cy - tam / 2);
-            glTexCoord2f(u0 + du, v0 + dv); glVertex2f(cx + tam / 2, cy + tam / 2);
-            glTexCoord2f(u0, v0 + dv);      glVertex2f(cx - tam / 2, cy + tam / 2);
-            glEnd();
-            glDisable(GL_TEXTURE_2D);
-            if (g_textureManager) g_textureManager->invalidateBindCache();
-        }
-        char txt[32];
-        std::snprintf(txt, sizeof(txt), "%d", (int)std::lround(g_corazon.pulso));
-        static const char* const CAUSA[] = { "", "ESFUERZO", "DESCANSO", "ALTURA", "FRIO", "CALOR", "MIEDO" };
-        glColor4f(1.0f, 0.88f, 0.85f, 0.95f);
-        renderText(txt, cx + 30.0f, cy + 14.0f, 11.0f);
-        const char* causa = CAUSA[(int)g_corazon.causa];
-        if (causa[0]) {
-            glColor4f(1.0f, 0.55f + 0.4f * (1.0f - lat), 0.45f, 0.9f);
-            renderText(causa, cx - (float)std::strlen(causa) * 4.2f, cy - 46.0f, 9.0f);
-        }
-    }
+    renderBarrasJugador(width, height, dt);
 
     // --- LA TEMPERATURA ---
+    // PEDIDO: "haz un poco mas pequeno y mejorado el diseno del medidor de
+    // temperatura". Antes: 300 px de linea gruesa con tres bolas grandes en un
+    // panel de 360 x 80. Ahora 170 px, en un panel de 198 x 50 con el mismo
+    // borde y el mismo acabado que las barras de la izquierda: un canal con
+    // degradado y brillo, una marca fina por nivel (mas larga en TEMPLADO),
+    // un copo y una llama pequenos en los extremos en vez de bolas, y una
+    // aguja blanca con su flecha del color del nivel.
     {
-        // Arriba a la derecha, grande y sobre un panel oscuro: que se lea
-        // sobre cualquier cielo o terreno.
-        const float ancho = 300.0f, xb = width - 40.0f, xa = xb - ancho, y = 92.0f;   // debajo del aviso de GUARDANDO
-        const float grosor = 14.0f;
-        glColor4f(0.04f, 0.04f, 0.06f, 0.55f);
-        glBegin(GL_QUADS);
-        glVertex2f(xa - 30.0f, y - 42.0f); glVertex2f(xb + 30.0f, y - 42.0f);
-        glVertex2f(xb + 30.0f, y + 38.0f); glVertex2f(xa - 30.0f, y + 38.0f);
-        glEnd();
-        // La linea: del azul marino al blanco y al naranja rojizo.
+        const float ancho = 170.0f, alto = 9.0f;
+        const float xb = width - 30.0f, xa = xb - ancho;
+        const float y = 74.0f;                       // el centro del canal; debajo del aviso de GUARDANDO
+        auto caja = [](float x0, float y0, float x1, float y1) {
+            glBegin(GL_QUADS);
+            glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+            glEnd();
+        };
+        const float t = g_temperatura.cuerpo;
+        const TemperaturaJugador::Color cm = TemperaturaJugador::colorNivel(t);
+        const TemperaturaJugador::Color fr = TemperaturaJugador::colorNivel(-5.0f),
+                                        ca = TemperaturaJugador::colorNivel(5.0f);
+
+        // El panel, con un filo del color del nivel por arriba.
+        const float px0 = xa - 14.0f, px1 = xb + 14.0f, py0 = y - 22.0f, py1 = y + 28.0f;
+        glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+        caja(px0 - 1.0f, py0 - 1.0f, px1 + 1.0f, py1 + 1.0f);
+        glColor4f(0.05f, 0.05f, 0.08f, 0.62f);
+        caja(px0, py0, px1, py1);
+        glColor4f(cm.r, cm.g, cm.b, 0.85f);
+        caja(px0, py0, px1, py0 + 2.0f);
+
+        // El canal: borde negro y el degradado del azul al blanco y al rojo.
+        const float y0 = y - alto / 2.0f, y1 = y + alto / 2.0f;
+        glColor4f(0.0f, 0.0f, 0.0f, 0.90f);
+        caja(xa - 2.0f, y0 - 2.0f, xb + 2.0f, y1 + 2.0f);
         glBegin(GL_QUAD_STRIP);
         for (int k = 0; k <= 20; ++k) {
             const float u = k / 20.0f;
             const TemperaturaJugador::Color c = TemperaturaJugador::colorNivel((u - 0.5f) * 10.0f);
-            glColor4f(c.r, c.g, c.b, 0.9f);
-            glVertex2f(xa + ancho * u, y - grosor / 2);
-            glVertex2f(xa + ancho * u, y + grosor / 2);
+            glColor4f((std::min)(1.0f, c.r * 1.12f), (std::min)(1.0f, c.g * 1.12f), (std::min)(1.0f, c.b * 1.12f), 1.0f);
+            glVertex2f(xa + ancho * u, y0);
+            glColor4f(c.r * 0.68f, c.g * 0.68f, c.b * 0.68f, 1.0f);
+            glVertex2f(xa + ancho * u, y1);
         }
         glEnd();
-        auto bola = [](float x, float yy, float r, float cr, float cg, float cb, float a) {
-            glColor4f(cr, cg, cb, a);
-            glBegin(GL_TRIANGLE_FAN);
-            glVertex2f(x, yy);
-            for (int k = 0; k <= 20; ++k) {
-                const float t = k * 6.2831853f / 20.0f;
-                glVertex2f(x + std::cos(t) * r, yy + std::sin(t) * r);
+        glColor4f(1.0f, 1.0f, 1.0f, 0.25f);          // el brillo de arriba
+        caja(xa, y0, xb, y0 + 2.0f);
+        // Una marca por nivel; la del centro (TEMPLADO), mas larga.
+        for (int k = 1; k < 10; ++k) {
+            const float xk = xa + ancho * k / 10.0f;
+            glColor4f(0.0f, 0.0f, 0.0f, k == 5 ? 0.75f : 0.32f);
+            caja(xk - 0.5f, k == 5 ? y0 - 2.0f : y0, xk + 0.5f, k == 5 ? y1 + 2.0f : y1);
+        }
+
+        // Los extremos: un copo a la izquierda y una llama a la derecha.
+        {
+            const float cx = xa - 1.0f, cy = y + 17.0f, r = 5.0f;
+            glLineWidth(1.5f);
+            glColor4f(fr.r * 0.6f + 0.4f, fr.g * 0.6f + 0.4f, fr.b * 0.4f + 0.6f, 1.0f);
+            glBegin(GL_LINES);
+            for (int k = 0; k < 3; ++k) {
+                const float an = k * 1.0471976f;
+                glVertex2f(cx - std::cos(an) * r, cy - std::sin(an) * r);
+                glVertex2f(cx + std::cos(an) * r, cy + std::sin(an) * r);
             }
             glEnd();
-        };
-        const TemperaturaJugador::Color fr = TemperaturaJugador::colorNivel(-5.0f), ca = TemperaturaJugador::colorNivel(5.0f);
-        bola(xa, y, 16.0f, 0.02f, 0.02f, 0.04f, 0.8f); bola(xa, y, 13.0f, fr.r, fr.g, fr.b, 1.0f);
-        bola(xa + ancho / 2, y, 13.0f, 0.02f, 0.02f, 0.04f, 0.8f); bola(xa + ancho / 2, y, 10.5f, 0.95f, 0.95f, 0.90f, 1.0f);
-        bola(xb, y, 16.0f, 0.02f, 0.02f, 0.04f, 0.8f); bola(xb, y, 13.0f, ca.r, ca.g, ca.b, 1.0f);
-        // El marcador: donde esta el cuerpo, con el color de su nivel.
-        const float t = g_temperatura.cuerpo;
-        const float xm = xa + ancho * (0.5f + t / 10.0f);
-        const TemperaturaJugador::Color cm = TemperaturaJugador::colorNivel(t);
-        glColor4f(0.05f, 0.05f, 0.08f, 0.85f);
+            glLineWidth(1.0f);
+            const float fx = xb + 1.0f, fy = y + 22.0f;
+            glColor4f(ca.r, ca.g * 0.8f, ca.b * 0.6f, 1.0f);
+            glBegin(GL_TRIANGLES);
+            glVertex2f(fx - 4.5f, fy); glVertex2f(fx + 4.5f, fy); glVertex2f(fx + 0.5f, fy - 11.0f);
+            glColor4f(1.0f, 0.86f, 0.35f, 1.0f);
+            glVertex2f(fx - 2.2f, fy); glVertex2f(fx + 2.2f, fy); glVertex2f(fx, fy - 5.5f);
+            glEnd();
+        }
+
+        // La aguja: donde esta el cuerpo. Blanca con borde negro, y encima la
+        // flecha del color del nivel.
+        const float xm = xa + ancho * (std::max)(0.0f, (std::min)(1.0f, 0.5f + t / 10.0f));
+        glColor4f(0.0f, 0.0f, 0.0f, 0.95f);
+        caja(xm - 3.0f, y0 - 4.0f, xm + 3.0f, y1 + 4.0f);
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        caja(xm - 1.5f, y0 - 3.0f, xm + 1.5f, y1 + 3.0f);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.95f);
         glBegin(GL_TRIANGLES);
-        glVertex2f(xm, y - 6.0f); glVertex2f(xm - 12.0f, y - 26.0f); glVertex2f(xm + 12.0f, y - 26.0f);
-        glEnd();
+        glVertex2f(xm, y0 - 3.0f); glVertex2f(xm - 7.0f, y0 - 13.0f); glVertex2f(xm + 7.0f, y0 - 13.0f);
         glColor4f(cm.r, cm.g, cm.b, 1.0f);
-        glBegin(GL_TRIANGLES);
-        glVertex2f(xm, y - 10.0f); glVertex2f(xm - 8.0f, y - 23.0f); glVertex2f(xm + 8.0f, y - 23.0f);
+        glVertex2f(xm, y0 - 5.5f); glVertex2f(xm - 4.5f, y0 - 11.5f); glVertex2f(xm + 4.5f, y0 - 11.5f);
         glEnd();
-        // Y una bola del color del nivel en la linea, para que el punto se vea.
-        bola(xm, y, 9.0f, 0.02f, 0.02f, 0.04f, 0.9f);
-        bola(xm, y, 7.0f, cm.r, cm.g, cm.b, 1.0f);
-        glBegin(GL_TRIANGLES);
-        glEnd();
+
+        // El nombre del nivel, centrado bajo el canal, con su sombra.
         const char* nombre = TemperaturaJugador::nombreNivel(g_temperatura.nivel());
-        glColor4f(cm.r, cm.g, cm.b, 1.0f);
-        renderText(nombre, xa + ancho / 2 - (float)std::strlen(nombre) * 6.3f, y + 16.0f, 13.0f);
+        const float letra = 11.0f;
+        const float tx = xa + ancho / 2.0f - (float)std::strlen(nombre) * letra * 0.35f, ty = y + 11.0f;
+        glColor4f(0.0f, 0.0f, 0.0f, 0.85f);
+        renderText(nombre, tx + 1.0f, ty + 1.0f, letra);
+        glColor4f(cm.r * 0.5f + 0.5f, cm.g * 0.5f + 0.5f, cm.b * 0.5f + 0.5f, 1.0f);
+        renderText(nombre, tx, ty, letra);
     }
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 }
@@ -38647,7 +39848,7 @@ void renderBlockOutline(Vec3i blockPos, Vec3 cameraPos, Vec3i normal) {
 
     if (bsel != tipoCache || blockPos.x != posCache.x ||
         blockPos.y != posCache.y || blockPos.z != posCache.z) {
-        formaCache = formaDeBloque(bsel,
+        formaCache = formaDeSeleccion(bsel,
             [&](int dx, int dy, int dz) {
                 return g_gameState->world.getBlock(blockPos.x + dx,
                                                    blockPos.y + dy,
@@ -38799,7 +40000,7 @@ void renderBlockCrack(Vec3i blockPos, float progress) {
 
     if (bpic != tipoGrieta || blockPos.x != posGrieta.x ||
         blockPos.y != posGrieta.y || blockPos.z != posGrieta.z) {
-        formaGrieta = formaDeBloque(bpic,
+        formaGrieta = formaDeSeleccion(bpic,
             [&](int dx, int dy, int dz) {
                 return g_gameState->world.getBlock(blockPos.x + dx,
                                                    blockPos.y + dy,
@@ -39061,14 +40262,40 @@ BlockType enteroQueSustituyeNivel(BlockType enMano, BlockType nivel) {
     return b;
 }
 
+void abrirRefineria(GameState* state);   // definida mas abajo, con la pantalla de la mesa
 void placeBlock(GameState* state) {
     if (state->placeCooldown > 0) return;
+
+    // ⭐ CLIC DERECHO SOBRE LA MESA DE REFINERIA: se abre, se lleve lo que se
+    // lleve en la mano (tambien con la mano vacia). Va antes que nada de lo de
+    // colocar.
+    {
+        const RaycastResult mira = raycastBlock(state->world, ojoDelJugador(state->player),
+                                                state->player.getForward(), 5.0f);
+        if (mira.hit && state->world.getBlock(mira.blockPos.x, mira.blockPos.y, mira.blockPos.z) ==
+                            BLOCK_MESA_REFINERIA) {
+            abrirRefineria(state);
+            state->placeCooldown = 0.30f;
+            return;
+        }
+    }
     if (!state->inventory.hasSelectedBlock()) return;
 
     // ⭐ Todo lo que esta funcion escriba cuenta como accion del jugador, asi
     // que su chunk adelanta a cualquier terreno nuevo en la cola de mallado.
     // Ver AccionDelJugador y el comparador de chunksToRebuild.
     AccionDelJugador marcaUrgencia;
+
+    // Las estadisticas: si al salir de aqui la casilla tiene uno menos, se
+    // coloco (hay muchas salidas; asi se cuentan todas).
+    struct ContarAlSalir {
+        GameState* s; BlockType tipo; int antes;
+        ~ContarAlSalir() {
+            const InventorySlot& c = s->inventory.slots[s->inventory.selectedSlot];
+            if (c.blockType != tipo || c.count < antes) contarColocado(tipo);
+        }
+    } contarColocadoAlSalir{ state, state->inventory.getSelectedBlock(),
+                             state->inventory.slots[state->inventory.selectedSlot].count };
 
     // ========================================================================
     // ⭐ APILAR BAJO LOS PIES TE SUBE ENCIMA, NO TE ATASCA
@@ -39218,7 +40445,7 @@ void placeBlock(GameState* state) {
         const bool ok = planearDeposito(
             [&](int cy) { return state->world.getBlock(x, cy, z); },
             [](BlockType t) {
-                const bool ocupaSitio = esCladodio(t) || esNopalDeCastilla(t) || esAgavePuesto(t) ||
+                const bool ocupaSitio = esCladodio(t) || esNopalDeCastilla(t) || esPiezaPosada(t) ||
                                         isRama(t) || esRaiz(t) ||
                                         Compuesto::esCompuesto(t);
                 return t == BLOCK_AIR || (isCrossSprite(t) && !ocupaSitio);
@@ -39463,6 +40690,36 @@ void placeBlock(GameState* state) {
 
     RaycastResult result = raycastBlock(state->world, origin, direction, 5.0f);
 
+    // ⭐ EL NOPAL Y EL MAGUEY NO SE CONVIERTEN EN BLOQUE: SE DEJA EL ITEM.
+    //
+    // PEDIDO: "arregla que el maguey desaparece cuando quiero colocarlo y que
+    // solo de el item tirado en 3D, y elimina que el item de Nopal de Castilla
+    // de un bloque solido: de el item 3D tirado, y que si colocas mas y mas en
+    // el mismo lugar se acumulan y tienen fisica y gravedad".
+    //
+    // Va ANTES de todo lo demas de colocar (si cabe el jugador, compartir
+    // celda, niveles, soporte...): nada de eso aplica, porque no se pone
+    // ningun bloque. El item sale en el punto exacto al que se apunta, un
+    // poco separado de la cara tocada, y desde ahi cae y se posa (o se
+    // amontona sobre los que ya haya): ver ItemsTirados.h y dejarItem.
+    if (result.hit && seTiraAlColocar(selectedBlock)) {
+        Vec3 punto(origin.x + direction.x * result.distance,
+                   origin.y + direction.y * result.distance,
+                   origin.z + direction.z * result.distance);
+        // Dentro de la celda libre de delante, no de la del bloque tocado.
+        const Vec3i c = result.previousPos;
+        punto.x = (std::max)(c.x + 0.12f, (std::min)(c.x + 0.88f, punto.x));
+        punto.z = (std::max)(c.z + 0.12f, (std::min)(c.z + 0.88f, punto.z));
+        punto.y = (std::max)((float)c.y, (std::min)(c.y + 0.9f, punto.y)) + 0.06f;
+        // Se suelta con un empujoncito hacia donde se mira: cae, resbala un
+        // poco y se para, o rebota en la pared que tenga delante.
+        state->dejarItem(punto, selectedBlock,
+                         Vec3(direction.x * 1.6f, 0.6f, direction.z * 1.6f));
+        state->inventory.consumeSelected();
+        state->placeCooldown = 0.25f;
+        return;
+    }
+
     if (result.hit) {
         Vec3i placePos = result.previousPos;
 
@@ -39624,7 +40881,7 @@ void placeBlock(GameState* state) {
                         // maguey): eso son piezas reales y machacarlas al
                         // apilar seria destruir cosas sin querer.
                         const bool ocupaSitio =
-                            esCladodio(encima) || esNopalDeCastilla(encima) || esAgavePuesto(encima) ||
+                            esCladodio(encima) || esNopalDeCastilla(encima) || esPiezaPosada(encima) ||
                             isRama(encima) || esRaiz(encima) ||
                             Compuesto::esCompuesto(encima);
                         const bool libre = (encima == BLOCK_AIR) ||
@@ -39893,7 +41150,7 @@ void placeBlock(GameState* state) {
                             // colocaba nada y el jugador no entendia por que.
                             const bool ocupaSitio2 =
                                 esCladodio(encima) ||
-                                esNopalDeCastilla(encima) || esAgavePuesto(encima) ||
+                                esNopalDeCastilla(encima) || esPiezaPosada(encima) ||
                                 isRama(encima) || esRaiz(encima) ||
                                 Compuesto::esCompuesto(encima);
                             const bool libre2 =
@@ -40051,7 +41308,7 @@ void placeBlock(GameState* state) {
             // cualquier bloque solido. Solo la hierba se reemplaza.
             const bool encadenable = (esPlantaEnAgua(targetBlock) ||
                                       esCladodio(targetBlock) ||
-                                      esNopalDeCastilla(targetBlock) || esAgavePuesto(targetBlock) ||
+                                      esNopalDeCastilla(targetBlock) || esPiezaPosada(targetBlock) ||
                                       isRama(targetBlock));
 
             if (isCrossSprite(targetBlock) && !encadenable) {
@@ -40256,9 +41513,24 @@ void placeBlock(GameState* state) {
         if (!intersects) {
             BlockType blockToPlace = state->inventory.getSelectedBlock();
 
-            // LA HOJA DE MAGUEY SE COLOCA ACOSTADA, COMO EL NOPAL.
-            if (esPencaDeMaguey(blockToPlace))
-                blockToPlace = agaveAlColocar(blockToPlace);
+            // ⭐ EL NOPAL Y EL MAGUEY SE COLOCAN CON EL MISMO CODIGO (ver
+            // posadoAlColocar en BlockType.h): el nopal de Castilla, la penca
+            // de nopal y las pencas de maguey quedan posados y se ven como su
+            // item en 3D, acostado. Aqui se decide en que bloque se convierte
+            // lo que hay en la mano; todo lo demas del camino es comun.
+            const BlockType enLaMano = blockToPlace;
+            const BlockType posado = posadoAlColocar(blockToPlace, tocaAgua(
+                [&](int dx, int dy, int dz) {
+                    return state->world.getBlock(placePos.x + dx, placePos.y + dy, placePos.z + dz);
+                }));
+            // (Lo de compartir celda, justo debajo, sigue viendo lo de siempre:
+            // la penca de maguey ya convertida y el resto como item.)
+            if (esPencaDeMaguey(blockToPlace)) blockToPlace = posado;
+
+            // Una pieza de la mesa de refineria se coloca DE FRENTE a quien la
+            // pone: la escalera sube alejandose de el y la pared queda al fondo.
+            if (Formas::esPieza(blockToPlace))
+                blockToPlace = Formas::conGiro(blockToPlace, Formas::giroDeYaw(state->player.yaw));
 
             // ================================================================
             // DOS BLOQUES EN EL MISMO ESPACIO
@@ -40318,14 +41590,10 @@ void placeBlock(GameState* state) {
             //
             // Y SECA TAMPOCO SE QUEDA COMO FRUTO: ese ID es la penca que nace de
             // la mata y se une a ella. Puesta a mano es BLOCK_NOPAL_PUESTO.
-            if (blockToPlace == BLOCK_NOPAL_FRUTO) {
-                blockToPlace = nopalAlColocar(tocaAgua(
-                    [&](int dx, int dy, int dz) {
-                        return state->world.getBlock(placePos.x + dx,
-                                                     placePos.y + dy,
-                                                     placePos.z + dz);
-                    }));
-            }
+            // (La conversion la hizo posadoAlColocar, arriba: seca queda
+            // BLOCK_NOPAL_PUESTO y tocando agua BLOCK_NOPAL_MOJADO.)
+            blockToPlace = posado;
+            (void)enLaMano;
 
             // TIRAS EN REMOJO: si se colocan tocando agua, empiezan a
             // desbabarse. A los 10 segundos sueltan la baba y quedan limpias.
@@ -40360,12 +41628,21 @@ void placeBlock(GameState* state) {
             // Solo en un suelo donde crece un nopal; en cualquier otro sitio
             // no se coloca. Puesta suelta seria una pieza de planta que al
             // romperla daria Nopal de Castilla de la nada.
-            if (blockToPlace == BLOCK_NOPAL_CLADODIO) {
+            //
+            // ⭐ YA NO SE CONVIERTE EN LA BASE AL COLOCARLA. PEDIDO: "arregla
+            // que la penca de nopal no coloque el bloque de nivel raro, que de
+            // el item 3D acostado". La base del nopal lleva el suelo
+            // incrustado y recien puesta era un bloque raro donde el jugador
+            // esperaba ver su penca. Ahora queda POSADA (BLOCK_PENCA_NOPAL_PUESTA)
+            // y se puede poner en cualquier sitio, como el nopal de Castilla.
+            // Sobre un suelo donde crece un nopal, ademas, queda plantada: se
+            // apunta aqui y es el crecimiento quien, cuando le toca brotar, la
+            // cambia por la base (ver "LAS PENCAS PLANTADAS CRECEN").
+            if (blockToPlace == BLOCK_PENCA_NOPAL_PUESTA) {
                 const BlockType suelo = state->world.getBlock(placePos.x, placePos.y - 1, placePos.z);
-                if (!esSueloParaNopal(suelo)) return;
-                blockToPlace = World::baseParaSuelo(esNivelParcial(suelo) ? bloqueBaseDe(suelo) : suelo);
-                g_nopalesCreciendo.push_back({ placePos.x, placePos.y, placePos.z,
-                                               g_tiempoJugadoSegundos });
+                if (esSueloParaNopal(suelo))
+                    g_nopalesCreciendo.push_back({ placePos.x, placePos.y, placePos.z,
+                                                   g_tiempoJugadoSegundos });
             }
 
             // ====================================================================
@@ -40772,7 +42049,7 @@ void placeBlock(GameState* state) {
                                     !esPlantaEnAgua(ocupante)) ||
                                    (isCrossSprite(ocupante) &&
                                     !esPlantaEnAgua(ocupante) &&
-                                    !esAgavePuesto(ocupante));
+                                    !esPiezaPosada(ocupante));
                 if (!libre) {
                     // ⭐⭐ SI EL DESTINO ES UNA CAPA CON SITIO, SE JUNTAN.
                     //
@@ -41009,6 +42286,10 @@ void placeBlock(GameState* state) {
             // ⚠️ Y SE CONSULTA EL MUNDO YA ESCRITO: el bloque acaba de
             // colocarse, asi que los vecinos que ve la funcion son los
             // definitivos.
+            // Se ve desde este mismo frame, sin esperar al barrido (las cuatro
+            // piezas posadas: ver esItemPosado).
+            if (esItemPosado(blockToPlace))
+                g_pencasPuestas.push_back(Vec3i(placePos.x, placePos.y, placePos.z));
             if (blockToPlace == BLOCK_NOPAL_PUESTO) {
                 const bool quedaraCaida = pencaPuestaPorJugador(
                     blockToPlace,
@@ -41671,14 +42952,97 @@ void renderChar(char c, float x, float y, float size) {
 }
 
 // Función para renderizar una cadena de texto
-void renderText(const char* text, float x, float y, float size) {
-    float charWidth = size * 0.7f;  // Ancho total incluyendo espacio
-    float currentX = x;
+// ============================================================================
+// ⭐ TODO EL TECLADO: MINUSCULAS, ACENTOS, ARROBA Y SIGNOS
+// ============================================================================
+// PEDIDO: "agrega en todo Voxel World que puedas escribir con minusculas, poner
+// acentos, simbolos, signos y poner manual mayusculas y el @, y otros mas".
+//
+// La fuente de arriba (renderChar) esta dibujada a mano y solo tiene A-Z, 0-9
+// y diez signos; lo demas no se dibujaba (un ":" o un "=" de un rotulo salian
+// en blanco, y una minuscula se pintaba como mayuscula). Los 180 glifos que
+// faltan estan en ui/FuenteBits.h como mapas de bits de 10 x 20.
+//
+// Hay dos maneras de escribir un texto:
+//
+//   renderText       los ROTULOS del juego, en mayusculas como siempre: sus
+//                    letras siguen siendo las de la fuente dibujada a mano, y
+//                    lo que esa fuente no tiene (acentos, ":", "@"...) sale
+//                    ahora de los mapas de bits en vez de quedarse en blanco.
+//   renderTextoTal   lo que ESCRIBE EL JUGADOR (su nombre, su cuenta, el
+//                    nombre de un mundo): tal cual lo tecleo, con sus
+//                    mayusculas y minusculas, todo con los mapas de bits para
+//                    que se vea parejo.
+//
+// Las dos leen UTF-8 y avanzan lo mismo por caracter (0,7 del tamano), asi que
+// los anchos de siempre siguen valiendo.
 
-    for (int i = 0; text[i] != '\0'; i++) {
-        renderChar(toupper(text[i]), currentX, y, size);
+// Un glifo de los mapas de bits. `y` es el borde de arriba de una mayuscula,
+// como en renderChar: los acentos suben por encima y los rabos bajan.
+void dibujarGlifoBits(unsigned cp, float x, float y, float size) {
+    if (!FuenteBits::tiene(cp)) return;
+    const uint16_t* g = FuenteBits::glifo(cp);
+    const float px = size * 0.7f / (float)FuenteBits::ANCHO;
+    const float py = size / (float)FuenteBits::MAYUSCULA;
+    const float arriba = y - (float)FuenteBits::ARRIBA * py;
+    glBegin(GL_QUADS);
+    for (int f = 0; f < FuenteBits::ALTO; ++f) {
+        const unsigned fila = g[f];
+        if (!fila) continue;
+        // Cada tramo seguido de pixeles encendidos, un rectangulo.
+        for (int c = 0; c < FuenteBits::ANCHO;) {
+            if (!(fila >> (FuenteBits::ANCHO - 1 - c) & 1u)) { ++c; continue; }
+            int fin = c;
+            while (fin < FuenteBits::ANCHO && (fila >> (FuenteBits::ANCHO - 1 - fin) & 1u)) ++fin;
+            const float x0 = x + (float)c * px, x1 = x + (float)fin * px;
+            const float y0 = arriba + (float)f * py, y1 = y0 + py;
+            glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+            c = fin;
+        }
+    }
+    glEnd();
+}
+// ¿Lo dibuja la fuente hecha a mano?
+static bool glifoDeSiempre(unsigned cp) {
+    if ((cp >= 'A' && cp <= 'Z') || (cp >= '0' && cp <= '9') || cp == ' ') return true;
+    for (const char* q = "%+-.,'/()>"; *q; ++q) if (cp == (unsigned char)*q) return true;
+    return false;
+}
+
+// Los rotulos: en mayusculas, con la fuente de siempre y lo que le falta.
+void renderText(const char* text, float x, float y, float size) {
+    if (!text) return;
+    const float charWidth = size * 0.7f;  // Ancho total incluyendo espacio
+    float currentX = x;
+    const std::string s(text);
+    for (size_t i = 0; i < s.size();) {
+        const unsigned cp = Utf8::mayuscula(Utf8::leer(s, i));
+        if (glifoDeSiempre(cp)) renderChar((char)cp, currentX, y, size);
+        else dibujarGlifoBits(cp, currentX, y, size);
         currentX += charWidth;
     }
+}
+// Lo que escribe el jugador: tal cual, con sus mayusculas y minusculas.
+void renderTextoTal(const char* text, float x, float y, float size) {
+    if (!text) return;
+    const float charWidth = size * 0.7f;
+    float currentX = x;
+    const std::string s(text);
+    for (size_t i = 0; i < s.size();) {
+        dibujarGlifoBits(Utf8::leer(s, i), currentX, y, size);
+        currentX += charWidth;
+    }
+}
+// Lo mismo, con su sombra y a 20 px, para las pantallas de mundos (que usan
+// la otra fuente, la de 5 x 7).
+void renderTextoTalConSombra(const char* text, float x, float y) {
+    GLfloat color[4];
+    glGetFloatv(GL_CURRENT_COLOR, color);
+    glDisable(GL_TEXTURE_2D);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
+    renderTextoTal(text, x + 2.0f, y + 2.0f, 20.0f);
+    glColor4f(color[0], color[1], color[2], color[3]);
+    renderTextoTal(text, x, y, 20.0f);
 }
 
 // ============================================================================
@@ -41687,6 +43051,9 @@ void renderText(const char* text, float x, float y, float size) {
 
 // Forward declarations
 bool renameWorld(GameState* state, int worldIndex, const std::string& newName);
+bool confirmarNombreEditado(GameState* state, int worldIndex);
+void cancelarNombreEditado(GameState* state);
+int indiceDelMundoAbierto(GameState* state);
 
 // Cambia SOLO el `LevelName=` de un level.dat, sin tocar el resto del archivo.
 // Se define mas abajo, junto a saveLevelDat, pero renameWorld la necesita
@@ -41701,32 +43068,38 @@ void initWorldSelectButtons(GameState* state, int screenWidth, int screenHeight)
 // aquí; las demás declaraciones deben ir sin él para no duplicarlo).
 void saveWorld(GameState* state, bool isAutoSave = false);
 
+// La pantalla de la cuenta (definida mas abajo, junto al menu principal).
+// Mientras no se haya entrado, el teclado y el raton son suyos.
+bool cuentaPideEntrada();
+void cuentaChar(unsigned int codepoint);
+void cuentaTecla(int key, int action);
+void cuentaClic(float mx, float my, int width, int height);
+bool cuentaClicInsignia(float mx, float my, int width, int height);
+
 // Callback para entrada de caracteres (para el campo de texto)
 void charCallback(GLFWwindow* window, unsigned int codepoint) {
     if (!g_gameState) return;
+    if (cuentaPideEntrada()) { cuentaChar(codepoint); return; }
 
     // Solo procesar si estamos editando el nombre del mundo
-    if (g_gameState->isEditingWorldName && g_gameState->screenState == SCREEN_WORLD_SELECT) {
+    if ((g_gameState->isEditingWorldName && g_gameState->screenState == SCREEN_WORLD_SELECT) ||
+        (g_gameState->renombrandoEnPausa && g_gameState->isPaused)) {
         // Limitar la longitud del nombre
-        if (g_gameState->editingWorldNewName.length() < 50) {
-            // Añadir el carácter al nombre
-            char c = (char)codepoint;
-            // Mismo criterio que la validación final (WorldName), en vez de un
-            // isalnum(char) suelto que es UB para bytes >127.
-            if (WorldName::isAllowedChar(c)) {
-                g_gameState->editingWorldNewName += c;
-            }
+        // Todo el teclado (minusculas, acentos, arroba, signos), en UTF-8.
+        if (Utf8::largo(g_gameState->editingWorldNewName) < WorldName::MAX_LENGTH && Utf8::seEscribe(codepoint)) {
+            Utf8::anadir(g_gameState->editingWorldNewName, codepoint);
+            g_gameState->avisoNombre.clear();
         }
+        if (g_gameState->renombrandoEnPausa) return;
     }
 
     // ⭐⭐⭐ NUEVO: Editar nombre en pantalla de creación de mundo
     if (g_gameState->isEditingNewWorldName && g_gameState->screenState == SCREEN_WORLD_CREATE) {
-        if (g_gameState->newWorldName.length() < 50) {
-            char c = (char)codepoint;
-            if (WorldName::isAllowedChar(c)) {
-                g_gameState->newWorldName += c;
-            }
-        }
+        // Todo el teclado: el nombre que se ve es este, tal cual. (La CARPETA
+        // del mundo se sigue haciendo con lo que vale como ruta: ver
+        // createNewWorld.)
+        if (Utf8::largo(g_gameState->newWorldName) < WorldName::MAX_LENGTH && Utf8::seEscribe(codepoint))
+            Utf8::anadir(g_gameState->newWorldName, codepoint);
     }
 
     // ⭐⭐⭐ NUEVO: Editar semilla en pantalla de creación de mundo
@@ -41747,8 +43120,300 @@ void charCallback(GLFWwindow* window, unsigned int codepoint) {
 // Lo comparten E y ESC: las dos teclas cierran el inventario EXACTAMENTE igual.
 // Si cada una tuviera su copia, la que se quedara atras perderia el item que el
 // jugador llevaba en el cursor o dejaria el raton suelto.
+// ============================================================================
+// ⭐ LA PANTALLA DE LA MESA DE REFINERIA
+// ============================================================================
+// PEDIDO: "al interactuar con el, dandole clic derecho, te llevara a un
+// apartado con [...] 3 slots: 1 para el bloque/item que coloques, el 2 para la
+// herramienta que quieras y el 3 te dara un bloque o item de nuevo de ese
+// bloque/item inicial; abajo el inventario y arriba los 3 slots, y al lado
+// izquierdo una seccion que dira (refinar y crear) que solo se vera cuando hay
+// un item/bloque en el slot 1".
+//
+// Es el inventario de siempre con otra cabecera: en vez de la rejilla de
+// crafteo hay tres casillas ARRIBA (bloque, herramienta, resultado) y, a la
+// IZQUIERDA, el panel REFINAR Y CREAR con las cinco clases (escalera, pared,
+// piso, techo, columna) y las diez formas de la clase elegida.
+//
+// REGLAS
+//   - Solo se refinan los bloques enteros de Formas::bloqueDeMaterial (madera,
+//     tierra, piedra). Con otra cosa el panel lo dice.
+//   - Hace falta una herramienta (hacha, pico o martillo). No se consume: se
+//     gasta un uso por cada bloque refinado.
+//   - De un bloque salen tantas piezas como caben en el (Formas::rinde): 4
+//     pisos, 4 columnas, pero una sola escalera.
+//   - Al cerrar, lo que quede en las casillas vuelve al inventario.
+struct Refineria {
+    bool abierta = false;
+    InventorySlot entrada, herramienta;
+    int clase = 0, opcion = 0;
+};
+Refineria g_refineria;
+
+struct RefineriaUI {
+    float sx[3], sy, lado;                 // las tres casillas
+    float px, py, pw, ph;                  // el panel de la izquierda
+    float tabW, tabY, tabH;                // las cinco pestanas
+    float opX[2], opY0, opW, opH, opPaso;  // las diez opciones, en dos columnas
+};
+static RefineriaUI refineriaUI(int width, int height) {
+    using namespace InventarioLayout;
+    RefineriaUI u;
+    const float x0 = startX((float)width);
+    u.lado = SLOT_SIZE;
+    u.sy = 58.0f;
+    u.sx[0] = x0 + 70.0f;
+    u.sx[1] = x0 + 70.0f + 110.0f;
+    u.sx[2] = x0 + 70.0f + 300.0f;
+    u.px = (std::max)(8.0f, x0 - 340.0f);
+    u.pw = x0 - 14.0f - u.px;
+    u.py = START_Y;
+    u.ph = (std::min)((float)height - START_Y - 110.0f, 5.0f * (SLOT_SIZE + SPACING));
+    u.tabW = u.pw / 5.0f;
+    u.tabY = u.py + 34.0f;
+    u.tabH = 24.0f;
+    u.opW = (u.pw - 18.0f) / 2.0f;
+    u.opX[0] = u.px + 6.0f;
+    u.opX[1] = u.px + 12.0f + u.opW;
+    u.opY0 = u.tabY + u.tabH + 10.0f;
+    u.opPaso = (std::max)(26.0f, (u.py + u.ph - u.opY0 - 6.0f) / 5.0f);
+    u.opH = u.opPaso - 5.0f;
+    return u;
+}
+// Lo que saldria ahora mismo: la pieza y cuantas. BLOCK_AIR si no hay nada
+// que dar (falta el bloque, no es refinable o falta la herramienta).
+static BlockType resultadoDeRefineria(int& cuantas) {
+    cuantas = 0;
+    const Refineria& r = g_refineria;
+    if (r.entrada.isEmpty() || r.herramienta.isEmpty()) return BLOCK_AIR;
+    if (!esHerramientaGastable(r.herramienta.blockType)) return BLOCK_AIR;
+    const int mat = Formas::materialDe(r.entrada.blockType);
+    if (mat < 0) return BLOCK_AIR;
+    const int f = r.clase * Formas::POR_CLASE + r.opcion;
+    cuantas = Formas::rinde(f);
+    return Formas::pieza(mat, f, 0);
+}
+static void rectRef(float x0, float y0, float x1, float y1) {
+    glBegin(GL_QUADS);
+    glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+    glEnd();
+}
+static void bordeRef(float x0, float y0, float x1, float y1) {
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+    glEnd();
+}
+void drawItemIcon(BlockType blockType, float cx, float cy, float size);
+
+void dibujarRefineria(GLFWwindow* window, int width, int height) {
+    const RefineriaUI u = refineriaUI(width, height);
+    Refineria& r = g_refineria;
+    double mxd, myd;
+    glfwGetCursorPos(window, &mxd, &myd);
+    const float mx = (float)mxd, my = (float)myd;
+    auto dentro = [&](float x, float y, float w, float h) { return mx >= x && mx <= x + w && my >= y && my <= y + h; };
+    auto texto = [](const char* t, float x, float y, float tam) { renderText(t, x, y, tam); };
+    auto centrado = [&](const char* t, float cx, float y, float tam) {
+        renderText(t, cx - (float)strlen(t) * tam * 0.35f, y, tam);
+    };
+    glDisable(GL_TEXTURE_2D);
+
+    // La cabecera: tapa el titulo del inventario y pone el suyo.
+    glColor4f(0.07f, 0.06f, 0.05f, 1.0f);
+    rectRef(0.0f, 0.0f, (float)width, InventarioLayout::START_Y - 6.0f);
+    glColor4f(1.0f, 0.78f, 0.35f, 1.0f);
+    centrado("MESA DE REFINERIA", width / 2.0f, 14.0f, 22.0f);
+
+    // Las tres casillas.
+    int cuantas = 0;
+    const BlockType sale = resultadoDeRefineria(cuantas);
+    static const char* const ROTULO[3] = { "BLOQUE", "HERRAMIENTA", "RESULTADO" };
+    for (int i = 0; i < 3; ++i) {
+        const float x = u.sx[i], y = u.sy, L = u.lado;
+        const bool sobre = dentro(x, y, L, L);
+        glDisable(GL_TEXTURE_2D);
+        glColor4f(sobre ? 0.34f : 0.20f, sobre ? 0.30f : 0.18f, sobre ? 0.24f : 0.15f, 0.96f);
+        rectRef(x, y, x + L, y + L);
+        glColor4f(i == 2 ? 1.0f : 0.75f, i == 2 ? 0.80f : 0.72f, i == 2 ? 0.35f : 0.65f, 1.0f);
+        glLineWidth(2.0f);
+        bordeRef(x, y, x + L, y + L);
+        glLineWidth(1.0f);
+        glColor4f(0.85f, 0.82f, 0.74f, 1.0f);
+        centrado(ROTULO[i], x + L / 2.0f, y - 13.0f, 9.0f);
+        const InventorySlot* s = i == 0 ? &r.entrada : (i == 1 ? &r.herramienta : nullptr);
+        BlockType tipo = s ? s->blockType : sale;
+        int n = s ? s->count : cuantas;
+        if (tipo != BLOCK_AIR && n > 0) {
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            drawItemIcon(tipo, x + L / 2.0f, y + L / 2.0f, L * 0.7f);
+            glDisable(GL_TEXTURE_2D);
+            if (n > 1) {
+                char b[16];
+                snprintf(b, sizeof(b), "%d", n);
+                glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
+                texto(b, x + L - (float)strlen(b) * 8.4f - 3.0f, y + L - 14.0f, 12.0f);
+                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                texto(b, x + L - (float)strlen(b) * 8.4f - 4.0f, y + L - 15.0f, 12.0f);
+            }
+        }
+    }
+    // El signo + y la flecha entre casillas.
+    glDisable(GL_TEXTURE_2D);
+    glColor4f(0.85f, 0.82f, 0.74f, 1.0f);
+    centrado("+", (u.sx[0] + u.lado + u.sx[1]) / 2.0f, u.sy + 16.0f, 20.0f);
+    {
+        const float a = u.sx[1] + u.lado + 22.0f, b = u.sx[2] - 22.0f, cy = u.sy + u.lado / 2.0f;
+        rectRef(a, cy - 3.0f, b - 12.0f, cy + 3.0f);
+        glBegin(GL_TRIANGLES);
+        glVertex2f(b, cy); glVertex2f(b - 14.0f, cy - 10.0f); glVertex2f(b - 14.0f, cy + 10.0f);
+        glEnd();
+    }
+
+    // El panel REFINAR Y CREAR: solo con algo en la primera casilla.
+    if (!r.entrada.isEmpty()) {
+        glColor4f(0.09f, 0.08f, 0.07f, 0.95f);
+        rectRef(u.px, u.py, u.px + u.pw, u.py + u.ph);
+        glColor4f(0.80f, 0.62f, 0.32f, 1.0f);
+        bordeRef(u.px, u.py, u.px + u.pw, u.py + u.ph);
+        glColor4f(1.0f, 0.78f, 0.35f, 1.0f);
+        centrado("REFINAR Y CREAR", u.px + u.pw / 2.0f, u.py + 9.0f, 15.0f);
+        const bool refinable = Formas::materialDe(r.entrada.blockType) >= 0;
+        if (!refinable) {
+            glColor4f(0.95f, 0.55f, 0.45f, 1.0f);
+            centrado("ESTO NO SE PUEDE REFINAR", u.px + u.pw / 2.0f, u.py + 60.0f, 11.0f);
+            glColor4f(0.80f, 0.78f, 0.72f, 1.0f);
+            centrado("PON UN BLOQUE ENTERO DE", u.px + u.pw / 2.0f, u.py + 84.0f, 10.0f);
+            centrado("MADERA, TIERRA O PIEDRA", u.px + u.pw / 2.0f, u.py + 100.0f, 10.0f);
+        } else {
+            for (int k = 0; k < Formas::NUM_CLASES; ++k) {
+                const float x = u.px + u.tabW * k;
+                const bool sel = k == r.clase, sobre = dentro(x, u.tabY, u.tabW, u.tabH);
+                glColor4f(sel ? 0.62f : (sobre ? 0.34f : 0.20f), sel ? 0.42f : (sobre ? 0.28f : 0.17f),
+                          sel ? 0.16f : (sobre ? 0.20f : 0.13f), 1.0f);
+                rectRef(x + 1.0f, u.tabY, x + u.tabW - 1.0f, u.tabY + u.tabH);
+                const char* t = Formas::nombreDeClase(k);
+                const float tam = (std::min)(10.0f, (u.tabW - 6.0f) / ((float)strlen(t) * 0.7f));
+                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                centrado(t, x + u.tabW / 2.0f, u.tabY + (u.tabH - tam) / 2.0f, tam);
+            }
+            for (int k = 0; k < Formas::POR_CLASE; ++k) {
+                const float x = u.opX[k / 5], y = u.opY0 + (k % 5) * u.opPaso;
+                const bool sel = k == r.opcion, sobre = dentro(x, y, u.opW, u.opH);
+                glColor4f(sel ? 0.25f : (sobre ? 0.30f : 0.16f), sel ? 0.48f : (sobre ? 0.27f : 0.15f),
+                          sel ? 0.24f : (sobre ? 0.22f : 0.13f), 1.0f);
+                rectRef(x, y, x + u.opW, y + u.opH);
+                glColor4f(sel ? 0.70f : 0.45f, sel ? 1.0f : 0.42f, sel ? 0.65f : 0.36f, 1.0f);
+                bordeRef(x, y, x + u.opW, y + u.opH);
+                const char* t = Formas::forma(r.clase * Formas::POR_CLASE + k).nombre;
+                const float tam = (std::min)(11.0f, (u.opW - 10.0f) / ((float)strlen(t) * 0.7f));
+                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                centrado(t, x + u.opW / 2.0f, y + (u.opH - tam) / 2.0f, tam);
+            }
+            if (r.herramienta.isEmpty()) {
+                glColor4f(0.95f, 0.75f, 0.45f, 1.0f);
+                centrado("FALTA LA HERRAMIENTA", u.px + u.pw / 2.0f, u.py + u.ph + 6.0f, 10.0f);
+            }
+        }
+    } else {
+        glColor4f(0.80f, 0.78f, 0.72f, 1.0f);
+        centrado("PON UN BLOQUE EN LA PRIMERA CASILLA", width / 2.0f, 36.0f, 10.0f);
+    }
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+// Un clic en la pantalla de la mesa (fuera de las casillas del inventario).
+void clicRefineria(float mx, float my, int width, int height, bool izquierdo) {
+    const RefineriaUI u = refineriaUI(width, height);
+    Refineria& r = g_refineria;
+    InventorySlot& mano = g_gameState->heldSlot;
+    auto dentro = [&](float x, float y, float w, float h) { return mx >= x && mx <= x + w && my >= y && my <= y + h; };
+    // Dejar o coger en una casilla: con el izquierdo todo, con el derecho uno.
+    auto mover = [&](InventorySlot& casilla) {
+        if (izquierdo || mano.isEmpty()) {
+            if (!mano.isEmpty() && !casilla.isEmpty() && mano.blockType == casilla.blockType &&
+                !esHerramientaGastable(mano.blockType)) {
+                const int cabe = (std::min)(MAX_STACK_SIZE - casilla.count, mano.count);
+                casilla.count += cabe;
+                mano.count -= cabe;
+            } else {
+                std::swap(mano, casilla);
+            }
+        } else if (casilla.isEmpty() || (casilla.blockType == mano.blockType && casilla.count < MAX_STACK_SIZE &&
+                                         !esHerramientaGastable(mano.blockType))) {
+            const BlockType t = mano.blockType;
+            if (casilla.isEmpty()) { casilla = mano; casilla.count = 0; }
+            casilla.blockType = t;
+            casilla.count += 1;
+            mano.count -= 1;
+        }
+        mano.normalizar();
+        casilla.normalizar();
+    };
+    if (dentro(u.sx[0], u.sy, u.lado, u.lado)) { mover(r.entrada); return; }
+    if (dentro(u.sx[1], u.sy, u.lado, u.lado)) {
+        // Aqui solo entra una herramienta (o se saca la que hay).
+        if (mano.isEmpty() || esHerramientaGastable(mano.blockType)) mover(r.herramienta);
+        return;
+    }
+    if (dentro(u.sx[2], u.sy, u.lado, u.lado)) {
+        int cuantas = 0;
+        const BlockType sale = resultadoDeRefineria(cuantas);
+        if (sale == BLOCK_AIR) return;
+        if (!mano.isEmpty() && (mano.blockType != sale || mano.count + cuantas > MAX_STACK_SIZE)) return;
+        if (mano.isEmpty()) { mano = InventorySlot(); mano.blockType = sale; mano.count = 0; }
+        mano.count += cuantas;
+        // Se gasta un bloque y un uso de la herramienta.
+        r.entrada.count -= 1;
+        r.entrada.normalizar();
+        InventorySlot& h = r.herramienta;
+        if (h.vidaMedios <= 0) h.vidaMedios = vidaMaximaHerramienta(h.blockType);
+        h.vidaMedios -= 2;
+        if (h.vidaMedios <= 0) { h.vidaMedios = 0; h.count -= 1; }
+        h.normalizar();
+        g_estad.sumar(Estadisticas::ITEMS_FABRICADOS, cuantas);
+        return;
+    }
+    if (r.entrada.isEmpty() || Formas::materialDe(r.entrada.blockType) < 0) return;
+    for (int k = 0; k < Formas::NUM_CLASES; ++k)
+        if (dentro(u.px + u.tabW * k, u.tabY, u.tabW, u.tabH)) { r.clase = k; r.opcion = 0; return; }
+    for (int k = 0; k < Formas::POR_CLASE; ++k)
+        if (dentro(u.opX[k / 5], u.opY0 + (k % 5) * u.opPaso, u.opW, u.opH)) { r.opcion = k; return; }
+}
+
+// Abre la mesa (el inventario con su cabecera).
+void abrirRefineria(GameState* state) {
+    GLFWwindow* window = glfwGetCurrentContext();
+    g_refineria.abierta = true;
+    state->inventoryOpen = true;
+    if (g_playerController) g_playerController->getInput().cancelDoubleTapSprint();
+    state->cursorLocked = false;
+    if (window) glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    state->mouseLeftPressed = false;
+    state->mouseRightPressed = false;
+}
+
 void cerrarInventario(GLFWwindow* window) {
     g_gameState->inventoryOpen = false;
+
+    // Al cerrar la mesa de refineria, lo que quede en sus casillas vuelve al
+    // inventario (o cae al suelo si no cabe): no se pierde nada.
+    if (g_refineria.abierta) {
+        for (InventorySlot* s : { &g_refineria.entrada, &g_refineria.herramienta }) {
+            if (s->isEmpty()) continue;
+            bool guardado = false;
+            if (esHerramientaGastable(s->blockType)) {
+                g_gameState->inventory.addHerramienta(s->blockType, s->vidaMedios);
+                guardado = true;
+            } else {
+                guardado = g_gameState->inventory.addItem(s->blockType, s->count);
+            }
+            if (!guardado)
+                for (int i = 0; i < s->count; ++i)
+                    g_gameState->spawnItem(g_gameState->player.position, s->blockType);
+            *s = InventorySlot();
+        }
+        g_refineria.abierta = false;
+    }
 
     // Al cerrar el inventario, devolver el item del cursor al inventario
     if (!g_gameState->heldSlot.isEmpty()) {
@@ -41769,15 +43434,30 @@ void cerrarInventario(GLFWwindow* window) {
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (!g_gameState) return;
+    // Sin cuenta abierta no se juega: las teclas van a su formulario.
+    if (cuentaPideEntrada()) { cuentaTecla(key, action); return; }
 
     // Manejo de teclas especiales en modo edición
-    if (g_gameState->isEditingWorldName && g_gameState->screenState == SCREEN_WORLD_SELECT) {
+    // (el mismo cuadro sirve en la lista de mundos y, jugando, en la pausa)
+    // (Solo cuenta con la pausa abierta en INFO DEL MUNDO: si la pausa se cerro
+    // por otro camino, el cuadro se da por cancelado y las teclas vuelven.)
+    if (g_gameState->renombrandoEnPausa &&
+        !(g_gameState->screenState == SCREEN_IN_GAME && g_gameState->isPaused &&
+          g_gameState->pauseMenuState == PAUSE_MENU_INFO_MUNDO))
+        g_gameState->renombrandoEnPausa = false;
+    const bool editaEnPausa = g_gameState->renombrandoEnPausa;
+    if ((g_gameState->isEditingWorldName && g_gameState->screenState == SCREEN_WORLD_SELECT) || editaEnPausa) {
         // BACKSPACE - borrar último carácter (con soporte para mantener presionado)
         if (key == GLFW_KEY_BACKSPACE) {
-            if (action == GLFW_PRESS) {
+            if (action == GLFW_REPEAT && editaEnPausa) {
+                if (!g_gameState->editingWorldNewName.empty()) Utf8::borrar(g_gameState->editingWorldNewName);
+            } else if (action == GLFW_PRESS && editaEnPausa) {
+                if (!g_gameState->editingWorldNewName.empty()) Utf8::borrar(g_gameState->editingWorldNewName);
+                g_gameState->avisoNombre.clear();
+            } else if (action == GLFW_PRESS) {
                 // Primer press: borrar inmediatamente
                 if (!g_gameState->editingWorldNewName.empty()) {
-                    g_gameState->editingWorldNewName.pop_back();
+                    Utf8::borrar(g_gameState->editingWorldNewName);
                 }
                 // Iniciar sistema de repetición
                 g_gameState->backspacePressed = true;
@@ -41792,54 +43472,34 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 
         // ENTER - guardar y cerrar
         if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
-            // ⭐ VALIDACIÓN: Verificar índice válido antes de renombrar
-            if (!g_gameState->editingWorldNewName.empty() &&
-                g_gameState->selectedWorldIndex >= 0 &&
-                g_gameState->selectedWorldIndex < (int)g_gameState->savedWorlds.size()) {
-                std::cout << "Guardando nuevo nombre: " << g_gameState->editingWorldNewName << std::endl;
-                if (renameWorld(g_gameState, g_gameState->selectedWorldIndex, g_gameState->editingWorldNewName)) {
-                    std::cout << "Mundo renombrado exitosamente!" << std::endl;
-                } else {
-                    std::cout << "Error al renombrar el mundo" << std::endl;
-                }
-
-                // ⭐ REHACER LOS BOTONES, IGUAL QUE HACE EL BOTON "GUARDAR".
-                //
-                // Los botones de la lista guardan el nombre que tenian al
-                // crearse, asi que sin esto el mundo seguia rotulado con el
-                // nombre viejo hasta que algo mas los regenerara -- cambiar de
-                // pantalla y volver, por ejemplo.
-                //
-                // El raton ya lo hacia; guardar con ENTER no. O sea que el
-                // mismo cambio se veia o no segun como lo confirmaras, que es
-                // de las incoherencias mas desconcertantes para quien juega.
-                //
-                // Se llama tambien si el renombrado FALLA, por lo mismo que en
-                // la ruta del raton: deja la lista mostrando el estado real.
-                {
-                    int anchoV = 0, altoV = 0;
-                    glfwGetWindowSize(window, &anchoV, &altoV);
-                    initWorldSelectButtons(g_gameState, anchoV, altoV);
-                }
-            } else {
-                if (g_gameState->editingWorldNewName.empty()) {
-                    std::cout << "El nombre no puede estar vacío" << std::endl;
-                } else {
-                    std::cout << "❌ Error: Índice de mundo inválido" << std::endl;
-                }
+            // ⭐ UNA SOLA RUTA PARA GUARDAR (confirmarNombreEditado): la usan
+            // ENTER y el boton GUARDAR, aqui y en la pausa. Si el nombre no
+            // vale, el cuadro NO se cierra: dice por que y deja corregirlo.
+            // (Antes se cerraba igual y el fallo solo salia por la consola.)
+            if (action != GLFW_PRESS) return;
+            if (editaEnPausa) {
+                confirmarNombreEditado(g_gameState, indiceDelMundoAbierto(g_gameState));
+                return;
             }
-            g_gameState->isEditingWorldName = false;
-            g_gameState->editingWorldNewName = "";
+            confirmarNombreEditado(g_gameState, g_gameState->selectedWorldIndex);
+            // Los botones de la lista llevan el nombre con el que se crearon:
+            // se rehacen para que el nuevo se vea al instante.
+            {
+                int anchoV = 0, altoV = 0;
+                glfwGetWindowSize(window, &anchoV, &altoV);
+                initWorldSelectButtons(g_gameState, anchoV, altoV);
+            }
             return;
         }
 
         // ESC - cancelar edición
         if (key == GLFW_KEY_ESCAPE) {
-            std::cout << "Edición cancelada" << std::endl;
-            g_gameState->isEditingWorldName = false;
-            g_gameState->editingWorldNewName = "";
+            if (action == GLFW_PRESS) cancelarNombreEditado(g_gameState);
             return;
         }
+        // Escribiendo el nombre en la pausa, ninguna otra tecla hace nada mas
+        // (ni cierra la pausa, ni mueve al personaje, ni abre el inventario).
+        if (editaEnPausa) return;
     }
 
     // ⭐⭐⭐ NUEVO: Manejo de teclas en pantalla de creación de mundo
@@ -41849,7 +43509,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             if (action == GLFW_PRESS) {
                 // Primer press: borrar inmediatamente
                 if (g_gameState->isEditingNewWorldName && !g_gameState->newWorldName.empty()) {
-                    g_gameState->newWorldName.pop_back();
+                    Utf8::borrar(g_gameState->newWorldName);
                 } else if (g_gameState->isEditingNewWorldSeed && !g_gameState->newWorldSeed.empty()) {
                     g_gameState->newWorldSeed.pop_back();
                 }
@@ -41951,6 +43611,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         } else {
             // Pausar el juego
             g_gameState->isPaused = true;
+            g_estad.contar(Estadisticas::PAUSAS);
             g_gameState->pauseMenuState = PAUSE_MENU_MAIN; // Siempre empezar en el menú principal
             g_gameState->cursorLocked = false;
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -41972,22 +43633,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 
     // Tecla F11 para pantalla completa
     if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
-        g_isFullscreen = !g_isFullscreen;
-
-        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-
-        if (g_isFullscreen) {
-            // Guardar posición y tamaño de ventana antes de ir a pantalla completa
-            glfwGetWindowPos(window, &g_windowedPosX, &g_windowedPosY);
-            glfwGetWindowSize(window, &g_windowedWidth, &g_windowedHeight);
-
-            // Cambiar a pantalla completa
-            glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-        } else {
-            // Volver a modo ventana
-            glfwSetWindowMonitor(window, nullptr, g_windowedPosX, g_windowedPosY, g_windowedWidth, g_windowedHeight, 0);
-        }
+        alternarPantallaCompleta(window);
     }
 
     // ========================================================================
@@ -42078,6 +43724,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     if (key == GLFW_KEY_E && action == GLFW_PRESS && !g_gameState->isPaused) {
         g_gameState->inventoryOpen = !g_gameState->inventoryOpen;
         if (g_gameState->inventoryOpen) {
+            g_estad.contar(Estadisticas::INVENTARIOS);
             // Cancelar el sprint por doble toque: al abrir el inventario el
             // teclado deja de alimentar el movimiento, así que si no se
             // cancela el jugador saldría corriendo al volver al juego.
@@ -42200,7 +43847,10 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         recogerPedazoMirado(g_gameState);
     }
     // G hace el gesto elegido en Avatar > MOVIMIENTO (otra vez G lo corta).
-    if (action == GLFW_PRESS && key == GLFW_KEY_G && g_gameState->screenState == SCREEN_IN_GAME) g_gestoPedido = true;
+    if (action == GLFW_PRESS && key == GLFW_KEY_G && g_gameState->screenState == SCREEN_IN_GAME) {
+        g_gestoPedido = true;
+        g_estad.contar(Estadisticas::GESTOS);
+    }
 
     if (action == GLFW_PRESS) {
         // ⭐⭐⭐ TECLAS A-Z (minúsculas) + Ñ
@@ -42301,6 +43951,14 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
         g_ruedaAvatar += yoffset;
         return;
     }
+
+    // En ESTADISTICAS la rueda pasa de pagina.
+    if (g_gameState->isPaused && g_gameState->pauseMenuState == PAUSE_MENU_ESTADISTICAS) {
+        if (yoffset < 0) ++g_paginaEstad;
+        else if (yoffset > 0 && g_paginaEstad > 0) --g_paginaEstad;
+        return;
+    }
+    if (g_gameState->isPaused) return;   // en pausa la rueda no cambia de casilla
 
     // Solo funciona en juego, no en menús
     if (g_gameState->screenState != SCREEN_IN_GAME) return;
@@ -42479,7 +44137,8 @@ static void bordeUI(const CeldaUI& c) {
     glEnd();
 }
 static void textoCentrado(const std::string& s, float cx, float y, float size) {
-    renderText(s.c_str(), cx - s.size() * size * 0.7f / 2.0f, y, size);
+    // El ancho, en caracteres: una vocal con acento son dos bytes y una letra.
+    renderText(s.c_str(), cx - Utf8::largo(s) * size * 0.7f / 2.0f, y, size);
 }
 
 void renderOpciones(int width, int height, float mx, float my) {
@@ -42502,6 +44161,7 @@ void renderOpciones(int width, int height, float mx, float my) {
     for (int i = 0; i < Opciones::NUM; ++i) {
         const CeldaUI& c = d.celda[i];
         const bool hover = dentro(c, mx, my) || g_opcionArrastrada == i;
+        if (hover) ratonSobreBoton();
         glColor4f(hover ? 0.17f : 0.10f, hover ? 0.19f : 0.11f, hover ? 0.26f : 0.16f, 0.94f);
         rectUI(c.x, c.y, c.x + c.w, c.y + c.h);
         glLineWidth(hover ? 2.0f : 1.0f);
@@ -42535,10 +44195,531 @@ void renderOpciones(int width, int height, float mx, float my) {
     }
 
     const bool hv = dentro(d.volver, mx, my);
+    if (hv) ratonSobreBoton();
     glColor4f(hv ? 0.5f : 0.3f, hv ? 0.5f : 0.3f, hv ? 0.5f : 0.3f, 0.9f);
     rectUI(d.volver.x, d.volver.y, d.volver.x + d.volver.w, d.volver.y + d.volver.h);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     textoCentrado("VOLVER", d.volver.x + d.volver.w / 2.0f, d.volver.y + 15, 20);
+}
+
+// ============================================================================
+// ⭐ EL MENU DE PAUSA DE 20 BOTONES
+// ============================================================================
+// La disposicion (que botones, en que fila, que rectangulo) vive en
+// ui/MenuPausa.h, sin OpenGL y con tests. Aqui esta lo que necesita el motor:
+// el dibujo, los rotulos que cambian (MUSICA: SI / NO) y lo que hace cada uno.
+//
+// Las pantallas de dentro (estadisticas, logros, info, controles...) son todas
+// la misma: un titulo y una lista de filas "nombre ... valor" con paginas.
+// `filasDePantallaDePausa` da las filas y la usan el dibujo Y el clic, para
+// que los dos cuenten las mismas paginas.
+
+std::string g_avisoPausa;            // la linea bajo los botones ("PARTIDA GUARDADA")
+double g_avisoPausaHasta = 0.0;
+static void avisarEnPausa(const std::string& s) {
+    g_avisoPausa = s;
+    g_avisoPausaHasta = glfwGetTime() + 4.0;
+}
+
+// Las capturas van junto al log y las opciones (%LOCALAPPDATA%\VoxelWorld):
+// la carpeta del juego puede no dejar escribir si esta en Archivos de programa.
+static std::string carpetaDeCapturas() {
+    const char* base = getenv("LOCALAPPDATA");
+    return (base && *base) ? std::string(base) + "\\VoxelWorld\\capturas"
+                           : std::string("capturas");
+}
+
+static void abrirCarpeta(const std::string& ruta) {
+    try {
+        std::filesystem::create_directories(ruta);
+        const std::string abs = std::filesystem::absolute(ruta).string();
+        ShellExecuteA(nullptr, "open", abs.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    } catch (const std::exception& e) {
+        std::cerr << "No se pudo abrir la carpeta " << ruta << ": " << e.what() << std::endl;
+        avisarEnPausa("NO SE PUDO ABRIR LA CARPETA");
+    }
+}
+
+// ⭐ LA CAPTURA SE HACE JUSTO ANTES DEL SWAP, NO AL PULSAR EL BOTON.
+//
+// Al pulsar, lo que hay dibujado es el menu de pausa: la foto saldria con los
+// 20 botones encima. El boton solo levanta g_capturaPedida; ese frame el menu
+// no se dibuja (ver el bucle principal) y aqui, con el frame ya terminado
+// -- saturacion incluida --, se lee la imagen. Dura un frame: no se nota.
+// Lee el frame que hay en el back buffer y lo escribe en `ruta` como PNG.
+bool escribirFrameEnPNG(GLFWwindow* window, const std::string& ruta) {
+    int w = 0, h = 0;
+    glfwGetFramebufferSize(window, &w, &h);
+    if (w <= 0 || h <= 0) return false;
+
+    std::vector<unsigned char> px((size_t)w * h * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);      // filas de 3*w bytes, sin relleno
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+
+    // OpenGL entrega la fila de abajo primero; un PNG empieza por arriba.
+    const size_t fila = (size_t)w * 3;
+    std::vector<unsigned char> tmp(fila);
+    for (int y = 0; y < h / 2; ++y) {
+        unsigned char* a = px.data() + (size_t)y * fila;
+        unsigned char* b = px.data() + (size_t)(h - 1 - y) * fila;
+        memcpy(tmp.data(), a, fila);
+        memcpy(a, b, fila);
+        memcpy(b, tmp.data(), fila);
+    }
+    return stbi_write_png(ruta.c_str(), w, h, 3, px.data(), (int)fila) != 0;
+}
+
+void guardarCapturaSiSePidio(GLFWwindow* window) {
+    if (!g_capturaPedida) return;
+    g_capturaPedida = false;
+
+    char nombre[64] = "captura.png";
+    const time_t ahora = time(nullptr);
+    if (const tm* t = localtime(&ahora)) strftime(nombre, sizeof(nombre), "captura-%Y%m%d-%H%M%S.png", t);
+
+    const std::string carpeta = carpetaDeCapturas();
+    std::error_code ec;
+    std::filesystem::create_directories(carpeta, ec);
+    const std::string ruta = carpeta + "\\" + nombre;
+    if (escribirFrameEnPNG(window, ruta)) {
+        g_estad.contar(Estadisticas::CAPTURAS);
+        avisarEnPausa(std::string("CAPTURA GUARDADA: ") + nombre);
+        std::cout << "Captura guardada: " << ruta << std::endl;
+    } else {
+        avisarEnPausa("NO SE PUDO GUARDAR LA CAPTURA");
+        std::cerr << "No se pudo escribir la captura: " << ruta << std::endl;
+    }
+}
+
+static std::string rotuloDePausa(int boton) {
+    switch (boton) {
+        case MenuPausa::VOLVER:            return "VOLVER A JUGAR";
+        case MenuPausa::OPCIONES:          return "OPCIONES";
+        case MenuPausa::ESTADISTICAS:      return "ESTADISTICAS";
+        case MenuPausa::LOGROS:            return "LOGROS";
+        case MenuPausa::BUGS:              return "REPORTAR BUGS";
+        case MenuPausa::GUARDAR:           return "GUARDAR PARTIDA";
+        case MenuPausa::CARPETA_MUNDO:     return "CARPETA DEL MUNDO";
+        case MenuPausa::INFO_MUNDO:        return "INFO DEL MUNDO";
+        case MenuPausa::CONTROLES:         return "CONTROLES";
+        case MenuPausa::CAPTURA:           return "CAPTURA DE PANTALLA";
+        case MenuPausa::VER_CAPTURAS:      return "VER CAPTURAS";
+        case MenuPausa::PANTALLA_COMPLETA: return g_isFullscreen ? "MODO VENTANA" : "PANTALLA COMPLETA";
+        case MenuPausa::HUD:               return g_hudOculto ? "HUD: OCULTO" : "HUD: VISIBLE";
+        case MenuPausa::MUSICA:            return g_musica.activa ? "MUSICA: SI" : "MUSICA: NO";
+        case MenuPausa::SIGUIENTE_CANCION: return "SIGUIENTE CANCION";
+        case MenuPausa::DEPURACION:        return g_playerDebug.anyEnabled() ? "DEPURACION: SI" : "DEPURACION: NO";
+        case MenuPausa::RECARGAR_CHUNKS:   return "RECARGAR CHUNKS";
+        case MenuPausa::ACERCA:            return "ACERCA DE";
+        case MenuPausa::SALIR_MENU:        return "GUARDAR Y SALIR AL MENU";
+        case MenuPausa::SALIR_JUEGO:       return "SALIR DEL JUEGO";
+    }
+    return "";
+}
+
+// ⭐ EL BOTON, CON VOLUMEN. PEDIDO: "quiero que mejores el diseno de los
+// botones". Antes era un rectangulo plano con un borde. Ahora parece una tecla
+// de bloque: sombra debajo, la cara con degradado (clara arriba, oscura abajo),
+// un bisel de luz por arriba y por la izquierda y otro de sombra por abajo y
+// por la derecha, el borde negro fino, y el rotulo con su sombra. Con el raton
+// encima se aclara, sube un pixel y enciende una linea del color del boton.
+static void botonDePausa(const MenuPausa::Rect& r, const std::string& rotulo, float letraMax,
+                         bool hover, float cr, float cg, float cb) {
+    if (hover) ratonSobreBoton();
+    const float sube = hover ? 1.0f : 0.0f;
+    const float x0 = r.x, y0 = r.y - sube, x1 = r.x + r.w, y1 = r.y + r.h - sube;
+    const float k = hover ? 1.45f : 1.0f;
+    auto c = [&](float f, float a) {
+        glColor4f(std::fmin(cr * k * f, 1.0f), std::fmin(cg * k * f, 1.0f), std::fmin(cb * k * f, 1.0f), a);
+    };
+
+    // La sombra que deja sobre el mundo.
+    glColor4f(0.0f, 0.0f, 0.0f, 0.38f);
+    rectUI(x0 + 3.0f, y0 + 4.0f + sube, x1 + 3.0f, y1 + 4.0f + sube);
+
+    // La cara: degradado de arriba abajo.
+    glBegin(GL_QUADS);
+    c(1.35f, 0.96f); glVertex2f(x0, y0); glVertex2f(x1, y0);
+    c(0.80f, 0.96f); glVertex2f(x1, y1); glVertex2f(x0, y1);
+    glEnd();
+
+    // El bisel: luz arriba y a la izquierda, sombra abajo y a la derecha.
+    const float B = 2.0f;
+    c(2.10f, 0.95f);
+    rectUI(x0, y0, x1, y0 + B);
+    rectUI(x0, y0, x0 + B, y1);
+    c(0.45f, 0.95f);
+    rectUI(x0, y1 - B, x1, y1);
+    rectUI(x1 - B, y0, x1, y1);
+
+    // El borde, y la linea encendida con el raton encima.
+    glLineWidth(1.0f);
+    glColor4f(0.02f, 0.02f, 0.03f, 1.0f);
+    bordeUI(CeldaUI{ x0, y0, r.w, r.h });
+    if (hover) {
+        glColor4f(1.0f, 1.0f, 1.0f, 0.95f);
+        bordeUI(CeldaUI{ x0 - 1.0f, y0 - 1.0f, r.w + 2.0f, r.h + 2.0f });
+        c(3.2f, 1.0f);
+        rectUI(x0 + 6.0f, y1 - B - 3.0f, x1 - 6.0f, y1 - B - 1.0f);
+    }
+
+    // El rotulo, con su sombra.
+    const float letra = MenuPausa::letraQueCabe(r, (int)rotulo.size(), letraMax);
+    const float ty = y0 + (r.h - letra) / 2.0f;
+    glColor4f(0.0f, 0.0f, 0.0f, 0.75f);
+    textoCentrado(rotulo, r.x + r.w / 2.0f + 1.5f, ty + 1.5f, letra);
+    if (hover) glColor4f(1.0f, 1.0f, 0.82f, 1.0f);
+    else glColor4f(0.94f, 0.95f, 0.98f, 1.0f);
+    textoCentrado(rotulo, r.x + r.w / 2.0f, ty, letra);
+}
+
+void renderMenuPausa(int width, int height, float mx, float my) {
+    const MenuPausa::Disposicion d = MenuPausa::disponer(width, height);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.22f);       // un velo mas: los botones destacan
+    rectUI(0, 0, (float)width, (float)height);
+
+    glColor4f(0.0f, 0.0f, 0.0f, 0.75f);
+    textoCentrado("PAUSA", width / 2.0f + 2.0f, d.tituloY + 8.0f, 34);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    textoCentrado("PAUSA", width / 2.0f, d.tituloY + 6.0f, 34);
+
+    for (int b = 0; b < MenuPausa::NUM; ++b) {
+        const MenuPausa::Rect& r = d.boton[b];
+        // Verde el de volver, rojo los de salir, y el resto como las opciones.
+        float cr = 0.20f, cg = 0.23f, cb = 0.31f;
+        if (b == MenuPausa::VOLVER) { cr = 0.16f; cg = 0.42f; cb = 0.20f; }
+        else if (b == MenuPausa::SALIR_MENU || b == MenuPausa::SALIR_JUEGO) { cr = 0.46f; cg = 0.17f; cb = 0.15f; }
+        botonDePausa(r, rotuloDePausa(b), d.letra, r.contiene(mx, my), cr, cg, cb);
+    }
+
+    if (!g_avisoPausa.empty() && glfwGetTime() < g_avisoPausaHasta) {
+        glColor4f(1.0f, 0.9f, 0.3f, 1.0f);
+        textoCentrado(g_avisoPausa, width / 2.0f, d.avisoY, 13);
+    }
+    glLineWidth(1.0f);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+typedef std::vector<std::pair<std::string, std::string>> FilasDePausa;
+
+static const char* tituloDePantallaDePausa(PauseMenuState s) {
+    switch (s) {
+        case PAUSE_MENU_ESTADISTICAS: return "ESTADISTICAS";
+        case PAUSE_MENU_LOGROS:       return "LOGROS";
+        case PAUSE_MENU_BUGS:         return "REPORTAR BUGS";
+        case PAUSE_MENU_INFO_MUNDO:   return "INFO DEL MUNDO";
+        case PAUSE_MENU_CONTROLES:    return "CONTROLES";
+        case PAUSE_MENU_ACERCA:       return "ACERCA DE";
+        default:                      return "";
+    }
+}
+
+static FilasDePausa filasDePantallaDePausa(PauseMenuState s) {
+    FilasDePausa f;
+    char b[96];
+    switch (s) {
+        case PAUSE_MENU_ESTADISTICAS:
+            for (int i = 0; i < Estadisticas::NUM; ++i)
+                f.push_back({ Estadisticas::info(i).nombre,
+                              Estadisticas::formato(i, g_estad.v[i], g_estad.tiene[i]) });
+            break;
+
+        case PAUSE_MENU_INFO_MUNDO: {
+            const GameState* st = g_gameState;
+            f.push_back({ "MUNDO", st->currentWorldTitle.empty() ? st->currentWorldName : st->currentWorldTitle });
+            f.push_back({ "SEMILLA", std::to_string(st->world.getSeed()) });
+            f.push_back({ "MODO", st->currentGameMode == 0 ? "SUPERVIVENCIA" : "CREATIVO" });
+            const double dias = g_horaDelMundoSegundos / SEGUNDOS_POR_DIA;
+            f.push_back({ "DIA", std::to_string((long long)std::floor(dias) + 1) });
+            const double hora = (dias - std::floor(dias)) * 24.0;
+            snprintf(b, sizeof(b), "%02d:%02d", (int)hora, (int)((hora - (int)hora) * 60.0));
+            f.push_back({ "HORA DEL MUNDO", b });
+            snprintf(b, sizeof(b), "X %.0f  Y %.0f  Z %.0f",
+                     std::floor(st->player.position.x), std::floor(st->player.position.y),
+                     std::floor(st->player.position.z));
+            f.push_back({ "POSICION", b });
+            f.push_back({ "TIEMPO JUGADO",
+                          Estadisticas::formato(Estadisticas::TIEMPO_JUGADO,
+                                                g_estad.v[Estadisticas::TIEMPO_JUGADO]) });
+            f.push_back({ "CHUNKS CARGADOS", std::to_string((int)st->world.getChunkCount()) });
+            f.push_back({ "DISTANCIA DE VISION", std::to_string(st->renderDistance) + " CHUNKS" });
+            f.push_back({ "CANCIONES EN LA CARPETA", std::to_string(g_musica.cuantas()) });
+            break;
+        }
+
+        case PAUSE_MENU_CONTROLES:
+            f = {
+                { "MOVERSE", "W A S D" },
+                { "CORRER", "W DOS VECES" },
+                { "SALTAR / NADAR HACIA ARRIBA", "ESPACIO" },
+                { "AGACHARSE / TUMBARSE", "SHIFT" },
+                { "SIGILO", "CTRL" },
+                { "MINAR / GOLPEAR", "CLIC IZQUIERDO" },
+                { "COLOCAR", "CLIC DERECHO" },
+                { "ELEGIR CASILLA", "1-9 O LA RUEDA" },
+                { "INVENTARIO", "E" },
+                { "TIRAR OBJETO", "Q" },
+                { "RECOGER DEL SUELO", "F" },
+                { "DORMIR", "Z" },
+                { "GESTO", "G" },
+                { "VOLAR (CREATIVO)", "V" },
+                { "RECARGAR CHUNKS", "R" },
+                { "DEPURACION", "F3" },
+                { "RENDIMIENTO", "F7" },
+                { "PANTALLA COMPLETA", "F11" },
+                { "PAUSA", "ESC" },
+            };
+            break;
+
+        case PAUSE_MENU_ACERCA:
+            f.push_back({ "JUEGO", "VOXEL WORLD" });
+            f.push_back({ "VERSION", GAME_VERSION_STRING });
+            f.push_back({ "COMPILADO", GAME_BUILD_DATE });
+            f.push_back({ "MOTOR", "PROPIO, EN C++ Y OPENGL" });
+            f.push_back({ "ESTADISTICAS QUE SE LLEVAN", std::to_string((int)Estadisticas::NUM) });
+            break;
+
+        // LOGROS y REPORTAR BUGS estan vacias a proposito (PEDIDO: "Logros,
+        // que por ahora estara vacio, otro sera de Reportar bugs que estara
+        // vacia su seccion").
+        default: break;
+    }
+    return f;
+}
+
+// Donde va cada cosa del cuadro de CAMBIAR NOMBRE de la pausa: lo usan el
+// dibujo y el clic, para que el boton este donde se ve.
+struct CuadroDeNombre { MenuPausa::Rect abrir, caja, campo, guardar, cancelar; };
+static CuadroDeNombre cuadroDeNombre(int width, int height, const MenuPausa::Listado& l) {
+    CuadroDeNombre c;
+    const float W = (float)width, H = (float)height;
+    c.abrir = { l.volver.x, l.volver.y - l.volver.h - 12.0f, l.volver.w, l.volver.h };
+    const float cw = (std::min)(620.0f, W - 32.0f), ch = 196.0f;
+    c.caja = { (W - cw) / 2.0f, (std::max)(8.0f, (H - ch) / 2.0f), cw, ch };
+    c.campo = { c.caja.x + 20.0f, c.caja.y + 52.0f, cw - 40.0f, 42.0f };
+    const float bw = (cw - 60.0f) / 2.0f;
+    c.guardar = { c.caja.x + 20.0f, c.caja.y + ch - 58.0f, bw, 42.0f };
+    c.cancelar = { c.caja.x + 40.0f + bw, c.caja.y + ch - 58.0f, bw, 42.0f };
+    return c;
+}
+
+void renderPantallaDePausa(int width, int height, float mx, float my) {
+    const PauseMenuState s = g_gameState->pauseMenuState;
+    const FilasDePausa filas = filasDePantallaDePausa(s);
+    const MenuPausa::Listado l = MenuPausa::listar(width, height, (int)filas.size());
+    int pagina = 0;
+    if (s == PAUSE_MENU_ESTADISTICAS)
+        pagina = g_paginaEstad = MenuPausa::paginaValida(g_paginaEstad, l.paginas);
+
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Un velo mas: detras sigue el mundo, y una lista larga no se leeria.
+    glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
+    rectUI(0, 0, (float)width, (float)height);
+
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    textoCentrado(tituloDePantallaDePausa(s), width / 2.0f, l.tituloY, 32);
+
+    const float cw = l.letra * 0.7f;        // ancho de un caracter
+    const int desde = pagina * l.porPagina;
+    for (int k = 0; k < l.porPagina && desde + k < (int)filas.size(); ++k) {
+        const int col = k / l.filas, fil = k % l.filas;
+        const float x = l.x0 + col * (l.anchoColumna + 30.0f);
+        const float y = l.y0 + fil * l.pasoFila;
+        if (fil % 2 == 0) {                 // una fila si y otra no, para seguir la linea
+            glColor4f(1.0f, 1.0f, 1.0f, 0.06f);
+            rectUI(x - 6.0f, y - 4.0f, x + l.anchoColumna + 6.0f, y + l.pasoFila - 4.0f);
+        }
+        const auto& fila = filas[desde + k];
+        glColor4f(0.80f, 0.85f, 0.95f, 1.0f);
+        renderText(fila.first.c_str(), x, y, l.letra);
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        renderText(fila.second.c_str(), x + l.anchoColumna - fila.second.size() * cw, y, l.letra);
+    }
+
+    if (l.paginas > 1) {
+        char b[32];
+        snprintf(b, sizeof(b), "PAGINA %d/%d", pagina + 1, l.paginas);
+        glColor4f(0.75f, 0.80f, 0.90f, 1.0f);
+        textoCentrado(b, width / 2.0f, l.volver.y - 20.0f, 12);
+        botonDePausa(l.anterior, "ANTERIOR", 16, l.anterior.contiene(mx, my), 0.20f, 0.23f, 0.31f);
+        botonDePausa(l.siguiente, "SIGUIENTE", 16, l.siguiente.contiene(mx, my), 0.20f, 0.23f, 0.31f);
+    }
+    botonDePausa(l.volver, "VOLVER", 18, l.volver.contiene(mx, my), 0.20f, 0.23f, 0.31f);
+
+    // ⭐ CAMBIAR EL NOMBRE DEL MUNDO, JUGANDO. PEDIDO: "que en cualquier
+    // momento [...] el usuario pueda modificar el nombre de su mundo". En INFO
+    // DEL MUNDO hay un boton; abre un cuadro donde se escribe el nombre nuevo.
+    if (s != PAUSE_MENU_INFO_MUNDO) g_gameState->renombrandoEnPausa = false;
+    if (s == PAUSE_MENU_INFO_MUNDO) {
+        const CuadroDeNombre c = cuadroDeNombre(width, height, l);
+        if (!g_gameState->renombrandoEnPausa) {
+            botonDePausa(c.abrir, "CAMBIAR NOMBRE", 16, c.abrir.contiene(mx, my), 0.16f, 0.42f, 0.22f);
+        } else {
+            glDisable(GL_TEXTURE_2D);
+            glColor4f(0.0f, 0.0f, 0.0f, 0.70f);
+            rectUI(0.0f, 0.0f, (float)width, (float)height);
+            glColor4f(0.09f, 0.10f, 0.14f, 0.98f);
+            rectUI(c.caja.x, c.caja.y, c.caja.x + c.caja.w, c.caja.y + c.caja.h);
+            glColor4f(0.45f, 0.75f, 1.0f, 1.0f);
+            bordeUI(CeldaUI{ c.caja.x, c.caja.y, c.caja.w, c.caja.h });
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            textoCentrado("NOMBRE DEL MUNDO", width / 2.0f, c.caja.y + 16.0f, 20);
+            glColor4f(0.03f, 0.03f, 0.05f, 1.0f);
+            rectUI(c.campo.x, c.campo.y, c.campo.x + c.campo.w, c.campo.y + c.campo.h);
+            glColor4f(0.55f, 0.60f, 0.70f, 1.0f);
+            bordeUI(CeldaUI{ c.campo.x, c.campo.y, c.campo.w, c.campo.h });
+            // Lo escrito, con el cursor que parpadea; la letra se encoge si no cabe.
+            const std::string& t = g_gameState->editingWorldNewName;
+            const size_t letras = Utf8::largo(t);
+            const float letra = (std::min)(18.0f, (c.campo.w - 24.0f) / ((float)(letras + 1) * 0.7f));
+            const float ty = c.campo.y + (c.campo.h - letra) / 2.0f;
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            renderTextoTal(t.c_str(), c.campo.x + 12.0f, ty, letra);
+            if (std::fmod(glfwGetTime(), 1.0) < 0.55) {
+                const float cx = c.campo.x + 12.0f + (float)letras * letra * 0.7f + 1.0f;
+                rectUI(cx, ty - 1.0f, cx + 2.0f, ty + letra + 1.0f);
+            }
+            if (!g_gameState->avisoNombre.empty()) {
+                glColor4f(1.0f, 0.45f, 0.40f, 1.0f);
+                textoCentrado(g_gameState->avisoNombre, width / 2.0f, c.campo.y + c.campo.h + 8.0f, 12);
+            } else {
+                glColor4f(0.62f, 0.68f, 0.78f, 1.0f);
+                textoCentrado("ENTER GUARDA   ESC CANCELA", width / 2.0f, c.campo.y + c.campo.h + 8.0f, 12);
+            }
+            botonDePausa(c.guardar, "GUARDAR", 16, c.guardar.contiene(mx, my), 0.16f, 0.42f, 0.22f);
+            botonDePausa(c.cancelar, "CANCELAR", 16, c.cancelar.contiene(mx, my), 0.45f, 0.17f, 0.15f);
+        }
+    }
+    glLineWidth(1.0f);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+void clicPantallaDePausa(float x, float y, int width, int height) {
+    const PauseMenuState s = g_gameState->pauseMenuState;
+    const MenuPausa::Listado l =
+        MenuPausa::listar(width, height, (int)filasDePantallaDePausa(s).size());
+    if (s == PAUSE_MENU_INFO_MUNDO) {
+        const CuadroDeNombre c = cuadroDeNombre(width, height, l);
+        if (g_gameState->renombrandoEnPausa) {
+            // Con el cuadro abierto, el clic es suyo.
+            if (c.guardar.contiene(x, y))
+                confirmarNombreEditado(g_gameState, indiceDelMundoAbierto(g_gameState));
+            else if (c.cancelar.contiene(x, y))
+                cancelarNombreEditado(g_gameState);
+            return;
+        }
+        if (c.abrir.contiene(x, y)) {
+            g_gameState->renombrandoEnPausa = true;
+            g_gameState->avisoNombre.clear();
+            g_gameState->editingWorldNewName = g_gameState->currentWorldTitle.empty()
+                ? g_gameState->currentWorldName : g_gameState->currentWorldTitle;
+            return;
+        }
+    }
+    if (l.volver.contiene(x, y)) {
+        g_gameState->pauseMenuState = PAUSE_MENU_MAIN;
+        return;
+    }
+    if (s == PAUSE_MENU_ESTADISTICAS && l.paginas > 1) {
+        if (l.anterior.contiene(x, y)) --g_paginaEstad;
+        if (l.siguiente.contiene(x, y)) ++g_paginaEstad;
+        g_paginaEstad = MenuPausa::paginaValida(g_paginaEstad, l.paginas);
+    }
+}
+
+void clicMenuPausa(GLFWwindow* window, float x, float y, int width, int height) {
+    GameState* st = g_gameState;
+    const int boton = MenuPausa::botonEn(MenuPausa::disponer(width, height), x, y);
+    switch (boton) {
+        case MenuPausa::VOLVER:
+            st->isPaused = false;
+            st->cursorLocked = true;
+            st->firstMouse = true;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            break;
+
+        case MenuPausa::OPCIONES:     st->pauseMenuState = PAUSE_MENU_GRAPHICS; break;
+        case MenuPausa::ESTADISTICAS: st->pauseMenuState = PAUSE_MENU_ESTADISTICAS; g_paginaEstad = 0; break;
+        case MenuPausa::LOGROS:       st->pauseMenuState = PAUSE_MENU_LOGROS; break;
+        case MenuPausa::BUGS:         st->pauseMenuState = PAUSE_MENU_BUGS; break;
+        case MenuPausa::INFO_MUNDO:   st->pauseMenuState = PAUSE_MENU_INFO_MUNDO; break;
+        case MenuPausa::CONTROLES:    st->pauseMenuState = PAUSE_MENU_CONTROLES; break;
+        case MenuPausa::ACERCA:       st->pauseMenuState = PAUSE_MENU_ACERCA; break;
+
+        case MenuPausa::GUARDAR:
+            if (st->currentWorldName.empty()) { avisarEnPausa("NO HAY MUNDO ABIERTO"); break; }
+            saveWorld(st);
+            avisarEnPausa("PARTIDA GUARDADA");
+            break;
+
+        case MenuPausa::CARPETA_MUNDO:
+            if (st->currentWorldName.empty()) { avisarEnPausa("NO HAY MUNDO ABIERTO"); break; }
+            abrirCarpeta("saves/" + st->currentWorldName);
+            break;
+
+        case MenuPausa::CAPTURA:
+            g_capturaPedida = true;      // se hace al acabar el frame, sin el menu
+            break;
+
+        case MenuPausa::VER_CAPTURAS:
+            abrirCarpeta(carpetaDeCapturas());
+            break;
+
+        case MenuPausa::PANTALLA_COMPLETA:
+            alternarPantallaCompleta(window);
+            break;
+
+        case MenuPausa::HUD:
+            g_hudOculto = !g_hudOculto;
+            break;
+
+        case MenuPausa::MUSICA:
+            g_musica.activa = !g_musica.activa;
+            break;
+
+        case MenuPausa::SIGUIENTE_CANCION:
+            if (g_musica.cuantas() == 0) { avisarEnPausa("NO HAY CANCIONES EN SOUNDS/MUSIC"); break; }
+            g_musica.activa = true;      // pedir otra cancion es querer musica
+            g_musica.siguiente();
+            avisarEnPausa("SUENA OTRA CANCION");
+            break;
+
+        case MenuPausa::DEPURACION:
+            g_playerDebug.toggleAll();
+            break;
+
+        case MenuPausa::RECARGAR_CHUNKS: {
+            const int n = st->world.recargarMallas();
+            avisarEnPausa("REMALLANDO " + std::to_string(n) + " CHUNKS. EL MUNDO NO SE TOCA");
+            break;
+        }
+
+        case MenuPausa::SALIR_MENU:
+            st->isSaving = true;
+            st->savingTimer = 0.5f;
+            st->returnToMenuAfterSave = true;
+            break;
+
+        case MenuPausa::SALIR_JUEGO:
+            // Lo mismo que cerrar con la X: guardar y, al terminar, salir.
+            st->isSaving = true;
+            st->savingTimer = 0.45f;
+            st->returnToMenuAfterSave = false;
+            st->quitAfterSave = true;
+            st->showSavingIndicator = true;
+            st->savingIndicatorTimer = 1.0f;
+            break;
+
+        default: break;
+    }
 }
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
@@ -42634,6 +44815,9 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         g_opcionArrastrada = -1;
     }
 
+    // El mini sonido de los botones: antes de que el clic cambie de pantalla.
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) sonarClicDeBoton();
+
     // Manejar clics en menús
     if (g_gameState->screenState == SCREEN_MAIN_MENU ||
         g_gameState->screenState == SCREEN_WORLD_SELECT ||
@@ -42646,6 +44830,10 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
             glfwGetWindowSize(window, &width, &height);
 
             if (g_gameState->screenState == SCREEN_MAIN_MENU) {
+                // Sin cuenta abierta, el clic es del formulario de la cuenta.
+                if (cuentaPideEntrada()) { cuentaClic((float)xpos, (float)ypos, width, height); return; }
+                // La insignia de abajo a la derecha: cambiar la foto.
+                if (g_subMenuPrincipal == 0 && cuentaClicInsignia((float)xpos, (float)ypos, width, height)) return;
                 // Dentro de Opciones o Avatar, el clic es suyo.
                 if (g_subMenuPrincipal == 1) { clicOpciones((float)xpos, (float)ypos, width, height); return; }
                 if (g_subMenuPrincipal == 2) return;   // renderAvatar lee el raton
@@ -42796,6 +44984,13 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 
         if (clickHandled) return;
 
+        // Con la mesa de refineria abierta no hay rejilla de crafteo: en su
+        // sitio estan las tres casillas y el panel de la mesa.
+        if (g_refineria.abierta) {
+            clicRefineria((float)xpos, (float)ypos, width, height, button == GLFW_MOUSE_BUTTON_LEFT);
+            return;
+        }
+
         // Configuración del grid de crafteo (compartida, ver arriba)
         const float CRAFT_START_X = craftStartX((float)width);
 
@@ -42842,7 +45037,11 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
                             int resultCount = g_gameState->craftingResult.count;
 
                             // Intentar agregar al inventario
-                            if (!g_gameState->inventory.addItem(resultType, resultCount)) {
+                            if (g_gameState->inventory.addItem(resultType, resultCount)) {
+                                g_estad.sumar(Estadisticas::ITEMS_FABRICADOS, resultCount);
+                                if (esHerramientaGastable(resultType))
+                                    g_estad.sumar(Estadisticas::HERRAMIENTAS_HECHAS, resultCount);
+                            } else {
                                 // Inventario lleno
                                 std::cout << "Inventario lleno! Crafteados: " << totalCrafted << " items" << std::endl;
                                 break;
@@ -42934,42 +45133,9 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
     float buttonSpacing = 60.0f;
 
     if (g_gameState->pauseMenuState == PAUSE_MENU_MAIN) {
-        // Botones del menú principal
-        float startY = height / 2.0f - 80.0f;
-
-        // Botón 1: Reanudar partida
-        Button btn1(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight, "Reanudar");
-        if (btn1.contains((float)xpos, (float)ypos)) {
-            g_gameState->isPaused = false;
-            g_gameState->cursorLocked = true;
-            g_gameState->firstMouse = true;
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            return;
-        }
-
-        // Botón 2: Gráficos
-        Button btn2(centerX - buttonWidth / 2, startY + buttonSpacing, buttonWidth, buttonHeight, "Graficos");
-        if (btn2.contains((float)xpos, (float)ypos)) {
-            g_gameState->pauseMenuState = PAUSE_MENU_GRAPHICS;
-            return;
-        }
-
-        // Botón 3: Sensibilidad
-        Button btn3(centerX - buttonWidth / 2, startY + buttonSpacing * 2, buttonWidth, buttonHeight, "Sensibilidad");
-        if (btn3.contains((float)xpos, (float)ypos)) {
-            g_gameState->pauseMenuState = PAUSE_MENU_SENSITIVITY;
-            return;
-        }
-
-        // Botón 4: Salir (guardar y volver al menú)
-        Button btn4(centerX - buttonWidth / 2, startY + buttonSpacing * 3, buttonWidth, buttonHeight, "Salir");
-        if (btn4.contains((float)xpos, (float)ypos)) {
-            // Iniciar proceso de guardado
-            g_gameState->isSaving = true;
-            g_gameState->savingTimer = 0.5f;  // 0.5 segundos para guardar
-            g_gameState->returnToMenuAfterSave = true;
-            return;
-        }
+        // Los 20 botones (ver ui/MenuPausa.h y clicMenuPausa).
+        clicMenuPausa(window, (float)xpos, (float)ypos, width, height);
+        return;
 
     } else if (g_gameState->pauseMenuState == PAUSE_MENU_GRAPHICS) {
         clicOpciones((float)xpos, (float)ypos, width, height);
@@ -42977,6 +45143,11 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 
     } else if (g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
         // AVATAR: los clics, arrastres y la rueda los lee renderAvatar.
+        return;
+
+    } else {
+        // Estadisticas, logros, bugs, info, controles y acerca de.
+        clicPantallaDePausa((float)xpos, (float)ypos, width, height);
         return;
     }
 }
@@ -43038,6 +45209,7 @@ void renderAvatar(GLFWwindow* window, int width, int height, float mx, float my)
     };
     auto boton = [&](const char* t, float x, float y, float w, float h) {
         const bool sobre = dentro(x, y, w, h);
+        if (sobre) ratonSobreBoton();
         rect(x, y, w, h, sobre ? 0.45f : 0.28f, sobre ? 0.42f : 0.26f, sobre ? 0.36f : 0.22f, 0.92f);
         texto(t, x + (w - (float)strlen(t) * 12.0f * 0.7f) * 0.5f, y + (h - 12.0f) * 0.5f, 12.0f);
         return sobre && clic;
@@ -43523,15 +45695,24 @@ void scanSavedWorlds(GameState* state) {
 // Inicializar botones del menú principal
 void initMainMenuButtons(GameState* state, int screenWidth, int screenHeight) {
     float centerX = screenWidth / 2.0f;
-    float startY = screenHeight / 2.0f - 100;
-    float buttonWidth = 300;
-    float buttonHeight = 50;
-    float spacing = 70;
+    float buttonWidth = (std::min)(400.0f, screenWidth - 40.0f);
+    float buttonHeight = 60;
+    float spacing = 80;
+    float startY = (std::max)(screenHeight * 0.46f, 200.0f);
+    // En ventanas bajas se aprietan para que quepan todos.
+    const int cuantos = AVATAR_ACTIVO ? 4 : 3;
+    const float sitio = screenHeight - 50.0f - startY;
+    if (cuantos * spacing > sitio && sitio > 0.0f) {
+        spacing = sitio / cuantos;
+        buttonHeight = (std::max)(28.0f, spacing * 0.75f);
+    }
 
     state->btnMundosSolitarios = Button(centerX - buttonWidth/2, startY, buttonWidth, buttonHeight, "Mundos Solitarios");
     state->btnOpciones = Button(centerX - buttonWidth/2, startY + spacing, buttonWidth, buttonHeight, "Opciones");
-    state->btnAvatar = Button(centerX - buttonWidth/2, startY + spacing * 2, buttonWidth, buttonHeight, "Avatar");
-    state->btnSalir = Button(centerX - buttonWidth/2, startY + spacing * 3, buttonWidth, buttonHeight, "Salir");
+    // Sin avatar (AVATAR_ACTIVO) su boton no esta: SALIR sube a su sitio.
+    state->btnAvatar = AVATAR_ACTIVO ? Button(centerX - buttonWidth/2, startY + spacing * 2, buttonWidth, buttonHeight, "Avatar")
+                                     : Button(-10000.0f, -10000.0f, 0.0f, 0.0f, "Avatar");
+    state->btnSalir = Button(centerX - buttonWidth/2, startY + spacing * (AVATAR_ACTIVO ? 3 : 2), buttonWidth, buttonHeight, "Salir");
 }
 
 // Inicializar botones de selección de mundos
@@ -44025,23 +46206,821 @@ void renderText(const char* text, float x, float y, int screenWidth, int screenH
     glDisable(GL_DEPTH_TEST);
 
     // Renderizar sombra
-    float currentX = x;
+    // (Lee UTF-8: las letras y los numeros siguen siendo los de esta fuente;
+    // los acentos, la enie, la arroba y los signos salen de FuenteBits.h.)
+    const std::string s(text);
+    auto pasada = [&](float dx, float dy) {
+        float currentX = x;
+        for (size_t i = 0; i < s.size();) {
+            const unsigned cp = Utf8::mayuscula(Utf8::leer(s, i));
+            if ((cp >= 'A' && cp <= 'Z') || (cp >= '0' && cp <= '9') || cp == ' ')
+                renderBitmapChar((char)cp, currentX + dx, y + dy, size);
+            else
+                dibujarGlifoBits(cp, currentX + dx, y + dy, size);
+            currentX += spacing;
+        }
+    };
     glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
-    for (int i = 0; text[i] != '\0'; i++) {
-        renderBitmapChar(text[i], currentX + 2, y + 2, size);
-        currentX += spacing;
-    }
-
-    // Renderizar texto principal
-    currentX = x;
+    pasada(2.0f, 2.0f);                       // la sombra
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-    for (int i = 0; text[i] != '\0'; i++) {
-        renderBitmapChar(text[i], currentX, y, size);
-        currentX += spacing;
+    pasada(0.0f, 0.0f);
+}
+
+// ============================================================================
+// ⭐ EL FONDO DEL MENU PRINCIPAL: UN ATARDECER DE BLOQUES
+// ============================================================================
+// PEDIDO: "mejora muchisimo el diseno de botones y fondo del menu principal".
+// Antes era un degradado azul liso. Ahora es un paisaje del propio juego,
+// dibujado a mano con rectangulos (sin texturas: no depende de ningun archivo)
+// y que se mueve despacio:
+//
+//   - El cielo del atardecer: de anil arriba a naranja en el horizonte.
+//   - Estrellas que titilan en lo alto, y un sol cuadrado con su resplandor.
+//   - Nubes de bloques que pasan.
+//   - Tres filas de cerros escalonados, de lejos a cerca, que se deslizan a
+//     distinta velocidad (paralaje); los de delante llevan pasto y arboles.
+//   - Un velo oscuro en los bordes, para que el titulo y los botones destaquen.
+static float azarMenu(uint32_t n) {
+    n = (n ^ 61u) ^ (n >> 16); n *= 9u; n ^= n >> 4; n *= 0x27d4eb2du; n ^= n >> 15;
+    return (float)(n & 0xffffffu) / 16777215.0f;
+}
+// ⭐ LA MINI IA QUE JUEGA SOLA (ver ui/MenuVivo.h): el primer plano del paisaje
+// es su mundo. Aqui solo se dibuja; lo que decide y hace esta en la cabecera.
+// La camara la sigue (queda a un cuarto de la pantalla, a la izquierda de los
+// botones), asi que el suelo se desliza cuando anda y se para cuando trabaja.
+static MenuVivo::Sim g_menuVivo;
+static void dibujarMenuVivo(int w, int h, float dt) {
+    using namespace MenuVivo;
+    Sim& s = g_menuVivo;
+    if (!s.lista) s.iniciar((uint32_t)std::time(nullptr));
+    s.avanzar(dt);
+
+    const float W = (float)w, H = (float)h;
+    const float B = H * 0.055f, paso = B * 0.5f, base = H * 0.80f, ancla = W * 0.24f;
+    static float cam = -1.0f, yPies = -1.0f;
+    if (cam < 0.0f) cam = s.x;
+    cam = envolver(cam + delta(cam, s.x) * (1.0f - std::exp(-2.5f * dt)));
+    auto rect = [](float x0, float y0, float x1, float y1) {
+        glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+    };
+    auto yDe = [&](int i) { return base - s.col[mod(i)].alto * paso; };
+    const int i0 = (int)std::floor(cam - ancla / B) - 3, n = (int)(W / B) + 8;
+    const bool talando = s.tarea == Tarea::TALAR;
+
+    glBegin(GL_QUADS);
+    // Las casas, detras de todo.
+    for (const Casa& c : s.casas) {
+        const float cx = ancla + delta(cam, (float)c.centro + 0.5f) * B;
+        if (cx < -3.0f * B || cx > W + 3.0f * B) continue;
+        const float y = yDe(c.centro), tr = 2.6f * B / 3.0f, fila = 0.80f * B;
+        for (int k = 0; k < (std::min)(c.piezas, 6); ++k) {
+            const int col = k % 3, piso = k / 3;
+            const float x0 = cx - 1.3f * B + col * tr, y1 = y - piso * fila, y0 = y1 - fila;
+            const float tono = ((col + piso) & 1) ? 0.90f : 1.0f;
+            glColor3f(0.46f * tono, 0.30f * tono, 0.17f * tono);
+            rect(x0, y0, x0 + tr, y1);
+            glColor3f(0.30f, 0.19f, 0.10f);
+            rect(x0, y1 - 2.0f, x0 + tr, y1);
+            if (k == 1) { glColor3f(0.15f, 0.08f, 0.05f); rect(x0 + tr * 0.25f, y0 + fila * 0.15f, x0 + tr * 0.75f, y1); }
+            if (k == 4) {
+                if (c.piezas >= PIEZAS_CASA) glColor3f(1.0f, 0.82f, 0.40f); else glColor3f(0.12f, 0.10f, 0.14f);
+                rect(x0 + tr * 0.25f, y0 + fila * 0.25f, x0 + tr * 0.75f, y0 + fila * 0.75f);
+            }
+        }
+        const float yt = y - 2.0f * fila;
+        if (c.piezas >= 7) { glColor3f(0.40f, 0.15f, 0.13f); rect(cx - 1.6f * B, yt - 0.32f * B, cx + 1.6f * B, yt); }
+        if (c.piezas >= 8) { glColor3f(0.48f, 0.19f, 0.15f); rect(cx - 1.0f * B, yt - 0.64f * B, cx + 1.0f * B, yt - 0.32f * B); }
+    }
+    // Los arboles.
+    for (int k = 0; k < n; ++k) {
+        const int i = i0 + k;
+        const Columna& c = s.col[mod(i)];
+        if (!c.arbol) continue;
+        float xm = ancla + ((float)i + 0.5f - cam) * B;
+        const float y = yDe(i);
+        if (talando && mod(i) == s.destino) xm += 2.5f * std::sin(s.golpe * 3.1416f) * (c.golpes + 1) * 0.5f;
+        const float e = c.arbol == 1 ? 0.30f : (c.arbol == 2 ? 0.62f : 1.0f);
+        const float tr = 0.26f * B * e, alto = 1.5f * B * e, copa = 1.5f * B * e;
+        glColor3f(0.20f, 0.12f, 0.08f);
+        rect(xm - tr * 0.5f, y - alto, xm + tr * 0.5f, y);
+        glColor3f(0.09f, 0.22f, 0.14f);
+        rect(xm - copa * 0.5f, y - alto - copa * 0.75f, xm + copa * 0.5f, y - alto + copa * 0.15f);
+        rect(xm - copa * 0.3f, y - alto - copa * 1.05f, xm + copa * 0.3f, y - alto - copa * 0.75f);
+        glColor3f(0.16f, 0.36f, 0.19f);
+        rect(xm - copa * 0.3f, y - alto - copa * 1.05f, xm + copa * 0.3f, y - alto - copa * 0.95f);
+        rect(xm - copa * 0.5f, y - alto - copa * 0.75f, xm - copa * 0.3f, y - alto - copa * 0.65f);
+    }
+    glEnd();
+    // El suelo, con su pasto.
+    glShadeModel(GL_SMOOTH);
+    glBegin(GL_QUADS);
+    for (int k = 0; k < n; ++k) {
+        const int i = i0 + k;
+        const float x = ancla + ((float)i - cam) * B, y = yDe(i);
+        glColor3f(0.10f, 0.12f, 0.12f); glVertex2f(x, y); glVertex2f(x + B + 1.0f, y);
+        glColor3f(0.03f, 0.04f, 0.05f); glVertex2f(x + B + 1.0f, H); glVertex2f(x, H);
+        glColor3f(0.17f, 0.34f, 0.20f);
+        rect(x, y, x + B + 1.0f, y + B * 0.20f);
+        glColor3f(0.32f, 0.54f, 0.27f);
+        rect(x, y, x + B + 1.0f, y + B * 0.07f);
+    }
+    glEnd();
+    glShadeModel(GL_FLAT);
+
+    // El personaje.
+    const float px = ancla + delta(cam, s.x) * B;
+    const float yMeta = yDe((int)std::floor(s.x));
+    if (yPies < 0.0f) yPies = yMeta;
+    yPies += (yMeta - yPies) * (1.0f - std::exp(-14.0f * dt));
+    const float u = B * 0.22f, d = (float)s.dir;
+    const bool anda = s.tarea == Tarea::IR;
+    const bool agachado = s.tarea == Tarea::PLANTAR;
+    const float zanca = anda ? std::sin(s.fase) : 0.0f;
+    const float bote = anda ? std::fabs(std::cos(s.fase)) * u * 0.25f : 0.0f;
+    const float pies = yPies - bote, cadera = pies - 2.2f * u + (agachado ? 0.8f * u : 0.0f);
+    const float hombro = cadera - 2.6f * u, cabeza = hombro - 2.0f * u;
+    // El brazo: 0 cuelga, pi/2 apunta adelante, mas es arriba.
+    float brazo = anda ? -0.6f * zanca : 0.15f;
+    const bool golpea = s.tarea == Tarea::TALAR || s.tarea == Tarea::CONSTRUIR || s.tarea == Tarea::DESMONTAR ||
+                        s.tarea == Tarea::ALLANAR;
+    if (golpea) { const float g = (std::min)(1.0f, s.golpe); brazo = 2.5f - 1.9f * g * g * g; }
+    if (s.tarea == Tarea::ALLANAR) brazo -= 0.7f;              // pica hacia el suelo
+    if (agachado) brazo = 0.9f;
+    glBegin(GL_QUADS);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.30f);                         // su sombra
+    rect(px - 1.4f * u, yPies - 0.05f * u, px + 1.4f * u, yPies + 0.35f * u);
+    glColor3f(0.16f, 0.20f, 0.42f);                             // las piernas
+    rect(px - 0.9f * u + zanca * 0.7f * u, cadera, px - 0.1f * u + zanca * 0.7f * u, pies);
+    glColor3f(0.21f, 0.26f, 0.52f);
+    rect(px + 0.1f * u - zanca * 0.7f * u, cadera, px + 0.9f * u - zanca * 0.7f * u, pies);
+    glColor3f(0.15f, 0.55f, 0.58f);                             // el cuerpo
+    rect(px - 1.0f * u, hombro, px + 1.0f * u, cadera);
+    glColor3f(0.86f, 0.66f, 0.50f);                             // la cabeza
+    rect(px - 1.0f * u, cabeza, px + 1.0f * u, hombro);
+    glColor3f(0.28f, 0.17f, 0.10f);                             // el pelo
+    rect(px - 1.0f * u, cabeza, px + 1.0f * u, cabeza + 0.55f * u);
+    rect(px - d * 1.0f * u, cabeza, px - d * 0.5f * u, cabeza + 1.3f * u);
+    glColor3f(0.08f, 0.08f, 0.10f);                             // el ojo, hacia donde mira
+    rect(px + d * 0.35f * u, cabeza + 0.85f * u, px + d * 0.75f * u, cabeza + 1.25f * u);
+    // El brazo y lo que lleva en la mano.
+    {
+        const float sx0 = px + d * 0.2f * u, sy0 = hombro + 0.5f * u, L = 2.5f * u;
+        const float ax = d * std::sin(brazo), ay = std::cos(brazo);     // a lo largo
+        const float nx = -ay * 0.42f * u, ny = ax * 0.42f * u;          // a lo ancho
+        const float mx = sx0 + ax * L, my = sy0 + ay * L;
+        if (golpea) {
+            // El mango, cruzado en la mano, y la cabeza de la herramienta.
+            const float hx = d * std::sin(brazo + 1.2f), hy = std::cos(brazo + 1.2f), M = 2.6f * u;
+            const float qx = -hy * 0.18f * u, qy = hx * 0.18f * u;
+            glColor3f(0.42f, 0.28f, 0.15f);
+            glVertex2f(mx - qx, my - qy); glVertex2f(mx + qx, my + qy);
+            glVertex2f(mx + hx * M + qx, my + hy * M + qy); glVertex2f(mx + hx * M - qx, my + hy * M - qy);
+            const float tx = mx + hx * M, ty = my + hy * M, r = (s.tarea == Tarea::ALLANAR ? 0.55f : 0.75f) * u;
+            if (s.tarea == Tarea::TALAR) glColor3f(0.80f, 0.82f, 0.86f);
+            else if (s.tarea == Tarea::ALLANAR) glColor3f(0.62f, 0.64f, 0.70f);
+            else glColor3f(0.48f, 0.44f, 0.42f);
+            if (s.tarea == Tarea::ALLANAR) rect(tx - 2.0f * r, ty - r * 0.6f, tx + 2.0f * r, ty + r * 0.6f);
+            else rect(tx - r, ty - r, tx + r, ty + r);
+        } else if (agachado) {
+            glColor3f(0.16f, 0.36f, 0.19f);                     // el retono
+            rect(mx - 0.5f * u, my - 0.9f * u, mx + 0.5f * u, my);
+        }
+        glColor3f(0.11f, 0.45f, 0.48f);
+        glVertex2f(sx0 - nx, sy0 - ny); glVertex2f(sx0 + nx, sy0 + ny);
+        glVertex2f(mx + nx, my + ny); glVertex2f(mx - nx, my - ny);
+        glColor3f(0.86f, 0.66f, 0.50f);
+        rect(mx - 0.45f * u, my - 0.45f * u, mx + 0.45f * u, my + 0.45f * u);
+    }
+    glEnd();
+
+    // Lo que esta haciendo, sobre su cabeza, y lo que lleva, abajo.
+    {
+        const std::string que = rotulo(s.tarea);
+        const float letra = (std::max)(10.0f, H * 0.016f), ancho = que.size() * letra * 0.7f + 12.0f;
+        const float ty = cabeza - letra - 14.0f;
+        glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+        rectUI(px - ancho * 0.5f, ty - 4.0f, px + ancho * 0.5f, ty + letra + 4.0f);
+        glColor4f(1.0f, 0.93f, 0.66f, 0.95f);
+        textoCentrado(que, px, ty, letra);
+        const std::string lleva = "IA: " + que + "   MADERA " + std::to_string(s.madera) + "   PIEDRA " +
+                                  std::to_string(s.piedra) + "   CASAS " + std::to_string((int)s.casas.size());
+        const float l2 = (std::max)(11.0f, H * 0.018f);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.7f);
+        renderText(lleva.c_str(), 15.0f, H - l2 - 11.0f, l2);
+        glColor4f(0.86f, 0.84f, 0.78f, 0.75f);
+        renderText(lleva.c_str(), 14.0f, H - l2 - 12.0f, l2);
     }
 }
 
+static void fondoDelMenuPrincipal(int w, int h, float t, float dt) {
+    const float W = (float)w, H = (float)h;
+    const float horizonte = H * 0.66f;
+    auto rect = [](float x0, float y0, float x1, float y1) {
+        glVertex2f(x0, y0); glVertex2f(x1, y0); glVertex2f(x1, y1); glVertex2f(x0, y1);
+    };
+    glDisable(GL_TEXTURE_2D);
+    glShadeModel(GL_SMOOTH);
+
+    // El cielo, en dos tramos.
+    glBegin(GL_QUADS);
+    glColor3f(0.04f, 0.05f, 0.16f); glVertex2f(0, 0); glVertex2f(W, 0);
+    glColor3f(0.30f, 0.20f, 0.44f); glVertex2f(W, horizonte * 0.60f); glVertex2f(0, horizonte * 0.60f);
+    glVertex2f(0, horizonte * 0.60f); glVertex2f(W, horizonte * 0.60f);
+    glColor3f(0.98f, 0.56f, 0.28f); glVertex2f(W, horizonte); glVertex2f(0, horizonte);
+    glVertex2f(0, horizonte); glVertex2f(W, horizonte);
+    glColor3f(0.60f, 0.26f, 0.20f); glVertex2f(W, H); glVertex2f(0, H);
+    glEnd();
+
+    // Las estrellas: mas arriba, mas se ven.
+    glBegin(GL_QUADS);
+    for (uint32_t i = 0; i < 150; ++i) {
+        const float x = azarMenu(i * 3u + 1u) * W, y = azarMenu(i * 3u + 2u) * horizonte * 0.62f;
+        const float brillo = 0.55f + 0.45f * std::sin(t * (0.8f + 2.0f * azarMenu(i * 3u + 3u)) + (float)i);
+        const float a = brillo * (1.0f - y / (horizonte * 0.62f));
+        const float s = azarMenu(i + 900u) > 0.85f ? 3.0f : 2.0f;
+        glColor4f(1.0f, 0.96f, 0.86f, a);
+        rect(x, y, x + s, y + s);
+    }
+    glEnd();
+
+    // El sol, cuadrado, con su resplandor.
+    {
+        const float cx = W * 0.72f, cy = horizonte - H * 0.20f, r = H * 0.055f;
+        glBegin(GL_QUADS);
+        for (int k = 5; k >= 1; --k) {
+            const float g = r * (1.0f + 0.55f * k);
+            glColor4f(1.0f, 0.72f, 0.35f, 0.07f);
+            rect(cx - g, cy - g, cx + g, cy + g);
+        }
+        glColor3f(1.0f, 0.90f, 0.62f); glVertex2f(cx - r, cy - r); glVertex2f(cx + r, cy - r);
+        glColor3f(1.0f, 0.70f, 0.36f); glVertex2f(cx + r, cy + r); glVertex2f(cx - r, cy + r);
+        glEnd();
+    }
+
+    // Las nubes de bloques.
+    glBegin(GL_QUADS);
+    for (uint32_t i = 0; i < 8; ++i) {
+        const float u = H * 0.022f * (0.8f + 0.9f * azarMenu(i + 40u));            // el tamano de su bloque
+        const float y = H * (0.10f + 0.36f * azarMenu(i + 50u));
+        const float vuelta = W + 24.0f * u;
+        float x = std::fmod(azarMenu(i + 60u) * vuelta + t * (5.0f + 9.0f * azarMenu(i + 70u)), vuelta) - 12.0f * u;
+        glColor4f(1.0f, 0.80f, 0.72f, 0.34f);
+        rect(x, y, x + 10.0f * u, y + u);
+        rect(x + 2.0f * u, y - u, x + 7.0f * u, y);
+        glColor4f(0.55f, 0.32f, 0.42f, 0.30f);
+        rect(x + u, y + u, x + 9.0f * u, y + 1.6f * u);                             // el vientre, en sombra
+    }
+    glEnd();
+
+    // Los cerros: tres filas, de lejos a cerca.
+    struct Fila { float bloque, base, alto, vel, fase; float r, g, b; bool pasto; };
+    const Fila filas[3] = {
+        { H * 0.030f, 0.02f, 0.10f,  4.0f, 1.3f, 0.42f, 0.30f, 0.50f, false },
+        { H * 0.040f, -0.02f, 0.09f,  9.0f, 4.1f, 0.22f, 0.19f, 0.36f, false },
+        { H * 0.055f, -0.13f, 0.10f, 18.0f, 7.7f, 0.07f, 0.11f, 0.13f, true },
+    };
+    glBegin(GL_QUADS);
+    for (int f = 0; f < 2; ++f) {      // la tercera, la de delante, es ahora el mundo de la IA
+        const Fila& c = filas[f];
+        const float s = t * c.vel;
+        const int i0 = (int)std::floor(s / c.bloque) - 2, n = (int)(W / c.bloque) + 5;
+        for (int k = 0; k < n; ++k) {
+            const int i = i0 + k;
+            const float x = i * c.bloque - s;
+            const float onda = 0.55f * std::sin(i * 0.11f + c.fase) + 0.30f * std::sin(i * 0.043f + c.fase * 2.0f) +
+                               0.15f * std::sin(i * 0.31f + c.fase * 3.0f);
+            float alto = H * (c.base + c.alto * (1.0f + onda));
+            alto = std::floor(alto / (c.bloque * 0.5f)) * c.bloque * 0.5f;          // escalonado
+            const float y = horizonte - alto;
+            // Arboles en las dos filas de delante.
+            if (f >= 1 && azarMenu((uint32_t)(i * 7 + f * 1000 + 100000)) > 0.86f) {
+                const float tr = c.bloque * 0.30f, copa = c.bloque * (1.1f + 0.5f * azarMenu((uint32_t)(i + 5000)));
+                const float xm = x + c.bloque * 0.5f, yt = y - c.bloque * 1.3f;
+                glColor3f(c.r * 0.8f, c.g * 0.7f, c.b * 0.7f);
+                rect(xm - tr * 0.5f, yt, xm + tr * 0.5f, y);
+                if (c.pasto) glColor3f(0.09f, 0.20f, 0.14f); else glColor3f(c.r * 0.9f, c.g, c.b * 0.9f);
+                rect(xm - copa * 0.5f, yt - copa * 0.8f, xm + copa * 0.5f, yt + copa * 0.2f);
+                rect(xm - copa * 0.3f, yt - copa * 1.15f, xm + copa * 0.3f, yt - copa * 0.8f);
+            }
+            glColor3f(c.r, c.g, c.b); glVertex2f(x, y); glVertex2f(x + c.bloque + 1.0f, y);
+            glColor3f(c.r * 0.55f, c.g * 0.55f, c.b * 0.55f); glVertex2f(x + c.bloque + 1.0f, H); glVertex2f(x, H);
+            if (c.pasto) {
+                glColor3f(0.17f, 0.34f, 0.20f);
+                rect(x, y, x + c.bloque + 1.0f, y + c.bloque * 0.22f);
+                glColor3f(0.30f, 0.52f, 0.26f);
+                rect(x, y, x + c.bloque + 1.0f, y + c.bloque * 0.07f);
+            }
+        }
+    }
+    glEnd();
+
+    glShadeModel(GL_FLAT);
+    dibujarMenuVivo(w, h, dt);
+    glShadeModel(GL_SMOOTH);
+
+    // El velo de los bordes.
+    glBegin(GL_QUADS);
+    glColor4f(0, 0, 0, 0.45f); glVertex2f(0, 0); glVertex2f(W, 0);
+    glColor4f(0, 0, 0, 0.0f); glVertex2f(W, H * 0.30f); glVertex2f(0, H * 0.30f);
+    glVertex2f(0, H * 0.62f); glVertex2f(W, H * 0.62f);
+    glColor4f(0, 0, 0, 0.60f); glVertex2f(W, H); glVertex2f(0, H);
+    glColor4f(0, 0, 0, 0.30f); glVertex2f(0, 0); glVertex2f(0, H);
+    glColor4f(0, 0, 0, 0.0f); glVertex2f(W * 0.45f, H); glVertex2f(W * 0.45f, 0);
+    glVertex2f(W * 0.55f, 0); glVertex2f(W * 0.55f, H);
+    glColor4f(0, 0, 0, 0.30f); glVertex2f(W, H); glVertex2f(W, 0);
+    glEnd();
+    glShadeModel(GL_FLAT);
+}
+
+// El titulo: letras grandes de bloque con canto (relieve hacia abajo-derecha),
+// que flotan un poco, y una raya dorada debajo.
+static void tituloDelMenuPrincipal(int w, int h, float t) {
+    const std::string titulo = "VOXEL WORLD";
+    const float letra = (std::max)(34.0f, (std::min)(w / 15.0f, h * 0.13f));
+    const float cx = w / 2.0f, y = h * 0.15f + 3.0f * std::sin(t * 1.1f);
+    const float canto = (std::max)(3.0f, letra * 0.09f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.35f);
+    textoCentrado(titulo, cx + canto + 5.0f, y + canto + 7.0f, letra);
+    for (float d = canto; d >= 1.0f; d -= 1.0f) {
+        glColor3f(0.36f, 0.16f, 0.06f);
+        textoCentrado(titulo, cx + d, y + d, letra);
+    }
+    glColor3f(1.0f, 0.93f, 0.66f);
+    textoCentrado(titulo, cx, y, letra);
+    // La raya: dorada en el centro, se apaga hacia los lados.
+    const float ancho = titulo.size() * letra * 0.7f * 0.56f, yr = y + letra + canto + 14.0f;
+    glShadeModel(GL_SMOOTH);
+    glBegin(GL_QUADS);
+    for (int lado = -1; lado <= 1; lado += 2) {
+        glColor4f(1.0f, 0.80f, 0.30f, 0.95f); glVertex2f(cx, yr); glVertex2f(cx, yr + 4.0f);
+        glColor4f(1.0f, 0.80f, 0.30f, 0.0f); glVertex2f(cx + lado * ancho, yr + 4.0f); glVertex2f(cx + lado * ancho, yr);
+    }
+    glEnd();
+    glShadeModel(GL_FLAT);
+    glColor3f(1.0f, 0.86f, 0.40f);
+    rectUI(cx - 5.0f, yr - 3.0f, cx + 5.0f, yr + 7.0f);
+}
+
 // Renderizar menú principal
+// ============================================================================
+// ⭐ LA CUENTA: SIN ENTRAR NO SE JUEGA
+// ============================================================================
+// PEDIDO: "antes de que inicies el juego te pedira poner en una mini seccion tu
+// nombre, cuenta, contrasena, autenticador y si todo esta en orden te deja
+// jugar y te dira que tienes una cuenta registrada, con un circulo con la foto
+// de tu cuenta y tu nombre a un lado, a la derecha abajo".
+//
+// La seguridad esta en Cuenta.h (con sus pruebas). Aqui esta la pantalla:
+//
+//   SIN CUENTA EN EL EQUIPO   se crea en dos pasos: primero nombre, cuenta y
+//                             contrasena; luego el juego ensena la clave del
+//                             autenticador, se mete en la aplicacion del
+//                             telefono y se confirma con el primer codigo.
+//                             Tambien se puede IMPORTAR la que crea la pagina
+//                             web (es el mismo archivo).
+//   CON CUENTA                cuenta, contrasena y el codigo de 6 digitos.
+//
+// Va DENTRO del menu principal, sobre su fondo: mientras `dentro` sea false no
+// se dibujan sus botones ni se atienden, asi que no hay manera de llegar a los
+// mundos sin pasar por aqui. Una vez dentro, la insignia de abajo a la derecha
+// lleva la foto (clic para cambiarla), el nombre y "CUENTA REGISTRADA".
+struct PantallaCuenta {
+    bool leida = false, hay = false, dentro = false;
+    Cuenta::Registro reg;
+    int paso = 0;                  // al crear: 0 los datos, 1 el autenticador
+    int foco = 0;
+    std::string nombre, usuario, clave, codigo, aviso;
+    bool avisoBueno = false;
+    Cuenta::Bytes secreto, sal, salTotp;
+    std::string fotoElegida;       // al crear: la que se eligio (ruta completa)
+    GLuint texFoto = 0;
+    bool fotoMirada = false;
+};
+PantallaCuenta g_cuentaUI;
+constexpr const char* ARCHIVO_CUENTA = "cuenta.dat";
+
+static void cuentaLeer() {
+    PantallaCuenta& c = g_cuentaUI;
+    c.leida = true;
+    std::ifstream f(ARCHIVO_CUENTA, std::ios::binary);
+    if (!f.good()) { c.hay = false; return; }
+    const std::string texto((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    c.reg = Cuenta::deTexto(texto);
+    c.hay = c.reg.valido();
+    if (c.hay) {
+        c.usuario = c.reg.cuenta.substr(0, c.reg.cuenta.find('@'));
+        c.foco = 1;                // la cuenta ya viene puesta: a la contrasena
+    }
+}
+static bool cuentaGuardar() {
+    std::ofstream f(ARCHIVO_CUENTA, std::ios::binary | std::ios::trunc);
+    if (!f.is_open()) return false;
+    f << Cuenta::aTexto(g_cuentaUI.reg);
+    return f.good();
+}
+static Cuenta::Bytes cuentaAzar(size_t n) {
+    std::random_device rd;         // en Windows, el generador del sistema
+    Cuenta::Bytes b(n);
+    for (size_t i = 0; i < n; ++i) b[i] = (uint8_t)(rd() & 0xff);
+    return b;
+}
+bool cuentaPideEntrada() {
+    return g_gameState && g_gameState->screenState == SCREEN_MAIN_MENU && !g_cuentaUI.dentro;
+}
+// Los campos de ahora: cuales son y como se llaman.
+static int cuentaCampos(std::string* campo[3], const char* rotulo[3]) {
+    PantallaCuenta& c = g_cuentaUI;
+    if (!c.hay && c.paso == 0) {
+        campo[0] = &c.nombre;  rotulo[0] = "TU NOMBRE";
+        campo[1] = &c.usuario; rotulo[1] = "CUENTA";
+        campo[2] = &c.clave;   rotulo[2] = "CONTRASEÃ" "A  (8 O MÃS)";
+        return 3;
+    }
+    if (!c.hay) { campo[0] = &c.codigo; rotulo[0] = "CÃ" "DIGO DEL AUTENTICADOR  (6 DÃGITOS)"; return 1; }
+    campo[0] = &c.usuario; rotulo[0] = "CUENTA";
+    campo[1] = &c.clave;   rotulo[1] = "CONTRASEÃ" "A";
+    campo[2] = &c.codigo;  rotulo[2] = "CÃ" "DIGO DEL AUTENTICADOR  (6 DÃGITOS)";
+    return 3;
+}
+struct LayoutCuenta { MenuPausa::Rect panel, campo[3], principal, izq, der; float yTitulo, ySecreto; };
+static LayoutCuenta layoutCuenta(int width, int height) {
+    LayoutCuenta l;
+    const PantallaCuenta& c = g_cuentaUI;
+    const float W = (float)width, H = (float)height;
+    const float pw = (std::min)(580.0f, W - 24.0f);
+    const bool pasoDos = !c.hay && c.paso == 1;
+    const int n = pasoDos ? 1 : 3;
+    const float alto = 70.0f + (pasoDos ? 150.0f : 0.0f) + n * 68.0f + 124.0f;
+    const float px = (W - pw) / 2.0f, py = (std::max)(10.0f, (H - alto) / 2.0f);
+    l.panel = { px, py, pw, alto };
+    l.yTitulo = py + 18.0f;
+    l.ySecreto = py + 62.0f;
+    float y = py + 70.0f + (pasoDos ? 150.0f : 0.0f);
+    for (int i = 0; i < 3; ++i) { l.campo[i] = { px + 24.0f, y + 16.0f, pw - 48.0f, 40.0f }; if (i < n) y += 68.0f; }
+    l.principal = { px + 24.0f, y + 6.0f, pw - 48.0f, 46.0f };
+    const float bw = (pw - 60.0f) / 2.0f;
+    l.izq = { px + 24.0f, y + 62.0f, bw, 36.0f };
+    l.der = { px + 36.0f + bw, y + 62.0f, bw, 36.0f };
+    return l;
+}
+// Elegir un archivo con el dialogo de Windows. Devuelve "" si se cancela.
+static std::string cuentaElegirArchivo(const char* filtro, const char* titulo) {
+    char ruta[MAX_PATH] = "";
+    OPENFILENAMEA o = {};
+    o.lStructSize = sizeof(o);
+    o.lpstrFilter = filtro;
+    o.lpstrFile = ruta;
+    o.nMaxFile = MAX_PATH;
+    o.lpstrTitle = titulo;
+    // NOCHANGEDIR: las partidas se buscan en la carpeta de trabajo; el dialogo
+    // no puede moverla.
+    o.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+    return GetOpenFileNameA(&o) ? std::string(ruta) : std::string();
+}
+// Copia la imagen elegida junto a la cuenta y la deja como su foto.
+static void cuentaPonerFoto(const std::string& origen) {
+    if (origen.empty()) return;
+    std::error_code ec;
+    std::string ext = std::filesystem::path(origen).extension().string();
+    for (char& ch : ext) ch = (char)tolower((unsigned char)ch);
+    if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp") return;
+    const std::string destino = std::string("cuenta_foto") + ext;
+    std::filesystem::copy_file(origen, destino, std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) return;
+    g_cuentaUI.reg.foto = destino;
+    g_cuentaUI.fotoMirada = false;       // que se vuelva a cargar
+    g_cuentaUI.texFoto = 0;
+}
+static void cuentaEnviar() {
+    PantallaCuenta& c = g_cuentaUI;
+    c.avisoBueno = false;
+    auto codigoDe = [&](int& out) {
+        if (c.codigo.size() != 6) return false;
+        out = atoi(c.codigo.c_str());
+        return true;
+    };
+    if (!c.hay && c.paso == 0) {
+        while (!c.nombre.empty() && c.nombre.back() == ' ') c.nombre.pop_back();
+        if (!Cuenta::nombreVale(c.nombre)) { c.aviso = "PON TU NOMBRE"; c.foco = 0; return; }
+        if (!Cuenta::usuarioVale(Cuenta::normalizarUsuario(c.usuario))) {
+            c.aviso = "LA CUENTA: DE 3 A 24 LETRAS O NUMEROS, SIN ESPACIOS"; c.foco = 1; return;
+        }
+        if (!Cuenta::claveVale(c.clave)) { c.aviso = "LA CONTRASENA: DE 8 A 64 CARACTERES"; c.foco = 2; return; }
+        c.sal = cuentaAzar(16);
+        c.salTotp = cuentaAzar(16);
+        c.secreto = cuentaAzar(20);
+        c.paso = 1;
+        c.foco = 0;
+        c.codigo.clear();
+        c.aviso.clear();
+        return;
+    }
+    if (!c.hay) {
+        int codigo = 0;
+        if (!codigoDe(codigo) || !Cuenta::totpVale(c.secreto, codigo, (long long)time(nullptr))) {
+            c.aviso = "ESE CODIGO NO VALE. MIRA EL DE AHORA EN TU APLICACION";
+            c.codigo.clear();
+            return;
+        }
+        const std::string foto = c.fotoElegida;
+        c.reg = Cuenta::crear(c.nombre, c.usuario, c.clave, c.sal, c.salTotp, c.secreto);
+        cuentaPonerFoto(foto);
+        if (!cuentaGuardar()) { c.aviso = "NO SE PUDO GUARDAR LA CUENTA EN ESTE EQUIPO"; return; }
+        c.hay = true;
+        c.dentro = true;
+    } else {
+        int codigo = -1;
+        codigoDe(codigo);
+        const Cuenta::Entrada e = Cuenta::entrar(c.reg, c.usuario, c.clave, codigo, (long long)time(nullptr));
+        if (e != Cuenta::Entrada::DENTRO) {
+            c.aviso = Cuenta::mensaje(e);
+            c.codigo.clear();
+            if (e == Cuenta::Entrada::CREDENCIALES) { c.clave.assign(c.clave.size(), '\0'); c.clave.clear(); c.foco = 1; }
+            else c.foco = 2;
+            return;
+        }
+        c.dentro = true;
+    }
+    // Dentro: lo tecleado no se queda en memoria.
+    c.clave.assign(c.clave.size(), '\0');
+    c.clave.clear();
+    c.codigo.clear();
+    c.secreto.assign(c.secreto.size(), 0);
+    c.secreto.clear();
+    c.aviso.clear();
+}
+void cuentaChar(unsigned int cp) {
+    PantallaCuenta& c = g_cuentaUI;
+    if (!Utf8::seEscribe(cp)) return;         // minusculas, acentos, arroba, signos
+    std::string* campo[3];
+    const char* rot[3];
+    const int n = cuentaCampos(campo, rot);
+    if (c.foco < 0 || c.foco >= n) return;
+    std::string& t = *campo[c.foco];
+    if (&t == &c.nombre) {
+        if (Utf8::largo(t) < Cuenta::NOMBRE_MAX && !(cp == ' ' && t.empty())) Utf8::anadir(t, cp);
+    } else if (&t == &c.usuario) {
+        // Letras (se guardan en minuscula), numeros, punto y guiones; y la
+        // arroba, por si se escribe la cuenta entera: lo de detras no cuenta.
+        const bool vale = cp < 128 && (isalnum((int)cp) || cp == '.' || cp == '-' || cp == '_' || cp == '@');
+        if (vale && t.size() < Cuenta::USUARIO_MAX + 12 && !(cp == '@' && t.find('@') != std::string::npos)) t += (char)cp;
+    } else if (&t == &c.clave) {
+        if (Utf8::largo(t) < Cuenta::CLAVE_MAX) Utf8::anadir(t, cp);
+    } else if (&t == &c.codigo) {
+        if (t.size() < 6 && cp >= '0' && cp <= '9') t += (char)cp;
+    }
+    c.aviso.clear();
+}
+void cuentaTecla(int key, int action) {
+    if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
+    PantallaCuenta& c = g_cuentaUI;
+    std::string* campo[3];
+    const char* rot[3];
+    const int n = cuentaCampos(campo, rot);
+    if (key == GLFW_KEY_BACKSPACE) {
+        if (c.foco >= 0 && c.foco < n) Utf8::borrar(*campo[c.foco]);      // un caracter entero
+    } else if (key == GLFW_KEY_TAB || key == GLFW_KEY_DOWN) {
+        c.foco = (c.foco + 1) % n;
+    } else if (key == GLFW_KEY_UP) {
+        c.foco = (c.foco + n - 1) % n;
+    } else if ((key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) && action == GLFW_PRESS) {
+        // Enter pasa al siguiente campo vacio; con todo puesto, envia.
+        for (int i = 0; i < n; ++i)
+            if (campo[i]->empty()) { c.foco = i; return; }
+        cuentaEnviar();
+    } else if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS && !c.hay && c.paso == 1) {
+        c.paso = 0;                // volver a los datos
+        c.foco = 0;
+        c.aviso.clear();
+    }
+}
+void cuentaClic(float mx, float my, int width, int height) {
+    PantallaCuenta& c = g_cuentaUI;
+    const LayoutCuenta l = layoutCuenta(width, height);
+    std::string* campo[3];
+    const char* rot[3];
+    const int n = cuentaCampos(campo, rot);
+    for (int i = 0; i < n; ++i)
+        if (l.campo[i].contiene(mx, my)) { c.foco = i; return; }
+    if (l.principal.contiene(mx, my)) { cuentaEnviar(); return; }
+    if (c.hay) return;
+    if (c.paso == 1) {
+        if (l.izq.contiene(mx, my)) { c.paso = 0; c.foco = 0; c.aviso.clear(); }
+        return;
+    }
+    if (l.izq.contiene(mx, my)) {
+        const std::string f = cuentaElegirArchivo("Imagenes\0*.png;*.jpg;*.jpeg;*.bmp\0", "Foto de tu cuenta");
+        if (!f.empty()) { c.fotoElegida = f; c.aviso = "FOTO ELEGIDA"; c.avisoBueno = true; }
+    } else if (l.der.contiene(mx, my)) {
+        const std::string f = cuentaElegirArchivo("Cuenta de Voxel World\0*.vwcuenta;*.dat;*.txt\0Todos\0*.*\0",
+                                                  "Importar la cuenta creada en la pagina");
+        if (f.empty()) return;
+        std::ifstream in(f, std::ios::binary);
+        const std::string texto((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const Cuenta::Registro r = Cuenta::deTexto(texto);
+        if (!r.valido()) { c.aviso = "ESE ARCHIVO NO ES UNA CUENTA DE VOXEL WORLD"; c.avisoBueno = false; return; }
+        c.reg = r;
+        c.reg.foto.clear();
+        if (!cuentaGuardar()) { c.aviso = "NO SE PUDO GUARDAR LA CUENTA EN ESTE EQUIPO"; return; }
+        c.hay = true;
+        c.usuario = r.cuenta.substr(0, r.cuenta.find('@'));
+        c.clave.clear();
+        c.codigo.clear();
+        c.foco = 1;
+        c.aviso = "CUENTA IMPORTADA. ENTRA CON TU CONTRASENA Y TU CODIGO";
+        c.avisoBueno = true;
+    }
+}
+
+void dibujarCuenta(GLFWwindow* window, int width, int height) {
+    PantallaCuenta& c = g_cuentaUI;
+    if (!c.leida) cuentaLeer();
+    const LayoutCuenta l = layoutCuenta(width, height);
+    double mxd = 0.0, myd = 0.0;
+    glfwGetCursorPos(window, &mxd, &myd);
+    const float mx = (float)mxd, my = (float)myd;
+    const float cx = l.panel.x + l.panel.w / 2.0f;
+    glDisable(GL_TEXTURE_2D);
+
+    // El velo y el panel.
+    glColor4f(0.0f, 0.0f, 0.0f, 0.62f);
+    rectUI(0.0f, 0.0f, (float)width, (float)height);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
+    rectUI(l.panel.x + 5.0f, l.panel.y + 6.0f, l.panel.x + l.panel.w + 5.0f, l.panel.y + l.panel.h + 6.0f);
+    glColor4f(0.08f, 0.09f, 0.13f, 0.97f);
+    rectUI(l.panel.x, l.panel.y, l.panel.x + l.panel.w, l.panel.y + l.panel.h);
+    glColor4f(0.45f, 0.75f, 1.0f, 1.0f);
+    rectUI(l.panel.x, l.panel.y, l.panel.x + l.panel.w, l.panel.y + 3.0f);
+    glColor4f(0.30f, 0.36f, 0.50f, 1.0f);
+    bordeUI(CeldaUI{ l.panel.x, l.panel.y, l.panel.w, l.panel.h });
+
+    const bool pasoDos = !c.hay && c.paso == 1;
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    textoCentrado(c.hay ? "INICIA SESIÃN" : (pasoDos ? "TU AUTENTICADOR" : "CREA TU CUENTA"), cx, l.yTitulo, 24);
+    glColor4f(0.62f, 0.68f, 0.80f, 1.0f);
+    if (c.hay) textoCentrado(c.reg.nombre + "  -  PARA JUGAR HACE FALTA TU CUENTA", cx, l.yTitulo + 32.0f, 11);
+    else if (!pasoDos) textoCentrado("PARA JUGAR HACE FALTA UNA CUENTA. SE GUARDA EN ESTE EQUIPO", cx, l.yTitulo + 32.0f, 11);
+
+    if (pasoDos) {
+        // La clave que hay que meter en la aplicacion del telefono.
+        const float y = l.ySecreto;
+        glColor4f(0.80f, 0.84f, 0.92f, 1.0f);
+        textoCentrado("1. ABRE TU APLICACION DE AUTENTICADOR EN EL TELEFONO", cx, y, 11);
+        textoCentrado("2. ELIGE INTRODUCIR UNA CLAVE Y ESCRIBE ESTA", cx, y + 17.0f, 11);
+        const std::string clave = Cuenta::secretoLegible(c.secreto);
+        const float tam = (std::min)(17.0f, (l.panel.w - 60.0f) / ((float)clave.size() * 0.7f));
+        glColor4f(0.03f, 0.03f, 0.05f, 1.0f);
+        rectUI(l.panel.x + 24.0f, y + 42.0f, l.panel.x + l.panel.w - 24.0f, y + 42.0f + tam + 22.0f);
+        glColor4f(1.0f, 0.86f, 0.35f, 1.0f);
+        textoCentrado(clave, cx, y + 53.0f, tam);
+        glColor4f(0.80f, 0.84f, 0.92f, 1.0f);
+        textoCentrado("3. PON AQUI ABAJO EL CODIGO DE 6 DIGITOS QUE TE DA", cx, y + 96.0f, 11);
+        glColor4f(0.95f, 0.62f, 0.45f, 1.0f);
+        textoCentrado("GUARDA ESA CLAVE: SIN EL AUTENTICADOR NO SE PUEDE ENTRAR", cx, y + 116.0f, 10);
+    }
+
+    std::string* campo[3];
+    const char* rot[3];
+    const int n = cuentaCampos(campo, rot);
+    for (int i = 0; i < n; ++i) {
+        const MenuPausa::Rect& r = l.campo[i];
+        const bool foco = i == c.foco, sobre = r.contiene(mx, my);
+        if (sobre) ratonSobreBoton();
+        glColor4f(0.70f, 0.76f, 0.88f, 1.0f);
+        renderText(rot[i], r.x + 2.0f, r.y - 15.0f, 11);
+        glColor4f(0.03f, 0.03f, 0.05f, 1.0f);
+        rectUI(r.x, r.y, r.x + r.w, r.y + r.h);
+        if (foco) glColor4f(0.45f, 0.75f, 1.0f, 1.0f);
+        else glColor4f(sobre ? 0.55f : 0.32f, sobre ? 0.60f : 0.36f, sobre ? 0.72f : 0.46f, 1.0f);
+        glLineWidth(foco ? 2.0f : 1.0f);
+        bordeUI(CeldaUI{ r.x, r.y, r.w, r.h });
+        glLineWidth(1.0f);
+        const std::string& t = *campo[i];
+        const bool secreta = campo[i] == &c.clave;
+        const float tam = 17.0f, paso = tam * 0.7f, ty = r.y + (r.h - tam) / 2.0f;
+        float fin = r.x + 12.0f;
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        if (secreta) {
+            // La contrasena no se ensena: un punto por caracter.
+            for (size_t k = 0; k < Utf8::largo(t) && fin + paso < r.x + r.w - 12.0f; ++k, fin += paso)
+                rectUI(fin + 2.0f, ty + 5.0f, fin + paso - 3.0f, ty + tam - 5.0f);
+        } else {
+            const size_t caben = (size_t)((r.w - 30.0f) / paso);
+            const std::string ver = Utf8::cola(t, caben);
+            renderTextoTal(ver.c_str(), fin, ty, tam);            // tal como se escribe
+            fin += (float)Utf8::largo(ver) * paso;
+            // La arroba ya se dibuja: el dominio, en gris, si no lo ha puesto.
+            if (campo[i] == &c.usuario && !t.empty() && t.find('@') == std::string::npos &&
+                fin + 12.0f * paso < r.x + r.w) {
+                glColor4f(0.45f, 0.50f, 0.62f, 1.0f);
+                renderTextoTal(Cuenta::DOMINIO, fin, ty, tam);
+            }
+        }
+        if (foco && std::fmod(glfwGetTime(), 1.0) < 0.55) {
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            rectUI(fin + 1.0f, ty - 1.0f, fin + 3.0f, ty + tam + 1.0f);
+        }
+    }
+
+    const char* accion = c.hay ? "ENTRAR" : (pasoDos ? "CREAR CUENTA" : "CONTINUAR");
+    botonDePausa(l.principal, accion, 20, l.principal.contiene(mx, my), 0.17f, 0.42f, 0.24f);
+    if (!c.hay && !pasoDos) {
+        botonDePausa(l.izq, c.fotoElegida.empty() ? "ELEGIR FOTO" : "CAMBIAR FOTO", 13, l.izq.contiene(mx, my),
+                     0.20f, 0.23f, 0.31f);
+        botonDePausa(l.der, "IMPORTAR CUENTA", 13, l.der.contiene(mx, my), 0.20f, 0.23f, 0.31f);
+    } else if (pasoDos) {
+        botonDePausa(l.izq, "VOLVER", 13, l.izq.contiene(mx, my), 0.20f, 0.23f, 0.31f);
+    }
+    if (!c.aviso.empty()) {
+        if (c.avisoBueno) glColor4f(0.55f, 0.95f, 0.60f, 1.0f);
+        else glColor4f(1.0f, 0.48f, 0.42f, 1.0f);
+        const float tam = (std::min)(12.0f, (l.panel.w - 30.0f) / ((float)c.aviso.size() * 0.7f));
+        textoCentrado(c.aviso, cx, l.panel.y + l.panel.h - 20.0f, tam);
+    }
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+// La insignia: el circulo con la foto, el nombre y "CUENTA REGISTRADA", abajo
+// a la derecha del menu principal.
+struct InsigniaCuenta { float cx, cy, r, x0, x1; };
+static InsigniaCuenta insigniaCuenta(int width, int height) {
+    const std::string& nombre = g_cuentaUI.reg.nombre;
+    const float ancho = (std::max)((float)Utf8::largo(nombre) * 16.0f * 0.7f, 17.0f * 10.0f * 0.7f);
+    InsigniaCuenta i;
+    i.r = 24.0f;
+    i.x1 = (float)width - 14.0f;
+    i.x0 = i.x1 - ancho - 2.0f * i.r - 24.0f;
+    i.cx = i.x0 + 8.0f + i.r;
+    i.cy = (float)height - 68.0f;
+    return i;
+}
+bool cuentaClicInsignia(float mx, float my, int width, int height) {
+    if (!g_cuentaUI.dentro) return false;
+    const InsigniaCuenta i = insigniaCuenta(width, height);
+    if (mx < i.x0 || mx > i.x1 || my < i.cy - i.r - 6.0f || my > i.cy + i.r + 6.0f) return false;
+    const std::string f = cuentaElegirArchivo("Imagenes\0*.png;*.jpg;*.jpeg;*.bmp\0", "Foto de tu cuenta");
+    if (!f.empty()) { cuentaPonerFoto(f); cuentaGuardar(); }
+    return true;
+}
+void dibujarInsigniaDeCuenta(int width, int height) {
+    PantallaCuenta& c = g_cuentaUI;
+    if (!c.dentro) return;
+    if (!c.fotoMirada) {
+        c.fotoMirada = true;
+        c.texFoto = 0;
+        std::error_code ec;
+        if (!c.reg.foto.empty() && std::filesystem::exists(c.reg.foto, ec) && g_textureManager)
+            c.texFoto = g_textureManager->loadItemTextureAbsolute(c.reg.foto);
+    }
+    const InsigniaCuenta i = insigniaCuenta(width, height);
+    glDisable(GL_TEXTURE_2D);
+    glColor4f(0.03f, 0.04f, 0.07f, 0.72f);
+    rectUI(i.x0, i.cy - i.r - 6.0f, i.x1, i.cy + i.r + 6.0f);
+    glColor4f(0.30f, 0.36f, 0.50f, 0.9f);
+    bordeUI(CeldaUI{ i.x0, i.cy - i.r - 6.0f, i.x1 - i.x0, 2.0f * i.r + 12.0f });
+    constexpr int LADOS = 40;
+    auto circulo = [&](float r, bool conTextura) {
+        glBegin(GL_TRIANGLE_FAN);
+        if (conTextura) glTexCoord2f(0.5f, 0.5f);
+        glVertex2f(i.cx, i.cy);
+        for (int k = 0; k <= LADOS; ++k) {
+            const float a = (float)k / LADOS * 6.2831853f, dx = cosf(a), dy = sinf(a);
+            if (conTextura) glTexCoord2f(0.5f + 0.5f * dx, 0.5f - 0.5f * dy);
+            glVertex2f(i.cx + dx * r, i.cy + dy * r);
+        }
+        glEnd();
+    };
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    circulo(i.r + 2.0f, false);                       // el aro
+    if (c.texFoto) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, c.texFoto);
+        circulo(i.r, true);
+        glDisable(GL_TEXTURE_2D);
+    } else {
+        // Sin foto: un color que sale de la cuenta y su inicial.
+        unsigned h = 2166136261u;
+        for (char ch : c.reg.cuenta) h = (h ^ (unsigned char)ch) * 16777619u;
+        glColor4f(0.25f + 0.45f * ((h & 255) / 255.0f), 0.25f + 0.45f * ((h >> 8 & 255) / 255.0f),
+                  0.30f + 0.45f * ((h >> 16 & 255) / 255.0f), 1.0f);
+        circulo(i.r, false);
+        // La inicial: el primer caracter ENTERO (puede ser una vocal con acento).
+        size_t fin1 = 0;
+        if (!c.reg.nombre.empty()) Utf8::leer(c.reg.nombre, fin1);
+        const std::string inicial = c.reg.nombre.empty() ? std::string("?") : c.reg.nombre.substr(0, fin1);
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        renderTextoTal(inicial.c_str(), i.cx - 24.0f * 0.35f, i.cy - 12.0f, 24);
+    }
+    const float tx = i.cx + i.r + 12.0f;
+    glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
+    renderTextoTal(c.reg.nombre.c_str(), tx + 1.0f, i.cy - 17.0f, 16);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    renderTextoTal(c.reg.nombre.c_str(), tx, i.cy - 18.0f, 16);
+    glColor4f(0.55f, 0.95f, 0.60f, 1.0f);
+    renderText("CUENTA REGISTRADA", tx, i.cy + 5.0f, 10);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
 void renderMainMenu(GameState* state, int screenWidth, int screenHeight, GLFWwindow* window) {
     // Recalcular posiciones de botones según el tamaño actual de la ventana
     initMainMenuButtons(state, screenWidth, screenHeight);
@@ -44064,16 +47043,36 @@ void renderMainMenu(GameState* state, int screenWidth, int screenHeight, GLFWwin
     glPushMatrix();
     glLoadIdentity();
 
-    // Fondo con gradiente
-    glDisable(GL_TEXTURE_2D);
-    glBegin(GL_QUADS);
-    glColor3f(0.15f, 0.25f, 0.35f);
-    glVertex2f(0, 0);
-    glVertex2f(screenWidth, 0);
-    glColor3f(0.05f, 0.05f, 0.1f);
-    glVertex2f(screenWidth, screenHeight);
-    glVertex2f(0, screenHeight);
-    glEnd();
+    // El fondo: el atardecer de bloques (ver fondoDelMenuPrincipal).
+    const float tMenu = (float)glfwGetTime();
+    static float tMenuAntes = tMenu;
+    const float dtMenu = (std::max)(0.0f, (std::min)(0.1f, tMenu - tMenuAntes));
+    tMenuAntes = tMenu;
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    fondoDelMenuPrincipal(screenWidth, screenHeight, tMenu, dtMenu);
+
+    // ⭐ SIN CUENTA ABIERTA, EL MENU ES SOLO EL FORMULARIO (sobre su fondo). No
+    // se dibujan los botones ni se atienden: no hay camino a los mundos.
+    if (!g_cuentaUI.dentro) {
+        int ww = screenWidth, wh = screenHeight;
+        glfwGetWindowSize(window, &ww, &wh);
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrtho(0, ww, wh, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        tituloDelMenuPrincipal(ww, wh, tMenu);
+        dibujarCuenta(window, ww, wh);
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+        glPopMatrix();
+        return;
+    }
+    if (g_subMenuPrincipal != 0) {
+        // Con Opciones encima, mas oscuro: que se lea.
+        glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+        rectUI(0.0f, 0.0f, (float)screenWidth, (float)screenHeight);
+    }
 
     // ⭐ OPCIONES O AVATAR ABIERTOS DESDE AQUI: se dibujan sobre el fondo y
     // nada mas. Al pulsar VOLVER ellas ponen PAUSE_MENU_MAIN y se cierra.
@@ -44097,204 +47096,33 @@ void renderMainMenu(GameState* state, int screenWidth, int screenHeight, GLFWwin
         glPopMatrix();
         return;
     }
-    // Sombra del título
-    float titleY = 80;
-    float titleWidth = 450;
-    float titleHeight = 80;
-    glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
-    glBegin(GL_QUADS);
-    glVertex2f(screenWidth/2.0f - titleWidth/2 + 5, titleY + 5);
-    glVertex2f(screenWidth/2.0f + titleWidth/2 + 5, titleY + 5);
-    glVertex2f(screenWidth/2.0f + titleWidth/2 + 5, titleY + titleHeight + 5);
-    glVertex2f(screenWidth/2.0f - titleWidth/2 + 5, titleY + titleHeight + 5);
-    glEnd();
+    tituloDelMenuPrincipal(screenWidth, screenHeight, tMenu);
 
-    // Fondo del título (caja decorativa)
-    glColor4f(0.2f, 0.3f, 0.4f, 0.8f);
-    glBegin(GL_QUADS);
-    glVertex2f(screenWidth/2.0f - titleWidth/2, titleY);
-    glVertex2f(screenWidth/2.0f + titleWidth/2, titleY);
-    glVertex2f(screenWidth/2.0f + titleWidth/2, titleY + titleHeight);
-    glVertex2f(screenWidth/2.0f - titleWidth/2, titleY + titleHeight);
-    glEnd();
-
-    // Borde del título (dorado)
-    glColor4f(1.0f, 0.8f, 0.0f, 1.0f);
-    glLineWidth(3.0f);
-    glBegin(GL_LINE_LOOP);
-    glVertex2f(screenWidth/2.0f - titleWidth/2, titleY);
-    glVertex2f(screenWidth/2.0f + titleWidth/2, titleY);
-    glVertex2f(screenWidth/2.0f + titleWidth/2, titleY + titleHeight);
-    glVertex2f(screenWidth/2.0f - titleWidth/2, titleY + titleHeight);
-    glEnd();
-    glLineWidth(1.0f);
-
-    // Texto del título
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-    renderText("VOXEL WORLD", screenWidth/2.0f - 85, titleY + 30, screenWidth, screenHeight);
-
-    // FORZAR modo de relleno de polígonos (crítico)
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-    // Obtener posición del mouse para hover
+    // Los botones: la misma tecla de bloque del menu de pausa (botonDePausa),
+    // mas grande. Cada uno con su color: verde jugar, azul opciones, rojo salir.
     double mouseX, mouseY;
     glfwGetCursorPos(window, &mouseX, &mouseY);
-
-    // ⭐⭐⭐ BOTONES MEJORADOS CON EFECTOS VISUALES
-
-    // Botón 1: MUNDOS SOLITARIOS (pulido)
-    bool hover1 = state->btnMundosSolitarios.contains((float)mouseX, (float)mouseY);
-
-    // ⭐ Efecto de brillo en hover
-    if (hover1) {
-        glColor3f(0.45f, 0.6f, 0.45f);  // Verde suave en hover
-    } else {
-        glColor3f(0.3f, 0.4f, 0.3f);    // Verde oscuro
-    }
-
-    // Fondo del botón
-    glBegin(GL_QUADS);
-    glVertex2f(state->btnMundosSolitarios.x, state->btnMundosSolitarios.y);
-    glVertex2f(state->btnMundosSolitarios.x + state->btnMundosSolitarios.width, state->btnMundosSolitarios.y);
-    glVertex2f(state->btnMundosSolitarios.x + state->btnMundosSolitarios.width, state->btnMundosSolitarios.y + state->btnMundosSolitarios.height);
-    glVertex2f(state->btnMundosSolitarios.x, state->btnMundosSolitarios.y + state->btnMundosSolitarios.height);
-    glEnd();
-
-    // ⭐ Borde más visible
-    if (hover1) {
-        glColor3f(0.6f, 0.8f, 0.6f);  // Borde brillante en hover
-        glLineWidth(3);
-    } else {
-        glColor3f(0.4f, 0.5f, 0.4f);
-        glLineWidth(2);
-    }
-    glBegin(GL_LINE_LOOP);
-    glVertex2f(state->btnMundosSolitarios.x, state->btnMundosSolitarios.y);
-    glVertex2f(state->btnMundosSolitarios.x + state->btnMundosSolitarios.width, state->btnMundosSolitarios.y);
-    glVertex2f(state->btnMundosSolitarios.x + state->btnMundosSolitarios.width, state->btnMundosSolitarios.y + state->btnMundosSolitarios.height);
-    glVertex2f(state->btnMundosSolitarios.x, state->btnMundosSolitarios.y + state->btnMundosSolitarios.height);
-    glEnd();
-
-    // Texto del botón
-    glColor3f(1.0f, 1.0f, 1.0f);
-    renderText("MUNDOS SOLITARIOS", state->btnMundosSolitarios.x + 20, state->btnMundosSolitarios.y + 15, 20);
-
-    // Botón 2: OPCIONES (pulido con color azul)
-    bool hover2 = state->btnOpciones.contains((float)mouseX, (float)mouseY);
-
-    // ⭐ Color azul para opciones
-    if (hover2) {
-        glColor3f(0.3f, 0.5f, 0.7f);  // Azul más brillante en hover
-    } else {
-        glColor3f(0.2f, 0.3f, 0.5f);  // Azul oscuro
-    }
-
-    // Fondo del botón
-    glBegin(GL_QUADS);
-    glVertex2f(state->btnOpciones.x, state->btnOpciones.y);
-    glVertex2f(state->btnOpciones.x + state->btnOpciones.width, state->btnOpciones.y);
-    glVertex2f(state->btnOpciones.x + state->btnOpciones.width, state->btnOpciones.y + state->btnOpciones.height);
-    glVertex2f(state->btnOpciones.x, state->btnOpciones.y + state->btnOpciones.height);
-    glEnd();
-
-    // ⭐ Borde azul
-    if (hover2) {
-        glColor3f(0.4f, 0.6f, 0.9f);
-        glLineWidth(3);
-    } else {
-        glColor3f(0.3f, 0.4f, 0.6f);
-        glLineWidth(2);
-    }
-    glBegin(GL_LINE_LOOP);
-    glVertex2f(state->btnOpciones.x, state->btnOpciones.y);
-    glVertex2f(state->btnOpciones.x + state->btnOpciones.width, state->btnOpciones.y);
-    glVertex2f(state->btnOpciones.x + state->btnOpciones.width, state->btnOpciones.y + state->btnOpciones.height);
-    glVertex2f(state->btnOpciones.x, state->btnOpciones.y + state->btnOpciones.height);
-    glEnd();
-
-    // Texto del botón
-    glColor3f(1.0f, 1.0f, 1.0f);
-    renderText("OPCIONES", state->btnOpciones.x + 75, state->btnOpciones.y + 15, 20);
-
-    // Botón 3: AVATAR (pulido con color naranja)
-    bool hover3 = state->btnAvatar.contains((float)mouseX, (float)mouseY);
-
-    // ⭐ Color naranja para avatar
-    if (hover3) {
-        glColor3f(0.7f, 0.5f, 0.2f);  // Naranja brillante en hover
-    } else {
-        glColor3f(0.5f, 0.35f, 0.15f);  // Naranja oscuro
-    }
-
-    // Fondo del botón
-    glBegin(GL_QUADS);
-    glVertex2f(state->btnAvatar.x, state->btnAvatar.y);
-    glVertex2f(state->btnAvatar.x + state->btnAvatar.width, state->btnAvatar.y);
-    glVertex2f(state->btnAvatar.x + state->btnAvatar.width, state->btnAvatar.y + state->btnAvatar.height);
-    glVertex2f(state->btnAvatar.x, state->btnAvatar.y + state->btnAvatar.height);
-    glEnd();
-
-    // ⭐ Borde naranja
-    if (hover3) {
-        glColor3f(0.9f, 0.6f, 0.3f);
-        glLineWidth(3);
-    } else {
-        glColor3f(0.6f, 0.45f, 0.25f);
-        glLineWidth(2);
-    }
-    glBegin(GL_LINE_LOOP);
-    glVertex2f(state->btnAvatar.x, state->btnAvatar.y);
-    glVertex2f(state->btnAvatar.x + state->btnAvatar.width, state->btnAvatar.y);
-    glVertex2f(state->btnAvatar.x + state->btnAvatar.width, state->btnAvatar.y + state->btnAvatar.height);
-    glVertex2f(state->btnAvatar.x, state->btnAvatar.y + state->btnAvatar.height);
-    glEnd();
-
-    // Texto del botón
-    glColor3f(1.0f, 1.0f, 1.0f);
-    renderText("AVATAR", state->btnAvatar.x + 90, state->btnAvatar.y + 15, 20);
-
-    // Botón 4: SALIR (pulido con color rojo)
-    bool hover4 = state->btnSalir.contains((float)mouseX, (float)mouseY);
-
-    // ⭐ Color rojo para el botón de salir
-    if (hover4) {
-        glColor3f(0.7f, 0.3f, 0.3f);  // Rojo más brillante en hover
-    } else {
-        glColor3f(0.5f, 0.2f, 0.2f);  // Rojo oscuro
-    }
-
-    // Fondo del botón
-    glBegin(GL_QUADS);
-    glVertex2f(state->btnSalir.x, state->btnSalir.y);
-    glVertex2f(state->btnSalir.x + state->btnSalir.width, state->btnSalir.y);
-    glVertex2f(state->btnSalir.x + state->btnSalir.width, state->btnSalir.y + state->btnSalir.height);
-    glVertex2f(state->btnSalir.x, state->btnSalir.y + state->btnSalir.height);
-    glEnd();
-
-    // ⭐ Borde rojo brillante
-    if (hover4) {
-        glColor3f(0.9f, 0.4f, 0.4f);
-        glLineWidth(3);
-    } else {
-        glColor3f(0.6f, 0.3f, 0.3f);
-        glLineWidth(2);
-    }
-    glBegin(GL_LINE_LOOP);
-    glVertex2f(state->btnSalir.x, state->btnSalir.y);
-    glVertex2f(state->btnSalir.x + state->btnSalir.width, state->btnSalir.y);
-    glVertex2f(state->btnSalir.x + state->btnSalir.width, state->btnSalir.y + state->btnSalir.height);
-    glVertex2f(state->btnSalir.x, state->btnSalir.y + state->btnSalir.height);
-    glEnd();
-
-    // Texto del botón
-    glColor3f(1.0f, 1.0f, 1.0f);
-    renderText("SALIR", state->btnSalir.x + 100, state->btnSalir.y + 15, 20);
+    auto boton = [&](const Button& b, const char* rotulo, float cr, float cg, float cb) {
+        const MenuPausa::Rect r{ b.x, b.y, b.width, b.height };
+        botonDePausa(r, rotulo, (std::min)(24.0f, b.height * 0.42f), b.contains((float)mouseX, (float)mouseY), cr, cg, cb);
+    };
+    boton(state->btnMundosSolitarios, "MUNDOS SOLITARIOS", 0.17f, 0.40f, 0.22f);
+    boton(state->btnOpciones, "OPCIONES", 0.17f, 0.27f, 0.47f);
+    if (AVATAR_ACTIVO) boton(state->btnAvatar, "AVATAR", 0.50f, 0.33f, 0.13f);
+    boton(state->btnSalir, "SALIR", 0.47f, 0.16f, 0.16f);
 
     // Versión del juego en la esquina inferior derecha. Sale de git vía
     // Version.h (generado en cada build): antes era un literal fijo "v1.0.0"
     // y no había forma de saber qué binario estaba corriendo.
-    glColor4f(0.5f, 0.5f, 0.5f, 0.9f);
-    renderText(GAME_VERSION_STRING, screenWidth - 220, screenHeight - 30, screenWidth, screenHeight);
+    {
+        const std::string v = GAME_VERSION_STRING;
+        const float lv = 13.0f, xv = screenWidth - v.size() * lv * 0.7f - 14.0f, yv = screenHeight - lv - 12.0f;
+        glColor4f(0.0f, 0.0f, 0.0f, 0.7f);
+        renderText(v.c_str(), xv + 1.0f, yv + 1.0f, lv);
+        glColor4f(0.86f, 0.84f, 0.78f, 0.75f);
+        renderText(v.c_str(), xv, yv, lv);
+    }
+    dibujarInsigniaDeCuenta(screenWidth, screenHeight);
 
     // Restaurar matrices
     glMatrixMode(GL_PROJECTION);
@@ -44360,7 +47188,7 @@ bool deleteWorld(GameState* state, int worldIndex) {
             std::error_code sameEc;
             const std::string abierto = state->world.getWorldPath();
             const bool esElAbierto =
-                (state->currentWorldName == worldName) ||
+                (state->currentWorldName == carpetaDe(state->savedWorlds[worldIndex])) ||
                 (!abierto.empty() &&
                  std::filesystem::exists(abierto, sameEc) &&
                  std::filesystem::exists(worldPath, sameEc) &&
@@ -44604,93 +47432,82 @@ bool renameWorld(GameState* state, int worldIndex, const std::string& newName) {
         return false;
     }
 
-    // Validar nombre nuevo.
+    // ⭐ RENOMBRAR YA NO MUEVE LA CARPETA (ver WorldName::limpiarTitulo).
     //
-    // El bucle anterior llamaba a std::isalnum(char) directamente, que es
-    // comportamiento indefinido para bytes >127 (char tiene signo, así que una
-    // 'ñ' o cualquier acento llega como valor negativo). Tampoco rechazaba los
-    // nombres de dispositivo reservados de Windows: crear "saves/CON" falla de
-    // formas confusas. WorldName cubre ambos casos y está cubierto por tests.
-    const WorldName::Validity v = WorldName::validate(newName);
-    if (v != WorldName::Validity::Ok) {
-        std::cerr << "Error: " << WorldName::describe(v) << std::endl;
+    // Antes se movia la carpeta, de saves/viejo a saves/nuevo. Fallaba si
+    // existia otra carpeta con ese nombre, si solo cambiaban las mayusculas,
+    // si el nombre no valia como carpeta de Windows y, con el mundo abierto,
+    // siempre: sus archivos estan en uso. Y el fallo solo salia en la consola.
+    //
+    // Ahora el nombre que se ve es el `LevelName` de level.dat y nada mas: se
+    // cambia esa linea (sin tocar la semilla, las fechas ni el tiempo jugado),
+    // se cambia en la lista que ya esta en memoria, y si es el mundo abierto,
+    // tambien en la partida. No hay nada que mover ni que reescanear, asi que
+    // no hay nada que pueda quedar a medias.
+    const std::string titulo = WorldName::limpiarTitulo(newName);
+    if (titulo.empty()) return false;
+
+    WorldInfo& w = state->savedWorlds[worldIndex];
+    std::error_code ec;
+    if (!std::filesystem::is_directory(w.folderPath, ec)) {
+        std::cerr << "Error: la carpeta del mundo no existe: " << w.folderPath << std::endl;
         return false;
     }
-
-    std::string oldPath = state->savedWorlds[worldIndex].folderPath;
-    std::string oldName = state->savedWorlds[worldIndex].name;
-
-    // Construir nueva ruta
-    std::string newPath = "saves/" + newName;
-
-    std::cout << "\n=== RENOMBRANDO MUNDO ===" << std::endl;
-    std::cout << "Nombre antiguo: " << oldName << std::endl;
-    std::cout << "Nombre nuevo: " << newName << std::endl;
-
-    try {
-        // Verificar que el mundo original existe
-        if (!std::filesystem::exists(oldPath)) {
-            std::cerr << "Error: El mundo original no existe" << std::endl;
-            return false;
-        }
-
-        // Verificar que el nombre nuevo no exista ya
-        if (std::filesystem::exists(newPath)) {
-            std::cerr << "Error: Ya existe un mundo con el nombre '" << newName << "'" << std::endl;
-            return false;
-        }
-
-        // Verificar que no es el mismo nombre
-        if (oldName == newName) {
-            std::cerr << "Error: El nombre nuevo es igual al antiguo" << std::endl;
-            return false;
-        }
-
-        // Renombrar el directorio
-        std::filesystem::rename(oldPath, newPath);
-
-        // ⭐⭐ Y EL NOMBRE GUARDADO DENTRO DEL MUNDO.
-        //
-        // Sin esto, el nombre nuevo NO se veia: `scanSavedWorlds` toma el
-        // nombre de la carpeta y acto seguido `loadLevelDat` lo PISA con el
-        // `LevelName=` del archivo, que seguia siendo el viejo. La carpeta se
-        // renombraba bien y la lista mostraba el nombre anterior.
-        //
-        // Se cambia SOLO esa linea, no se reescribe el level.dat entero: la
-        // funcion que lo guarda recalcula el tiempo jugado y el tamano en
-        // disco, y renombrar no puede cambiar los datos del mundo. Ver
-        // renombrarEnLevelDat.
-        renombrarEnLevelDat(newPath, newName);
-
-        std::cout << "Mundo renombrado exitosamente!" << std::endl;
-        std::cout << "========================" << std::endl;
-
-        // Recargar la lista de mundos. Ahora si devuelve el nombre nuevo,
-        // porque el level.dat ya lo lleva.
-        scanSavedWorlds(state);
-
-        // Intentar mantener la selección en el mundo renombrado
-        state->selectedWorldIndex = -1;
-        for (size_t i = 0; i < state->savedWorlds.size(); i++) {
-            if (state->savedWorlds[i].name == newName) {
-                state->selectedWorldIndex = i;
-                std::cout << "Mundo reseleccionado en indice " << i << std::endl;
-                break;
-            }
-        }
-
-        return true;
-
-    } catch (const std::filesystem::filesystem_error& e) {
-        std::cerr << "Error filesystem al renombrar mundo: " << e.what() << std::endl;
-        std::cerr << "Path1: " << e.path1() << std::endl;
-        if (!e.path2().empty()) {
-            std::cerr << "Path2: " << e.path2() << std::endl;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Error general al renombrar mundo: " << e.what() << std::endl;
+    const std::string anterior = w.name;
+    w.name = titulo;
+    bool escrito = renombrarEnLevelDat(w.folderPath, titulo);
+    if (!escrito) {
+        // Un mundo sin level.dat (muy antiguo): se le crea con lo que se sabe de el.
+        saveLevelDat(w.folderPath, w, 0.0f);
+        escrito = std::filesystem::exists(std::filesystem::path(w.folderPath) / "level.dat", ec);
     }
-    return false;
+    if (!escrito) {
+        w.name = anterior;
+        return false;
+    }
+    if (carpetaDe(w) == state->currentWorldName) state->currentWorldTitle = titulo;
+    std::cout << "Mundo renombrado: '" << anterior << "' -> '" << titulo << "' (carpeta " << carpetaDe(w)
+              << ", sin mover)" << std::endl;
+    return true;
+}
+
+// El mundo abierto, en la lista de mundos guardados (-1 si no esta).
+int indiceDelMundoAbierto(GameState* state) {
+    if (!state || state->currentWorldName.empty()) return -1;
+    for (int vuelta = 0; vuelta < 2; ++vuelta) {
+        for (size_t i = 0; i < state->savedWorlds.size(); ++i)
+            if (carpetaDe(state->savedWorlds[i]) == state->currentWorldName) return (int)i;
+        if (vuelta == 0) scanSavedWorlds(state);      // la lista puede estar sin leer
+    }
+    return -1;
+}
+
+void cancelarNombreEditado(GameState* state) {
+    state->isEditingWorldName = false;
+    state->renombrandoEnPausa = false;
+    state->editingWorldNewName.clear();
+    state->avisoNombre.clear();
+}
+
+// Guardar el nombre que se esta escribiendo. Si no se puede, el cuadro sigue
+// abierto con el motivo en `avisoNombre`; si se puede, se cierra.
+bool confirmarNombreEditado(GameState* state, int worldIndex) {
+    const std::string titulo = WorldName::limpiarTitulo(state->editingWorldNewName);
+    if (worldIndex < 0 || worldIndex >= (int)state->savedWorlds.size()) {
+        state->avisoNombre = "NO SE ENCUENTRA EL MUNDO";
+        return false;
+    }
+    if (titulo.empty()) {
+        state->avisoNombre = "EL NOMBRE NO PUEDE ESTAR VACIO";
+        return false;
+    }
+    // El mismo nombre de antes: no hay nada que escribir, y no es un error.
+    if (titulo != state->savedWorlds[worldIndex].name && !renameWorld(state, worldIndex, titulo)) {
+        state->avisoNombre = "NO SE PUDO GUARDAR EL NOMBRE";
+        return false;
+    }
+    cancelarNombreEditado(state);       // cierra el cuadro
+    return true;
 }
 
 // Renderizar selección de mundos
@@ -44823,7 +47640,7 @@ void renderWorldSelect(GameState* state, int screenWidth, int screenHeight, GLFW
             // Nombre del mundo (más grande y destacado)
             glColor3f(1.0f, 1.0f, 1.0f);
             std::string worldName = state->savedWorlds[i].name;
-            renderText(worldName.c_str(), btn.x + 20, btn.y + 15, screenWidth, screenHeight);
+            renderTextoTalConSombra(worldName.c_str(), btn.x + 20, btn.y + 15);   // tal como se escribio
 
             // Metadata del mundo (en gris claro, más pequeña)
             const WorldInfo& world = state->savedWorlds[i];
@@ -45066,7 +47883,7 @@ void renderWorldSelect(GameState* state, int screenWidth, int screenHeight, GLFW
         glColor4f(0.8f, 0.8f, 0.8f, 1.0f);
         renderText("Nombre actual:", modalX + 30, modalY + 75, screenWidth, screenHeight);
         glColor4f(1.0f, 1.0f, 0.5f, 1.0f);
-        renderText(state->savedWorlds[state->selectedWorldIndex].name.c_str(), modalX + 30, modalY + 100, screenWidth, screenHeight);
+        renderTextoTalConSombra(state->savedWorlds[state->selectedWorldIndex].name.c_str(), modalX + 30, modalY + 100);
 
         // Campo de texto para nuevo nombre
         glColor4f(0.8f, 0.8f, 0.8f, 1.0f);
@@ -45100,7 +47917,12 @@ void renderWorldSelect(GameState* state, int screenWidth, int screenHeight, GLFW
         // Texto del input (nombre siendo editado)
         glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         std::string displayText = state->editingWorldNewName + "_";  // Cursor parpadeante
-        renderText(displayText.c_str(), inputX + 10, inputY + 10, screenWidth, screenHeight);
+        renderTextoTalConSombra(displayText.c_str(), inputX + 10, inputY + 10);
+        // Por que no se guardo, si no se guardo (el cuadro sigue abierto).
+        if (!state->avisoNombre.empty()) {
+            glColor4f(1.0f, 0.45f, 0.40f, 1.0f);
+            renderText(state->avisoNombre.c_str(), inputX, inputY + inputHeight + 6, 12.0f);
+        }
 
         // Inicializar botones de edición
         state->btnGuardarNombre.x = modalX + 50;
@@ -45240,7 +48062,7 @@ void renderWorldCreateScreen(GameState* state, int screenWidth, int screenHeight
         // Modo no-edición: mostrar placeholder si está vacío
         displayName = state->newWorldName.empty() ? "Nuevo Mundo" : state->newWorldName;
     }
-    renderText(displayName.c_str(), centerX - 230, startY + 17, screenWidth, screenHeight);
+    renderTextoTalConSombra(displayName.c_str(), centerX - 230, startY + 17);
 
     // ===== CAMPO: SEMILLA =====
     float seedY = startY + spacing;
@@ -45633,21 +48455,30 @@ int stringToSeed(const std::string& seedString) {
 // Crear nuevo mundo
 // ⭐⭐⭐ CREAR NUEVO MUNDO (MEJORADO con level.dat) ⭐⭐⭐
 void createNewWorld(GameState* state, float currentTime) {
-    // ⭐ Generar nombre único basado en timestamp y evitar duplicados
-    int worldNumber = 1;
-    std::string worldName;
-    std::filesystem::path worldPath;
-
-    // Encontrar el primer número disponible
-    do {
-        worldName = "Mundo " + std::to_string(worldNumber);
+    // ⭐ EL MUNDO SE LLAMA COMO LO ESCRIBIO EL JUGADOR.
+    //
+    // BUG: "no te permita modificar el nombre de tu juego asi al instante y se
+    // guarde como Mundo N". El campo de la pantalla de crear se rellenaba,
+    // pero aqui se ignoraba y el mundo salia siempre como "Mundo 1",
+    // "Mundo 2"... Ahora se usa el nombre escrito (limpio para ser carpeta);
+    // si ya hay un mundo con ese nombre, se le anade un numero: "Casa 2".
+    const std::string base = WorldName::limpiar(state->newWorldName);
+    std::string worldName = base;
+    std::filesystem::path worldPath = std::filesystem::path("saves") / worldName;
+    for (int n = 2; std::filesystem::exists(worldPath); ++n) {
+        std::string sufijo = " " + std::to_string(n);
+        worldName = base.substr(0, WorldName::MAX_LENGTH - sufijo.size()) + sufijo;
         worldPath = std::filesystem::path("saves") / worldName;
-        worldNumber++;
-    } while (std::filesystem::exists(worldPath));
+    }
 
     std::filesystem::create_directories(worldPath);
 
     state->currentWorldName = worldName;
+    // El nombre que se ve: lo que se escribio, con sus acentos y minusculas.
+    // (La carpeta es `worldName`, hecha solo con lo que vale como ruta.)
+    const std::string tituloNuevo = WorldName::limpiarTitulo(state->newWorldName).empty()
+        ? worldName : WorldName::limpiarTitulo(state->newWorldName);
+    state->currentWorldTitle = tituloNuevo;
 
     // ⭐⭐⭐ USAR SEMILLA DEL USUARIO (alfanumérica) o generar aleatoria
     int newSeed = stringToSeed(state->newWorldSeed);
@@ -45671,7 +48502,7 @@ void createNewWorld(GameState* state, float currentTime) {
     auto timestamp = std::chrono::system_clock::to_time_t(now);
 
     WorldInfo newWorldInfo;
-    newWorldInfo.name = worldName;
+    newWorldInfo.name = tituloNuevo;
     newWorldInfo.folderPath = worldPath.string();
     newWorldInfo.creationDate = timestamp;
     newWorldInfo.lastPlayed = timestamp;
@@ -45742,7 +48573,11 @@ void createNewWorld(GameState* state, float currentTime) {
 // ⭐⭐⭐ CARGAR MUNDO EXISTENTE (MEJORADO con session tracking) ⭐⭐⭐
 void loadWorld(GameState* state, int worldIndex, float currentTime) {
     if (worldIndex >= 0 && worldIndex < (int)state->savedWorlds.size()) {
-        state->currentWorldName = state->savedWorlds[worldIndex].name;
+        // La carpeta identifica al mundo; el nombre es solo lo que se ve
+        // (antes se usaba el nombre como carpeta: con un nombre cambiado no
+        // se habria encontrado la partida).
+        state->currentWorldName = carpetaDe(state->savedWorlds[worldIndex]);
+        state->currentWorldTitle = state->savedWorlds[worldIndex].name;
 
         // Intentar cargar datos guardados
         bool hasPlayerData = loadWorldData(state, state->currentWorldName);
@@ -45877,7 +48712,7 @@ void handleMainMenuClick(GameState* state, float mouseX, float mouseY, int scree
         g_subMenuPrincipal = 1;
         state->pauseMenuState = PAUSE_MENU_GRAPHICS;
     }
-    else if (state->btnAvatar.contains(mouseX, mouseY)) {
+    else if (AVATAR_ACTIVO && state->btnAvatar.contains(mouseX, mouseY)) {
         g_subMenuPrincipal = 2;
         state->pauseMenuState = PAUSE_MENU_SENSITIVITY;
     }
@@ -45889,37 +48724,16 @@ void handleWorldSelectClick(GameState* state, float mouseX, float mouseY, int sc
     if (state->isEditingWorldName) {
         // Botón GUARDAR
         if (state->btnGuardarNombre.contains(mouseX, mouseY)) {
-            // ⭐ VALIDACIÓN: Verificar índice válido antes de renombrar
-            if (!state->editingWorldNewName.empty() &&
-                state->selectedWorldIndex >= 0 &&
-                state->selectedWorldIndex < (int)state->savedWorlds.size()) {
-                std::cout << "Guardando nuevo nombre: " << state->editingWorldNewName << std::endl;
-                if (renameWorld(state, state->selectedWorldIndex, state->editingWorldNewName)) {
-                    std::cout << "Mundo renombrado exitosamente!" << std::endl;
-                    // ⭐ CRÍTICO: Actualizar botones después de renombrar
-                    initWorldSelectButtons(state, screenWidth, screenHeight);
-                } else {
-                    std::cout << "Error al renombrar el mundo" << std::endl;
-                    // ⭐ Actualizar botones incluso si falla el renombrado
-                    initWorldSelectButtons(state, screenWidth, screenHeight);
-                }
-            } else {
-                if (state->editingWorldNewName.empty()) {
-                    std::cout << "El nombre no puede estar vacío" << std::endl;
-                } else {
-                    std::cout << "❌ Error: Índice de mundo inválido" << std::endl;
-                }
-            }
-            state->isEditingWorldName = false;
-            state->editingWorldNewName = "";
+            // La misma ruta que ENTER (confirmarNombreEditado): si el nombre
+            // no vale, el cuadro sigue abierto y dice por que.
+            confirmarNombreEditado(state, state->selectedWorldIndex);
+            initWorldSelectButtons(state, screenWidth, screenHeight);
             return;
         }
 
         // Botón CANCELAR
         if (state->btnCancelarEdicion.contains(mouseX, mouseY)) {
-            std::cout << "Edición cancelada" << std::endl;
-            state->isEditingWorldName = false;
-            state->editingWorldNewName = "";
+            cancelarNombreEditado(state);
             return;
         }
 
@@ -45936,11 +48750,15 @@ void handleWorldSelectClick(GameState* state, float mouseX, float mouseY, int sc
     // ⭐⭐⭐ Botón CREAR MUNDO - Ir a pantalla de configuración
     if (state->btnCrearMundo.contains(mouseX, mouseY)) {
         // Ir a la pantalla de configuración de nuevo mundo
+        // (BUG: "no te permita modificar el nombre de tu juego asi al
+        // instante": habia que hacer clic en el campo para poder escribir, y
+        // encima con "Nuevo Mundo" ya escrito. Ahora se abre escribiendo el
+        // nombre, vacio; si se deja vacio se llama "Nuevo Mundo".)
         state->screenState = SCREEN_WORLD_CREATE;
-        state->newWorldName = "Nuevo Mundo";
+        state->newWorldName = "";
         state->newWorldSeed = "";
         state->newWorldGameMode = 0;  // Survival por defecto
-        state->isEditingNewWorldName = false;
+        state->isEditingNewWorldName = true;
         state->isEditingNewWorldSeed = false;
         std::cout << "📝 Abriendo pantalla de configuración de mundo..." << std::endl;
         return;
@@ -45957,6 +48775,7 @@ void handleWorldSelectClick(GameState* state, float mouseX, float mouseY, int sc
         // Botón EDITAR - abrir overlay de edición de nombre
         if (state->btnEditarMundo.contains(mouseX, mouseY)) {
             state->isEditingWorldName = true;
+            state->avisoNombre.clear();
             state->editingWorldNewName = state->savedWorlds[state->selectedWorldIndex].name;
             std::cout << "Editando mundo: " << state->savedWorlds[state->selectedWorldIndex].name << std::endl;
             return;
@@ -46175,10 +48994,18 @@ bool renombrarEnLevelDat(const std::string& worldPath,
     if (!cambiada) lineas.push_back("LevelName=" + nombreNuevo);
 
     // --- Volver a escribir ---
-    std::ofstream out(levelPath, std::ios::trunc);
-    if (!out.is_open()) return false;
-    for (const std::string& l : lineas) out << l << "\n";
-
+    // A un archivo aparte que luego ocupa el sitio del bueno: si algo falla a
+    // medias (disco lleno, se va la luz), el level.dat de antes sigue entero.
+    const std::filesystem::path temporal = std::filesystem::path(worldPath) / "level.dat.nombre";
+    {
+        std::ofstream out(temporal, std::ios::trunc);
+        if (!out.is_open()) return false;
+        for (const std::string& l : lineas) out << l << "\n";
+        out.flush();
+        if (!out.good()) { out.close(); std::filesystem::remove(temporal, ec); return false; }
+    }
+    std::filesystem::rename(temporal, levelPath, ec);
+    if (ec) { std::filesystem::remove(temporal, ec); return false; }
     return true;
 }
 
@@ -46342,6 +49169,10 @@ void saveWorld(GameState* state, bool isAutoSave) {
         std::cout << "⚠️ No hay mundo activo para guardar" << std::endl;
         return;
     }
+    if (g_estadMundo == state->currentWorldName) {
+        g_estad.contar(Estadisticas::GUARDADOS);
+        guardarEstadisticas(state->currentWorldName);
+    }
 
     auto saveStartTime = std::chrono::high_resolution_clock::now();
 
@@ -46379,6 +49210,25 @@ void saveWorld(GameState* state, bool isAutoSave) {
     } catch (const std::exception& e) {
         std::cerr << "❌ ERROR: No se pudo crear directorio de guardado: " << e.what() << std::endl;
         return;
+    }
+
+    // Los items dejados en el suelo (ver ItemsTirados.h): son del mundo, como
+    // un bloque colocado, asi que se guardan con el. Lo que suelta un bloque al
+    // romperse no: eso se recoge o se pierde, como siempre.
+    {
+        std::ofstream f(worldPath / "items_tirados.dat", std::ios::binary);
+        if (f.is_open()) {
+            uint32_t n = 0;
+            for (const ItemEntity& it : state->items) if (it.tirado) ++n;
+            f.write(reinterpret_cast<const char*>(&n), sizeof(n));
+            for (const ItemEntity& it : state->items) {
+                if (!it.tirado) continue;
+                const float v[4] = { it.position.x, it.position.y, it.position.z, it.giro };
+                const int32_t tipo = (int32_t)it.blockType;
+                f.write(reinterpret_cast<const char*>(v), sizeof(v));
+                f.write(reinterpret_cast<const char*>(&tipo), sizeof(tipo));
+            }
+        }
     }
 
     // Las pencas plantadas que siguen creciendo (ver NopalCreciendo).
@@ -46513,7 +49363,7 @@ void saveWorld(GameState* state, bool isAutoSave) {
     auto now = std::chrono::system_clock::now();
     auto time = std::chrono::system_clock::to_time_t(now);
     for (auto& worldInfo : state->savedWorlds) {
-        if (worldInfo.name == state->currentWorldName) {
+        if (carpetaDe(worldInfo) == state->currentWorldName) {
             worldInfo.lastPlayed = time;
             break;
         }
@@ -46525,7 +49375,7 @@ void saveWorld(GameState* state, bool isAutoSave) {
     // Encontrar el WorldInfo del mundo actual
     WorldInfo* currentWorldInfo = nullptr;
     for (auto& worldInfo : state->savedWorlds) {
-        if (worldInfo.name == state->currentWorldName) {
+        if (carpetaDe(worldInfo) == state->currentWorldName) {
             currentWorldInfo = &worldInfo;
             break;
         }
@@ -46677,6 +49527,28 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
         std::cout << "   ✅ Configuración cargada" << std::endl;
     } else {
         std::cout << "   ⚠️ No se encontró configuración, usando valores por defecto" << std::endl;
+    }
+
+    // Los items dejados en el suelo de este mundo (y ninguno del anterior).
+    state->items.clear();
+    {
+        std::ifstream f(worldPath / "items_tirados.dat", std::ios::binary);
+        uint32_t n = 0;
+        if (f.is_open() && f.read(reinterpret_cast<char*>(&n), sizeof(n)) && n < 100000u) {
+            for (uint32_t i = 0; i < n; ++i) {
+                float v[4];
+                int32_t tipo = 0;
+                f.read(reinterpret_cast<char*>(v), sizeof(v));
+                f.read(reinterpret_cast<char*>(&tipo), sizeof(tipo));
+                if (!f) break;
+                if (tipo <= 0 || tipo > BLOCK_TYPE_MAX || !std::isfinite(v[0] + v[1] + v[2] + v[3])) continue;
+                ItemEntity it(Vec3(v[0], v[1], v[2]), (BlockType)tipo);
+                it.tirado = true;
+                it.pickupDelay = 0.0f;
+                it.giro = v[3];
+                state->items.push_back(it);
+            }
+        }
     }
 
     // Las pencas plantadas de este mundo (y ninguna del anterior).
@@ -47637,12 +50509,24 @@ void dibujarCieloYAstros() {
         constexpr float RADIO_BOVEDA = 110.0f;
         // Mas anillos y sectores que antes: el halo del sol y la franja del
         // horizonte son degradados finos, y con 6 anillos se veian a tramos.
-        constexpr int SECTORES = 64;
+        constexpr int SECTORES = 96;
         // Altura de cada anillo, en seno. El ultimo tramo va bajo el horizonte
         // para que no asome el color de limpieza entre el terreno y el cielo.
-        static const float ANILLOS[] = { -0.40f, 0.0f, 0.02f, 0.05f, 0.09f, 0.14f, 0.20f,
-                                         0.28f, 0.38f, 0.50f, 0.64f, 0.80f, 1.0f };
-        constexpr int N_ANILLOS = (int)(sizeof(ANILLOS) / sizeof(ANILLOS[0]));
+        //
+        // ⭐ 42 ANILLOS EN VEZ DE 13. PEDIDO: "que no este partido en colores el
+        // cielo". El color se calcula en cada anillo y entre dos anillos la
+        // tarjeta lo une en linea recta: con 13, cada anillo era una esquina
+        // del degradado y se veia como una raya que partia el cielo en bandas.
+        // Van mas juntos cerca del horizonte, que es donde mas cambia el color.
+        constexpr int N_ANILLOS = 42;
+        static float ANILLOS[N_ANILLOS];
+        static bool anillosListos = false;
+        if (!anillosListos) {
+            ANILLOS[0] = -0.40f;
+            for (int k = 1; k < N_ANILLOS; ++k)
+                ANILLOS[k] = powf((float)(k - 1) / (float)(N_ANILLOS - 2), 1.7f);
+            anillosListos = true;
+        }
 
         glDisable(GL_TEXTURE_2D);
         glDisable(GL_BLEND);
@@ -47669,41 +50553,123 @@ void dibujarCieloYAstros() {
             glEnd();
         }
 
-        // Giran con la hora, como el sol. Las posiciones salen de un hash fijo:
-        // son siempre las mismas estrellas.
+        // ⭐ EL CIELO DE NOCHE (ver Atmosfera.h): 1.400 estrellas con su brillo
+        // y su color, la Via Lactea, y alguna estrella fugaz. Giran alrededor
+        // del polo celeste con las mismas cuentas que mueven al sol, asi que
+        // salen por el este y se ponen por el oeste, y la polar no se mueve.
         const float brillo = Atmosfera::brilloEstrellas(luz) *
                              (g_opciones[Opciones::ATMOSFERA] / 100.0f) * tapaCielo();
         if (brillo > 0.01f) {
-            constexpr int N_ESTRELLAS = 320;
-            static float estrellas[N_ESTRELLAS][4];
-            static bool estrellasListas = false;
-            if (!estrellasListas) {
-                for (int i = 0; i < N_ESTRELLAS; ++i)
-                    Atmosfera::estrella(i, estrellas[i]);
-                estrellasListas = true;
+            constexpr int N = Atmosfera::N_CATALOGO;
+            static Atmosfera::Estrella cat[N];
+            static int orden[N];              // por tamano: tenues, medias, brillantes
+            static int finClase[3] = {};
+            static bool listo = false;
+            auto claseDe = [](float b) { return b < 0.36f ? 0 : (b < 0.70f ? 1 : 2); };
+            if (!listo) {
+                for (int i = 0; i < N; ++i) cat[i] = Atmosfera::estrellaCatalogo(i);
+                int n = 0;
+                for (int c = 0; c < 3; ++c) {
+                    for (int i = 0; i < N; ++i)
+                        if (claseDe(cat[i].brillo) == c) orden[n++] = i;
+                    finClase[c] = n;
+                }
+                listo = true;
             }
+            const double dias = g_horaDelMundoSegundos / SEGUNDOS_POR_DIA;
+            // El tiempo sideral: el angulo horario del sol mas lo que el sol
+            // lleva recorrido del ano. Por eso el cielo de cada noche va un
+            // poco corrido respecto al de la anterior.
+            const double ts = H + 6.283185307179586 * dias / Atmosfera::ANO_SIDERAL;
+            const float cosTS = (float)cos(ts), senTS = (float)sin(ts);
+            const float cosLat = (float)cos(LAT), senLat = (float)sin(LAT);
+            // La luna alta y llena lava el cielo: se pierden las tenues.
+            double lx, ly, lz;
+            direccionAstro(angSol - Atmosfera::elongacion(dias), lx, ly, lz);
+            (void)lx; (void)lz;
+            const float luna = Atmosfera::iluminada(dias) *
+                               (float)(ly < 0.0 ? 0.0 : (ly > 0.25 ? 1.0 : ly * 4.0));
+            const float R = RADIO_BOVEDA * 0.97f;
+
             glEnable(GL_BLEND);
-            glPushMatrix();
-            glRotatef((float)(h * 15.0), 0.0f, 0.0f, 1.0f);
-            glPointSize(1.5f);
-            glBegin(GL_POINTS);
-            // Titilan: cada una a su ritmo y con su fase, poco (un 25 %), que
-            // es lo que hace la turbulencia del aire. Las brillantes un poco
-            // mas despacio, como se ve a simple vista.
-            const float tTitilar = (float)glfwGetTime();
-            for (int i = 0; i < N_ESTRELLAS; ++i) {
-                const float* e = estrellas[i];
-                const float titila = 0.75f + 0.25f *
-                    sinf(tTitilar * (3.5f - 2.0f * e[3]) + (float)i * 2.399f);
-                // Un leve tinte por estrella: unas azuladas, otras calidas.
-                const float tono = (float)(i % 7) / 6.0f - 0.5f;
-                glColor4f(1.0f - 0.10f * tono, 1.0f, 1.0f + 0.12f * tono,
-                          brillo * e[3] * titila);
-                glVertex3f(e[0] * RADIO_BOVEDA * 0.97f, e[1] * RADIO_BOVEDA * 0.97f,
-                           e[2] * RADIO_BOVEDA * 0.97f);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);     // son luz: se suman al cielo
+
+            // LA VIA LACTEA: un velo a lo largo de la franja, en dos capas (una
+            // ancha y muy tenue, otra estrecha), claro en el eje y nada en el
+            // borde. Mas denso hacia el centro de la galaxia.
+            {
+                const float fuerza = brillo * brillo * (1.0f - 0.55f * luna);
+                constexpr int TRAMOS = 72;
+                static const float ANCHO[2] = { 0.42f, 0.17f };
+                static const float ALFA[2] = { 0.075f, 0.11f };
+                for (int capa = 0; capa < 2 && fuerza > 0.02f; ++capa) {
+                    for (int ladoV = -1; ladoV <= 1; ladoV += 2) {
+                        glBegin(GL_QUAD_STRIP);
+                        for (int k = 0; k <= TRAMOS; ++k) {
+                            const float l = (float)k / TRAMOS * 6.2831853f - 3.14159265f;
+                            const float dens = Atmosfera::viaLactea(l);
+                            float e[3], w[3];
+                            Atmosfera::puntoGalactico(l, 0.0f, e);
+                            Atmosfera::ecuatorialAMundo(e, cosTS, senTS, cosLat, senLat, w);
+                            glColor4f(0.74f, 0.82f, 1.0f,
+                                      ALFA[capa] * dens * fuerza * Atmosfera::extincion(w[1]));
+                            glVertex3f(w[0] * R, w[1] * R, w[2] * R);
+                            Atmosfera::puntoGalactico(l, ladoV * ANCHO[capa] * (0.7f + 0.5f * dens), e);
+                            Atmosfera::ecuatorialAMundo(e, cosTS, senTS, cosLat, senLat, w);
+                            glColor4f(0.74f, 0.82f, 1.0f, 0.0f);
+                            glVertex3f(w[0] * R, w[1] * R, w[2] * R);
+                        }
+                        glEnd();
+                    }
+                }
             }
-            glEnd();
-            glPopMatrix();
+
+            // LAS ESTRELLAS, en tres tamanos. Titilan mas cuanto mas bajas
+            // estan (mas aire que cruzar), cada una a su ritmo.
+            const float tTitilar = (float)glfwGetTime();
+            static const float TAM[3] = { 1.5f, 2.2f, 3.2f };
+            int desde = 0;
+            for (int c = 0; c < 3; ++c) {
+                glPointSize(TAM[c]);
+                if (c > 0) glEnable(GL_POINT_SMOOTH);
+                glBegin(GL_POINTS);
+                for (int j = desde; j < finClase[c]; ++j) {
+                    const int i = orden[j];
+                    const Atmosfera::Estrella& e = cat[i];
+                    float w[3];
+                    Atmosfera::ecuatorialAMundo(e.d, cosTS, senTS, cosLat, senLat, w);
+                    if (w[1] < 0.0f) continue;                 // bajo el horizonte
+                    const float ext = Atmosfera::extincion(w[1]);
+                    float a = Atmosfera::visible(brillo, e.brillo) * ext;
+                    if (a < 0.02f) continue;
+                    const float amp = 0.10f + 0.32f * (1.0f - w[1]);
+                    a *= 1.0f - amp + amp * sinf(tTitilar * (3.6f - 2.0f * e.brillo) + (float)i * 2.399f);
+                    a *= (0.62f + 0.38f * e.brillo) * (1.0f - luna * 0.45f * (1.0f - e.brillo));
+                    glColor4f(e.color[0], e.color[1], e.color[2], a);
+                    glVertex3f(w[0] * R, w[1] * R, w[2] * R);
+                }
+                glEnd();
+                desde = finClase[c];
+            }
+            glDisable(GL_POINT_SMOOTH);
+
+            // UNA ESTRELLA FUGAZ, de vez en cuando: un trazo que se apaga
+            // hacia atras.
+            if (brillo > 0.5f) {
+                const Atmosfera::Meteoro m = Atmosfera::meteoro(g_horaDelMundoSegundos);
+                if (m.hay) {
+                    glLineWidth(1.6f);
+                    glBegin(GL_LINES);
+                    glColor4f(1.0f, 0.97f, 0.88f, m.brillo * brillo);
+                    glVertex3f(m.cabeza[0] * R, m.cabeza[1] * R, m.cabeza[2] * R);
+                    glColor4f(1.0f, 0.97f, 0.88f, 0.0f);
+                    glVertex3f(m.cola[0] * R, m.cola[1] * R, m.cola[2] * R);
+                    glEnd();
+                    glLineWidth(1.0f);
+                }
+            }
+            glPointSize(1.0f);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         }
         glEnable(GL_TEXTURE_2D);
         glEnable(GL_BLEND);
@@ -47959,7 +50925,10 @@ void dibujarCieloYAstros() {
         const float fuerza = (0.07f + 0.93f * luz) * (1.0f - 0.88f * mantoClima());
         float luzSol[3], arribaC[3], abajoC[3];
         for (int k = 0; k < 3; ++k) {
-            luzSol[k] = cielo.luzSol[k] * fuerza + g_clima.destello * 1.6f;
+            // Al atardecer les llega ademas la brasa del horizonte: se
+            // encienden de naranja y rosa por el lado del sol.
+            luzSol[k] = cielo.luzSol[k] * fuerza + cielo.resplandor[k] * 0.55f +
+                        g_clima.destello * 1.6f;
             arribaC[k] = (cielo.cenit[k] * 0.55f + cielo.horizonte[k] * 0.45f) * 1.15f;
             abajoC[k] = cielo.horizonte[k] * 0.62f;
             arribaC[k] *= 1.0f - 0.30f * mantoClima();
@@ -48636,6 +51605,16 @@ int main() {
                                   << bx << "," << by << "," << bz << std::endl;
                     }
                 }
+                // VOXELWORLD_BENCH_MIRAR=yaw,pitch: solo hacia donde mira, sin
+                // mover al jugador. Para fotografiar el cielo.
+                if (const char* mirar = getenv("VOXELWORLD_BENCH_MIRAR")) {
+                    float myaw = 0, mpitch = 0;
+                    if (sscanf(mirar, "%f,%f", &myaw, &mpitch) == 2) {
+                        g_gameState->player.yaw = myaw;
+                        g_gameState->player.pitch = mpitch;
+                        syncControllerFromPlayer();
+                    }
+                }
             } else {
                 std::cout << "[BENCH] No existe el mundo '" << bench
                           << "'" << std::endl;
@@ -48648,6 +51627,26 @@ int main() {
     const char* benchSegundosStr = getenv("VOXELWORLD_BENCH_SEGUNDOS");
     const double benchSegundos = benchSegundosStr ? atof(benchSegundosStr) : 0.0;
     const double benchInicio = glfwGetTime();
+
+    // ⭐ FOTOS DE LOS MENUS, PARA PROBARLOS SIN TECLADO NI RATON
+    //
+    // El menu de pausa no se puede comprobar con un test (es dibujo), y
+    // probarlo a mano exige tener la ventana delante y hacer clic. Con
+    //   VOXELWORLD_BENCH_PAUSA=N   a los 14 s se abre la pausa en la pantalla N
+    //                              (0 los 20 botones, 1 opciones, 2 estadisticas,
+    //                               3 logros, 4 bugs, 5 info, 6 controles, 7 acerca)
+    //   VOXELWORLD_BENCH_PAGINA=P  la pagina de estadisticas
+    //   VOXELWORLD_BENCH_FOTO=ruta 3 s despues guarda el frame ENTERO, menu
+    //                              incluido, en ese PNG
+    // se ve lo que veria el jugador aunque la ventana este tapada.
+    // VOXELWORLD_BENCH_REFINERIA=<clase 0..4>: a los 14 s abre la mesa de
+    // refineria con tablones y un hacha puestos, para fotografiarla.
+    const char* benchRefineriaStr = getenv("VOXELWORLD_BENCH_REFINERIA");
+    bool benchRefineriaHecha = false;
+    const char* benchPausaStr = getenv("VOXELWORLD_BENCH_PAUSA");
+    const char* benchPaginaStr = getenv("VOXELWORLD_BENCH_PAGINA");
+    const char* benchFotoStr = getenv("VOXELWORLD_BENCH_FOTO");
+    bool benchPausaHecha = false, benchFotoHecha = false;
 
     // ⭐ CAMINAR SOLO, PARA MEDIR EL STREAMING
     //
@@ -48686,6 +51685,86 @@ int main() {
                 glfwGetTime() - benchInicio > benchSegundos) {
                 std::cout << "[BENCH] Fin de la medicion" << std::endl;
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+
+            if (benchRefineriaStr && !benchRefineriaHecha && g_gameState &&
+                g_gameState->screenState == SCREEN_IN_GAME && glfwGetTime() - benchInicio > 14.0) {
+                benchRefineriaHecha = true;
+                abrirRefineria(g_gameState);
+                g_refineria.entrada = InventorySlot();
+                g_refineria.entrada.blockType = BLOCK_PLANKS;
+                g_refineria.entrada.count = 12;
+                g_refineria.herramienta = InventorySlot();
+                g_refineria.herramienta.blockType = BLOCK_HACHA_PIEDRA;
+                g_refineria.herramienta.count = 1;
+                g_refineria.clase = std::clamp(atoi(benchRefineriaStr), 0, 4);
+                g_refineria.opcion = 0;
+            }
+
+            // VOXELWORLD_BENCH_PIEZAS=1: a los 12 s pone delante del jugador una
+            // pieza de cada clase y la mesa, para fotografiar como se dibujan.
+            {
+                static bool piezasPuestas = false;
+                if (!piezasPuestas && getenv("VOXELWORLD_BENCH_PIEZAS") && g_gameState &&
+                    g_gameState->screenState == SCREEN_IN_GAME && glfwGetTime() - benchInicio > 12.0) {
+                    piezasPuestas = true;
+                    const Vec3 pj = g_gameState->player.position;
+                    const int bx = (int)floorf(pj.x), by = (int)floorf(pj.y + 0.2f), bz = (int)floorf(pj.z);
+                    // Con =2, en vez de piezas, una fila de magueyes maduros.
+                    if (*getenv("VOXELWORLD_BENCH_PIEZAS") == '2') {
+                        static const Compuesto::Familia FAMS[8] = {
+                            Compuesto::FAM_AGAVE_POTATORUM, Compuesto::FAM_AGAVE_KARWINSKII,
+                            Compuesto::FAM_MAGUEY_MADRECUIXE, Compuesto::FAM_MAGUEY_CUISHE,
+                            Compuesto::FAM_MAGUEY_CIRIAL, Compuesto::FAM_MAGUEY_ESPADIN,
+                            Compuesto::FAM_AGAVE_ALBOMARGINATA, Compuesto::FAM_MAGUEY_SALMIANA };
+                        for (int i = 0; i < 8; ++i) {
+                            const int xx = bx - 10 + i * 3;
+                            for (int dx = -1; dx <= 1; ++dx)
+                                for (int dz = -8; dz <= -6; ++dz) {
+                                    g_gameState->world.setBlock(xx + dx, by - 1, bz + dz, BLOCK_DIRT);
+                                    for (int dy = 0; dy < 5; ++dy)
+                                        g_gameState->world.setBlock(xx + dx, by + dy, bz + dz, BLOCK_AIR);
+                                }
+                            const BlockType planta = Compuesto::AgaveRigido::nuevo(FAMS[i], Compuesto::AgaveAzul::MADURA, (uint16_t)i);
+                            for (int dy = 0; dy < Compuesto::AgaveRigido::celdasDe(planta); ++dy)
+                                g_gameState->world.setBlock(xx, by + dy, bz - 7,
+                                                            Compuesto::AgaveRigido::conSegmento(planta, (uint16_t)dy));
+                        }
+                    } else {
+                    static const BlockType MAT[6] = { BLOCK_PLANKS, BLOCK_STONE, BLOCK_DIRT, BLOCK_PLANKS_ENCINO,
+                                                      BLOCK_COBBLESTONE, BLOCK_SAND };
+                    for (int i = 0; i < 6; ++i) {
+                        for (int dy = 0; dy < 3; ++dy)
+                            for (int dz = -5; dz <= -3; ++dz)
+                                g_gameState->world.setBlock(bx - 3 + i, by + dy, bz + dz, BLOCK_AIR);
+                        const BlockType t = i < 5
+                            ? Formas::pieza(Formas::materialDe(MAT[i]), i * Formas::POR_CLASE, 2)
+                            : BLOCK_MESA_REFINERIA;
+                        g_gameState->world.setBlock(bx - 3 + i, by, bz - 4, t);
+                        // Detras, otra de la misma clase (la sexta de cada una).
+                        if (i < 5)
+                            g_gameState->world.setBlock(bx - 3 + i, by, bz - 5,
+                                Formas::pieza(Formas::materialDe(MAT[(i + 1) % 5]), i * Formas::POR_CLASE + 6, 2));
+                    }
+                    }
+                }
+            }
+
+            // Abrir la pausa en una pantalla concreta (ver benchPausaStr).
+            if (benchPausaStr && !benchPausaHecha && g_gameState &&
+                g_gameState->screenState == SCREEN_IN_GAME &&
+                glfwGetTime() - benchInicio > 14.0) {
+                benchPausaHecha = true;
+                static const PauseMenuState PANTALLAS[] = {
+                    PAUSE_MENU_MAIN, PAUSE_MENU_GRAPHICS, PAUSE_MENU_ESTADISTICAS, PAUSE_MENU_LOGROS,
+                    PAUSE_MENU_BUGS, PAUSE_MENU_INFO_MUNDO, PAUSE_MENU_CONTROLES, PAUSE_MENU_ACERCA };
+                const int n = std::clamp(atoi(benchPausaStr), 0, 7);
+                g_gameState->isPaused = true;
+                g_gameState->pauseMenuState = PANTALLAS[n];
+                g_paginaEstad = benchPaginaStr ? atoi(benchPaginaStr) : 0;
+                g_gameState->cursorLocked = false;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                std::cout << "[BENCH] pausa abierta en la pantalla " << n << std::endl;
             }
 
             // Avance automatico del banco de pruebas (ver benchCaminar).
@@ -48806,6 +51885,8 @@ int main() {
             g_musica.actualizar(deltaTime, g_gameState->screenState == SCREEN_IN_GAME && !g_gameState->durmiendo, 0.55f);
             // El corazon y la temperatura del jugador.
             if (!g_gameState->isPaused) actualizarVidaCuerpo(g_gameState, deltaTime);
+            else if (g_gameState->screenState == SCREEN_IN_GAME && deltaTime < 0.5f)
+                g_estad.sumar(Estadisticas::TIEMPO_PAUSA, deltaTime);
 
             // ⭐⭐⭐ CRÍTICO: Detector de freeze - si un frame tarda >500ms, algo está mal
             static auto lastFrameTime = std::chrono::high_resolution_clock::now();
@@ -48915,11 +51996,11 @@ int main() {
                         // Borrar carácter según el contexto activo
                         if (g_gameState->isEditingWorldName && g_gameState->screenState == SCREEN_WORLD_SELECT) {
                             if (!g_gameState->editingWorldNewName.empty()) {
-                                g_gameState->editingWorldNewName.pop_back();
+                                Utf8::borrar(g_gameState->editingWorldNewName);
                             }
                         } else if (g_gameState->screenState == SCREEN_WORLD_CREATE) {
                             if (g_gameState->isEditingNewWorldName && !g_gameState->newWorldName.empty()) {
-                                g_gameState->newWorldName.pop_back();
+                                Utf8::borrar(g_gameState->newWorldName);
                             } else if (g_gameState->isEditingNewWorldSeed && !g_gameState->newWorldSeed.empty()) {
                                 g_gameState->newWorldSeed.pop_back();
                             }
@@ -48979,6 +52060,16 @@ int main() {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             }
             renderMainMenu(g_gameState, width, height, window);
+            // Para ver el menu sin tocar la ventana: VOXELWORLD_FOTO_MENU=ruta.png
+            // guarda el frame a los 3 s y cierra (como VOXELWORLD_BENCH_FOTO).
+            static const char* fotoMenu = getenv("VOXELWORLD_FOTO_MENU");
+            static const char* fotoSeg = getenv("VOXELWORLD_FOTO_MENU_SEG");
+            if (fotoMenu && glfwGetTime() > (fotoSeg ? atof(fotoSeg) : 3.0)) {
+                glFinish();
+                std::cout << "[MENU] foto " << (escribirFrameEnPNG(window, fotoMenu) ? "guardada" : "FALLIDA") << std::endl;
+                fotoMenu = nullptr;
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
         }
         else if (g_gameState->screenState == SCREEN_WORLD_SELECT) {
             // Asegurar que el cursor esté visible
@@ -49207,6 +52298,7 @@ int main() {
                     // Del horno solo el apagado: el encendido no es un objeto
                     // que el jugador lleve, es un estado del horno.
                     ponerEnCreativo(BLOCK_HORNO);
+                    ponerEnCreativo(BLOCK_MESA_REFINERIA);
                     ponerEnCreativo(BLOCK_HACHA_PIEDRA);
                     ponerEnCreativo(BLOCK_PICO_PIEDRA);
                     ponerEnCreativo(BLOCK_MARTILLO_PIEDRA);
@@ -49805,6 +52897,9 @@ int main() {
                                                                        : "Siesta ")
                                           << (completo ? "entera" : "a ratos")
                                           << ": " << avance << " h" << std::endl;
+                                g_estad.contar(Dormir::EsDeNoche(ahora) ? Estadisticas::VECES_DORMIDO
+                                                                        : Estadisticas::SIESTAS);
+                                g_estad.sumar(Estadisticas::HORAS_DORMIDAS, avance);
                             }
 
                             g_gameState->durmiendo = false;
@@ -50457,7 +53552,7 @@ int main() {
                         result.blockPos.x != posCache.x ||
                         result.blockPos.y != posCache.y ||
                         result.blockPos.z != posCache.z) {
-                        formaCache = formaDeBloque(bsel,
+                        formaCache = formaDeSeleccion(bsel,
                             [&](int dx, int dy, int dz) {
                                 return g_gameState->world.getBlock(
                                     result.blockPos.x + dx,
@@ -51212,6 +54307,8 @@ int main() {
                         // Al aire: derecha, izquierda, derecha... (ver aplicarDisparo)
                         static int golpesAlAire = 0;
                         disparo = Accion::GOLPE_AIRE;
+                        g_estad.contar(Estadisticas::GOLPES_AIRE);
+                        g_estad.contar(Estadisticas::GOLPES);
                         tDisparo = 0.0f;
                         varDisparo = golpesAlAire++ % 2;
                     }
@@ -51266,8 +54363,21 @@ int main() {
                 // hacen que entre y salga sin saltos.
                 cargarAvatar();
                 ModeloJugador::Pose objetivo = ModeloJugador::poseDe(ea);
-                ModeloJugador::aplicarProporciones(g_avatar, objetivo);
-                if (modeloImportado().cargada) { proporcionesConModelo(objetivo.prop); avatarAlModelo(objetivo.prop); }
+                if (AVATAR_ACTIVO) ModeloJugador::aplicarProporciones(g_avatar, objetivo);
+                if (modeloImportado().cargada) {
+                    proporcionesConModelo(objetivo.prop);
+                    avatarAlModelo(objetivo.prop);
+                    // Un modelo de bloques necesita mas sitio entre brazos,
+                    // tronco y piernas (ver MallaImportada::separarMiembros).
+                    // Corriendo, agachado y tumbado, mucho mas; y todo recto
+                    // y robotico (ver hacerRobotico).
+                    const bool manoLibre = ea.accion == ModeloJugador::Accion::NINGUNA && !ea.golpeando &&
+                                           ea.tRecoger < 0.0f;
+                    const float corre = ea.enSuelo && !ea.volando
+                        ? ModeloJugador::suave((ea.rapidez - 4.6f) / 1.0f) : 0.0f;
+                    modeloImportado().separarMiembros(objetivo, corre, manoLibre);
+                    modeloImportado().hacerRobotico(objetivo, ea.giroCuello, !manoLibre);
+                }
                 // ⭐ La postura cabe en su hueco: el ojo de la pose, en la camara
                 // (ver hundirHasta). Asi el cuerpo no se aplasta al agacharse.
                 if (ea.tumbado) ModeloJugador::hundirHasta(objetivo, altoOjo, true);
@@ -51333,6 +54443,7 @@ int main() {
                     }
                 }
                 static ModeloJugador::SuavizadoPose suavizado;
+                suavizado.rigido = modeloImportado().cargada && modeloImportado().esDeBloques();
                 const ModeloJugador::Pose poseAhora = suavizado.avanzar(objetivo, dtc,
                                                                          ea.accion != ModeloJugador::Accion::NINGUNA);
                 const ModeloJugador::Esqueleto esqAhora =
@@ -51456,7 +54567,11 @@ int main() {
                 // (en su cabeza) queda encima del cuello y ve el cuerpo por dentro.
                 // Agachado mucho menos: echar atras unas cuclillas las aplastaba
                 // (los muslos se veian como tablas).
-                const float atrasPorAlto = 0.26f * baja / 1.45f * (1.0f - pose.tumbado) * (1.0f - 0.75f * ModeloJugador::sujetar(pose.agachado, 0.0f, 1.0f));
+                // Con la camara en el medio de la cabeza (no en la nariz), el
+                // cuerpo se aparta ademas lo que ella retrocedio: al mirar abajo
+                // se ve el pecho por fuera, igual que antes.
+                const float atrasCamara = importado ? modeloImportado().camaraAtras() : 0.0f;
+                const float atrasPorAlto = (0.26f + atrasCamara) * baja / 1.45f * (1.0f - pose.tumbado) * (1.0f - 0.75f * ModeloJugador::sujetar(pose.agachado, 0.0f, 1.0f));
                 // Tumbado, lo que se apoya es la malla entera (pecho, codos):
                 // se ajusta al suelo por su punto mas bajo.
                 float baseMalla = 0.0f;
@@ -51479,9 +54594,23 @@ int main() {
                     // el cuerpo se aparta por debajo de ella al mirar abajo.
                     const float lz = oj.z - cuelloLocal.z;
                     Vec3 meta(cuelloX + rx * lx + fx * lz - ojo.x, pieY + ly - ojo.y, cuelloZ + rz * lx + fz * lz - ojo.z);
+                    // ⭐ AGACHADO Y TUMBADO, LA CAMARA VA CON LA CABEZA.
+                    //
+                    // PEDIDO: "que acostado la camara se mueva en la misma
+                    // posicion de la cabeza, aun siendo invisible a 1ra
+                    // persona". La camara se sujetaba a 24 cm del centro de la
+                    // capsula, que de pie sobra. Tumbado el cuerpo se estira
+                    // 80 cm hacia delante y la cabeza va en la punta: sujeta a
+                    // 24, la camara se quedaba sobre la espalda, mirando el
+                    // cuerpo desde dentro. Ahora el tope se abre con la
+                    // postura -- 40 cm agachado, hasta 1,10 m tumbado -- y la
+                    // camara llega a donde esta la cabeza, que no se dibuja.
+                    const float tumb = ModeloJugador::sujetar(pose.tumbado, 0.0f, 1.0f);
+                    const float agach = ModeloJugador::sujetar(pose.agachado, 0.0f, 1.0f) * (1.0f - tumb);
+                    const float tope = 0.24f + 0.16f * agach + 0.86f * tumb;
                     const float h = std::sqrt(meta.x * meta.x + meta.z * meta.z);
-                    if (h > 0.24f) { meta.x *= 0.24f / h; meta.z *= 0.24f / h; }
-                    meta.y = (std::max)(-0.30f, (std::min)(0.15f, meta.y));
+                    if (h > tope) { meta.x *= tope / h; meta.z *= tope / h; }
+                    meta.y = (std::max)(-0.30f - 0.20f * tumb, (std::min)(0.15f + 0.10f * tumb, meta.y));
                     const float k = 1.0f - std::exp(-20.0f * dtc);
                     g_ojoCuerpo.x += (meta.x - g_ojoCuerpo.x) * k;
                     g_ojoCuerpo.y += (meta.y - g_ojoCuerpo.y) * k;
@@ -51593,22 +54722,46 @@ int main() {
                 // aplastado y el cuerpo echado atras al mirar abajo --, asi
                 // que el item va pegado a la mano haga lo que haga.
                 if (enMano != BLOCK_AIR && g_textureManager) {
-                    const ModeloJugador::Junta g = ModeloJugador::agarre(esq);
+                    // Con el modelo importado, en SU mano (ver MallaImportada::medirAgarre).
+                    ModeloJugador::Junta g = modeloImportado().cargada
+                        ? modeloImportado().agarre(esq) : ModeloJugador::agarre(esq);
+                    // PEDIDO: "que las herramientas esten unos 5 cm mas
+                    // adelante, en la mano". El marco del agarre tiene +Y hacia
+                    // el codo, asi que hacia la punta de los dedos es -Y: la
+                    // herramienta se corre 5 cm por la mano hacia delante. Solo
+                    // las herramientas; los bloques y demas se quedan en la palma.
+                    // (Despues: "un poco mas adelante las herramientas y mas
+                    // adelante los items y items de bloques": todo se corre.)
+                    {
+                        const float adelante = (esHerramientaGastable(enMano) || enMano == BLOCK_STICK)
+                            ? HERRAMIENTA_ADELANTE : ITEM_ADELANTE;
+                        g.p = ModeloJugador::suma(g.p, g.r.aplicar({ 0.0f, -adelante, 0.0f }));
+                    }
                     auto aMundo = [&](const ModeloJugador::V& p) -> Vec3 {
                         const float lx = p.x - cuelloLocal.x;
                         const float ly = (p.y - baseMalla) * ky;
                         const float lz = p.z - p.y * atrasPorAlto - cuelloLocal.z;
                         return Vec3(cuelloX + rx * lx + fx * lz, pieY + ly, cuelloZ + rz * lx + fz * lz);
                     };
-                    const Vec3 o = aMundo(g.p);
+                    const Vec3 enLaMano = aMundo(g.p);     // los ejes se miden desde aqui
+                    Vec3 o = enLaMano;
+                    // PEDIDO: "que el item de penca de nopal este mas a la
+                    // derecha y en la mano y sea mas pequeno". La penca es
+                    // ancha y, centrada en la palma, tapaba la mano y se iba
+                    // hacia el centro de la pantalla. Se corre 6 cm hacia la
+                    // derecha del jugador (rx, rz) y se dibuja al 70%.
+                    const bool pencaEnMano = esNopalDeCastilla(enMano) || esCladodio(enMano) ||
+                                             enMano == BLOCK_NOPAL_MOJADO || enMano == BLOCK_NOPAL_SECO;
+                    if (pencaEnMano) { o.x += rx * PENCA_A_LA_DERECHA; o.z += rz * PENCA_A_LA_DERECHA; }
                     auto eje = [&](ModeloJugador::V d) {
                         const Vec3 q = aMundo(ModeloJugador::suma(g.p, g.r.aplicar(d)));
-                        return Vec3(q.x - o.x, q.y - o.y, q.z - o.z);
+                        return Vec3(q.x - enLaMano.x, q.y - enLaMano.y, q.z - enLaMano.z);
                     };
                     // Las herramientas, algo mas pequenas que tiradas en el
                     // suelo: tan cerca de los ojos, a su tamano tapaban media
                     // pantalla.
-                    const float tam = (esHerramientaGastable(enMano) || enMano == BLOCK_STICK) ? 0.95f : 1.0f;
+                    const float tam = pencaEnMano ? PENCA_TAMANO
+                                    : (esHerramientaGastable(enMano) || enMano == BLOCK_STICK) ? 0.95f : 1.0f;
                     const Vec3 ex = eje({ tam, 0, 0 }), ey = eje({ 0, tam, 0 }), ez = eje({ 0, 0, tam });
                     const GLfloat m[16] = { ex.x, ex.y, ex.z, 0.0f, ey.x, ey.y, ey.z, 0.0f,
                                             ez.x, ez.y, ez.z, 0.0f, o.x,  o.y,  o.z,  1.0f };
@@ -51682,6 +54835,16 @@ int main() {
             // cada cara. Se calcula UNA vez por item, no por vertice.
             const float luzIt = luzDelItem(item.position);
 
+            // Dejado a proposito: acostado sobre su base, quieto.
+            if (item.tirado) {
+                glTranslatef(item.position.x, item.position.y + 0.5f * ItemsTirados::GROSOR, item.position.z);
+                glRotatef(item.giro, 0, 1, 0);
+                glRotatef(-90.0f, 1, 0, 0);         // el modelo va de pie en su plano: se tumba
+                dibujarItem3D(item.blockType, luzIt, false);
+                glPopMatrix();
+                continue;
+            }
+
             // Movimiento de flotación suave (bobbing)
             float bobOffset = sin(item.lifetime * 3.0f) * 0.1f;
             glTranslatef(item.position.x, item.position.y + bobOffset, item.position.z);
@@ -51693,6 +54856,52 @@ int main() {
             glPopMatrix();
         }
         glPopMatrix();
+
+        // ====================================================================
+        // ⭐ LAS PENCAS DE NOPAL COLOCADAS: EL ITEM EN 3D, POSADO
+        // ====================================================================
+        // (Ver g_pencasPuestas.) Va tumbada sobre lo que tenga debajo, a la
+        // altura de su caja de colision -- la misma de siempre, calculada por
+        // calcularFormaNopalCon --, y girada segun su casilla para que varias
+        // juntas no queden todas iguales.
+        {
+            World& mundo = g_gameState->world;
+            const Vec3 pj = g_gameState->player.position;
+            const int jx = (int)floorf(pj.x), jy = (int)floorf(pj.y), jz = (int)floorf(pj.z);
+            static int capa = 0;
+            const int yCapa = jy - PENCAS_ALTO + capa;
+            capa = (capa + 1) % (2 * PENCAS_ALTO + 1);
+            // Fuera las de la capa que toca (se vuelve a mirar), las que
+            // quedaron lejos y las que ya no estan.
+            g_pencasPuestas.erase(std::remove_if(g_pencasPuestas.begin(), g_pencasPuestas.end(),
+                [&](const Vec3i& q) {
+                    return q.y == yCapa || std::abs(q.x - jx) > PENCAS_RADIO || std::abs(q.z - jz) > PENCAS_RADIO ||
+                           std::abs(q.y - jy) > PENCAS_ALTO || !esItemPosado(mundo.getBlock(q.x, q.y, q.z));
+                }), g_pencasPuestas.end());
+            if (yCapa >= 0 && yCapa < CHUNK_HEIGHT)
+                for (int x = jx - PENCAS_RADIO; x <= jx + PENCAS_RADIO; ++x)
+                    for (int z = jz - PENCAS_RADIO; z <= jz + PENCAS_RADIO; ++z)
+                        if (esItemPosado(mundo.getBlock(x, yCapa, z)))
+                            g_pencasPuestas.push_back(Vec3i(x, yCapa, z));
+
+            for (const Vec3i& q : g_pencasPuestas) {
+                // El mismo dibujo para las cuatro: el item de cada una, acostado.
+                const BlockType puesto = mundo.getBlock(q.x, q.y, q.z);
+                const BlockType suItem = itemDePosado(puesto);
+                if (suItem == BLOCK_AIR) continue;
+                const NopalForma f = calcularFormaNopalCon(
+                    [&](int dx, int dy, int dz) { return mundo.getBlock(q.x + dx, q.y + dy, q.z + dz); },
+                    q.x, q.y, q.z, puesto);
+                const Vec3 centro(q.x + 0.5f, q.y + 0.5f * (f.minY + f.maxY), q.z + 0.5f);
+                const uint32_t h = (uint32_t)q.x * 73856093u ^ (uint32_t)q.y * 19349663u ^ (uint32_t)q.z * 83492791u;
+                glPushMatrix();
+                glTranslatef(centro.x, centro.y, centro.z);
+                glRotatef(90.0f * (float)(h >> 7 & 3u), 0, 1, 0);
+                glRotatef(-90.0f, 1, 0, 0);         // el modelo va de pie en su plano: se tumba
+                dibujarItem3D(suItem, luzDelItem(Vec3(centro.x, q.y + 0.5f, centro.z)), false);
+                glPopMatrix();
+            }
+        }
 
         // ====================================================================
         // ⭐ LOS BLOQUES QUE ESTAN CAYENDO
@@ -52060,119 +55269,15 @@ int main() {
         // ====================================================================
         // HUD DE ESTADO DEL CHARACTER CONTROLLER (F3)
         // ====================================================================
-        if (!g_gameState->isPaused && g_playerController && g_playerDebug.showStateText) {
-            static char dbgLines[12][96];   // estático: sin asignaciones por frame
-            const int n = g_playerDebug.buildStatusText(*g_playerController, dbgLines, 12);
-
-            glColor4f(0.4f, 1.0f, 0.5f, 1.0f);  // verde claro
-            for (int i = 0; i < n; ++i) {
-                // Columna derecha, para no tapar el HUD existente.
-                renderText(dbgLines[i], 640.0f, 30.0f + i * 16.0f, 1.3f);
-            }
-            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-        }
+        // ELIMINADO PARA SIEMPRE (pedido del jugador): las lineas verdes de
+        // estado del controlador. Se dibujaban con letra de 1,3 px: motas verdes
+        // ilegibles en mitad de la pantalla.
 
         if (!g_gameState->isPaused) {
-            // ============ DEBUG: Información del raycast ============
-            Vec3 debugRayOrigin = ojoDelJugador(g_gameState->player);
-            Vec3 debugRayDirection = g_gameState->player.getForward();
-            RaycastResult debugRayResult = raycastBlock(g_gameState->world, debugRayOrigin, debugRayDirection, 4.0f);
-
-            // Mostrar información de debug en esquina superior izquierda
-            glColor4f(1.0f, 1.0f, 0.0f, 1.0f);  // Amarillo
-            char debugText[256];
-
-            // Posición del jugador
-            sprintf(debugText, "Pos: (%.1f, %.1f, %.1f)",
-                g_gameState->player.position.x,
-                g_gameState->player.position.y,
-                g_gameState->player.position.z);
-            renderText(debugText, 10, 10, 12);
-
-            // ELIMINADO: indicador en pantalla de "MODO VUELO ACTIVO".
-            // El jugador ya sabe que está volando por el propio movimiento;
-            // el texto cian solo ocupaba pantalla.
-
-            // Origen del raycast (posición de los ojos)
-            Vec3 eyePos = ojoDelJugador(g_gameState->player);
-            sprintf(debugText, "Ojos: (%.1f, %.1f, %.1f)",
-                eyePos.x, eyePos.y, eyePos.z);
-            renderText(debugText, 10, 150, 12);
-
-            // Dirección del raycast (normalizada)
-            sprintf(debugText, "Dir: (%.2f, %.2f, %.2f)",
-                debugRayDirection.x,
-                debugRayDirection.y,
-                debugRayDirection.z);
-            renderText(debugText, 10, 30, 12);
-
-            // Ángulos de cámara
-            sprintf(debugText, "Yaw: %.1f  Pitch: %.1f",
-                g_gameState->player.yaw,
-                g_gameState->player.pitch);
-            renderText(debugText, 10, 50, 12);
-
-            // Bloque detectado
-            if (debugRayResult.hit) {
-                BlockType blockType = g_gameState->world.getBlock(
-                    debugRayResult.blockPos.x,
-                    debugRayResult.blockPos.y,
-                    debugRayResult.blockPos.z
-                );
-
-                // El nombre sale de la tabla unica (ui/NombreItem.h), la misma
-                // que usa el tooltip del inventario. Aqui antes habia un
-                // switch propio de ~45 entradas: lo demas salia DESCONOCIDO.
-                const char* blockName = NombreItem::nombreDeItem(blockType);
-                if (!blockName) blockName = "DESCONOCIDO";
-
-                glColor4f(0.0f, 1.0f, 0.0f, 1.0f);  // Verde = detectado
-                sprintf(debugText, "BLOQUE: %s (%d, %d, %d)",
-                    blockName,
-                    debugRayResult.blockPos.x,
-                    debugRayResult.blockPos.y,
-                    debugRayResult.blockPos.z);
-                renderText(debugText, 10, 70, 12);
-
-                sprintf(debugText, "Dist: %.2f bloques", debugRayResult.distance);
-                renderText(debugText, 10, 90, 12);
-            } else {
-                glColor4f(1.0f, 0.0f, 0.0f, 1.0f);  // Rojo = no detectado
-                sprintf(debugText, "BLOQUE: NINGUNO (aire/lejos)");
-                renderText(debugText, 10, 70, 12);
-            }
-
-            // Indicador de dirección cardinal
-            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-            float yaw = g_gameState->player.yaw;
-            const char* direction = "";
-
-            // Normalizar yaw a 0-360
-            while (yaw < 0) yaw += 360;
-            while (yaw >= 360) yaw -= 360;
-
-            if (yaw >= 337.5f || yaw < 22.5f) direction = "SUR";
-            else if (yaw >= 22.5f && yaw < 67.5f) direction = "SUR-OESTE";
-            else if (yaw >= 67.5f && yaw < 112.5f) direction = "OESTE";
-            else if (yaw >= 112.5f && yaw < 157.5f) direction = "NOR-OESTE";
-            else if (yaw >= 157.5f && yaw < 202.5f) direction = "NORTE";
-            else if (yaw >= 202.5f && yaw < 247.5f) direction = "NOR-ESTE";
-            else if (yaw >= 247.5f && yaw < 292.5f) direction = "ESTE";
-            else if (yaw >= 292.5f && yaw < 337.5f) direction = "SUR-ESTE";
-
-            sprintf(debugText, "Mirando: %s", direction);
-            renderText(debugText, 10, 110, 12);
-
-            // Indicador vertical
-            float pitch = g_gameState->player.pitch;
-            const char* vertical = "";
-            if (pitch < -45) vertical = "ARRIBA";
-            else if (pitch > 45) vertical = "ABAJO";
-            else vertical = "HORIZONTAL";
-
-            sprintf(debugText, "Vertical: %s", vertical);
-            renderText(debugText, 10, 130, 12);
-            // ============ FIN DEBUG ============
+            // ELIMINADO PARA SIEMPRE (pedido del jugador): el texto de depuracion
+            // de la esquina superior izquierda -- posicion, direccion, yaw/pitch,
+            // bloque apuntado, distancia, "Mirando" y "Vertical". Se dibujaba en
+            // TODAS las partidas, encima del juego. No volver a ponerlo en el HUD.
 
             // ⭐⭐⭐ OVERLAY DE AGUA: Renderizar filtro azul cuando estás bajo el agua
             if (g_gameState->player.isUnderwater) {
@@ -52286,15 +55391,18 @@ int main() {
                 }
             }
 
-            // Renderizar hotbar
-            renderHotbar(&g_gameState->inventory, width, height);
+            // Renderizar hotbar (salvo con el HUD oculto desde el menu de pausa;
+            // el inventario abierto la necesita, asi que entonces se dibuja).
+            const bool hudVisible = !g_hudOculto || g_gameState->inventoryOpen;
+            if (hudVisible) renderHotbar(&g_gameState->inventory, width, height);
 
             // Barra de vida encima de la hotbar (solo en supervivencia).
             renderVeloTemperatura(width, height);
-            renderVidaCuerpo(g_gameState, width, height, deltaTime);
+            renderVeloDeDano(width, height);
+            if (hudVisible) renderVidaCuerpo(g_gameState, width, height, deltaTime);
 
             // Y encima de todo, la tecla F si se mira un pedacito del suelo.
-            renderAvisoRecoger(g_gameState, width, height);
+            if (hudVisible) renderAvisoRecoger(g_gameState, width, height);
 
 
             // (El recuadro con el icono plano del item en la esquina de
@@ -52484,8 +55592,9 @@ int main() {
         }
         } // ⭐ FIN de renderizado solo para SCREEN_IN_GAME
 
-        // Renderizar overlay de pausa
-        if (g_gameState->isPaused) {
+        // Renderizar overlay de pausa (el frame de la captura de pantalla no:
+        // la foto es del juego, sin los botones encima).
+        if (g_gameState->isPaused && !g_capturaPedida) {
             // Desactivar culling para renderizado 2D
             glDisable(GL_CULL_FACE);
 
@@ -52538,120 +55647,18 @@ int main() {
             float buttonSpacing = 60.0f;
 
             if (g_gameState->pauseMenuState == PAUSE_MENU_MAIN) {
-                // MENÚ PRINCIPAL
-                float startY = height / 2.0f - 80.0f;
-
-                // Título "PAUSA"
-                glColor4f(1.0f, 1.0f, 0.0f, 1.0f);
-                float titleY = startY - 60;
-                glBegin(GL_QUADS);
-                glVertex2f(centerX - 80, titleY);
-                glVertex2f(centerX + 80, titleY);
-                glVertex2f(centerX + 80, titleY + 40);
-                glVertex2f(centerX - 80, titleY + 40);
-                glEnd();
-
-                // Botón 1: Reanudar
-                Button btn1(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight, "Reanudar");
-                bool hover1 = btn1.contains((float)mouseX, (float)mouseY);
-                // Fondo gris (más claro en hover)
-                glColor4f(hover1 ? 0.5f : 0.3f, hover1 ? 0.5f : 0.3f, hover1 ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btn1.x, btn1.y);
-                glVertex2f(btn1.x + btn1.width, btn1.y);
-                glVertex2f(btn1.x + btn1.width, btn1.y + btn1.height);
-                glVertex2f(btn1.x, btn1.y + btn1.height);
-                glEnd();
-                // Borde gris oscuro
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glLineWidth(2);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btn1.x, btn1.y);
-                glVertex2f(btn1.x + btn1.width, btn1.y);
-                glVertex2f(btn1.x + btn1.width, btn1.y + btn1.height);
-                glVertex2f(btn1.x, btn1.y + btn1.height);
-                glEnd();
-                // Texto blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("REANUDAR", btn1.x + 50, btn1.y + 15, 20);
-
-                // Botón 2: Gráficos
-                Button btn2(centerX - buttonWidth / 2, startY + buttonSpacing, buttonWidth, buttonHeight, "Graficos");
-                bool hover2 = btn2.contains((float)mouseX, (float)mouseY);
-                // Fondo gris (más claro en hover)
-                glColor4f(hover2 ? 0.5f : 0.3f, hover2 ? 0.5f : 0.3f, hover2 ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btn2.x, btn2.y);
-                glVertex2f(btn2.x + btn2.width, btn2.y);
-                glVertex2f(btn2.x + btn2.width, btn2.y + btn2.height);
-                glVertex2f(btn2.x, btn2.y + btn2.height);
-                glEnd();
-                // Borde gris oscuro
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glLineWidth(2);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btn2.x, btn2.y);
-                glVertex2f(btn2.x + btn2.width, btn2.y);
-                glVertex2f(btn2.x + btn2.width, btn2.y + btn2.height);
-                glVertex2f(btn2.x, btn2.y + btn2.height);
-                glEnd();
-                // Texto blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("OPCIONES", btn2.x + 60, btn2.y + 15, 20);
-
-                // Botón 3: Sensibilidad
-                Button btn3(centerX - buttonWidth / 2, startY + buttonSpacing * 2, buttonWidth, buttonHeight, "Sensibilidad");
-                bool hover3 = btn3.contains((float)mouseX, (float)mouseY);
-                // Fondo gris (más claro en hover)
-                glColor4f(hover3 ? 0.5f : 0.3f, hover3 ? 0.5f : 0.3f, hover3 ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btn3.x, btn3.y);
-                glVertex2f(btn3.x + btn3.width, btn3.y);
-                glVertex2f(btn3.x + btn3.width, btn3.y + btn3.height);
-                glVertex2f(btn3.x, btn3.y + btn3.height);
-                glEnd();
-                // Borde gris oscuro
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glLineWidth(2);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btn3.x, btn3.y);
-                glVertex2f(btn3.x + btn3.width, btn3.y);
-                glVertex2f(btn3.x + btn3.width, btn3.y + btn3.height);
-                glVertex2f(btn3.x, btn3.y + btn3.height);
-                glEnd();
-                // Texto blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("AVATAR", btn3.x + 85, btn3.y + 15, 20);
-
-                // Botón 4: Salir
-                Button btn4(centerX - buttonWidth / 2, startY + buttonSpacing * 3, buttonWidth, buttonHeight, "Salir");
-                bool hover4 = btn4.contains((float)mouseX, (float)mouseY);
-                // Fondo gris (más claro en hover)
-                glColor4f(hover4 ? 0.5f : 0.3f, hover4 ? 0.5f : 0.3f, hover4 ? 0.5f : 0.3f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex2f(btn4.x, btn4.y);
-                glVertex2f(btn4.x + btn4.width, btn4.y);
-                glVertex2f(btn4.x + btn4.width, btn4.y + btn4.height);
-                glVertex2f(btn4.x, btn4.y + btn4.height);
-                glEnd();
-                // Borde gris oscuro
-                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
-                glLineWidth(2);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(btn4.x, btn4.y);
-                glVertex2f(btn4.x + btn4.width, btn4.y);
-                glVertex2f(btn4.x + btn4.width, btn4.y + btn4.height);
-                glVertex2f(btn4.x, btn4.y + btn4.height);
-                glEnd();
-                // Texto blanco
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-                renderText("SALIR", btn4.x + 95, btn4.y + 15, 20);
+                // Los 20 botones en pared de ladrillo (ver ui/MenuPausa.h).
+                renderMenuPausa(width, height, (float)mouseX, (float)mouseY);
 
             } else if (g_gameState->pauseMenuState == PAUSE_MENU_GRAPHICS) {
                 renderOpciones(width, height, (float)mouseX, (float)mouseY);
 
             } else if (g_gameState->pauseMenuState == PAUSE_MENU_SENSITIVITY) {
                 renderAvatar(window, width, height, (float)mouseX, (float)mouseY);
+
+            } else {
+                // Estadisticas, logros, bugs, info, controles y acerca de.
+                renderPantallaDePausa(width, height, (float)mouseX, (float)mouseY);
             }
 
             } // Fin del else (renderizar menú normal cuando no está guardando)
@@ -52805,6 +55812,10 @@ int main() {
             }
 
             // ⭐⭐⭐ RENDERIZAR GRID DE CRAFTEO 3x3 (A LA DERECHA DEL INVENTARIO) ⭐⭐⭐
+            // (Con la mesa de refineria abierta, en su lugar va su pantalla.)
+            if (g_refineria.abierta) {
+                dibujarRefineria(window, width, height);
+            } else
             {
                 const float CRAFT_START_X = craftStartX((float)width);  // A la derecha del inventario
 
@@ -53101,6 +56112,13 @@ int main() {
                     if (g_paseSaturacion.aplicar(fw, fh, sat) && g_textureManager)
                         g_textureManager->invalidateBindCache();
                 }
+            }
+            guardarCapturaSiSePidio(window);   // boton CAPTURA DE PANTALLA de la pausa
+            if (benchFotoStr && !benchFotoHecha && glfwGetTime() - benchInicio > 17.0 &&
+                g_gameState && g_gameState->screenState == SCREEN_IN_GAME) {
+                benchFotoHecha = true;
+                std::cout << "[BENCH] foto " << (escribirFrameEnPNG(window, benchFotoStr) ? "guardada" : "FALLIDA")
+                          << ": " << benchFotoStr << std::endl;
             }
             {
                 const auto tSwap = std::chrono::high_resolution_clock::now();

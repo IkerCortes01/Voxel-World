@@ -61,3 +61,11 @@ resourcepacks/Textures/_hd_original/
 # Los ZIP que genera tools/empaquetar.bat. Son un derivado del propio
 # repositorio: versionarlos seria guardar el proyecto dentro del proyecto.
 dist/
+
+# La cuenta del jugador es de cada equipo: nunca al repositorio.
+cuenta.dat
+cuenta_foto.*
+*.vwcuenta
+
+# Cache de Python de las herramientas
+__pycache__/

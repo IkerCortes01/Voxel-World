@@ -61,6 +61,8 @@ public:
     // Al acabar una pieza: el silencio de despues.
     void acabo() { espera = rango(SILENCIO_MIN, SILENCIO_MAX); }
     float silencioRestante() const { return espera; }
+    // La siguiente pieza YA, sin silencio (boton "SIGUIENTE CANCION").
+    int ahora() { return n > 0 ? siguiente() : -1; }
 
 private:
     int siguiente() {
@@ -121,11 +123,21 @@ public:
         selector.poner((int)piezas.size());
     }
     int cuantas() const { return (int)piezas.size(); }
+    bool sonando() const { return abierta; }
+    int tocadas() const { return vecesAbierta; }      // para las estadisticas
+    // Del menu de pausa: apagar o encender la musica, y saltar a otra pieza.
+    bool activa = true;
+    void siguiente() {
+        cerrar();
+        const int p = selector.ahora();
+        if (p >= 0) abrir(p);
+    }
 
     // Cada frame. `enPartida`: solo suena jugando. `volumen` 0..1.
     void actualizar(float dt, bool enPartida, float volumen) {
         if (dt < 0.0f) dt = 0.0f;
         if (dt > 0.25f) dt = 0.25f;
+        if (!activa) { if (abierta) { cerrar(); selector.acabo(); } return; }
         if (!abierta) {
             if (!enPartida) return;
             const int p = selector.avanzar(dt);
@@ -170,6 +182,7 @@ private:
         if (mciSendStringW(abrirCmd.c_str(), nullptr, 0, nullptr) != 0) { selector.acabo(); return; }
         mciSendStringW(L"set vw_musica time format milliseconds", nullptr, 0, nullptr);
         abierta = true;
+        ++vecesAbierta;
         nivel = 0.0f;
         consulta = 0.0f;
         restante = 999.0f;
@@ -196,6 +209,7 @@ private:
     bool abierta = false;
     float nivel = 0.0f, consulta = 0.0f, restante = 999.0f;
     int ultimoVolumen = -1;
+    int vecesAbierta = 0;
 };
 
 } // namespace Audio

@@ -62,13 +62,13 @@ enum class VariedadTuna : int {
 // planta: nace como brote tierno y solo toma su color al madurar. Por eso hay
 // cuatro casos pero solo TRES archivos.
 inline const char* archivoTuna(VariedadTuna variedad, bool madura) {
-    if (!madura) return "Tuna verde crecida.png";
+    if (!madura) return "Tuna verde.png";
 
     switch (variedad) {
-        case VariedadTuna::AMARILLA: return "Tuna amarilla crecida.png";
-        case VariedadTuna::ROJA:     return "Tuna roja crecida.png";
+        case VariedadTuna::AMARILLA: return "Tuna amarilla.png";
+        case VariedadTuna::ROJA:     return "Tuna roja.png";
         case VariedadTuna::VERDE:
-        default:                     return "Tuna verde crecida.png";
+        default:                     return "Tuna verde.png";
     }
 }
 
@@ -82,9 +82,9 @@ inline const char* archivoTuna(VariedadTuna variedad, bool madura) {
 // que no se puede generar ningun archivo que no este en la lista.
 inline const char* const* archivosTunaPrecarga(size_t& cuantos) {
     static const char* const LISTA[] = {
-        "Tuna verde crecida.png",      // sin madurar, y variedad verde
-        "Tuna amarilla crecida.png",
-        "Tuna roja crecida.png",
+        "Tuna verde.png",      // sin madurar, y variedad verde
+        "Tuna amarilla.png",
+        "Tuna roja.png",
     };
     cuantos = sizeof(LISTA) / sizeof(LISTA[0]);
     return LISTA;

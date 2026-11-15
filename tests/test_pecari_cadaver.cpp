@@ -165,7 +165,9 @@ TEST_CASE("Cadaver: el pecari que muere de un golpe queda para recoger") {
 }
 
 TEST_CASE("Cadaver: el item existe, tiene nombre y cierra el enum") {
-    CHECK((int)BLOCK_CADAVER_PECARI == BLOCK_TYPE_MAX);
+    // (Cerraba el enum; despues entro la penca de nopal posada, al final.)
+    CHECK((int)BLOCK_CADAVER_PECARI == (int)BLOCK_PENCA_NOPAL_PUESTA - 1);
+    CHECK((int)BLOCK_CADAVER_PECARI <= BLOCK_TYPE_MAX);
     const char* n = nombreDeItem(BLOCK_CADAVER_PECARI);
     REQUIRE(n != nullptr);
     CHECK(std::strcmp(n, "CADAVER DE PECARI") == 0);

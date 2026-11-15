@@ -122,6 +122,14 @@ add_executable(voxel_tests
     test_posturas_hitbox.cpp
     test_musica.cpp
     test_corazon_temperatura.cpp
+    test_barras.cpp
+    test_items_tirados.cpp
+    test_maguey_espadin.cpp
+    test_magueyes_roseta.cpp
+    test_formas.cpp
+    test_cuenta.cpp
+    test_texto_utf8.cpp
+    test_clic_boton.cpp
     test_alineacion_bloques.cpp
     test_techo_pilar.cpp
     test_raiz_palos.cpp
@@ -131,6 +139,8 @@ add_executable(voxel_tests
     test_niveles_naturales.cpp
     test_geometria_voxel.cpp
     test_culling_volumen.cpp
+    test_menu_pausa.cpp
+    test_menu_vivo.cpp
 
     # ⚠️ ESTOS SIETE LLEVABAN TIEMPO FUERA DEL BUILD SIN QUE NADIE LO SUPIERA.
     #

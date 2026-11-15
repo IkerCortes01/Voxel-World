@@ -38,11 +38,11 @@ TEST_CASE("Tuna: cada variedad madura usa su propio color") {
     // el jugador recoge una tuna roja, asi que lo que se ve y lo que se coge
     // tienen que salir del mismo dato.
     CHECK(std::string(archivoTuna(VariedadTuna::VERDE, true))
-          == "Tuna verde crecida.png");
+          == "Tuna verde.png");
     CHECK(std::string(archivoTuna(VariedadTuna::AMARILLA, true))
-          == "Tuna amarilla crecida.png");
+          == "Tuna amarilla.png");
     CHECK(std::string(archivoTuna(VariedadTuna::ROJA, true))
-          == "Tuna roja crecida.png");
+          == "Tuna roja.png");
 }
 
 TEST_CASE("Tuna: sin madurar SIEMPRE es verde, sea cual sea la planta") {
@@ -50,11 +50,27 @@ TEST_CASE("Tuna: sin madurar SIEMPRE es verde, sea cual sea la planta") {
     // madurar. Por eso hay CUATRO casos pero solo TRES archivos.
     for (VariedadTuna v : { VariedadTuna::VERDE, VariedadTuna::AMARILLA,
                             VariedadTuna::ROJA }) {
-        CHECK(std::string(archivoTuna(v, false)) == "Tuna verde crecida.png");
+        CHECK(std::string(archivoTuna(v, false)) == "Tuna verde.png");
     }
 }
 
-TEST_CASE("Tuna: siempre se usa la version CRECIDA") {
+TEST_CASE("Tuna: cada variedad es UN archivo, el mismo en la mata y en la mano") {
+    // PEDIDO: "actualiza las texturas de items". Las tres tunas tienen foto
+    // nueva y las versiones "crecida" se borraron: ya no hay una imagen
+    // pequena y otra grande, hay una por variedad. (Las "crecida" existian
+    // porque las pequenas dejaban un 58% de la imagen vacia; las fotos nuevas
+    // llenan el cuadro.)
+    for (VariedadTuna v : { VariedadTuna::VERDE, VariedadTuna::AMARILLA,
+                            VariedadTuna::ROJA }) {
+        for (bool madura : { false, true }) {
+            const std::string a = archivoTuna(v, madura);
+            CHECK(a.find("crecida") == std::string::npos);
+            CHECK(a.rfind("Tuna ", 0) == 0);
+        }
+    }
+}
+
+TEST_CASE("Tuna: (antes) siempre se usa la version CRECIDA" * doctest::skip()) {
     // Medido: las versiones "crecida" tienen un 28% de pixeles vacios y las
     // pequenas un 58%. Sobre la caja 3D del fruto ese hueco se ve como
     // AGUJEROS por los que se mira a traves de la tuna.
@@ -146,5 +162,5 @@ TEST_CASE("Tuna: una variedad desconocida no devuelve nullptr") {
     CHECK(std::strlen(a) > 0);
 
     // Y cae en la verde, que es el caso por defecto de la planta.
-    CHECK(std::string(a) == "Tuna verde crecida.png");
+    CHECK(std::string(a) == "Tuna verde.png");
 }

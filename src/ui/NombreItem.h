@@ -2,6 +2,7 @@
 
 #include "../BlockType.h"
 #include "../BloqueCompuesto.h"
+#include "../Formas.h"
 #include <string>
 #include <unordered_map>
 
@@ -126,6 +127,7 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_NOPAL_FRUTO:          return "NOPAL DE CASTILLA";
         case BLOCK_NOPAL_PUESTO:         return "NOPAL DE CASTILLA";
         case BLOCK_NOPAL_CLADODIO:       return "PENCA DE NOPAL";
+        case BLOCK_PENCA_NOPAL_PUESTA:   return "PENCA DE NOPAL";
         case BLOCK_NOPAL_CLADODIO_X2:    return "PENCAS DE NOPAL";
         case BLOCK_NOPAL_CLADODIO_X3:    return "PENCAS DE NOPAL";
         case BLOCK_NOPAL_CLADODIO_Z2:    return "PENCAS DE NOPAL";
@@ -144,8 +146,9 @@ inline const char* nombreDeBase(BlockType t) {
         // --- Ixtle ---
         case BLOCK_IXTLE_TALLO:        return "BASE DE IXTLE";
         case BLOCK_IXTLE_TALLO_ARENA:  return "BASE DE IXTLE EN ARENA";
-        case BLOCK_IXTLE_HOJA:         return "HOJA DE IXTLE";
-        case BLOCK_MAGUEY_PUESTO:      return "HOJA DE IXTLE";
+        // PEDIDO: "cambia el nombre de la Hoja de ixtle a Penca de maguey".
+        case BLOCK_IXTLE_HOJA:         return "PENCA DE MAGUEY";
+        case BLOCK_MAGUEY_PUESTO:      return "PENCA DE MAGUEY";
         case BLOCK_AGAVE_AZUL_PUESTO:  return "PENCA DE AGAVE AZUL";
         case BLOCK_IXTLE_PUNTA:        return "PUNTA DE IXTLE";
         case BLOCK_IXTLE_CON_HIERBA:   return "IXTLE CON HIERBA";
@@ -172,6 +175,15 @@ inline const char* nombreDeBase(BlockType t) {
         // --- Agave abisaii ---
         case BLOCK_AGAVE_ABISAII_PENCA: return "HOJA DE AGAVE ABISAII";
         case BLOCK_AGAVE_ABISAII_PUNTA: return "PUNTA DE AGAVE ABISAII";
+        case BLOCK_MAGUEY_ESPADIN_PENCA: return "PENCA DE MAGUEY ESPADIN";
+        case BLOCK_MAGUEY_ESPADIN_PUNTA: return "PUNTA DE MAGUEY ESPADIN";
+        case BLOCK_AGAVE_ALBOMARGINATA_PENCA: return "PENCA DE AGAVE ALBOMARGINATA";
+        case BLOCK_MAGUEY_SALMIANA_PENCA: return "PENCA DE MAGUEY SALMIANA";
+        case BLOCK_AGAVE_POTATORUM_PENCA:   return "PENCA DE AGAVE POTATORUM";
+        case BLOCK_AGAVE_KARWINSKII_PENCA:  return "PENCA DE AGAVE KARWINSKII";
+        case BLOCK_MAGUEY_MADRECUIXE_PENCA: return "PENCA DE MADRECUIXE";
+        case BLOCK_MAGUEY_CUISHE_PENCA:     return "PENCA DE CUISHE";
+        case BLOCK_MAGUEY_CIRIAL_PENCA:     return "PENCA DE CIRIAL";
 
         // --- Techo de hojas (las dos orientaciones son el mismo item) ---
         case BLOCK_TECHO_HOJAS:        return "TECHO DE HOJAS";
@@ -212,6 +224,7 @@ inline const char* nombreDeBase(BlockType t) {
 
         // --- Horno ---
         case BLOCK_HORNO:              return "HORNO DE BARRO";
+        case BLOCK_MESA_REFINERIA:     return "MESA DE REFINERIA";
         case BLOCK_HORNO_ENCENDIDO:    return "HORNO DE BARRO ENCENDIDO";
 
         // --- Tazones ---
@@ -247,6 +260,15 @@ inline const char* nombreDeFamilia(Compuesto::Familia f) {
         case Compuesto::FAM_AGAVE_AZUL:    return "AGAVE TEQUILANA AZUL";
         case Compuesto::FAM_AGAVE_ABISAII: return "AGAVE ABISAII";
         case Compuesto::FAM_NOPAL:         return "NOPAL DE CASTILLA";
+        case Compuesto::FAM_MAGUEY_ESPADIN: return "MAGUEY ESPADIN";
+        case Compuesto::FAM_AGAVE_ALBOMARGINATA: return "AGAVE ALBOMARGINATA";
+        case Compuesto::FAM_MAGUEY_SALMIANA: return "MAGUEY SALMIANA";
+        case Compuesto::FAM_FORMA: return "PIEZA REFINADA";
+        case Compuesto::FAM_AGAVE_POTATORUM:   return "AGAVE POTATORUM";
+        case Compuesto::FAM_AGAVE_KARWINSKII:  return "AGAVE KARWINSKII";
+        case Compuesto::FAM_MAGUEY_MADRECUIXE: return "MADRECUIXE";
+        case Compuesto::FAM_MAGUEY_CUISHE:     return "CUISHE";
+        case Compuesto::FAM_MAGUEY_CIRIAL:     return "CIRIAL";
         default:                           return nullptr;
     }
 }
@@ -273,6 +295,8 @@ inline const char* nombreDeCapa(BlockType base) {
 
 inline const char* nombreDeItem(BlockType t) {
     if (t == BLOCK_AIR) return nullptr;
+    // Una pieza de la mesa de refineria se llama como su forma.
+    if (Formas::esPieza(t)) return Formas::forma(Formas::formaDePieza(t)).nombre;
     if (Compuesto::esCompuesto(t)) return nombreDeFamilia(Compuesto::familiaDe(t));
     if (esCeldaDeCapas(t))         t = materialAbajo(t);
     if (esNivelParcial(t)) {

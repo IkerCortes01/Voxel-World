@@ -31,7 +31,8 @@
 
 namespace CuerpoGL {
 
-static_assert(ModeloJugador::NUM_HUESOS * 2 == 412, "uDQ[] del shader debe tener NUM_HUESOS * 2 vec4");
+// 206 huesos del esqueleto + 24 de los dedos del modelo de bloques (MallaImportada::HuesoDedo).
+static_assert(ModeloJugador::MallaImportada::NUM_HUESOS_MALLA * 2 == 460, "uDQ[] del shader debe tener NUM_HUESOS_MALLA * 2 vec4");
 
 using namespace Render;
 
@@ -55,7 +56,7 @@ in vec2 aUV;
 in vec4 aTan;
 in vec2 aHueso;
 in float aPeso;
-uniform vec4 uDQ[412];      // por hueso: el giro (x,y,z,w) y la parte dual
+uniform vec4 uDQ[460];      // por hueso: el giro (x,y,z,w) y la parte dual
 uniform float uBase;
 uniform float uAlto;
 out vec2 vUV;
@@ -263,7 +264,7 @@ inline void subirMalla(const ModeloJugador::MallaImportada& m) {
         q[3] = b.n.x; q[4] = b.n.y; q[5] = b.n.z;
         q[6] = m.uv[i * 2]; q[7] = m.uv[i * 2 + 1];
         for (int k = 0; k < 4; ++k) q[8 + k] = m.tangente[i * 4 + k];
-        q[12] = (float)m.h0[i]; q[13] = (float)m.h1[i]; q[14] = m.w0[i];
+        q[12] = (float)m.huesoDeDibujo(i); q[13] = (float)m.huesoDeDibujo1(i); q[14] = m.w0[i];
     }
     GLint antes = 0, antesE = 0;
     glGetIntegerv(ARRAY_ACTUAL, &antes);
@@ -302,7 +303,7 @@ inline bool dibujar(const ModeloJugador::MallaImportada& m, const ModeloJugador:
     if (!r.listo || m.formato != 2) return false;
     subirMalla(m);
     if (r.versionSubida != m.versionForma) return false;
-    float dq[ModeloJugador::NUM_HUESOS * 8];
+    float dq[ModeloJugador::MallaImportada::NUM_HUESOS_MALLA * 8];
     m.cuaternionesDuales(s, dq);
 
     GLint progAntes = 0, arrayAntes = 0, elemAntes = 0, texActiva = 0;
@@ -318,7 +319,7 @@ inline bool dibujar(const ModeloJugador::MallaImportada& m, const ModeloJugador:
     for (int i = 0; i < 4; ++i) { fijo[i] = glIsEnabled(FIJOS[i]); if (fijo[i]) glDisableClientState(FIJOS[i]); }
 
     pglUseProgram(r.prog);
-    r.uniform4fv(r.uHueso, ModeloJugador::NUM_HUESOS * 2, dq);
+    r.uniform4fv(r.uHueso, ModeloJugador::MallaImportada::NUM_HUESOS_MALLA * 2, dq);
     pglUniform1f(r.uRecorteCerca, luz.recorteCerca);
     pglUniform1f(r.uBase, luz.base);
     pglUniform1f(r.uAlto, luz.alto);

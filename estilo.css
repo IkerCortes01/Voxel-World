@@ -428,3 +428,202 @@ body::before {
     margin-top: 10px;
     accent-color: var(--neon);
 }
+
+/* --- La cuenta: el formulario que va por delante de la pagina de adquirir --- */
+html.sin-scroll { overflow: hidden; }
+.tras-el-velo { filter: blur(9px) saturate(.7); pointer-events: none; user-select: none; }
+#cuenta-velo {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    overflow-y: auto;
+    background: rgba(5, 6, 12, .62);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+#cuenta-velo[hidden], #cuenta-insignia[hidden], #cuenta-paso1[hidden], #cuenta-paso2[hidden] { display: none; }
+#cuenta-caja {
+    box-sizing: border-box;
+    width: min(100%, 520px);
+    padding: 28px clamp(18px, 5vw, 34px) 24px;
+    background: #0a0c16;
+    border: 1px solid var(--neon);
+    box-shadow: 0 0 28px -6px var(--neon);
+}
+#cuenta-caja h2 { margin: 0 0 8px; font: 700 clamp(21px, 3vw, 27px)/1.2 var(--mono); color: #fff; }
+#cuenta-intro { margin: 0 0 20px; color: var(--tenue); font-size: 15px; line-height: 1.5; }
+#cuenta-caja label { display: block; margin: 0 0 16px; font: 700 14px var(--mono); color: var(--texto); }
+#cuenta-caja label small { font-weight: 400; color: var(--tenue); }
+#cuenta-caja input[type="text"], #cuenta-caja input[type="password"] {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    margin-top: 7px;
+    padding: 12px 13px;
+    font: 400 17px var(--mono);
+    color: #fff;
+    background: #05060c;
+    border: 1px solid #39405a;
+    border-radius: 0;
+}
+#cuenta-caja input:focus-visible { outline: 2px solid var(--neon); outline-offset: 1px; }
+#cuenta-caja input[type="file"] { display: block; margin-top: 7px; max-width: 100%; color: var(--tenue); font: 400 14px var(--sans); }
+#cuenta-caja .con-sufijo { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+#cuenta-caja .con-sufijo input { margin-top: 0; flex: 1 1 auto; min-width: 0; }
+#cuenta-caja .con-sufijo span { color: var(--tenue); font: 400 16px var(--mono); }
+#cuenta-caja ol { margin: 0 0 14px; padding-left: 22px; color: var(--texto); font-size: 15px; line-height: 1.5; }
+#cuenta-caja ol a { color: #fff; }
+#c-secreto {
+    display: block;
+    margin: 0 0 18px;
+    padding: 14px 12px;
+    text-align: center;
+    font: 700 clamp(15px, 3.6vw, 19px)/1.5 var(--mono);
+    letter-spacing: .04em;
+    color: #ffdc5a;
+    background: #05060c;
+    border: 1px dashed #5a5f78;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+#cuenta-caja .aviso-clave { margin: 0 0 16px; color: #ffb38a; font-size: 14px; line-height: 1.5; }
+#cuenta-caja .boton { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; }
+#cuenta-caja .boton span { padding: 16px 20px; font-size: clamp(17px, 2.2vw, 21px); }
+#cuenta-caja .fila { display: flex; gap: 12px; align-items: stretch; }
+#cuenta-caja .fila .boton { flex: 1 1 auto; }
+.plano {
+    padding: 0 16px;
+    font: 700 14px var(--mono);
+    color: var(--texto);
+    background: #131727;
+    border: 1px solid #39405a;
+    cursor: pointer;
+}
+.plano:hover, .plano:focus-visible { border-color: var(--neon); color: #fff; outline: none; }
+#cuenta-aviso { margin: 14px 0 0; min-height: 1.4em; font: 400 15px/1.4 var(--mono); }
+#cuenta-aviso.ok { color: #7dffa8; }
+#cuenta-aviso.error { color: #ff8e8e; }
+
+/* La insignia: abajo a la derecha, la foto en un circulo y el nombre al lado. */
+#cuenta-insignia {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: calc(100vw - 32px);
+    padding: 8px 12px 8px 8px;
+    background: rgba(8, 10, 20, .92);
+    border: 1px solid #39405a;
+    box-shadow: 0 0 16px -6px var(--neon);
+}
+#insignia-foto {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    background: #2a3458 center / cover no-repeat;
+    font: 700 22px var(--mono);
+    color: #fff;
+}
+#insignia-texto { display: grid; min-width: 0; }
+#insignia-nombre { font: 700 16px var(--mono); color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#insignia-texto small { font: 400 12px var(--mono); color: #7dffa8; }
+#insignia-cambiar { align-self: stretch; padding: 0 10px; font-size: 12px; }
+
+/* --- Entrar con Ludora: una seccion que se pone ENCIMA del formulario --- */
+#cuenta-velo > form { grid-area: 1 / 1; }
+#cuenta-caja.debajo { filter: blur(3px) brightness(.55); pointer-events: none; }
+#ludora-caja {
+    position: relative;
+    z-index: 2;
+    box-sizing: border-box;
+    width: min(100%, 480px);
+    margin-top: 34px;
+    padding: 26px clamp(18px, 5vw, 30px) 22px;
+    background: #0d0a0b;
+    border: 1px solid #e01e23;
+    box-shadow: 0 0 30px -4px #e01e23, 0 18px 40px rgba(0, 0, 0, .6);
+}
+#ludora-caja[hidden], #ludora-paso1[hidden], #ludora-paso2[hidden] { display: none; }
+#ludora-caja h2 { margin: 0 0 8px; font: 700 clamp(20px, 3vw, 25px)/1.2 var(--mono); color: #fff; }
+#ludora-caja .intro { margin: 0 0 18px; color: var(--tenue); font-size: 15px; line-height: 1.5; }
+#ludora-caja .intro strong { color: #fff; }
+#ludora-caja label { display: block; margin: 0 0 15px; font: 700 14px var(--mono); color: var(--texto); }
+#ludora-caja label small { font-weight: 400; color: var(--tenue); }
+#ludora-caja input[type="text"], #ludora-caja input[type="password"] {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    margin-top: 7px;
+    padding: 12px 13px;
+    font: 400 17px var(--mono);
+    color: #fff;
+    background: #050404;
+    border: 1px solid #4a3033;
+    border-radius: 0;
+}
+#ludora-caja input:focus-visible { outline: 2px solid #e01e23; outline-offset: 1px; }
+#ludora-caja input[type="file"] { display: block; margin-top: 7px; max-width: 100%; color: var(--tenue); font: 400 14px var(--sans); }
+#ludora-caja .con-sufijo { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+#ludora-caja .con-sufijo input { margin-top: 0; flex: 1 1 auto; min-width: 0; }
+#ludora-caja .con-sufijo span { color: var(--tenue); font: 400 15px var(--mono); white-space: nowrap; }
+#ludora-caja .fila { display: flex; gap: 12px; align-items: stretch; }
+#ludora-caja .boton { flex: 1 1 auto; display: block; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; }
+#ludora-caja .boton span { padding: 15px 16px; font-size: clamp(16px, 2.1vw, 19px); }
+#ludora-aviso { margin: 14px 0 0; min-height: 1.4em; font: 400 15px/1.4 var(--mono); }
+#ludora-aviso.ok { color: #7dffa8; }
+#ludora-aviso.error { color: #ff8e8e; }
+.plano.ancho { display: block; width: 100%; margin-top: 12px; padding: 13px 16px; }
+
+/* --- Las notificaciones de la pagina: por delante de todo, tambien del velo --- */
+#notificaciones {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 60;
+    display: grid;
+    justify-items: end;
+    gap: 8px;
+    max-width: min(360px, calc(100vw - 24px));
+}
+#noti-campana { padding: 9px 12px; background: rgba(8, 10, 20, .95); }
+#noti-campana.nueva { border-color: var(--neon); color: #fff; box-shadow: 0 0 14px -2px var(--neon); }
+#noti-cuenta {
+    display: inline-block;
+    min-width: 1.5em;
+    margin-left: 6px;
+    padding: 1px 5px;
+    text-align: center;
+    color: #05060c;
+    background: var(--texto);
+    border-radius: 999px;
+}
+#noti-campana.nueva #noti-cuenta { background: var(--neon); color: #fff; }
+#noti-lista {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 12px 14px;
+    background: rgba(8, 10, 20, .97);
+    border: 1px solid #39405a;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+}
+#noti-lista[hidden] { display: none; }
+#noti-vacio { margin: 0; color: var(--tenue); font-size: 14px; }
+#noti-vacio[hidden] { display: none; }
+#noti-items { margin: 0; padding: 0; list-style: none; }
+#noti-items li { display: grid; gap: 3px; padding: 9px 0; border-top: 1px solid #262b40; font-size: 14px; line-height: 1.45; color: var(--texto); }
+#noti-items li:first-child { border-top: 0; padding-top: 0; }
+#noti-items strong { font: 700 13px var(--mono); color: #fff; }
+#noti-items time { font: 400 12px var(--mono); color: var(--tenue); }
+#ludora-caja > .boton { width: 100%; }

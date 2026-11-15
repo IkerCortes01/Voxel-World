@@ -5,9 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Instalar Ludora</title>
-    <link rel="stylesheet" href="estilo.css?v=3">
+    <link rel="stylesheet" href="estilo.css?v=4">
 </head>
 <body>
+    <!-- La cuenta va primero: mientras este abierta, la pagina de detras queda
+         borrosa y no se puede tocar (ver el ultimo script). -->
+    <div id="cuenta-velo" hidden>
+        <form id="ludora-caja" role="dialog" aria-modal="true" aria-labelledby="ludora-titulo" novalidate>
+            <h2 id="ludora-titulo">Crea tu cuenta de Ludora</h2>
+            <p class="intro">Antes de instalar hace falta una cuenta. Se crea aqu&iacute;, en tu navegador: la contrase&ntilde;a no se env&iacute;a a ning&uacute;n sitio.</p>
+            <label>Tu nombre
+                <input id="l-nombre" type="text" maxlength="24" autocomplete="name" required>
+            </label>
+            <label>Cuenta <small>(tu nombre m&aacute;s @ludora.engine)</small>
+                <span class="con-sufijo"><input id="l-cuenta" type="text" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" required><span>@ludora.engine</span></span>
+            </label>
+            <label>Contrase&ntilde;a <small>(6 o m&aacute;s caracteres)</small>
+                <input id="l-clave" type="password" maxlength="64" autocomplete="new-password" required>
+            </label>
+            <label>Repite la contrase&ntilde;a
+                <input id="l-clave2" type="password" maxlength="64" autocomplete="new-password" required>
+            </label>
+            <button type="submit" class="boton"><span>Crear cuenta</span></button>
+            <p id="ludora-aviso" role="alert"></p>
+        </form>
+    </div>
+
+    <!-- Abajo a la derecha: la cuenta creada. -->
+    <aside id="cuenta-insignia" hidden>
+        <span id="insignia-foto" aria-hidden="true"></span>
+        <span id="insignia-texto"><strong id="insignia-nombre"></strong><small id="insignia-cuenta"></small></span>
+        <button type="button" id="insignia-cambiar" class="plano" title="Crear otra cuenta">Cambiar</button>
+    </aside>
+
     <header id="barra">
         <a href="index.html">Inicio</a>
         <span>Ludora</span>
@@ -182,6 +212,95 @@
             aviso.textContent = "Se abrió tu correo con el comentario escrito. Revísalo y envíalo.";
             aviso.className = "ok";
         });
+    </script>
+    <script>
+        // ====================================================================
+        // LA CUENTA DE LUDORA, ANTES DE INSTALAR
+        // ====================================================================
+        // Ludora no tiene servidor de cuentas: la cuenta vive en un archivo,
+        // cuenta.dat, al lado de Ludora.exe. Aqui se crea ese mismo archivo, con
+        // la misma cuenta que hace el motor (src/app/Account.cpp de Ludora):
+        //
+        //   salt = 16 bytes al azar, en hexadecimal
+        //   hash = SHA-256(salt + contrasena), en hexadecimal
+        //
+        // La contrasena no se envia ni se guarda: solo sirve para calcular el
+        // hash. En el navegador quedan el nombre y la cuenta, para la insignia.
+        (function () {
+            const DOMINIO = "@ludora.engine";
+            const el = id => document.getElementById(id);
+            const velo = el("cuenta-velo"), caja = el("ludora-caja"), aviso = el("ludora-aviso");
+            const insignia = el("cuenta-insignia");
+            const fondo = [...document.body.children].filter(e => e !== velo && e.tagName !== "SCRIPT");
+            const hex = b => [...new Uint8Array(b)].map(v => v.toString(16).padStart(2, "0")).join("");
+            const avisar = (t, bueno) => { aviso.textContent = t; aviso.className = bueno ? "ok" : "error"; };
+
+            function bloquear(si) {
+                velo.hidden = !si;
+                for (const e of fondo) { e.inert = si; e.classList.toggle("tras-el-velo", si); }
+                document.documentElement.classList.toggle("sin-scroll", si);
+                if (si) el("l-nombre").focus();
+            }
+            function ensenarInsignia(nombre, cuenta) {
+                el("insignia-nombre").textContent = nombre;
+                el("insignia-cuenta").textContent = cuenta;
+                el("insignia-foto").textContent = (nombre[0] || "?").toUpperCase();
+                insignia.hidden = false;
+            }
+
+            caja.addEventListener("submit", async (ev) => {
+                ev.preventDefault();
+                if (!window.crypto || !crypto.subtle)
+                    return avisar("Este navegador no deja crear la cuenta aquí (hace falta abrir la página por https). Puedes crearla dentro de Ludora.", false);
+                const nombre = el("l-nombre").value.replace(/ +/g, " ").trim();
+                const local = el("l-cuenta").value.trim().replace(/@.*$/, "");
+                const clave = el("l-clave").value;
+                // Las mismas reglas que Ludora.
+                if (!/^[\x20-\x7e\xa1-\xff]{1,24}$/.test(nombre))
+                    return avisar("Tu nombre: hasta 24 caracteres.", false);
+                if (!/^[A-Za-z0-9._-]{1,24}$/.test(local))
+                    return avisar("La cuenta: solo letras, números, punto, guion y guion bajo.", false);
+                if (!/^[\x20-\x7e]{6,64}$/.test(clave))
+                    return avisar("La contraseña: de 6 a 64 caracteres, sin acentos ni eñes.", false);
+                if (clave !== el("l-clave2").value)
+                    return avisar("Las dos contraseñas no coinciden.", false);
+                try {
+                    const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+                    const hash = hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt + clave)));
+                    const archivo =
+                        "# Cuenta de Ludora Engine.\r\n" +
+                        "# La contrasena NO se guarda: solo SHA-256(salt + contrasena).\r\n" +
+                        "email=" + local + DOMINIO + "\r\n" +
+                        "salt=" + salt + "\r\n" +
+                        "hash=" + hash + "\r\n";
+                    const enlace = document.createElement("a");
+                    enlace.href = URL.createObjectURL(new Blob([archivo], { type: "text/plain" }));
+                    enlace.download = "cuenta.dat";
+                    enlace.click();
+                    setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
+                    try { localStorage.setItem("ludora-cuenta", JSON.stringify({ nombre, cuenta: local + DOMINIO })); }
+                    catch (e) { /* sin almacenamiento: la insignia vale para esta visita */ }
+                    el("l-clave").value = el("l-clave2").value = "";
+                    avisar("", true);
+                    ensenarInsignia(nombre, local + DOMINIO);
+                    bloquear(false);
+                    document.getElementById("progreso").hidden = false;
+                    document.getElementById("barra-descarga").hidden = true;
+                    document.getElementById("estado").textContent =
+                        "Cuenta creada. Se ha descargado cuenta.dat: después de instalar, ponlo en la carpeta de Ludora, junto a Ludora.exe, y entra con tu contraseña. Ya puedes instalar.";
+                } catch (e) {
+                    avisar("No se pudo crear la cuenta: " + e.message, false);
+                }
+            });
+            el("insignia-cambiar").addEventListener("click", () => { avisar("", true); bloquear(true); });
+
+            // Al entrar: con cuenta ya creada en este navegador, la insignia;
+            // sin ella, el formulario por delante de todo.
+            let guardada = null;
+            try { guardada = JSON.parse(localStorage.getItem("ludora-cuenta") || "null"); } catch (e) { guardada = null; }
+            if (guardada && guardada.nombre && guardada.cuenta) ensenarInsignia(guardada.nombre, guardada.cuenta);
+            else bloquear(true);
+        })();
     </script>
 </body>
 </html>

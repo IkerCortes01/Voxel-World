@@ -659,3 +659,10 @@ html.sin-scroll { overflow: hidden; }
     display: grid; place-items: center; background: #2a3260 center / cover no-repeat;
     font: 700 28px var(--mono); color: #fff;
 }
+
+/* --- ludora.html?app=1: la pagina devuelve la cuenta a la app del telefono --- */
+#volver-app { margin-top: 24px; text-align: center; }
+#volver-app h2 { margin: 0; font: 700 clamp(24px, 6vw, 40px)/1.2 var(--mono); color: #fff; text-shadow: 0 0 10px var(--neon); }
+#volver-app p { margin: 1em auto 1.4em; max-width: 46ch; overflow-wrap: anywhere; }
+#volver-app .boton { display: block; max-width: 420px; margin: 0 auto; }
+.a-la-app { display: block; margin-top: 14px; text-align: center; color: var(--tenue); }

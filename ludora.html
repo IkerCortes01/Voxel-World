@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Instalar Ludora</title>
-    <link rel="stylesheet" href="estilo.css?v=7">
+    <link rel="stylesheet" href="estilo.css?v=8">
 </head>
 <body>
     <!-- La cuenta va primero: mientras este abierta, la pagina de detras queda
@@ -101,6 +101,7 @@
     <section id="noticias" class="panel seccion">
         <h2>Noticias</h2>
         <ul>
+            <li><time datetime="2026-11-15">15 nov 2026</time> — Ludora para teléfono con el aspecto del PC: barra de título, las seis secciones y su paleta. Al abrirla, una pantalla de carga sobre el fondo desenfocado busca si ya creaste tu cuenta en esta página y, si la encuentra, te la trae con la misma animación de «Cuenta encontrada» del PC. También está el botón BUSCAR CUENTA y la opción de elegir tu cuenta.dat.</li>
             <li><time datetime="2026-11-15">15 nov 2026</time> — Ludora para teléfono (Android 8.0 o posterior), versión de prueba: Tienda, Biblioteca y Cuenta, entrada con huella o rostro (el teléfono solo dice sí o no; tu huella nunca sale de él) y sesión cifrada. Todavía no descarga juegos ni se sincroniza con el PC: falta el servidor, y la app lo dice en pantalla.</li>
             <li><time datetime="2026-11-15">15 nov 2026</time> — Ya se puede instalar desde aquí: el instalador copia Ludora a tu equipo, crea los accesos directos y, si creaste la cuenta en esta página, la deja lista junto a Ludora.exe.</li>
             <li><time datetime="2026-11-15">15 nov 2026</time> — Ludora abre en la Tienda la primera vez, y después en la sección donde te quedaste. Se recuerda por cuenta, así que dos personas en el mismo equipo no se heredan el sitio.</li>
@@ -404,8 +405,12 @@
                     enlace.download = "cuenta.dat";
                     enlace.click();
                     setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
-                    cuenta = { nombre, cuenta: local + DOMINIO, desc: "", estado: "", juego: "", color: "", foto: "" };
+                    // salt y hash tambien aqui (son lo mismo que va en
+                    // cuenta.dat): asi la app del telefono puede llevarse la
+                    // cuenta sin que se escriba la contrasena otra vez.
+                    cuenta = { nombre, cuenta: local + DOMINIO, desc: "", estado: "", juego: "", color: "", foto: "", salt, hash };
                     guardar();
+                    if (MODO_APP) { bloquear(false); return volverALaApp(); }
                     el("l-clave").value = el("l-clave2").value = "";
                     avisar("", true);
                     ensenarInsignia();
@@ -420,14 +425,63 @@
             });
             el("insignia-cambiar").addEventListener("click", abrirPerfil);
 
+            // ----------------------------------------------------------------
+            // LA APP DEL TELEFONO PREGUNTA SI YA HAY CUENTA (ludora.html?app=1)
+            // ----------------------------------------------------------------
+            // La cuenta de la web vive en este navegador; la app no lo puede
+            // leer, asi que abre esta pagina y la pagina se la devuelve con un
+            // enlace ludora://cuenta. Ese enlace no sale del telefono.
+            const MODO_APP = new URLSearchParams(location.search).has("app");
+            function volverALaApp() {
+                const sinCuenta = "ludora://cuenta?ninguna=1";
+                let enlace = sinCuenta, titulo, texto, boton;
+                if (cuenta && /^[0-9a-f]{32}$/.test(cuenta.salt || "") && /^[0-9a-f]{64}$/.test(cuenta.hash || "")) {
+                    enlace = "ludora://cuenta?" + new URLSearchParams({
+                        email: cuenta.cuenta, salt: cuenta.salt, hash: cuenta.hash, nombre: cuenta.nombre });
+                    titulo = "Cuenta encontrada";
+                    texto = cuenta.cuenta;
+                    boton = "Usar esta cuenta en la app";
+                } else if (cuenta) {
+                    // Creada antes de que la pagina guardara el hash.
+                    titulo = "Tu cuenta es de antes";
+                    texto = "En la app pulsa «Tengo cuenta.dat» y elige el archivo cuenta.dat de tus Descargas.";
+                    boton = "Volver a la app";
+                } else {
+                    titulo = "No hay cuenta en este navegador";
+                    texto = "Vuelve a la app y créala allí.";
+                    boton = "Volver a la app";
+                }
+                const p = document.createElement("section");
+                p.id = "volver-app";
+                p.className = "panel";
+                p.innerHTML = '<h2></h2><p></p><a class="boton"><span></span></a>';
+                p.querySelector("h2").textContent = titulo;
+                p.querySelector("p").textContent = texto;
+                p.querySelector("a").href = enlace;
+                p.querySelector("span").textContent = boton;
+                document.body.prepend(p);
+                scrollTo(0, 0);
+                // Algunos navegadores dejan volver solos; si no, queda el boton.
+                location.href = enlace;
+            }
+
             // Al entrar: con cuenta ya creada en este navegador, la insignia;
             // sin ella, el formulario de crear por delante de todo.
             try { cuenta = JSON.parse(localStorage.getItem("ludora-cuenta") || "null"); } catch (e) { cuenta = null; }
             if (cuenta && cuenta.nombre && cuenta.cuenta) {
                 cuenta.nombre = String(cuenta.nombre).replace(LIMPIO, "").slice(0, 24) || "?";
                 ensenarInsignia();
+                if (MODO_APP) volverALaApp();
             } else {
                 cuenta = null;
+                if (MODO_APP) {
+                    // Sin cuenta: se puede crear aqui, o volver a la app.
+                    const a = document.createElement("a");
+                    a.href = "ludora://cuenta?ninguna=1";
+                    a.className = "a-la-app";
+                    a.textContent = "Prefiero crearla en la app";
+                    caja.appendChild(a);
+                }
                 bloquear(true);
                 el("l-nombre").focus();
             }

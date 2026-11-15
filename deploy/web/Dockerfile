@@ -6,7 +6,7 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine
 
 COPY deploy/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html adquirir.html \
-     ludora-inicio.html ludora.html ludora-seguridad.html \
+     ludora.html ludora-seguridad.html \
      estilo.css icono.png titulo.mp4 /usr/share/nginx/html/
 
 EXPOSE 8080

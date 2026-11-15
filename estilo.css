@@ -19,7 +19,20 @@ html {
     overflow-y: scroll;
     scrollbar-color: var(--neon) #000;
     background: var(--fondo);
-    animation: neon 9s linear infinite;
+    /* Cada cambio de --neon repinta TODA la pagina (brillos, sombras y
+       filtros lo usan). En linear eran 60 repintados por segundo: FPS bajos
+       y teclas con retraso. Con steps son 8 por segundo y el ciclo se ve igual. */
+    animation: neon 9s steps(72) infinite;
+}
+/* Telefono: 3 cambios por segundo, que la GPU es mas chica. */
+@media (hover: none) {
+    html { animation-timing-function: steps(27); }
+}
+/* Con la cuenta abierta la pagina de detras esta borrosa: repintarla en
+   cada cambio de color es lo que hacia lento escribir en el formulario. */
+html:has(#cuenta-velo:not([hidden])) { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+    html { animation: none; scroll-behavior: auto; }
 }
 body {
     margin: 0;
@@ -34,6 +47,7 @@ body::before {
     position: fixed;
     inset: 0;
     z-index: -1;
+    transform: translateZ(0);   /* capa propia: el scroll no la repinta */
     background-image:
         linear-gradient(rgba(130, 150, 220, .09) 1px, transparent 1px),
         linear-gradient(90deg, rgba(130, 150, 220, .09) 1px, transparent 1px);
@@ -440,9 +454,9 @@ html.sin-scroll { overflow: hidden; }
     place-items: center;
     padding: 16px;
     overflow-y: auto;
+    /* Sin backdrop-filter: la pagina de detras ya va borrosa (.tras-el-velo)
+       y desenfocar dos veces costaba un repintado por tecla en el telefono. */
     background: rgba(5, 6, 12, .62);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
 }
 #cuenta-velo[hidden], #cuenta-insignia[hidden], #cuenta-paso1[hidden], #cuenta-paso2[hidden] { display: none; }
 #cuenta-caja {

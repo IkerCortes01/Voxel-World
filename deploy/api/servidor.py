@@ -181,7 +181,7 @@ def exportar():
     con = conectar()
     salida = csv.writer(sys.stdout)
     for tabla in ("comentarios", "descargas", "invitaciones", "bajas"):
-        cur = con.execute(f"SELECT * FROM {tabla} ORDER BY id")
+        cur = con.execute(f"SELECT * FROM {tabla} ORDER BY 1")
         salida.writerow([f"# {tabla}"])
         salida.writerow([c[0] for c in cur.description])
         salida.writerows(cur)

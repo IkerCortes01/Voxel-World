@@ -164,7 +164,7 @@ TEST_CASE("Texto: el nombre de un mundo y el de la cuenta admiten todo el teclad
     CHECK_FALSE(Cuenta::nombreVale(" con espacio delante"));
     CHECK(Cuenta::claveVale("contrase\xC3\xB1" "a-con-\xC3\xA1" "cento!"));
     CHECK_FALSE(Cuenta::claveVale("\xC3\xB1\xC3\xB1\xC3\xB1\xC3\xB1"));  // 4 caracteres (8 bytes): corta
-    CHECK(Cuenta::normalizarUsuario("IkerCortes@VoxelWorld") == "ikercortes");
+    CHECK(Cuenta::normalizarUsuario("IkerCortes@Ludora.Engine") == "ikercortes");
 }
 
 TEST_CASE("Texto: el motor escribe y dibuja con todo el teclado en sus campos") {

@@ -598,7 +598,7 @@ TEST_CASE("BLOCK_TYPE_MAX cubre hasta el ultimo bloque del enum") {
     // ultimo de los cuatro pinos mexicanos que entraron al enum.
     // Hoy el ultimo es la penca de nopal posada (lo que queda al colocar el
     // item Penca de Nopal).
-    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_MAGUEY_CIRIAL_PENCA);
+    CHECK((int)BLOCK_TYPE_MAX == (int)BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL);
     CHECK((int)BLOCK_AGAVE_AZUL_PUESTO <= (int)BLOCK_TYPE_MAX);
 
     // Y las dos orientaciones del techo caben bajo el tope: si alguna se

@@ -184,6 +184,13 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_MAGUEY_MADRECUIXE_PENCA: return "PENCA DE MADRECUIXE";
         case BLOCK_MAGUEY_CUISHE_PENCA:     return "PENCA DE CUISHE";
         case BLOCK_MAGUEY_CIRIAL_PENCA:     return "PENCA DE CIRIAL";
+        case BLOCK_MAGUEY_SISAL_PENCA:      return "PENCA DE MAGUEY SISAL";
+        case BLOCK_AGAVE_FOURCROYDES_PENCA: return "PENCA DE AGAVE FOURCROYDES";
+        case BLOCK_AGAVE_AMERICANA_PENCA:   return "PENCA DE AGAVE AMERICANA";
+        case BLOCK_FLOR_CEMPASUCHIL:        return "CEMPASUCHIL";
+        case BLOCK_FLOR_NOCHEBUENA:         return "NOCHEBUENA";
+        case BLOCK_FLOR_COSMOS:             return "COSMOS";
+        case BLOCK_FLOR_DALIA:              return "DALIA";
 
         // --- Techo de hojas (las dos orientaciones son el mismo item) ---
         case BLOCK_TECHO_HOJAS:        return "TECHO DE HOJAS";
@@ -193,6 +200,7 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_PEDAZO_PIEDRA:      return "PEDAZO DE PIEDRA";
         case BLOCK_PEDAZO_GRAVA:       return "GRAVA SUELTA";
         case BLOCK_PEDAZO_PEDERNAL:    return "PEDERNAL";
+        case BLOCK_PEDAZO_OBSIDIANA:   return "OBSIDIANA";
         case BLOCK_PEDAZO_CALIZA:      return "PEDAZO DE CALIZA";
         case BLOCK_PEDAZO_TIERRA:      return "TERRON DE TIERRA";
         case BLOCK_PEDAZO_COBRE:       return "COBRE CRUDO";
@@ -209,6 +217,7 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_RAW_ZINC:           return "ZINC CRUDO";
         case BLOCK_RAW_COPPER:         return "COBRE CRUDO";
         case BLOCK_PEDERNAL_AFILADO:   return "PEDERNAL AFILADO";
+        case BLOCK_OBSIDIANA_AFILADA:  return "OBSIDIANA AFILADA";
         case BLOCK_IRON_ORE:           return "MINERAL DE HIERRO";
         case BLOCK_BRICKS:             return "LADRILLOS";
         case BLOCK_GLASS:              return "VIDRIO";
@@ -220,6 +229,12 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_PICO_PIEDRA:        return "PICO DE PIEDRA";
         case BLOCK_HACHA_PEDERNAL:     return "HACHA DE PEDERNAL";
         case BLOCK_PICO_PEDERNAL:      return "PICO DE PEDERNAL";
+        case BLOCK_PALA_PIEDRA:        return "PALA DE PIEDRA";
+        case BLOCK_PALA_PEDERNAL:      return "PALA DE PEDERNAL";
+        case BLOCK_LANZA_PIEDRA:       return "LANZA DE PIEDRA";
+        case BLOCK_LANZA_PEDERNAL:     return "LANZA DE PEDERNAL";
+        case BLOCK_DAGA_OBSIDIANA:     return "DAGA DE OBSIDIANA";
+        case BLOCK_PINA_PINO:          return "PINA DE PINO";
         case BLOCK_MARTILLO_PEDERNAL:  return "MARTILLO DE PEDERNAL";
 
         // --- Horno ---
@@ -237,6 +252,21 @@ inline const char* nombreDeBase(BlockType t) {
         case BLOCK_TAZON_PINO_AGUAMIEL:   return "TAZON DE PINO CON AGUAMIEL";
         case BLOCK_TAZON_ENCINO_AGUAMIEL: return "TAZON DE ENCINO CON AGUAMIEL";
         case BLOCK_TAZON_OYAMEL_AGUAMIEL: return "TAZON DE OYAMEL CON AGUAMIEL";
+        case BLOCK_TAZON_OCOTE: return "TAZON DE PINO DE MOCTEZUMA";
+        case BLOCK_TAZON_OCOTE_AGUA: return "TAZON DE PINO DE MOCTEZUMA CON AGUA";
+        case BLOCK_TAZON_OCOTE_AGUAMIEL: return "TAZON DE PINO DE MOCTEZUMA CON AGUAMIEL";
+        case BLOCK_TAZON_PATULA: return "TAZON DE PINO PATULA";
+        case BLOCK_TAZON_PATULA_AGUA: return "TAZON DE PINO PATULA CON AGUA";
+        case BLOCK_TAZON_PATULA_AGUAMIEL: return "TAZON DE PINO PATULA CON AGUAMIEL";
+        case BLOCK_TAZON_PINONERO: return "TAZON DE PINO PINONERO";
+        case BLOCK_TAZON_PINONERO_AGUA: return "TAZON DE PINO PINONERO CON AGUA";
+        case BLOCK_TAZON_PINONERO_AGUAMIEL: return "TAZON DE PINO PINONERO CON AGUAMIEL";
+        case BLOCK_TAZON_ALTURAS: return "TAZON DE PINO DE LAS ALTURAS";
+        case BLOCK_TAZON_ALTURAS_AGUA: return "TAZON DE PINO DE LAS ALTURAS CON AGUA";
+        case BLOCK_TAZON_ALTURAS_AGUAMIEL: return "TAZON DE PINO DE LAS ALTURAS CON AGUAMIEL";
+        case BLOCK_TAZON_PSEUDOSTROBUS: return "TAZON DE PSEUDOSTROBUS";
+        case BLOCK_TAZON_PSEUDOSTROBUS_AGUA: return "TAZON DE PSEUDOSTROBUS CON AGUA";
+        case BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL: return "TAZON DE PSEUDOSTROBUS CON AGUAMIEL";
 
         // --- Fauna ---
         case BLOCK_HUEVO_PECARI:       return "HUEVO DE PECARI";
@@ -269,6 +299,9 @@ inline const char* nombreDeFamilia(Compuesto::Familia f) {
         case Compuesto::FAM_MAGUEY_MADRECUIXE: return "MADRECUIXE";
         case Compuesto::FAM_MAGUEY_CUISHE:     return "CUISHE";
         case Compuesto::FAM_MAGUEY_CIRIAL:     return "CIRIAL";
+        case Compuesto::FAM_MAGUEY_SISAL:      return "MAGUEY SISAL";
+        case Compuesto::FAM_AGAVE_FOURCROYDES: return "AGAVE FOURCROYDES";
+        case Compuesto::FAM_AGAVE_AMERICANA:   return "AGAVE AMERICANA";
         default:                           return nullptr;
     }
 }
@@ -297,6 +330,8 @@ inline const char* nombreDeItem(BlockType t) {
     if (t == BLOCK_AIR) return nullptr;
     // Una pieza de la mesa de refineria se llama como su forma.
     if (Formas::esPieza(t)) return Formas::forma(Formas::formaDePieza(t)).nombre;
+    // Una flor plantada se llama como su flor, tenga la edad que tenga.
+    if (Compuesto::Flor::esFlor(t)) return nombreDeBase(itemDeFlor((int)Compuesto::Flor::especieDe(t)));
     if (Compuesto::esCompuesto(t)) return nombreDeFamilia(Compuesto::familiaDe(t));
     if (esCeldaDeCapas(t))         t = materialAbajo(t);
     if (esNivelParcial(t)) {

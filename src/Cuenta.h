@@ -226,6 +226,17 @@ inline std::string aBase32(const Bytes& b) {
     if (bits > 0) s += A[(buf << (5 - bits)) & 31];
     return s;
 }
+// El secreto escrito para teclearlo en la aplicacion: de cuatro en cuatro.
+inline std::string secretoLegible(const Bytes& secreto) {
+    const std::string b = aBase32(secreto);
+    std::string s;
+    for (size_t i = 0; i < b.size(); ++i) {
+        if (i && i % 4 == 0) s += ' ';
+        s += b[i];
+    }
+    return s;
+}
+
 // Comparar sin que el tiempo delate donde esta la primera diferencia.
 inline bool iguales(const Bytes& a, const Bytes& b) {
     if (a.size() != b.size()) return false;
@@ -235,9 +246,14 @@ inline bool iguales(const Bytes& a, const Bytes& b) {
 }
 
 // ------------------------------------------------------------------ Reglas
-constexpr const char* DOMINIO = "@voxelworld";
+// PEDIDO: "que puedas crear una cuenta libremente pero use el arroba
+// ludora.engine y contrasena y nombre". La cuenta es la misma de Ludora:
+// nombre@ludora.engine. Las que se crearon antes con @voxelworld se siguen
+// leyendo, y pasan a llamarse con el dominio nuevo.
+constexpr const char* DOMINIO = "@ludora.engine";
+constexpr const char* DOMINIO_VIEJO = "@voxelworld";
 constexpr int VUELTAS = 120000;
-constexpr size_t NOMBRE_MAX = 24, USUARIO_MIN = 3, USUARIO_MAX = 24, CLAVE_MIN = 8, CLAVE_MAX = 64;
+constexpr size_t NOMBRE_MAX = 24, USUARIO_MIN = 3, USUARIO_MAX = 24, CLAVE_MIN = 6, CLAVE_MAX = 64;
 
 // El nombre: cualquier cosa que se pueda escribir (minusculas, acentos, enie,
 // signos), en UTF-8, hasta 24 caracteres y sin espacios en las puntas. Nada de
@@ -264,7 +280,7 @@ inline bool usuarioVale(const std::string& u) {
         if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_')) return false;
     return true;
 }
-// La contrasena: de 8 a 64 caracteres de los que se pueden escribir, acentos
+// La contrasena: de 6 a 64 caracteres (el minimo de Ludora) de los que se pueden escribir, acentos
 // y signos incluidos. Va en UTF-8, igual que la codifica el navegador.
 inline bool claveVale(const std::string& c) {
     const size_t n = Utf8::largo(c);
@@ -272,64 +288,50 @@ inline bool claveVale(const std::string& c) {
 }
 
 // ---------------------------------------------------------------- El registro
+// PEDIDO: "arregla que no pida codigo". La cuenta ya no lleva autenticador: se
+// crea con nombre, cuenta y contrasena, y se entra con cuenta y contrasena.
+// (Las funciones del autenticador de arriba se quedan, con sus pruebas, por si
+// vuelve como opcion; aqui ya no se usan.)
 struct Registro {
     std::string nombre;
-    std::string cuenta;        // "usuario@voxelworld"
+    std::string cuenta;        // "usuario@ludora.engine"
     Bytes sal, hash;           // de la contrasena
-    Bytes salTotp, totp;       // el secreto del autenticador, tapado
     int vueltas = VUELTAS;
     std::string foto;          // archivo de la foto ("" si no hay)
     bool valido() const {
-        return !nombre.empty() && !cuenta.empty() && sal.size() >= 8 && hash.size() == 32 &&
-               salTotp.size() >= 8 && totp.size() == 20 && vueltas >= 1000;
+        return !nombre.empty() && !cuenta.empty() && sal.size() >= 8 && hash.size() == 32 && vueltas >= 1000;
     }
 };
 
-// Tapar y destapar el secreto del autenticador con la contrasena (es la misma
-// operacion: XOR con 20 bytes que salen de ella).
-inline Bytes taparSecreto(const Bytes& secreto, const std::string& clave, const Bytes& salTotp, int vueltas) {
-    const Bytes k = pbkdf2(clave, salTotp, vueltas, secreto.size());
-    Bytes o(secreto.size());
-    for (size_t i = 0; i < o.size(); ++i) o[i] = secreto[i] ^ k[i];
-    return o;
-}
-
-// Crear una cuenta. `sal` y `salTotp` (16 bytes) y `secreto` (20 bytes) los da
-// quien llama, al azar. `vueltas` solo se baja en las pruebas.
+// Crear una cuenta. `sal` (16 bytes) la da quien llama, al azar. `vueltas` solo
+// se baja en las pruebas.
 inline Registro crear(const std::string& nombre, const std::string& usuario, const std::string& clave,
-                      const Bytes& sal, const Bytes& salTotp, const Bytes& secreto, int vueltas = VUELTAS) {
+                      const Bytes& sal, int vueltas = VUELTAS) {
     Registro r;
     r.nombre = nombre;
     r.cuenta = normalizarUsuario(usuario) + DOMINIO;
     r.sal = sal;
-    r.salTotp = salTotp;
     r.vueltas = vueltas;
     r.hash = pbkdf2(clave, sal, vueltas, 32);
-    r.totp = taparSecreto(secreto, clave, salTotp, vueltas);
     return r;
 }
 
-enum class Entrada { DENTRO, CREDENCIALES, CODIGO, SIN_CUENTA };
+enum class Entrada { DENTRO, CREDENCIALES, SIN_CUENTA };
 
-// Intentar entrar. `codigo` es el de 6 digitos del autenticador y `unix` la
-// hora (segundos).
-inline Entrada entrar(const Registro& r, const std::string& usuario, const std::string& clave, int codigo,
-                      long long unix) {
+// Intentar entrar: la cuenta y la contrasena.
+inline Entrada entrar(const Registro& r, const std::string& usuario, const std::string& clave) {
     if (!r.valido()) return Entrada::SIN_CUENTA;
     // Se calcula el hash SIEMPRE, coincida o no la cuenta: tarda lo mismo.
     const Bytes h = pbkdf2(clave, r.sal, r.vueltas, 32);
     const bool cuentaOk = (normalizarUsuario(usuario) + DOMINIO) == r.cuenta;
     const bool claveOk = iguales(h, r.hash);
-    if (!(cuentaOk && claveOk)) return Entrada::CREDENCIALES;
-    const Bytes secreto = taparSecreto(r.totp, clave, r.salTotp, r.vueltas);
-    return totpVale(secreto, codigo, unix) ? Entrada::DENTRO : Entrada::CODIGO;
+    return (cuentaOk && claveOk) ? Entrada::DENTRO : Entrada::CREDENCIALES;
 }
 
 inline const char* mensaje(Entrada e) {
     switch (e) {
         case Entrada::DENTRO:       return "";
         case Entrada::CREDENCIALES: return "CUENTA O CONTRASENA INCORRECTAS";
-        case Entrada::CODIGO:       return "EL CODIGO DEL AUTENTICADOR NO VALE";
         default:                    return "NO HAY NINGUNA CUENTA EN ESTE EQUIPO";
     }
 }
@@ -338,15 +340,13 @@ inline const char* mensaje(Entrada e) {
 inline std::string aTexto(const Registro& r) {
     std::string s;
     s += "# Cuenta de Voxel World. La contrasena NO esta aqui: solo su hash\n";
-    s += "# (PBKDF2-HMAC-SHA256). El secreto del autenticador va tapado con ella.\n";
-    s += "version=1\n";
+    s += "# (PBKDF2-HMAC-SHA256).\n";
+    s += "version=2\n";
     s += "nombre=" + r.nombre + "\n";
     s += "cuenta=" + r.cuenta + "\n";
     s += "vueltas=" + std::to_string(r.vueltas) + "\n";
     s += "sal=" + aHex(r.sal) + "\n";
     s += "hash=" + aHex(r.hash) + "\n";
-    s += "saltotp=" + aHex(r.salTotp) + "\n";
-    s += "totp=" + aHex(r.totp) + "\n";
     if (!r.foto.empty()) s += "foto=" + r.foto + "\n";
     return s;
 }
@@ -369,9 +369,14 @@ inline Registro deTexto(const std::string& texto) {
         else if (k == "vueltas") { r.vueltas = 0; for (char c : v) if (c >= '0' && c <= '9' && r.vueltas < 100000000) r.vueltas = r.vueltas * 10 + (c - '0'); }
         else if (k == "sal") r.sal = deHex(v);
         else if (k == "hash") r.hash = deHex(v);
-        else if (k == "saltotp") r.salTotp = deHex(v);
-        else if (k == "totp") r.totp = deHex(v);
+        // (saltotp y totp, de las cuentas con autenticador: ya no se usan.)
         else if (k == "foto") r.foto = v;
+    }
+    // Una cuenta de antes, con el dominio viejo: es la misma, con el nuevo.
+    {
+        const size_t dv = std::strlen(DOMINIO_VIEJO);
+        if (r.cuenta.size() > dv && r.cuenta.compare(r.cuenta.size() - dv, std::string::npos, DOMINIO_VIEJO) == 0)
+            r.cuenta = r.cuenta.substr(0, r.cuenta.size() - dv) + DOMINIO;
     }
     // Un archivo retocado no se da por bueno a medias.
     if (!nombreVale(r.nombre) || r.cuenta.size() <= std::strlen(DOMINIO) ||
@@ -380,17 +385,6 @@ inline Registro deTexto(const std::string& texto) {
         !r.valido())
         return Registro();
     return r;
-}
-
-// El secreto escrito para teclearlo en la aplicacion: de cuatro en cuatro.
-inline std::string secretoLegible(const Bytes& secreto) {
-    const std::string b = aBase32(secreto);
-    std::string s;
-    for (size_t i = 0; i < b.size(); ++i) {
-        if (i && i % 4 == 0) s += ' ';
-        s += b[i];
-    }
-    return s;
 }
 
 }  // namespace Cuenta

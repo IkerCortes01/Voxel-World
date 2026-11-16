@@ -127,6 +127,13 @@ add_executable(voxel_tests
     test_maguey_espadin.cpp
     test_magueyes_roseta.cpp
     test_formas.cpp
+    test_orientacion.cpp
+    test_flores.cpp
+    test_arranque.cpp
+    test_celdas_juntas.cpp
+    test_sonido_bloque.cpp
+    test_obsidiana.cpp
+    test_palas_lanzas.cpp
     test_cuenta.cpp
     test_texto_utf8.cpp
     test_clic_boton.cpp

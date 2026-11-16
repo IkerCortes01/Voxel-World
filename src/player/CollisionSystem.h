@@ -108,20 +108,24 @@ private:
                     // que solo ocupan una parte (p. ej. el cladodio del nopal,
                     // una losa de 5/16). Para un bloque normal esto devuelve
                     // el cubo completo y el resultado es identico al de antes.
-                    float bx0, by0, bz0, bx1, by1, bz1;
-                    if (!world->getBlockBox(x, y, z, bx0, by0, bz0,
-                                                     bx1, by1, bz1)) continue;
+                    // ⭐ Y CAJA A CAJA: una escalera, una pared con puerta o
+                    // una columna son varias cajas con hueco entre ellas. Se
+                    // choca con cada una, no con el cubo que las envuelve:
+                    // por donde el bloque esta vacio, se pasa.
+                    float cajas[IWorldQuery::MAX_CAJAS_POR_BLOQUE][6];
+                    const int n = world->getBlockBoxes(x, y, z, cajas, IWorldQuery::MAX_CAJAS_POR_BLOQUE);
+                    for (int c = 0; c < n; ++c) {
+                        // A coordenadas de mundo.
+                        const float bx0 = cajas[c][0] + (float)x, bx1 = cajas[c][3] + (float)x;
+                        const float by0 = cajas[c][1] + (float)y, by1 = cajas[c][4] + (float)y;
+                        const float bz0 = cajas[c][2] + (float)z, bz1 = cajas[c][5] + (float)z;
 
-                    // A coordenadas de mundo.
-                    bx0 += (float)x; bx1 += (float)x;
-                    by0 += (float)y; by1 += (float)y;
-                    bz0 += (float)z; bz1 += (float)z;
-
-                    // Solape real entre el AABB del jugador y el del bloque.
-                    if (box.maxX > bx0 && box.minX < bx1 &&
-                        box.maxY > by0 && box.minY < by1 &&
-                        box.maxZ > bz0 && box.minZ < bz1) {
-                        return true;
+                        // Solape real entre el AABB del jugador y el de la caja.
+                        if (box.maxX > bx0 && box.minX < bx1 &&
+                            box.maxY > by0 && box.minY < by1 &&
+                            box.maxZ > bz0 && box.minZ < bz1) {
+                            return true;
+                        }
                     }
                 }
             }

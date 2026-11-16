@@ -231,6 +231,7 @@ inline float densidadDe(BlockType t) {
         case BLOCK_PEDAZO_GRAVA:      return Densidad::GRAVA;
         case BLOCK_PEDAZO_TIERRA:     return Densidad::TIERRA;
         case BLOCK_PEDAZO_PEDERNAL:   return 2600.0f;   // silice
+        case BLOCK_PEDAZO_OBSIDIANA:  return 2400.0f;   // vidrio volcanico: algo mas ligero
         case BLOCK_PEDAZO_COBRE:      return Densidad::COBRE;
         case BLOCK_PEDAZO_GOETHITA:   return Densidad::GOETHITA;
         case BLOCK_PEDAZO_HEMATITE:   return Densidad::HEMATITE;

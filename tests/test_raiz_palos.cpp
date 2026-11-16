@@ -3,6 +3,7 @@
 #include "Inventory.h"
 #include <fstream>
 #include <string>
+#include <vector>
 #include <iterator>
 
 // ============================================================================
@@ -159,9 +160,11 @@ TEST_CASE("Supervivencia: la carga del player.dat ajusta el tamano EXACTO") {
         "ha vuelto el resize que solo crece: el bug del creativo reaparece");
 }
 
-TEST_CASE("Supervivencia: la pantalla de carga recorta lo heredado") {
-    // La segunda red, para el mundo recien creado y para cualquier camino que
-    // no pase por player.dat.
+// PEDIDO: "arregla que estas filas de casillas no guardan informacion".
+// La pantalla de carga recortaba el inventario a 45 casillas al entrar a un
+// mundo de supervivencia, y con eso tiraba las filas que el inventario abre
+// al llenarse, que SI se habian guardado y leido bien.
+TEST_CASE("Supervivencia: la pantalla de carga ya NO recorta las filas de mas") {
     const std::string raiz = raizProyecto();
     REQUIRE(!raiz.empty());
     const std::string fuente = leerArchivo(raiz + "src/main.cpp");
@@ -170,56 +173,65 @@ TEST_CASE("Supervivencia: la pantalla de carga recorta lo heredado") {
     const size_t marca = fuente.find("SUPERVIVENCIA: EL INVENTARIO EMPIEZA VACIO");
     REQUIRE_MESSAGE(marca != std::string::npos,
                     "no esta la rama de supervivencia de la pantalla de carga");
-
-    // Margen amplio: entre la marca y el codigo hay un comentario largo que
-    // explica por que aqui no se puede llamar a clear().
     const std::string cuerpo = fuente.substr(marca, 3000);
-    CHECK(cuerpo.find("inv.total() > Inventory::SLOTS") != std::string::npos);
-    CHECK(cuerpo.find("inv.slots.resize((size_t)Inventory::SLOTS);") != std::string::npos);
-
-    // ⚠️ Y que NO se llame a clear() ahi: ese codigo corre DESPUES de
-    // loadWorldData, asi que un clear() borraria la partida recien cargada
-    // del disco. Es el error facil de cometer al tocar esto.
-    //
-    // Se mira solo hasta el cierre de la rama, no los 3000 caracteres: mas
-    // alla empieza otro bloque y un clear() suyo daria un fallo falso.
     const size_t finRama = cuerpo.find("if (inv.selectedSlot");
     REQUIRE(finRama != std::string::npos);
-    CHECK_MESSAGE(cuerpo.substr(0, finRama).find("inventory.clear()") == std::string::npos,
-                  "clear() ahi borraria la partida cargada: solo recortar");
+    const std::string rama = cuerpo.substr(0, finRama);
+
+    // Ni recorte ni clear(): ese codigo corre DESPUES de loadWorldData, asi
+    // que cualquiera de los dos borraria lo recien cargado del disco.
+    CHECK_MESSAGE(rama.find("inv.slots.resize(") == std::string::npos,
+                  "ha vuelto el recorte a 45: las filas de mas se pierden al entrar");
+    CHECK_MESSAGE(rama.find("inventory.clear()") == std::string::npos,
+                  "clear() ahi borraria la partida cargada");
+    // La casilla elegida puede estar en una fila de mas.
+    CHECK(cuerpo.find("if (inv.selectedSlot >= inv.total() || inv.selectedSlot < 0)") != std::string::npos);
+
+    // Lo que hace innecesario el recorte: los tres caminos de entrada dejan
+    // el inventario exacto (y sin restos del creativo) por su cuenta.
+    CHECK(fuente.find("state->inventory.slots.assign((size_t)numSlots, InventorySlot());") != std::string::npos);
+    size_t n = 0;
+    for (size_t k = fuente.find("state->inventory.clear();"); k != std::string::npos;
+         k = fuente.find("state->inventory.clear();", k + 1)) ++n;
+    CHECK(n >= 2);      // createNewWorld y loadWorldData sin player.dat
 }
 
-TEST_CASE("Supervivencia: recortar a 45 conserva lo que el jugador tenia") {
-    // El recorte no puede llevarse por delante lo que loadWorldData acaba de
-    // escribir en las 45 primeras casillas.
+TEST_CASE("Inventario: las filas que se abren al llenarse se guardan y vuelven enteras") {
+    // El mismo ida y vuelta que hacen saveWorldData y loadWorldData: primero
+    // cuantas casillas hay, luego todas.
     Inventory inv;
     inv.clear();
-
-    // Lo que el jugador consiguio por su cuenta.
-    inv.slots[0].blockType = BLOCK_DIRT;   inv.slots[0].count = 12;
-    inv.slots[7].blockType = BLOCK_STICK;  inv.slots[7].count = 4;
-
-    // Y la cola heredada de una partida creativa anterior.
-    for (int i = 45; i < 115; ++i) {
+    for (int i = 0; i < Inventory::SLOTS; ++i) {
+        inv.slots[(size_t)i].blockType = BLOCK_DIRT;
+        inv.slots[(size_t)i].count = 1 + i;
+    }
+    // Dos filas mas, las de la queja: 18 casillas por encima de la parrilla.
+    for (int i = Inventory::SLOTS; i < Inventory::SLOTS + 2 * Inventory::COLUMNAS; ++i) {
         InventorySlot& s = inv.at(i);
-        s.blockType = BLOCK_STONE;
-        s.count = INFINITE_COUNT;
+        s.blockType = BLOCK_STICK;
+        s.count = 100 + i;
     }
-    REQUIRE(inv.total() >= 115);
+    REQUIRE(inv.total() >= Inventory::SLOTS + 2 * Inventory::COLUMNAS);
 
-    // El recorte, tal como lo hace la pantalla de carga.
-    if (inv.total() > Inventory::SLOTS)
-        inv.slots.resize((size_t)Inventory::SLOTS);
-
-    CHECK(inv.total() == Inventory::SLOTS);
-    CHECK(inv.slots[0].blockType == BLOCK_DIRT);
-    CHECK(inv.slots[0].count == 12);
-    CHECK(inv.slots[7].blockType == BLOCK_STICK);
-    CHECK(inv.slots[7].count == 4);
-
-    // Y ni una sola casilla con stack infinito: eso solo existe en creativo.
+    std::vector<int> archivo;
+    archivo.push_back(inv.total());
     for (int i = 0; i < inv.total(); ++i) {
-        INFO("casilla ", i);
-        CHECK(inv.slots[(size_t)i].count != INFINITE_COUNT);
+        archivo.push_back((int)inv.slots[(size_t)i].blockType);
+        archivo.push_back(inv.slots[(size_t)i].count);
     }
+
+    Inventory leido;
+    leido.slots.assign((size_t)archivo[0], InventorySlot());
+    for (int i = 0; i < archivo[0]; ++i) {
+        leido.slots[(size_t)i].blockType = (BlockType)archivo[(size_t)(1 + 2 * i)];
+        leido.slots[(size_t)i].count = archivo[(size_t)(2 + 2 * i)];
+    }
+
+    REQUIRE(leido.total() == inv.total());
+    for (int i = Inventory::SLOTS; i < Inventory::SLOTS + 2 * Inventory::COLUMNAS; ++i) {
+        INFO("casilla ", i);
+        CHECK(leido.slots[(size_t)i].blockType == BLOCK_STICK);
+        CHECK(leido.slots[(size_t)i].count == 100 + i);
+    }
+    CHECK(leido.slots[0].count == 1);
 }

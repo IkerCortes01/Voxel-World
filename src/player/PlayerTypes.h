@@ -296,6 +296,25 @@ public:
         maxX = 1.0f; maxY = 1.0f; maxZ = 1.0f;
         return true;
     }
+
+    // ⭐ TODAS LAS CAJAS DE UN BLOQUE, NO SOLO UNA.
+    //
+    // PEDIDO: "arregla que donde un bloque modificado tenga vacio, no contara
+    // como bloque completo y el jugador puede pasar libre".
+    //
+    // getBlockBox da UNA caja por casilla, asi que una escalera, una pared con
+    // puerta o una columna -- que son varias cajas con hueco entre ellas --
+    // chocaban como el cubo entero. Esta devuelve cada caja por separado
+    // (x0, y0, z0, x1, y1, z1 en coordenadas de la casilla): se choca con lo
+    // que hay y se pasa por donde no hay nada. Devuelve cuantas ha escrito
+    // (0 = no frena). Por defecto, la unica caja de getBlockBox.
+    static constexpr int MAX_CAJAS_POR_BLOQUE = 40;
+    virtual int getBlockBoxes(int x, int y, int z, float cajas[][6], int maximo) const {
+        if (maximo < 1) return 0;
+        if (!getBlockBox(x, y, z, cajas[0][0], cajas[0][1], cajas[0][2],
+                                  cajas[0][3], cajas[0][4], cajas[0][5])) return 0;
+        return 1;
+    }
 };
 
 // ----------------------------------------------------------------------------

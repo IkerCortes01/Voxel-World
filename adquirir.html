@@ -20,32 +20,16 @@
                     <input id="c-nombre" type="text" maxlength="24" autocomplete="name" placeholder="Iker Cortés" required>
                 </label>
                 <label>Cuenta
-                    <span class="con-sufijo"><input id="c-cuenta" type="text" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="iker" required><span>@voxelworld</span></span>
+                    <span class="con-sufijo"><input id="c-cuenta" type="text" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="iker" required><span>@ludora.engine</span></span>
                 </label>
-                <label>Contrase&ntilde;a <small>(8 o m&aacute;s caracteres)</small>
+                <label>Contrase&ntilde;a <small>(6 o m&aacute;s caracteres)</small>
                     <input id="c-clave" type="password" maxlength="64" autocomplete="new-password" required>
                 </label>
                 <label>Foto <small>(opcional)</small>
                     <input id="c-foto" type="file" accept="image/png,image/jpeg,image/bmp">
                 </label>
-                <button type="submit" class="boton"><span>Continuar</span></button>
+                <button type="submit" class="boton"><span>Crear cuenta</span></button>
                 <button type="button" id="c-ludora" class="plano ancho">&iquest;Tienes cuenta de Ludora Engine?</button>
-            </div>
-
-            <div id="cuenta-paso2" hidden>
-                <ol>
-                    <li>Abre tu aplicaci&oacute;n de autenticador en el tel&eacute;fono (Google Authenticator, Authy, Microsoft Authenticator...).</li>
-                    <li>Elige &laquo;introducir una clave&raquo; y escribe esta, o <a id="c-enlace" href="#">&aacute;brela desde el tel&eacute;fono</a>:</li>
-                </ol>
-                <output id="c-secreto"></output>
-                <label>Autenticador <small>(el c&oacute;digo de 6 d&iacute;gitos que te da)</small>
-                    <input id="c-codigo" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
-                </label>
-                <p class="aviso-clave">Guarda esa clave: sin el autenticador no se puede entrar al juego.</p>
-                <div class="fila">
-                    <button type="button" id="c-volver" class="plano">Volver</button>
-                    <button type="submit" class="boton"><span>Crear cuenta</span></button>
-                </div>
             </div>
 
             <p id="cuenta-aviso" role="alert"></p>
@@ -264,27 +248,27 @@
         // ====================================================================
         // LA CUENTA, ANTES DE ADQUIRIR
         // ====================================================================
-        // Esta pagina es HTML estatico: no hay servidor que guarde cuentas. La
-        // cuenta se CREA AQUI, en el navegador, y sale como un archivo
-        // (cuenta.vwcuenta) que el juego importa. Es el mismo archivo que crea
-        // el propio juego, con las mismas cuentas (ver src/Cuenta.h):
+        // Esta pagina no guarda cuentas en ningun servidor. La cuenta se CREA
+        // AQUI, en el navegador, y sale como un archivo (cuenta.vwcuenta) que
+        // el juego importa. Es el mismo archivo que crea el propio juego, con
+        // las mismas cuentas (ver src/Cuenta.h):
         //
-        //   hash   = PBKDF2-HMAC-SHA-256(contrasena, sal, 120000 vueltas)
-        //   totp   = secreto del autenticador XOR PBKDF2(contrasena, saltotp)
+        //   hash = PBKDF2-HMAC-SHA-256(contrasena, sal, 120000 vueltas)
+        //
+        // Se crea libremente: nombre, cuenta (nombre@ludora.engine) y
+        // contrasena. Sin codigos ni autenticador.
         //
         // La contrasena no se envia a ningun sitio ni se guarda: solo se usa
-        // para calcular esas dos lineas. En el navegador se recuerdan el
-        // nombre, la cuenta y la foto, para ensenar la insignia la proxima vez.
+        // para calcular el hash. En el navegador se recuerdan el nombre, la
+        // cuenta y la foto, para ensenar la insignia la proxima vez.
         const VUELTAS = 120000;
-        const DOMINIO = "@voxelworld";
+        const DOMINIO = "@ludora.engine";
         const velo = document.getElementById("cuenta-velo");
         const caja = document.getElementById("cuenta-caja");
-        const paso1 = document.getElementById("cuenta-paso1");
-        const paso2 = document.getElementById("cuenta-paso2");
         const avisoCuenta = document.getElementById("cuenta-aviso");
         const insignia = document.getElementById("cuenta-insignia");
         // (Las notificaciones no son "lo de detras": tienen que verse y poder abrirse
-        // con el formulario delante, porque ahi llega el codigo.)
+        // con el formulario delante, porque ahi llega el codigo de Ludora.)
         const fondoDeLaPagina = [...document.body.children].filter(
             e => e !== velo && e.tagName !== "SCRIPT" && e.id !== "notificaciones");
         const el = id => document.getElementById(id);
@@ -292,35 +276,12 @@
         const azar = n => crypto.getRandomValues(new Uint8Array(n));
         const texto = t => new TextEncoder().encode(t);
 
-        function base32(bytes) {
-            const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-            let s = "", buf = 0, bits = 0;
-            for (const v of bytes) {
-                buf = (buf << 8) | v; bits += 8;
-                while (bits >= 5) { s += A[(buf >>> (bits - 5)) & 31]; bits -= 5; }
-                buf &= (1 << bits) - 1;
-            }
-            if (bits > 0) s += A[(buf << (5 - bits)) & 31];
-            return s;
-        }
         async function pbkdf2(clave, sal, largo) {
             const k = await crypto.subtle.importKey("raw", texto(clave), "PBKDF2", false, ["deriveBits"]);
             return new Uint8Array(await crypto.subtle.deriveBits(
                 { name: "PBKDF2", hash: "SHA-256", salt: sal, iterations: VUELTAS }, k, largo * 8));
         }
-        // El codigo de 6 digitos del instante `unix` (RFC 6238: HMAC-SHA-1, 30 s).
-        async function totp(secreto, unix) {
-            const k = await crypto.subtle.importKey("raw", secreto, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-            const m = new Uint8Array(8);
-            let c = Math.floor(unix / 30);
-            for (let i = 7; i >= 0; --i) { m[i] = c % 256; c = Math.floor(c / 256); }
-            const h = new Uint8Array(await crypto.subtle.sign("HMAC", k, m));
-            const o = h[19] & 15;
-            const v = ((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
-            return v % 1000000;
-        }
 
-        let pendiente = null;      // lo del paso 1, mientras se confirma el autenticador
         let fotoData = "";
 
         function bloquear(si) {
@@ -357,56 +318,30 @@
                 return;
             }
             try {
-                if (!paso1.hidden) {
-                    const nombre = el("c-nombre").value.trim();
-                    const usuario = el("c-cuenta").value.trim().toLowerCase().replace(/@.*$/, "");
-                    const clave = el("c-clave").value;
-                    // Las mismas reglas que el juego (Cuenta.h).
-                    // Todo el teclado: minusculas, acentos, enie y signos (lo que el
-                    // juego sabe dibujar: ASCII y Latin-1).
-                    if (!/^[\x20-\x7e\xa1-\xff]{1,24}$/.test(nombre))
-                        return avisar("Tu nombre: hasta 24 caracteres.", false);
-                    if (!/^[a-z0-9._-]{3,24}$/.test(usuario))
-                        return avisar("La cuenta: de 3 a 24 letras o números, sin espacios.", false);
-                    if (!/^[\x20-\x7e\xa1-\xff]{8,64}$/.test(clave))
-                        return avisar("La contraseña: de 8 a 64 caracteres.", false);
-                    const secreto = azar(20);
-                    pendiente = { nombre, usuario, clave, secreto, sal: azar(16), saltotp: azar(16) };
-                    const b32 = base32(secreto);
-                    el("c-secreto").textContent = b32.replace(/(.{4})/g, "$1 ").trim();
-                    el("c-enlace").href = "otpauth://totp/Voxel%20World:" + encodeURIComponent(usuario + DOMINIO) +
-                                          "?secret=" + b32 + "&issuer=Voxel%20World";
-                    paso1.hidden = true;
-                    paso2.hidden = false;
-                    avisar("", true);
-                    el("c-codigo").value = "";
-                    el("c-codigo").focus();
-                    return;
-                }
-                // Paso 2: el codigo confirma que el autenticador quedo bien puesto.
-                const codigo = el("c-codigo").value.trim();
-                const ahora = Math.floor(Date.now() / 1000);
-                let vale = false;
-                if (/^[0-9]{6}$/.test(codigo))
-                    for (const d of [-30, 0, 30])
-                        if (await totp(pendiente.secreto, ahora + d) === +codigo) vale = true;
-                if (!vale) return avisar("Ese código no vale. Mira el que marca ahora tu aplicación.", false);
+                const nombre = el("c-nombre").value.trim();
+                const usuario = el("c-cuenta").value.trim().toLowerCase().replace(/@.*$/, "");
+                const clave = el("c-clave").value;
+                // Las mismas reglas que el juego (Cuenta.h). Todo el teclado:
+                // minusculas, acentos, enie y signos (ASCII y Latin-1).
+                if (!/^[\x20-\x7e\xa1-\xff]{1,24}$/.test(nombre))
+                    return avisar("Tu nombre: hasta 24 caracteres.", false);
+                if (!/^[a-z0-9._-]{3,24}$/.test(usuario))
+                    return avisar("La cuenta: de 3 a 24 letras o números, sin espacios.", false);
+                if (!/^[\x20-\x7e\xa1-\xff]{6,64}$/.test(clave))
+                    return avisar("La contraseña: de 6 a 64 caracteres.", false);
 
                 avisar("Creando la cuenta...", true);
-                const hash = await pbkdf2(pendiente.clave, pendiente.sal, 32);
-                const mascara = await pbkdf2(pendiente.clave, pendiente.saltotp, 20);
-                const tapado = pendiente.secreto.map((v, i) => v ^ mascara[i]);
+                const sal = azar(16);
+                const hash = await pbkdf2(clave, sal, 32);
                 const archivo =
                     "# Cuenta de Voxel World. La contrasena NO esta aqui: solo su hash\n" +
-                    "# (PBKDF2-HMAC-SHA256). El secreto del autenticador va tapado con ella.\n" +
-                    "version=1\n" +
-                    "nombre=" + pendiente.nombre + "\n" +
-                    "cuenta=" + pendiente.usuario + DOMINIO + "\n" +
+                    "# (PBKDF2-HMAC-SHA256).\n" +
+                    "version=2\n" +
+                    "nombre=" + nombre + "\n" +
+                    "cuenta=" + usuario + DOMINIO + "\n" +
                     "vueltas=" + VUELTAS + "\n" +
-                    "sal=" + hex(pendiente.sal) + "\n" +
-                    "hash=" + hex(hash) + "\n" +
-                    "saltotp=" + hex(pendiente.saltotp) + "\n" +
-                    "totp=" + hex(tapado) + "\n";
+                    "sal=" + hex(sal) + "\n" +
+                    "hash=" + hex(hash) + "\n";
                 const enlace = document.createElement("a");
                 enlace.href = URL.createObjectURL(new Blob([archivo], { type: "text/plain" }));
                 enlace.download = "cuenta.vwcuenta";
@@ -415,14 +350,13 @@
 
                 // En el navegador solo quedan el nombre, la cuenta y la foto.
                 try {
-                    localStorage.setItem("vw-cuenta", JSON.stringify({ nombre: pendiente.nombre, cuenta: pendiente.usuario + DOMINIO }));
+                    localStorage.setItem("vw-cuenta", JSON.stringify({ nombre, cuenta: usuario + DOMINIO }));
                     if (fotoData && fotoData.length < 400000) localStorage.setItem("vw-foto", fotoData);
                     else localStorage.removeItem("vw-foto");
                 } catch (e) { /* sin almacenamiento: la insignia vale para esta visita */ }
-                ensenarInsignia(pendiente.nombre, fotoData);
-                pendiente.clave = "";
-                pendiente = null;
+                ensenarInsignia(nombre, fotoData);
                 el("c-clave").value = "";
+                avisar("", true);
                 bloquear(false);
                 const nota = document.getElementById("estado");
                 document.getElementById("progreso").hidden = false;
@@ -432,14 +366,7 @@
                 avisar("No se pudo crear la cuenta: " + e.message, false);
             }
         });
-        el("c-volver").addEventListener("click", () => {
-            paso2.hidden = true;
-            paso1.hidden = false;
-            avisar("", true);
-        });
         el("insignia-cambiar").addEventListener("click", () => {
-            paso2.hidden = true;
-            paso1.hidden = false;
             avisar("", true);
             bloquear(true);
         });
@@ -472,7 +399,7 @@
         // tiene la pagina delante, no sustituye a la contrasena.
         //
         // Con las dos cosas bien, se rellena el formulario de Voxel World con
-        // esos datos y se pasa al autenticador.
+        // esos datos y se crea la cuenta.
         (function () {
             const DOMINIO_LUDORA = "@ludora.engine";
             const CADUCA_MS = 5 * 60 * 1000, INTENTOS = 5;
@@ -599,14 +526,13 @@
                     const usuarioVW = d.local.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 24);
                     el("c-nombre").value = nombreVW;
                     el("c-cuenta").value = usuarioVW;
-                    const sirve = /^[\x20-\x7e\xa1-\xff]{8,64}$/.test(d.clave);
+                    const sirve = /^[\x20-\x7e\xa1-\xff]{6,64}$/.test(d.clave);
                     el("c-clave").value = sirve ? d.clave : "";
                     el("l-clave").value = "";
                     if (sirve && nombreVW && usuarioVW.length >= 3) {
-                        caja.requestSubmit();        // al autenticador
-                        avisar("Eres tú: cuenta de Ludora comprobada. Ahora, el autenticador.", true);
+                        caja.requestSubmit();        // se crea con esos datos
                     } else {
-                        avisar("Eres tú: cuenta de Ludora comprobada. Revisa los datos y pon una contraseña de 8 o más caracteres.", true);
+                        avisar("Eres tú: cuenta de Ludora comprobada. Revisa los datos y pon una contraseña de 6 o más caracteres.", true);
                     }
                 } catch (e) {
                     avisarL("No se pudo comprobar la cuenta: " + e.message, false);

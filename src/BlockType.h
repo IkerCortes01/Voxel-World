@@ -870,7 +870,67 @@ enum BlockType {
     BLOCK_AGAVE_KARWINSKII_PENCA,    // 234
     BLOCK_MAGUEY_MADRECUIXE_PENCA,   // 235
     BLOCK_MAGUEY_CUISHE_PENCA,       // 236
-    BLOCK_MAGUEY_CIRIAL_PENCA        // 237
+    BLOCK_MAGUEY_CIRIAL_PENCA,       // 237
+    // La hoja del maguey sisal (la planta: FAM_MAGUEY_SISAL). Y su penca suelta.
+    BLOCK_MAGUEY_SISAL_PENCA,        // 238
+
+    // ⭐ LAS FLORES, COMO ITEM. Lo que se lleva en la mano y con lo que se
+    // planta; la planta puesta en el mundo es un bloque compuesto (ver
+    // Compuesto::Flor). Van las cuatro seguidas y en el orden de Flor::Especie.
+    BLOCK_FLOR_CEMPASUCHIL,          // 239
+    BLOCK_FLOR_NOCHEBUENA,           // 240
+    BLOCK_FLOR_COSMOS,               // 241
+    BLOCK_FLOR_DALIA,                // 242
+
+    // ⭐ LA OBSIDIANA. PEDIDO: "anade [...] pedazos de obsidiana en el pasto,
+    // arena y todos lados, pero aparece mas en montes, crateres y cuevas, y
+    // que con el martillo hagas su version afilada". El pedazo es un guijarro
+    // mas (se encuentra tirado, se recoge); la afilada es un item: una lasca
+    // de vidrio volcanico, que corta.
+    BLOCK_PEDAZO_OBSIDIANA,          // 243
+    BLOCK_OBSIDIANA_AFILADA,         // 244
+
+    // ⭐ CINCO HERRAMIENTAS MAS. PEDIDO: "anade la pala de piedra, lanza de
+    // piedra, daga de obsidiana, lanza de pedernal, pala de pedernal".
+    //   PALA   cava lo blando (tierra, pasto, arena, grava, arcilla, nieve)
+    //   LANZA  arma: pega mas fuerte y desde mas lejos
+    //   DAGA   arma corta, y filo para cortar plantas
+    BLOCK_PALA_PIEDRA,               // 245
+    BLOCK_LANZA_PIEDRA,              // 246
+    BLOCK_DAGA_OBSIDIANA,            // 247
+    BLOCK_LANZA_PEDERNAL,            // 248
+    BLOCK_PALA_PEDERNAL,             // 249
+
+    // ⭐ LA PINA DE PINO. PEDIDO: "haz que esto este en el suelo o caiga de las
+    // hojas de los arboles, solo de la especie de la vida real que da esto".
+    // Un item: cae de la copa de los PINOS y se queda en el suelo.
+    BLOCK_PINA_PINO,                 // 250
+
+    // ⭐ DOS MAGUEYES MAS. PEDIDO: "anade este maguey Agave fourcroydes ... y
+    // Agave americana". La hoja de cada uno (la planta: FAM_AGAVE_FOURCROYDES
+    // y FAM_AGAVE_AMERICANA), que es tambien su penca suelta.
+    BLOCK_AGAVE_FOURCROYDES_PENCA,   // 251
+    BLOCK_AGAVE_AMERICANA_PENCA,     // 252
+
+    // ⭐ UN TAZON POR MADERA. PEDIDO: "arregla que cada tablones de madera
+    // tenga su propio tazon". Habia tres (pino, encino y oyamel) y las otras
+    // cinco maderas daban el de pino. Estos son los suyos: vacio, con agua y
+    // con aguamiel. La tabla que los une a su tablon es JUEGOS_DE_TAZON.
+    BLOCK_TAZON_OCOTE,                         // 253 vacio
+    BLOCK_TAZON_PATULA,                        // 254 vacio
+    BLOCK_TAZON_PINONERO,                      // 255 vacio
+    BLOCK_TAZON_ALTURAS,                       // 256 vacio
+    BLOCK_TAZON_PSEUDOSTROBUS,                 // 257 vacio
+    BLOCK_TAZON_OCOTE_AGUA,                    // 258 con agua
+    BLOCK_TAZON_PATULA_AGUA,                   // 259 con agua
+    BLOCK_TAZON_PINONERO_AGUA,                 // 260 con agua
+    BLOCK_TAZON_ALTURAS_AGUA,                  // 261 con agua
+    BLOCK_TAZON_PSEUDOSTROBUS_AGUA,            // 262 con agua
+    BLOCK_TAZON_OCOTE_AGUAMIEL,                // 263 con aguamiel
+    BLOCK_TAZON_PATULA_AGUAMIEL,               // 264 con aguamiel
+    BLOCK_TAZON_PINONERO_AGUAMIEL,             // 265 con aguamiel
+    BLOCK_TAZON_ALTURAS_AGUAMIEL,              // 266 con aguamiel
+    BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL         // 267 con aguamiel
 };
 
 // Último bloque COLOCABLE de la lista contigua del terreno.
@@ -1209,9 +1269,84 @@ inline BlockType posadoAlColocar(BlockType item, bool enAgua) {
 // en el mundo tal cual: el propio item, acostado, que cae y se amontona (ver
 // ItemsTirados.h). Los bloques posados de arriba se conservan solo para los
 // que ya estuvieran puestos en mundos guardados.
+//
+// ⭐ PEDIDO: "haz que cada maguey tenga su item, fisicas de item suelto y
+// colocado, y diferentes tamanos de maguey colocado". Cada especie de maguey
+// da SU penca (antes todas daban la del pulquero), y las once se dejan en el
+// suelo igual: el item acostado, con su fisica.
+inline bool esPencaDeEspecie(BlockType t) {
+    return t == BLOCK_AGAVE_ABISAII_PENCA || t == BLOCK_MAGUEY_ESPADIN_PENCA ||
+           t == BLOCK_AGAVE_ALBOMARGINATA_PENCA || t == BLOCK_MAGUEY_SALMIANA_PENCA ||
+           (t >= BLOCK_AGAVE_POTATORUM_PENCA && t <= BLOCK_MAGUEY_SISAL_PENCA) ||
+           t == BLOCK_AGAVE_FOURCROYDES_PENCA || t == BLOCK_AGAVE_AMERICANA_PENCA;
+}
+// ¿Es una de las cuatro flores, como item? Y cual (el orden de Flor::Especie).
+// ¿Estas hojas dan pinas? Solo las de los PINOS (genero Pinus): el pino, los
+// dos ocotes, el patula, el pinonero, el de las alturas y el pseudostrobus.
+//   - El ENCINO es un roble: da bellotas, no pinas.
+//   - El OYAMEL es un abeto: sus conos se deshacen en la rama, escama a
+//     escama, y nunca llegan enteros al suelo.
+inline bool daPinas(BlockType hoja) {
+    return hoja == BLOCK_LEAVES ||
+           hoja == BLOCK_LEAVES_OCOTE || hoja == BLOCK_LEAVES_OCOTE_RAMA ||
+           hoja == BLOCK_LEAVES_OCOTE_CHINO || hoja == BLOCK_LEAVES_OCOTE_CHINO_RAMA ||
+           hoja == BLOCK_LEAVES_PATULA || hoja == BLOCK_LEAVES_PINONERO ||
+           hoja == BLOCK_LEAVES_ALTURAS || hoja == BLOCK_LEAVES_PSEUDOSTROBUS;
+}
+// El ritmo al que caen (ver el bucle en main.cpp). Se miran MUESTRAS casillas
+// por segundo en un cuadrado de (2*RADIO+1) de lado alrededor del jugador; si
+// hay copa de pino con aire debajo, 1 de cada UNO_DE suelta una pina. Y no
+// mas de MAXIMAS en el suelo cerca: un pinar no se entierra en pinas.
+namespace PinasDePino {
+    constexpr int RADIO = 32;
+    constexpr int MUESTRAS = 16;
+    constexpr unsigned UNO_DE = 20;
+    constexpr int MAXIMAS = 14;
+    constexpr int AL_ROMPER_DE_100 = 12;      // la suerte de que salga una al romper la hoja
+}
+inline bool esItemDeFlor(BlockType t) { return t >= BLOCK_FLOR_CEMPASUCHIL && t <= BLOCK_FLOR_DALIA; }
+inline int especieDeItemDeFlor(BlockType t) { return (int)t - (int)BLOCK_FLOR_CEMPASUCHIL; }
+inline BlockType itemDeFlor(int especie) { return (BlockType)((int)BLOCK_FLOR_CEMPASUCHIL + (especie & 3)); }
 inline bool seTiraAlColocar(BlockType item) {
     return item == BLOCK_NOPAL_FRUTO || item == BLOCK_NOPAL_CLADODIO ||
-           item == BLOCK_IXTLE_HOJA || item == BLOCK_PENCA_AGAVE_AZUL;
+           item == BLOCK_IXTLE_HOJA || item == BLOCK_PENCA_AGAVE_AZUL || esPencaDeEspecie(item) ||
+           item == BLOCK_PINA_PINO;        // la pina se deja en el suelo, como cayo
+}
+
+// Lo que mide la penca de cada maguey, suelta o dejada en el suelo, respecto a
+// un item corriente (1 = 0,4 bloques de lado). Sale del largo de la hoja de
+// cada planta: la del salmiana es enorme y la del potatorum, un punado.
+// Lo que no es una penca de maguey mide 1.
+inline float tamanoDePenca(BlockType t) {
+    switch (t) {
+        case BLOCK_MAGUEY_SALMIANA_PENCA:     return 2.20f;
+        case BLOCK_MAGUEY_SISAL_PENCA:        return 1.90f;   // hojas de 1,5 a 2 m
+        case BLOCK_AGAVE_AMERICANA_PENCA:     return 2.00f;   // hojas de 1 a 2 m
+        case BLOCK_AGAVE_FOURCROYDES_PENCA:   return 1.85f;   // hojas de 1,2 a 1,8 m
+        case BLOCK_IXTLE_HOJA:                return 1.80f;   // el pulquero
+        case BLOCK_PENCA_AGAVE_AZUL:          return 1.70f;   // el tequilana
+        case BLOCK_MAGUEY_ESPADIN_PENCA:      return 1.50f;
+        case BLOCK_AGAVE_ABISAII_PENCA:       return 1.40f;
+        case BLOCK_AGAVE_KARWINSKII_PENCA:    return 1.15f;
+        case BLOCK_MAGUEY_CUISHE_PENCA:       return 1.10f;
+        case BLOCK_AGAVE_ALBOMARGINATA_PENCA: return 1.00f;
+        case BLOCK_MAGUEY_MADRECUIXE_PENCA:   return 0.95f;
+        case BLOCK_MAGUEY_CIRIAL_PENCA:       return 0.90f;
+        case BLOCK_AGAVE_POTATORUM_PENCA:     return 0.80f;
+        default:                              return 1.0f;
+    }
+}
+// Y ninguna penca es igual a otra: cada una que se deja sale entre un 15 % mas
+// chica y un 15 % mas grande. `giro` es el angulo con el que cayo (el dato que
+// ya lleva cada item dejado, y que se guarda con el), asi que el tamano de
+// cada una no cambia al salir y volver a entrar.
+inline float tamanoDeItemDejado(BlockType t, float giro) {
+    const float base = tamanoDePenca(t);
+    if (base == 1.0f && t != BLOCK_AGAVE_ALBOMARGINATA_PENCA) return 1.0f;      // no es penca de maguey
+    float f = giro * 0.61803399f;
+    f -= (float)(int)f;
+    if (f < 0.0f) f += 1.0f;
+    return base * (0.85f + 0.30f * f);
 }
 
 // ¿Es una raíz, de cualquiera de los cuatro grosores?
@@ -1759,6 +1894,9 @@ inline bool fueraDelCreativo(BlockType t) {
         case BLOCK_MAGUEY_MADRECUIXE_PENCA:
         case BLOCK_MAGUEY_CUISHE_PENCA:
         case BLOCK_MAGUEY_CIRIAL_PENCA:
+        case BLOCK_MAGUEY_SISAL_PENCA:
+        case BLOCK_AGAVE_FOURCROYDES_PENCA:
+        case BLOCK_AGAVE_AMERICANA_PENCA:
             return true;
         default:
             return false;
@@ -2688,7 +2826,7 @@ inline float alturaBaseMixto(BlockType t) {
 // Todos comparten forma, colisión y generación; solo cambia la textura.
 inline bool esGuijarro(BlockType t) {
     return t == BLOCK_PEDAZO_PIEDRA || t == BLOCK_PEDAZO_GRAVA ||
-           t == BLOCK_PEDAZO_PEDERNAL || t == BLOCK_PEDAZO_CALIZA ||
+           t == BLOCK_PEDAZO_PEDERNAL || t == BLOCK_PEDAZO_CALIZA || t == BLOCK_PEDAZO_OBSIDIANA ||
            t == BLOCK_PEDAZO_TIERRA || t == BLOCK_PEDAZO_COBRE ||
            // Los tres hierros y la nieve suelta: mismos cantos, otro
            // material. Al entrar aqui heredan TODO el comportamiento de
@@ -2987,7 +3125,10 @@ inline bool esHerramientaGastable(BlockType t) {
            t == BLOCK_MARTILLO_PIEDRA ||
            t == BLOCK_HACHA_PEDERNAL ||
            t == BLOCK_PICO_PEDERNAL ||
-           t == BLOCK_MARTILLO_PEDERNAL;
+           t == BLOCK_MARTILLO_PEDERNAL ||
+           t == BLOCK_PALA_PIEDRA || t == BLOCK_PALA_PEDERNAL ||
+           t == BLOCK_LANZA_PIEDRA || t == BLOCK_LANZA_PEDERNAL ||
+           t == BLOCK_DAGA_OBSIDIANA;
 }
 
 // ============================================================================
@@ -3005,7 +3146,8 @@ inline bool esHerramientaGastable(BlockType t) {
 // Las variantes de tamaño del ixtle (pequeña, grande, enorme) son bloques del
 // mundo, no items sueltos, asi que no entran aqui.
 inline bool esPencaDeMaguey(BlockType t) {
-    return t == BLOCK_IXTLE_HOJA || t == BLOCK_PENCA_AGAVE_AZUL;
+    // Y las de las demas especies, cada una con la suya (esPencaDeEspecie).
+    return t == BLOCK_IXTLE_HOJA || t == BLOCK_PENCA_AGAVE_AZUL || esPencaDeEspecie(t);
 }
 
 // ============================================================================
@@ -3088,6 +3230,36 @@ inline bool esPico(BlockType t) {
     return t == BLOCK_PICO_PIEDRA || t == BLOCK_PICO_PEDERNAL;
 }
 
+// ¿Es una pala? Las dos cavan igual de rapido; la de pedernal aguanta mas.
+inline bool esPala(BlockType t) {
+    return t == BLOCK_PALA_PIEDRA || t == BLOCK_PALA_PEDERNAL;
+}
+// ¿Es una lanza? Un arma: pega fuerte y alcanza mas lejos que el brazo.
+inline bool esLanza(BlockType t) {
+    return t == BLOCK_LANZA_PIEDRA || t == BLOCK_LANZA_PEDERNAL;
+}
+// La daga de obsidiana: arma corta y filo.
+inline bool esDaga(BlockType t) {
+    return t == BLOCK_DAGA_OBSIDIANA;
+}
+// Lo que se gasta al herir a un animal, no al picar bloques.
+inline bool esArma(BlockType t) { return esLanza(t) || esDaga(t); }
+
+// Lo que alarga el golpe a un animal, en bloques (la lanza es larga).
+inline float alcanceExtraDeArma(BlockType t) { return esLanza(t) ? 1.5f : 0.0f; }
+
+// El dano de un golpe a un animal con lo que se lleve en la mano. `aMano` es
+// el del puno. (El hacha, el pico y el resto de herramientas ya tenian el
+// suyo: 6, 4 y 3.)
+inline int danoDeArma(BlockType t) {
+    switch (t) {
+        case BLOCK_LANZA_PEDERNAL: return 10;
+        case BLOCK_LANZA_PIEDRA:   return 8;
+        case BLOCK_DAGA_OBSIDIANA: return 7;       // corta mucho; alcanza poco y dura menos
+        default:                   return 0;
+    }
+}
+
 // ¿Es un martillo? Ninguno de los dos pica: son herramientas de TALLER, y se
 // gastan al craftear (afilar un pedernal, p. ej.), no al romper bloques.
 inline bool esMartillo(BlockType t) {
@@ -3128,22 +3300,55 @@ constexpr float AGUAMIEL_ALTO  = 10.0f / 16.0f;  // hasta donde sube el jugo
 // dibujar el icono) pregunta a estas funciones en vez de llevar su propia
 // lista, que es como se acaba teniendo dos que no coinciden.
 
+// ⭐ UN TAZON POR MADERA. PEDIDO: "arregla que cada tablones de madera tenga su
+// propio tazon". Una fila por madera: su tablon y sus tres tazones. De aqui
+// salen las recetas, los nombres de estas funciones y todo lo demas: anadir
+// una madera es anadir una fila.
+struct JuegoDeTazon { BlockType tablon, vacio, agua, aguamiel; };
+constexpr int NUM_JUEGOS_DE_TAZON = 8;
+inline const JuegoDeTazon& juegoDeTazon(int i) {
+    static const JuegoDeTazon J[NUM_JUEGOS_DE_TAZON] = {
+        { BLOCK_PLANKS, BLOCK_TAZON_PINO, BLOCK_TAZON_PINO_AGUA, BLOCK_TAZON_PINO_AGUAMIEL },
+        { BLOCK_PLANKS_ENCINO, BLOCK_TAZON_ENCINO, BLOCK_TAZON_ENCINO_AGUA, BLOCK_TAZON_ENCINO_AGUAMIEL },
+        { BLOCK_PLANKS_OYAMEL, BLOCK_TAZON_OYAMEL, BLOCK_TAZON_OYAMEL_AGUA, BLOCK_TAZON_OYAMEL_AGUAMIEL },
+        { BLOCK_PLANKS_OCOTE, BLOCK_TAZON_OCOTE, BLOCK_TAZON_OCOTE_AGUA, BLOCK_TAZON_OCOTE_AGUAMIEL },
+        { BLOCK_PLANKS_PATULA, BLOCK_TAZON_PATULA, BLOCK_TAZON_PATULA_AGUA, BLOCK_TAZON_PATULA_AGUAMIEL },
+        { BLOCK_PLANKS_PINONERO, BLOCK_TAZON_PINONERO, BLOCK_TAZON_PINONERO_AGUA, BLOCK_TAZON_PINONERO_AGUAMIEL },
+        { BLOCK_PLANKS_ALTURAS, BLOCK_TAZON_ALTURAS, BLOCK_TAZON_ALTURAS_AGUA, BLOCK_TAZON_ALTURAS_AGUAMIEL },
+        { BLOCK_PLANKS_PSEUDOSTROBUS, BLOCK_TAZON_PSEUDOSTROBUS, BLOCK_TAZON_PSEUDOSTROBUS_AGUA, BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL },
+    };
+    return J[i >= 0 && i < NUM_JUEGOS_DE_TAZON ? i : 0];
+}
+// El tazon que sale de esos tablones (BLOCK_AIR si no son tablones de arbol).
+inline BlockType tazonDeTablon(BlockType tablon) {
+    for (int i = 0; i < NUM_JUEGOS_DE_TAZON; ++i)
+        if (juegoDeTazon(i).tablon == tablon) return juegoDeTazon(i).vacio;
+    return BLOCK_AIR;
+}
+// La fila del tazon, este como este (-1 si no es un tazon).
+inline int juegoDelTazon(BlockType t) {
+    for (int i = 0; i < NUM_JUEGOS_DE_TAZON; ++i) {
+        const JuegoDeTazon& j = juegoDeTazon(i);
+        if (t == j.vacio || t == j.agua || t == j.aguamiel) return i;
+    }
+    return -1;
+}
+
 inline bool esTazonVacio(BlockType t) {
-    return t == BLOCK_TAZON_PINO || t == BLOCK_TAZON_ENCINO ||
-           t == BLOCK_TAZON_OYAMEL;
+    const int i = juegoDelTazon(t);
+    return i >= 0 && juegoDeTazon(i).vacio == t;
 }
 
 inline bool esTazonConAgua(BlockType t) {
-    return t == BLOCK_TAZON_PINO_AGUA || t == BLOCK_TAZON_ENCINO_AGUA ||
-           t == BLOCK_TAZON_OYAMEL_AGUA;
+    const int i = juegoDelTazon(t);
+    return i >= 0 && juegoDeTazon(i).agua == t;
 }
 
 // ¿Es un tazon lleno de AGUAMIEL? Es otra cosa que el agua: se consigue de
 // un maguey capado, no de un rio, y lleva a otras recetas.
 inline bool esTazonConAguamiel(BlockType t) {
-    return t == BLOCK_TAZON_PINO_AGUAMIEL ||
-           t == BLOCK_TAZON_ENCINO_AGUAMIEL ||
-           t == BLOCK_TAZON_OYAMEL_AGUAMIEL;
+    const int i = juegoDelTazon(t);
+    return i >= 0 && juegoDeTazon(i).aguamiel == t;
 }
 
 inline bool esTazon(BlockType t) {
@@ -3171,28 +3376,13 @@ inline bool esHuevoDeSpawn(BlockType t) {
 // aguamiel -- el agua se tira, que es lo que haria cualquiera al ver que hay
 // algo mejor que echar dentro.
 inline BlockType tazonConAguamiel(BlockType cualquiera) {
-    switch (cualquiera) {
-        case BLOCK_TAZON_PINO:
-        case BLOCK_TAZON_PINO_AGUA:
-        case BLOCK_TAZON_PINO_AGUAMIEL:   return BLOCK_TAZON_PINO_AGUAMIEL;
-        case BLOCK_TAZON_ENCINO:
-        case BLOCK_TAZON_ENCINO_AGUA:
-        case BLOCK_TAZON_ENCINO_AGUAMIEL: return BLOCK_TAZON_ENCINO_AGUAMIEL;
-        case BLOCK_TAZON_OYAMEL:
-        case BLOCK_TAZON_OYAMEL_AGUA:
-        case BLOCK_TAZON_OYAMEL_AGUAMIEL: return BLOCK_TAZON_OYAMEL_AGUAMIEL;
-        default:                          return BLOCK_AIR;
-    }
+    const int i = juegoDelTazon(cualquiera);
+    return i >= 0 ? juegoDeTazon(i).aguamiel : BLOCK_AIR;
 }
 
 // El mismo tazon, lleno de agua. Devuelve BLOCK_AIR si no era un tazon vacio.
 inline BlockType tazonLleno(BlockType vacio) {
-    switch (vacio) {
-        case BLOCK_TAZON_PINO:   return BLOCK_TAZON_PINO_AGUA;
-        case BLOCK_TAZON_ENCINO: return BLOCK_TAZON_ENCINO_AGUA;
-        case BLOCK_TAZON_OYAMEL: return BLOCK_TAZON_OYAMEL_AGUA;
-        default:                 return BLOCK_AIR;
-    }
+    return esTazonVacio(vacio) ? juegoDeTazon(juegoDelTazon(vacio)).agua : BLOCK_AIR;
 }
 
 // El mismo tazon, vacio. Devuelve BLOCK_AIR si no era un tazon con AGUA.
@@ -3201,26 +3391,14 @@ inline BlockType tazonLleno(BlockType vacio) {
 // agua: si aceptara tambien el aguamiel, se podria gastar el jugo del maguey
 // -- mucho mas costoso de conseguir -- en hacer barro sin querer.
 inline BlockType tazonVaciado(BlockType lleno) {
-    switch (lleno) {
-        case BLOCK_TAZON_PINO_AGUA:   return BLOCK_TAZON_PINO;
-        case BLOCK_TAZON_ENCINO_AGUA: return BLOCK_TAZON_ENCINO;
-        case BLOCK_TAZON_OYAMEL_AGUA: return BLOCK_TAZON_OYAMEL;
-        default:                      return BLOCK_AIR;
-    }
+    return esTazonConAgua(lleno) ? juegoDeTazon(juegoDelTazon(lleno)).vacio : BLOCK_AIR;
 }
 
 // El mismo tazon, vacio, VENGA DE DONDE VENGA (agua o aguamiel). Se usa
 // cuando lo que importa es dejar el recipiente limpio, no que llevaba dentro.
 inline BlockType tazonVaciadoTodo(BlockType lleno) {
-    switch (lleno) {
-        case BLOCK_TAZON_PINO_AGUA:
-        case BLOCK_TAZON_PINO_AGUAMIEL:   return BLOCK_TAZON_PINO;
-        case BLOCK_TAZON_ENCINO_AGUA:
-        case BLOCK_TAZON_ENCINO_AGUAMIEL: return BLOCK_TAZON_ENCINO;
-        case BLOCK_TAZON_OYAMEL_AGUA:
-        case BLOCK_TAZON_OYAMEL_AGUAMIEL: return BLOCK_TAZON_OYAMEL;
-        default:                          return BLOCK_AIR;
-    }
+    return (esTazonConAgua(lleno) || esTazonConAguamiel(lleno)) ? juegoDeTazon(juegoDelTazon(lleno)).vacio
+                                                                : BLOCK_AIR;
 }
 
 // Vida COMPLETA de cada herramienta, en medios puntos.
@@ -3233,6 +3411,13 @@ inline int vidaMaximaHerramienta(BlockType t) {
         case BLOCK_HACHA_PEDERNAL:  return HACHA_PEDERNAL_MEDIOS;
         case BLOCK_PICO_PEDERNAL:   return PICO_PEDERNAL_MEDIOS;
         case BLOCK_MARTILLO_PEDERNAL: return MARTILLO_PEDERNAL_MEDIOS;
+        // Las palas, por bloques cavados; las armas, por golpes. La obsidiana
+        // corta como nada pero es vidrio: se mella antes.
+        case BLOCK_PALA_PIEDRA:     return 300 * 2;
+        case BLOCK_PALA_PEDERNAL:   return 480 * 2;
+        case BLOCK_LANZA_PIEDRA:    return 120 * 2;
+        case BLOCK_LANZA_PEDERNAL:  return 200 * 2;
+        case BLOCK_DAGA_OBSIDIANA:  return 90 * 2;
         default:                    return 0;
     }
 }
@@ -3395,7 +3580,8 @@ inline bool esRocaParaPico(BlockType t) {
         t == BLOCK_AGAVE_ABISAII_PENCA || t == BLOCK_AGAVE_ABISAII_PUNTA ||
         t == BLOCK_MAGUEY_ESPADIN_PENCA || t == BLOCK_MAGUEY_ESPADIN_PUNTA ||
         t == BLOCK_AGAVE_ALBOMARGINATA_PENCA || t == BLOCK_MAGUEY_SALMIANA_PENCA ||
-        (t >= BLOCK_AGAVE_POTATORUM_PENCA && t <= BLOCK_MAGUEY_CIRIAL_PENCA))
+        (t >= BLOCK_AGAVE_POTATORUM_PENCA && t <= BLOCK_MAGUEY_SISAL_PENCA) ||
+        t == BLOCK_AGAVE_FOURCROYDES_PENCA || t == BLOCK_AGAVE_AMERICANA_PENCA)
         return false;
 
     // Las herramientas, los tazones y los items sueltos no son bloques del
@@ -3413,6 +3599,13 @@ inline int desgastePico(BlockType t) {
 
 // Lo que gasta la herramienta que se lleve en la mano al romper ESE bloque.
 // Punto único: así el desgaste y el tiempo de rotura no pueden discrepar.
+// Lo que una pala cava bien: lo blando y suelto, entero o en niveles.
+inline bool esTierraParaPala(BlockType t) {
+    if (esNivelParcial(t)) t = bloqueBaseDe(t);
+    else if (esCeldaDeCapas(t)) t = bloqueBaseDe(materialAbajo(t));
+    return t == BLOCK_DIRT || t == BLOCK_GRASS || t == BLOCK_SAND || t == BLOCK_GRAVEL ||
+           t == BLOCK_CLAY || t == BLOCK_CLAY_DIRT || t == BLOCK_CLAY_SAND || t == BLOCK_SNOW;
+}
 inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
     switch (herramienta) {
         case BLOCK_HACHA_PIEDRA: return desgasteHacha(bloque);
@@ -3424,6 +3617,8 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
         // Los dos picos gastan igual: lo que cambia es cuanto aguantan.
         case BLOCK_PICO_PIEDRA:
         case BLOCK_PICO_PEDERNAL: return desgastePico(bloque);
+        case BLOCK_PALA_PIEDRA:
+        case BLOCK_PALA_PEDERNAL: return esTierraParaPala(bloque) ? 2 : 0;
         // El martillo no pica: se gasta al craftear, no al romper.
         default:                 return 0;
     }
@@ -3449,7 +3644,7 @@ inline int desgasteHerramienta(BlockType herramienta, BlockType bloque) {
 // ve hasta que alguien recarga un mundo. Por eso hay un test que ata este
 // valor al ultimo del enum (test_agave_azul.cpp), para que la proxima vez que
 // se olvide falle el build de tests en vez de salir a produccion.
-constexpr int BLOCK_TYPE_MAX = BLOCK_MAGUEY_CIRIAL_PENCA;
+constexpr int BLOCK_TYPE_MAX = BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL;
 
 // ============================================================================
 //  CARAS OCULTAS Y VISION DEL INTERIOR

@@ -288,6 +288,33 @@ public:
         return h > 0.0f ? h : 0.0f;
     }
 
+    // ¿Que relieve hay en (x, z)? Devuelve su forma (NADA, CERRO, MONTE o
+    // VOLCAN; si se pisan varios, el mayor) y en `u` lo lejos que se esta de
+    // su centro: 0 en el centro, 1 en el borde. Sirve para sembrar cosas que
+    // son de monte o de volcan -- la obsidiana -- sin volver a calcular alturas.
+    int RelieveEn(float x, float z, float* u = nullptr) const {
+        const int ci = (int)std::floor(x / CELDA_RELIEVE);
+        const int cj = (int)std::floor(z / CELDA_RELIEVE);
+        int forma = NADA;
+        float uu = 1.0f;
+        for (int di = -1; di <= 1; ++di)
+            for (int dj = -1; dj <= 1; ++dj) {
+                const Elevacion e = ElevacionDeCelda(ci + di, cj + dj);
+                if (e.forma == NADA || e.radio <= 0.0f) continue;
+                const float dx = x - e.cx, dz = z - e.cz;
+                const float d = std::sqrt(dx * dx + dz * dz) / e.radio;
+                if (d >= 1.0f) continue;
+                if (e.forma > forma || (e.forma == forma && d < uu)) { forma = e.forma; uu = d; }
+            }
+        if (u) *u = uu;
+        return forma;
+    }
+    // El crater de un volcan: el cuenco de la cima (ver PerfilDe).
+    static constexpr float U_CRATER = 0.17f * 1.35f;
+    bool EnCrater(float x, float z) const {
+        float u = 1.0f;
+        return RelieveEn(x, z, &u) == VOLCAN && u < U_CRATER;
+    }
     float GetLandformHeight(float x, float z, const ClimateData& c) const {
         const float landFactor = Noise::smoothstep(0.53f, 0.63f, c.continentalness);
         if (landFactor <= 0.001f) return 0.0f;

@@ -90,60 +90,78 @@ TEST_CASE("Cuenta: el autenticador da los codigos de las RFC 4226 y 6238") {
     CHECK(secretoLegible(SECRETO) == "GEZD GNBV GY3T QOJQ GEZD GNBV GY3T QOJQ");
 }
 
-TEST_CASE("Cuenta: se entra con la cuenta, la contrasena Y el codigo; con menos, no") {
-    const Registro r = crear("Iker", "IkerCortes", "tomate-rojo-9", SAL, SAL2, SECRETO, POCAS);
+// PEDIDO: "arregla que no pida codigo, que puedas crear una cuenta libremente
+// pero use el arroba ludora.engine y contrasena y nombre".
+TEST_CASE("Cuenta: se crea con nombre, cuenta y contrasena, y se entra SIN codigo") {
+    const Registro r = crear("Iker", "IkerCortes", "tomate-rojo-9", SAL, POCAS);
     REQUIRE(r.valido());
-    CHECK(r.cuenta == "ikercortes@voxelworld");
-    const long long t = 1800000000LL;
-    const int codigo = totp(SECRETO, t);
-    CHECK(entrar(r, "ikercortes", "tomate-rojo-9", codigo, t) == Entrada::DENTRO);
-    CHECK(entrar(r, "IKERCORTES", "tomate-rojo-9", codigo, t) == Entrada::DENTRO);              // la cuenta no distingue mayusculas
-    CHECK(entrar(r, "ikercortes@voxelworld", "tomate-rojo-9", codigo, t) == Entrada::DENTRO);   // con o sin arroba
+    CHECK(r.cuenta == "ikercortes@ludora.engine");
+    CHECK(std::string(DOMINIO) == "@ludora.engine");
+    CHECK(entrar(r, "ikercortes", "tomate-rojo-9") == Entrada::DENTRO);
+    CHECK(entrar(r, "IKERCORTES", "tomate-rojo-9") == Entrada::DENTRO);                  // la cuenta no distingue mayusculas
+    CHECK(entrar(r, "ikercortes@ludora.engine", "tomate-rojo-9") == Entrada::DENTRO);    // con o sin arroba
     // La contrasena si distingue, y un caracter de menos no vale.
-    CHECK(entrar(r, "ikercortes", "Tomate-rojo-9", codigo, t) == Entrada::CREDENCIALES);
-    CHECK(entrar(r, "ikercortes", "tomate-rojo-", codigo, t) == Entrada::CREDENCIALES);
-    CHECK(entrar(r, "ikercortes", "", codigo, t) == Entrada::CREDENCIALES);
-    CHECK(entrar(r, "otro", "tomate-rojo-9", codigo, t) == Entrada::CREDENCIALES);
+    CHECK(entrar(r, "ikercortes", "Tomate-rojo-9") == Entrada::CREDENCIALES);
+    CHECK(entrar(r, "ikercortes", "tomate-rojo-") == Entrada::CREDENCIALES);
+    CHECK(entrar(r, "ikercortes", "") == Entrada::CREDENCIALES);
+    CHECK(entrar(r, "otro", "tomate-rojo-9") == Entrada::CREDENCIALES);
     // El mismo aviso si falla la cuenta o la contrasena: no se dice cual.
     CHECK(std::string(mensaje(Entrada::CREDENCIALES)) == "CUENTA O CONTRASENA INCORRECTAS");
-    // Con todo bien pero sin el codigo de ahora, tampoco.
-    CHECK(entrar(r, "ikercortes", "tomate-rojo-9", (codigo + 7) % 1000000, t) == Entrada::CODIGO);
-    CHECK(entrar(r, "ikercortes", "tomate-rojo-9", codigo, t + 600) == Entrada::CODIGO);        // uno viejo
     // Sin cuenta creada.
-    CHECK(entrar(Registro(), "ikercortes", "tomate-rojo-9", codigo, t) == Entrada::SIN_CUENTA);
+    CHECK(entrar(Registro(), "ikercortes", "tomate-rojo-9") == Entrada::SIN_CUENTA);
+    // Una contrasena de 6, como en Ludora, ya vale.
+    CHECK(claveVale("abc123"));
+    CHECK_FALSE(claveVale("abc12"));
 }
 
-TEST_CASE("Cuenta: en el archivo no esta la contrasena ni el secreto del autenticador") {
+TEST_CASE("Cuenta: en el archivo no esta la contrasena, y ya no hay nada del autenticador") {
     const std::string clave = "tomate-rojo-9";
-    const Registro r = crear("Iker Cortes", "iker.cortes", clave, SAL, SAL2, SECRETO, POCAS);
+    const Registro r = crear("Iker Cortes", "iker.cortes", clave, SAL, POCAS);
     const std::string texto = aTexto(r);
     CHECK(texto.find(clave) == std::string::npos);
-    CHECK(texto.find(aHex(SECRETO)) == std::string::npos);
-    CHECK(texto.find(aBase32(SECRETO)) == std::string::npos);
-    CHECK(r.totp != SECRETO);                                    // va tapado
-    CHECK(taparSecreto(r.totp, clave, r.salTotp, r.vueltas) == SECRETO);          // con la contrasena, sale
-    CHECK(taparSecreto(r.totp, "otra-clave-1", r.salTotp, r.vueltas) != SECRETO); // sin ella, no
+    CHECK(texto.find("totp") == std::string::npos);
+    CHECK(texto.find("version=2\n") != std::string::npos);
     // Otra sal, otro hash: dos cuentas con la misma contrasena no se parecen.
-    const Registro otra = crear("Iker Cortes", "iker.cortes", clave, SAL2, SAL, SECRETO, POCAS);
+    const Registro otra = crear("Iker Cortes", "iker.cortes", clave, SAL2, POCAS);
     CHECK(otra.hash != r.hash);
     // Ida y vuelta por el archivo.
     const Registro leido = deTexto(texto);
     REQUIRE(leido.valido());
     CHECK(leido.nombre == "Iker Cortes");
-    CHECK(leido.cuenta == "iker.cortes@voxelworld");
+    CHECK(leido.cuenta == "iker.cortes@ludora.engine");
     CHECK(leido.hash == r.hash);
-    CHECK(leido.totp == r.totp);
     CHECK(leido.vueltas == POCAS);
-    const long long t = 1700000123LL;
-    CHECK(entrar(leido, "iker.cortes", clave, totp(SECRETO, t), t) == Entrada::DENTRO);
+    CHECK(entrar(leido, "iker.cortes", clave) == Entrada::DENTRO);
     // Con saltos de linea de Windows tambien.
     std::string crlf;
     for (char c : texto) { if (c == '\n') crlf += '\r'; crlf += c; }
     CHECK(deTexto(crlf).valido());
 }
 
+TEST_CASE("Cuenta: una cuenta de antes (con @voxelworld y autenticador) sigue entrando, sin codigo") {
+    // Tal como la escribia el juego: version 1, dominio viejo y las dos lineas
+    // del autenticador. Quien ya tenia cuenta no se queda fuera.
+    const Bytes hash = pbkdf2("tomate-rojo-9", SAL, POCAS, 32);
+    const std::string vieja =
+        "version=1\n"
+        "nombre=Iker\n"
+        "cuenta=iker@voxelworld\n"
+        "vueltas=" + std::to_string(POCAS) + "\n"
+        "sal=" + aHex(SAL) + "\n"
+        "hash=" + aHex(hash) + "\n"
+        "saltotp=" + aHex(SAL2) + "\n"
+        "totp=0102030405060708090a0b0c0d0e0f1011121314\n";
+    const Registro r = deTexto(vieja);
+    REQUIRE(r.valido());
+    CHECK(r.cuenta == "iker@ludora.engine");            // la misma, con el dominio de ahora
+    CHECK(entrar(r, "iker", "tomate-rojo-9") == Entrada::DENTRO);
+    CHECK(entrar(r, "iker", "tomate-rojo-8") == Entrada::CREDENCIALES);
+    CHECK(aTexto(r).find("@ludora.engine") != std::string::npos);
+    CHECK(aTexto(r).find("totp") == std::string::npos);
+}
+
 TEST_CASE("Cuenta: un archivo roto o retocado no se da por bueno") {
-    const Registro r = crear("Iker", "iker", "tomate-rojo-9", SAL, SAL2, SECRETO, POCAS);
+    const Registro r = crear("Iker", "iker", "tomate-rojo-9", SAL, POCAS);
     const std::string texto = aTexto(r);
     CHECK_FALSE(deTexto("").valido());
     CHECK_FALSE(deTexto("hola\nque tal\n").valido());
@@ -158,7 +176,7 @@ TEST_CASE("Cuenta: un archivo roto o retocado no se da por bueno") {
         }
         return s;
     };
-    for (const char* k : { "nombre", "cuenta", "sal", "hash", "saltotp", "totp", "vueltas" }) {
+    for (const char* k : { "nombre", "cuenta", "sal", "hash", "vueltas" }) {
         INFO("sin " << k);
         CHECK_FALSE(deTexto(sin(k)).valido());
     }
@@ -167,7 +185,7 @@ TEST_CASE("Cuenta: un archivo roto o retocado no se da por bueno") {
     mal.replace(mal.find("hash=") + 5, 8, "");
     CHECK_FALSE(deTexto(mal).valido());
     mal = texto;
-    mal.replace(mal.find("@voxelworld"), 11, "@otrositio");
+    mal.replace(mal.find("@ludora.engine"), 14, "@otrositio");
     CHECK_FALSE(deTexto(mal).valido());
     mal = sin("vueltas") + "vueltas=1\n";
     CHECK_FALSE(deTexto(mal).valido());
@@ -177,9 +195,7 @@ TEST_CASE("Cuenta: un archivo roto o retocado no se da por bueno") {
     mal = texto;
     const size_t h = mal.find("hash=") + 5;
     mal[h] = mal[h] == 'a' ? 'b' : 'a';
-    const Registro tocado = deTexto(mal);
-    const long long t = 1700000000LL;
-    CHECK(entrar(tocado, "iker", "tomate-rojo-9", totp(SECRETO, t), t) != Entrada::DENTRO);
+    CHECK(entrar(deTexto(mal), "iker", "tomate-rojo-9") != Entrada::DENTRO);
 }
 
 TEST_CASE("Cuenta: que nombres, cuentas y contrasenas valen") {
@@ -197,9 +213,9 @@ TEST_CASE("Cuenta: que nombres, cuentas y contrasenas valen") {
     CHECK_FALSE(usuarioVale("ik"));
     CHECK_FALSE(usuarioVale("Iker"));                       // se guarda en minusculas
     CHECK_FALSE(usuarioVale("iker cortes"));
-    CHECK_FALSE(usuarioVale("iker@voxelworld"));
+    CHECK_FALSE(usuarioVale("iker@ludora.engine"));
     CHECK_FALSE(usuarioVale(std::string(USUARIO_MAX + 1, 'a')));
-    CHECK(normalizarUsuario("IkerCortes@voxelworld") == "ikercortes");
+    CHECK(normalizarUsuario("IkerCortes@ludora.engine") == "ikercortes");
     CHECK(claveVale("tomate-rojo-9"));
     CHECK(claveVale("con espacios y $imbolos!"));
     CHECK_FALSE(claveVale("corta"));
@@ -223,10 +239,13 @@ TEST_CASE("Cuenta: la pagina web hace las mismas cuentas que el juego") {
     CHECK(web.find("PBKDF2") != std::string::npos);
     CHECK(web.find("SHA-256") != std::string::npos);
     CHECK(web.find("const VUELTAS = " + std::to_string(VUELTAS) + ";") != std::string::npos);
-    CHECK(web.find("@voxelworld") != std::string::npos);
-    CHECK(web.find("SHA-1") != std::string::npos);          // el autenticador
-    for (const char* campo : { "nombre=", "cuenta=", "vueltas=", "sal=", "hash=", "saltotp=", "totp=" })
+    CHECK(web.find("const DOMINIO = \"@ludora.engine\";") != std::string::npos);
+    for (const char* campo : { "version=2", "nombre=", "cuenta=", "vueltas=", "sal=", "hash=" })
         CHECK(web.find(campo) != std::string::npos);
+    // Ni autenticador ni codigo para crear la cuenta.
+    CHECK(web.find("totp") == std::string::npos);
+    CHECK(web.find("cuenta-paso2") == std::string::npos);
+    CHECK(web.find("Autenticador") == std::string::npos);
     // La contrasena no sale del navegador.
     CHECK(web.find("fetch(\"http") == std::string::npos);
     CHECK(web.find("XMLHttpRequest") == std::string::npos);
@@ -239,30 +258,27 @@ TEST_CASE("Cuenta: con las vueltas de verdad, el juego calcula lo mismo que la w
     // este test falla, una cuenta creada en la pagina no entraria en el juego.
     CHECK(hexDe(pbkdf2("tomate-rojo-9", SAL, VUELTAS, 32)) ==
           "42916edf2494fb6e12df521e786af872ad3aa81db0481b98881fe492a882dd79");
-    CHECK(hexDe(pbkdf2("tomate-rojo-9", SAL2, VUELTAS, 20)) == "940d37d489cd3721820a6f10c7aeb12b897d2d23");
     // Un archivo tal como lo escribe la pagina (mismas lineas, mismo orden).
     const Bytes hash = pbkdf2("tomate-rojo-9", SAL, VUELTAS, 32);
-    const Bytes mascara = pbkdf2("tomate-rojo-9", SAL2, VUELTAS, 20);
-    Bytes tapado(20);
-    for (size_t i = 0; i < 20; ++i) tapado[i] = SECRETO[i] ^ mascara[i];
     const std::string deLaWeb =
         "# Cuenta de Voxel World. La contrasena NO esta aqui: solo su hash\n"
-        "# (PBKDF2-HMAC-SHA256). El secreto del autenticador va tapado con ella.\n"
-        "version=1\n"
+        "# (PBKDF2-HMAC-SHA256).\n"
+        "version=2\n"
         "nombre=Iker\n"
-        "cuenta=iker@voxelworld\n"
+        "cuenta=iker@ludora.engine\n"
         "vueltas=120000\n"
         "sal=" + aHex(SAL) + "\n"
-        "hash=" + aHex(hash) + "\n"
-        "saltotp=" + aHex(SAL2) + "\n"
-        "totp=" + aHex(tapado) + "\n";
+        "hash=" + aHex(hash) + "\n";
     const Registro r = deTexto(deLaWeb);
     REQUIRE(r.valido());
-    const long long t = 1800000000LL;
-    CHECK(entrar(r, "iker", "tomate-rojo-9", totp(SECRETO, t), t) == Entrada::DENTRO);
-    CHECK(entrar(r, "iker", "tomate-rojo-8", totp(SECRETO, t), t) == Entrada::CREDENCIALES);
+    CHECK(entrar(r, "iker", "tomate-rojo-9") == Entrada::DENTRO);
+    CHECK(entrar(r, "iker", "tomate-rojo-8") == Entrada::CREDENCIALES);
     // Y lo que escribe el juego es, linea por linea, lo mismo.
-    CHECK(aTexto(crear("Iker", "iker", "tomate-rojo-9", SAL, SAL2, SECRETO)) == deLaWeb);
+    CHECK(aTexto(crear("Iker", "iker", "tomate-rojo-9", SAL)) == deLaWeb);
+    // Las mismas lineas estan, literales, en la pagina.
+    const std::string web = leerDelRepo("adquirir.html");
+    CHECK(web.find("\"# (PBKDF2-HMAC-SHA256).\\n\" +") != std::string::npos);
+    CHECK(web.find("\"version=2\\n\" +") != std::string::npos);
 }
 
 TEST_CASE("Cuenta: el juego no deja pasar al menu sin entrar") {
@@ -282,12 +298,14 @@ TEST_CASE("Cuenta: el juego no deja pasar al menu sin entrar") {
     CHECK(src.find("if (cuentaPideEntrada()) { cuentaTecla(key, action); return; }") != std::string::npos);
     CHECK(src.find("if (cuentaPideEntrada()) { cuentaClic((float)xpos, (float)ypos, width, height); return; }") !=
           std::string::npos);
-    // Se entra solo por Cuenta::entrar o al crear confirmando el codigo.
+    // Se entra solo por Cuenta::entrar o al crear la cuenta. Sin codigo.
     size_t veces = 0;
     for (size_t p = src.find("c.dentro = true;"); p != std::string::npos; p = src.find("c.dentro = true;", p + 1)) ++veces;
     CHECK(veces == 2);
-    CHECK(src.find("Cuenta::entrar(c.reg, c.usuario, c.clave, codigo, (long long)time(nullptr))") != std::string::npos);
-    CHECK(src.find("Cuenta::totpVale(c.secreto, codigo, (long long)time(nullptr))") != std::string::npos);
+    CHECK(src.find("Cuenta::entrar(c.reg, c.usuario, c.clave)") != std::string::npos);
+    CHECK(src.find("Cuenta::crear(c.nombre, c.usuario, c.clave, cuentaAzar(16))") != std::string::npos);
+    CHECK(src.find("totpVale") == std::string::npos);
+    CHECK(src.find("AUTENTICADOR") == std::string::npos);
     // El dialogo de archivos no mueve la carpeta de trabajo (ahi estan las partidas).
     CHECK(src.find("OFN_NOCHANGEDIR") != std::string::npos);
     // La insignia: abajo a la derecha, con el circulo y el nombre.

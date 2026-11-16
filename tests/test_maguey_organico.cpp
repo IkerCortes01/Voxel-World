@@ -386,8 +386,9 @@ TEST_CASE("una familia sin modelo no se dibuja, nunca cae a un cubo") {
         Compuesto::hacer(Compuesto::FAM_ARBOL_FRUTO, 0)) == false);
     CHECK(Compuesto::puedeDibujarse(
         Compuesto::hacer(Compuesto::FAM_PIEDRA_MUSGO, 0)) == false);
+    // (FAM_PLANTA_FLOR ya no es una reserva: son las cuatro flores.)
     CHECK(Compuesto::puedeDibujarse(
-        Compuesto::hacer(Compuesto::FAM_PLANTA_FLOR, 0)) == false);
+        Compuesto::hacer(Compuesto::FAM_PLANTA_FLOR, 0)) == true);
 
     // Las que si tienen modelo, si.
     CHECK(Compuesto::puedeDibujarse(

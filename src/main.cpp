@@ -132,6 +132,9 @@ using namespace VoxelWorld::SaveSystem;
 #pragma comment(lib, "comdlg32.lib")
 #include "audio/FootstepSynth.h"
 #include "audio/FootstepSystem.h"
+#include "audio/SonidoBloque.h"      // colocar, golpear y romper: 100 capas por material y la voz de cada bloque
+#include "CeldasJuntas.h"            // varias cosas en la misma casilla, cada una en su hueco
+#include "render/RellenoTextura.h"   // rellenar los huecos de una textura, en tiempo lineal
 #include "audio/Musica.h"            // las piezas de sounds/Music, al azar y en momentos al azar
 
 // ============================================================================
@@ -460,6 +463,27 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
                 // Verde azulado.
                 r = 0.32f; g = 0.50f; b = 0.42f;
                 return;
+            case Compuesto::FAM_AGAVE_FOURCROYDES:
+                // Verde grisaceo.
+                r = 0.40f; g = 0.55f; b = 0.47f;
+                return;
+            case Compuesto::FAM_AGAVE_AMERICANA:
+                // Verde azulado, con su velo gris.
+                r = 0.34f; g = 0.54f; b = 0.50f;
+                return;
+            case Compuesto::FAM_MAGUEY_SISAL:
+                // Verde glauco: palido, tirando a gris azulado.
+                r = 0.44f; g = 0.60f; b = 0.50f;
+                return;
+            case Compuesto::FAM_PLANTA_FLOR:
+                // El color de sus petalos si ya abrio; si no, el de la mata.
+                if (!Compuesto::Flor::abierta(type)) { r = 0.30f; g = 0.55f; b = 0.25f; return; }
+                switch (Compuesto::Flor::especieDe(type)) {
+                    case Compuesto::Flor::CEMPASUCHIL: r = 0.98f; g = 0.55f; b = 0.05f; return;
+                    case Compuesto::Flor::NOCHEBUENA:  r = 0.86f; g = 0.08f; b = 0.10f; return;
+                    case Compuesto::Flor::COSMOS:      r = 0.88f; g = 0.20f; b = 0.60f; return;
+                    default:                           r = 0.82f; g = 0.12f; b = 0.34f; return;
+                }
             case Compuesto::FAM_NOPAL:
                 // El verde del cladodio de Opuntia: mas vivo y amarillento que
                 // el del agave. Es el mismo que ya usan los IDs del enum
@@ -563,6 +587,8 @@ void getBlockColor(BlockType type, float& r, float& g, float& b) {
         case BLOCK_PEDAZO_PIEDRA: r = 0.33f; g = 0.32f; b = 0.33f; break;
         case BLOCK_PEDAZO_GRAVA:  r = 0.42f; g = 0.40f; b = 0.38f; break;
         case BLOCK_PEDAZO_PEDERNAL: r = 0.16f; g = 0.15f; b = 0.16f; break;
+        case BLOCK_PEDAZO_OBSIDIANA:
+        case BLOCK_OBSIDIANA_AFILADA: r = 0.06f; g = 0.05f; b = 0.08f; break;     // negro vidrioso
         case BLOCK_PEDAZO_CALIZA: r = 0.72f; g = 0.70f; b = 0.62f; break;
         case BLOCK_PEDAZO_TIERRA: r = 0.45f; g = 0.32f; b = 0.20f; break;
         case BLOCK_PEDAZO_COBRE:  r = 0.60f; g = 0.30f; b = 0.18f; break;
@@ -630,6 +656,8 @@ bool isCrossSprite(BlockType type) {
     // los sprites que NO llenan el voxel: no tapan las caras del vecino y se
     // pueden atravesar.
     if (isRama(type) || esRaiz(type)) return true;
+    // Una flor no llena su celda ni frena a nadie.
+    if (Compuesto::Flor::esFlor(type)) return true;
     // Hierba corta, CLADODIO y FRUTO del nopal. Las bases y el tallo del
     // nopal son bloques completos, no sprites. BLOCK_ORANGE_FLOWER se retiró.
     // ⭐ LAS ACICULAS DEL OCOTE, LAS DOS ESPECIES.
@@ -1495,6 +1523,32 @@ inline bool consumirNivelDelJugador(int x, int y, int z) {
 // al romper el bloque (ver NivelesCubiertos.h).
 NivelesCubiertos::Registro g_nivelesCubiertos;
 
+// ⭐⭐ CELDAS JUNTAS (ver CeldasJuntas.h): lo que se ha juntado a una casilla,
+// ademas del bloque que ya habia en ella. PEDIDO: "que los bloques de la mesa
+// de refineria no se repelan de los niveles y se junten sin predominar uno".
+CeldasJuntas::Registro g_celdasJuntas;
+
+// ¿Puede compartir casilla? Las piezas de la mesa, los niveles y las casillas
+// de capas que no llegan al techo.
+inline bool cosaQueSeJunta(BlockType t) {
+    if (Formas::esPieza(t) || esNivelParcial(t)) return true;
+    return esCeldaDeCapas(t) && octavosOcupados(t) < 8;
+}
+// Las cajas de una de esas cosas, apoyada a la altura `y0` de su casilla.
+inline int cajasDeCosa(BlockType t, float y0, CeldasJuntas::Caja out[4]) {
+    if (Formas::esPieza(t)) {
+        float c[4][6];
+        const int n = Formas::cajasDePieza(t, c);
+        for (int i = 0; i < n; ++i)
+            out[i] = { c[i][0], c[i][1] + y0, c[i][2], c[i][3], c[i][4] + y0, c[i][5] };
+        return n;
+    }
+    float h = alturaDe(t);
+    if (h <= 0.0f || h > 1.0f) h = 1.0f;
+    out[0] = { 0.0f, y0, 0.0f, 1.0f, y0 + h, 1.0f };
+    return 1;
+}
+
 // --- Recarga manual de chunks (tecla R) ---
 // El mallado va repartido en varios frames, así que el resultado no se puede
 // mirar en el mismo frame en que se pulsa R: se apunta aquí y se revisa unos
@@ -1573,6 +1627,7 @@ inline bool ahogaAlPasto(BlockType encima) {
     if (encima == BLOCK_AIR || encima == BLOCK_WATER) return false;
     if (isRama(encima) || esRaiz(encima)) return false;   // la excepcion
     if (encima == BLOCK_TALLGRASS) return false;
+    if (Compuesto::Flor::esFlor(encima)) return false;     // una flor no tapa el sol
     if (esIxtle(encima) || esCladodio(encima)) return false;
     if (esGuijarro(encima)) return false;
     // Un nivel parcial tampoco tapa del todo: deja hueco por arriba.
@@ -2902,6 +2957,17 @@ inline void cajaDePiezaN(BlockType compuesto, int i,
         }
     }
 
+    // Los magueyes de roseta rigida y el abisaii: se apunte a la pieza que
+    // se apunte, la caja es el trozo del modelo que cae en esa celda.
+    if (Compuesto::esCompuesto(compuesto) &&
+        (Compuesto::AgaveRigido::esRigido(Compuesto::familiaDe(compuesto)) ||
+         Compuesto::familiaDe(compuesto) == Compuesto::FAM_AGAVE_ABISAII)) {
+        const Compuesto::CajaDeModelo c = Compuesto::cajaDeCeldaDeMaguey(compuesto);
+        x0 = 0.5f - c.radio;  x1 = 0.5f + c.radio;
+        y0 = 0.0f;            y1 = c.alto;
+        z0 = 0.5f - c.radio;  z1 = 0.5f + c.radio;
+        return;
+    }
     cajaDePieza(compuesto, i >= 1, x0, y0, z0, x1, y1, z1);
 }
 
@@ -3276,6 +3342,31 @@ bool nopalHitboxCon(BlockType type, TGet get, int wx, int wy, int wz,
             return true;
         }
 
+        // ⭐ LOS MAGUEYES DE ROSETA RIGIDA Y EL ABISAII: EL TROZO DEL MODELO
+        // QUE CAE EN ESTA CELDA. No tenian caja propia y caian al cubo
+        // entero: se chocaba con aire alrededor de una mata chica y se
+        // seleccionaba apuntando lejos de ella.
+        if (Compuesto::AgaveRigido::esRigido(Compuesto::familiaDe(type)) ||
+            Compuesto::familiaDe(type) == Compuesto::FAM_AGAVE_ABISAII) {
+            const Compuesto::CajaDeModelo c = Compuesto::cajaDeCeldaDeMaguey(type);
+            minX = 0.5f - c.radio;  maxX = 0.5f + c.radio;
+            minY = 0.0f;            maxY = c.alto;
+            minZ = 0.5f - c.radio;  maxZ = 0.5f + c.radio;
+            return true;
+        }
+
+        // ⭐ UNA FLOR: una caja delgada con su alto de ahora. Solo para
+        // apuntarle y recogerla: no frena (ver isBlockSolid).
+        if (Compuesto::Flor::esFlor(type)) {
+            const float alto = Compuesto::Flor::altoDe(type);
+            float r = 0.10f + 0.24f * alto;
+            if (r > 0.42f) r = 0.42f;
+            minX = 0.5f - r;  maxX = 0.5f + r;
+            minY = 0.0f;      maxY = alto > 1.0f ? 1.0f : (alto < 0.14f ? 0.14f : alto);
+            minZ = 0.5f - r;  maxZ = 0.5f + r;
+            return true;
+        }
+
         // ⭐ LA BIZNAGA: una bola achatada apoyada en el suelo.
         //
         // No es un cubo: es un barril mas ancho que alto, y su caja tiene que
@@ -3410,7 +3501,7 @@ struct CajaForma {
 
 // Cuantas piezas puede tener un bloque como mucho. Ocho cubre escaleras
 // (2), vallas (5: poste + 4 brazos) y el nopal con sus brotes.
-constexpr int MAX_PIEZAS_FORMA = 8;
+constexpr int MAX_PIEZAS_FORMA = 24;      // con lo que se le haya juntado a la casilla
 
 struct FormaBloque {
     CajaForma piezas[MAX_PIEZAS_FORMA];
@@ -3423,6 +3514,15 @@ struct FormaBloque {
     }
 };
 
+// Las cajas de lo que se haya JUNTADO a la casilla (wx, wy, wz), ademas de las
+// del bloque: para apuntarles y marcarlas igual que a el.
+inline void anadirJuntos(FormaBloque& f, int wx, int wy, int wz) {
+    for (const CeldasJuntas::Junto& j : g_celdasJuntas.de(wx, wy, wz)) {
+        CeldasJuntas::Caja c[4];
+        const int n = cajasDeCosa(j.tipo, j.y0, c);
+        for (int i = 0; i < n; ++i) f.anadir(c[i].x0, c[i].y0, c[i].z0, c[i].x1, c[i].y1, c[i].z1);
+    }
+}
 // Devuelve TODAS las piezas de un bloque, en coordenadas locales (0..1).
 //
 // Es la unica funcion que el selector necesita conocer: le da igual si el
@@ -3439,8 +3539,8 @@ FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
     // se sube peldano a peldano, bajo un techo se pasa y a una columna se la
     // rodea.
     if (Formas::esPieza(type)) {
-        float c[4][6];
-        const int n = Formas::cajasDePieza(type, c);
+        float c[MAX_PIEZAS_FORMA][6];
+        const int n = Formas::cajasDeChoque(type, get, c, MAX_PIEZAS_FORMA);      // con esquinas y diagonal
         for (int i = 0; i < n; ++i) f.anadir(c[i][0], c[i][1], c[i][2], c[i][3], c[i][4], c[i][5]);
         return f;
     }
@@ -3582,6 +3682,7 @@ FormaBloque formaDeBloque(BlockType type, TGet get, int wx, int wy, int wz) {
 template <typename TGet>
 FormaBloque formaDeSeleccion(BlockType type, TGet get, int wx, int wy, int wz) {
     FormaBloque f = formaDeBloque(type, get, wx, wy, wz);
+    anadirJuntos(f, wx, wy, wz);
     const BlockType aqui = plantaSeca(type);
     const int seg = Compuesto::segmentoDeMaguey(aqui);
     if (seg < 0 || f.n <= 0) return f;
@@ -3611,6 +3712,21 @@ FormaBloque formaDeSeleccion(BlockType type, TGet get, int wx, int wy, int wz) {
         if (o.z1 > c.z1) c.z1 = o.z1;
         if (o.y0 + (float)dy < c.y0) c.y0 = o.y0 + (float)dy;
         if (o.y1 + (float)dy > c.y1) c.y1 = o.y1 + (float)dy;
+    }
+    // ⭐ Y ESA CAJA ES LA DEL MODELO. PEDIDO: "que la hitbox de casilla de los
+    // magueyes este exactamente donde esta el modelo 3D". A lo ancho, el radio
+    // de la mata (de punta a punta de las hojas, aunque se salgan de la
+    // celda); a lo alto, del suelo a lo mas alto de la planta. Sale de las
+    // mismas medidas con las que se dibuja (Compuesto::cajaDelModeloDeMaguey).
+    const Compuesto::CajaDeModelo m = Compuesto::cajaDelModeloDeMaguey(plantaSeca(get(0, -abajo, 0)));
+    if (m.vale) {
+        c.x0 = 0.5f - m.radio;  c.x1 = 0.5f + m.radio;
+        c.z0 = 0.5f - m.radio;  c.z1 = 0.5f + m.radio;
+        const float tope = (float)(-abajo) + m.alto;
+        // Con quiote (la vara floral del tequilana) la planta sigue mas
+        // arriba de la roseta: ahi manda la ultima celda.
+        const bool masAlta = (float)(abajo + arriba + 1) > m.alto + 1.0f;
+        c.y1 = masAlta ? (c.y1 > tope ? c.y1 : tope) : tope;
     }
     f.n = 0;
     f.anadir(c.x0, c.y0, c.z0, c.x1, c.y1, c.z1);
@@ -3692,6 +3808,10 @@ bool isBlockSolid(BlockType type) {
     // frena. Sin esta linea el jugador caminaria por encima del mar.
     if (Compuesto::Agua::esAgua(type) || esPlantaEnAgua(type)) return false;
 
+    // ⭐ LAS FLORES SE ATRAVIESAN, como la hierba alta. Van ANTES de la regla
+    // de los compuestos por lo mismo que el agua: viven en su rango.
+    if (Compuesto::Flor::esFlor(type)) return false;
+
     // ⭐ EL MAGUEY COMPUESTO: SOLIDO, pero solo donde hay planta.
     //
     // La caja real la da nopalHitboxCon() a partir de su etapa, asi que el
@@ -3712,6 +3832,15 @@ bool isBlockSolid(BlockType type) {
     if (type == BLOCK_AGUAMIEL) return true;
 
     return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA;
+}
+
+// ⭐ DONDE VIVE UNA FLOR: "en donde sea". Sobre cualquier bloque MACIZO y
+// entero -- pasto, tierra, arena, grava, piedra, tablones --. No sobre otra
+// planta, ni sobre una capa a medias, ni sobre el agua.
+bool sueloDeFlor(BlockType b) {
+    if (b == BLOCK_AIR || Compuesto::esCompuesto(b)) return false;
+    if (esNivelParcial(b) || esCeldaDeCapas(b)) return false;
+    return isBlockSolid(b) && !isCrossSprite(b);
 }
 
 bool isBlockOpaque(BlockType type) {
@@ -3895,6 +4024,7 @@ float getBlockBreakTime(BlockType type) {
     // Un bloque COMPUESTO cuesta lo que su planta: el maguey es fibra, no
     // roca, asi que se corta rapido. Sin esto caeria al default y se
     // comportaria como un bloque cualquiera.
+    if (Compuesto::Flor::esFlor(type)) return 0.0f;        // una flor se arranca al instante
     if (Compuesto::esCompuesto(type)) return 0.6f;
     // La tierra empapada cuesta lo mismo que la seca: mojarse no la endurece.
     if (estaMojado(type)) type = versionSeca(type);
@@ -3938,6 +4068,7 @@ float getBlockBreakTime(BlockType type) {
         case BLOCK_PEDAZO_PIEDRA:
         case BLOCK_PEDAZO_GRAVA:
         case BLOCK_PEDAZO_PEDERNAL:
+        case BLOCK_PEDAZO_OBSIDIANA:
         case BLOCK_PEDAZO_CALIZA:
         case BLOCK_PEDAZO_TIERRA:
         case BLOCK_PEDAZO_COBRE:
@@ -4112,6 +4243,7 @@ inline bool esBloqueDuroASurvival(BlockType type) {
 // de que el jugador entienda solo que necesita la otra herramienta.
 constexpr float HACHA_ORGANICO_BREAK_TIME = 1.0f;      // 1 segundo
 constexpr float PICO_ROCA_BREAK_TIME      = 1.5f;      // 1,5 segundos
+constexpr float PALA_TIERRA_BREAK_TIME    = 0.6f;      // la pala, en lo blando
 constexpr float HERRAMIENTA_MAL_USADA_BREAK_TIME = 780.0f;  // 13 minutos
 // Los tablones con hacha o martillo: menos de un segundo (ver esTablon abajo).
 constexpr float TABLON_HERRAMIENTA_BREAK_TIME = 0.8f;
@@ -4194,7 +4326,7 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
         // lo primero que se corta en el juego no puede exigir un hacha que
         // todavia no se puede fabricar.
         if (herramienta == BLOCK_PEDAZO_PIEDRA ||
-            herramienta == BLOCK_PEDAZO_PEDERNAL ||
+            herramienta == BLOCK_PEDAZO_PEDERNAL || herramienta == BLOCK_OBSIDIANA_AFILADA || esDaga(herramienta) ||
             herramienta == BLOCK_PEDAZO_CALIZA)
             return HACHA_ORGANICO_BREAK_TIME * 6.0f;
 
@@ -4237,7 +4369,7 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
         // piedra): con una lasca suelta en la mano se puede, pero se nota que
         // es el camino lento. La herramienta sigue mereciendo la pena.
         if (herramienta == BLOCK_PEDAZO_PIEDRA ||
-            herramienta == BLOCK_PEDAZO_PEDERNAL ||
+            herramienta == BLOCK_PEDAZO_PEDERNAL || herramienta == BLOCK_OBSIDIANA_AFILADA || esDaga(herramienta) ||
             herramienta == BLOCK_PEDAZO_CALIZA)
             return HACHA_ORGANICO_BREAK_TIME * 4.0f;
 
@@ -4249,6 +4381,13 @@ float getBlockBreakTimeForMode(BlockType type, int gameMode,
                                          : HERRAMIENTA_MAL_USADA_BREAK_TIME;
     }
 
+    // ⭐ LA PALA: cava lo blando en seguida (tierra, pasto, arena, grava,
+    // arcilla, nieve, enteros o en niveles). Contra lo demas es como
+    // cualquier herramienta mal usada.
+    if (isSurvival && esPala(herramienta)) {
+        return esTierraParaPala(type) ? PALA_TIERRA_BREAK_TIME
+                                      : HERRAMIENTA_MAL_USADA_BREAK_TIME;
+    }
     if (isSurvival && esPico(herramienta)) {
         return esRocaParaPico(type) ? PICO_ROCA_BREAK_TIME
                                     : HERRAMIENTA_MAL_USADA_BREAK_TIME;
@@ -6224,6 +6363,25 @@ private:
     // cargado, y nadie toca GL desde donde no debe.
     std::thread::id hiloPrincipal = std::this_thread::get_id();
 
+public:
+    // ⭐ CARGA DIFERIDA: PARA QUE EL MENU ABRA AL INSTANTE.
+    //
+    // PEDIDO: "arregla que tarda mucho el juego en abrir el menu principal, que
+    // sea al instante". Las texturas de los bloques no hacen falta para ensenar
+    // el menu: hacen falta para entrar a un mundo. Mientras este puntero no
+    // sea nulo, loadTexture() y las cuatro animaciones NO cargan nada: apuntan
+    // aqui lo que se les pidio y vuelven. Luego se cargan poco a poco, unas
+    // cuantas por cuadro, con el menu ya en pantalla (ver CargaDeArranque).
+    std::vector<std::string>* colaDiferida = nullptr;
+    void cargarLoApuntado(const std::string& que) {
+        if (que == "#agua") loadWaterAnimation();
+        else if (que == "#carga") loadCargaAnimation();
+        else if (que == "#horno") loadHornoAnimation();
+        else if (que == "#grietas") loadDestroyStageTextures();
+        else loadTexture(que);
+    }
+private:
+
     bool puedeCargar() const {
         return std::this_thread::get_id() == hiloPrincipal;
     }
@@ -6525,6 +6683,7 @@ public:
             auto it = textures.find(filename);
             if (it != textures.end()) return it->second;
         }
+        if (colaDiferida) { colaDiferida->push_back(filename); return 0; }     // se cargara luego
 
         // ⭐ SEGUNDA PUERTA, POR SI ALGUIEN NO PASA POR getTexture().
         //
@@ -6810,6 +6969,7 @@ public:
 
     // ANIMACIÓN: Cargar frames de agua animada (simulación procedural)
     void loadWaterAnimation() {
+        if (colaDiferida) { colaDiferida->push_back("#agua"); return; }     // se cargara luego
         // ⭐ IDEMPOTENCIA: sin este clear, cada llamada añadía un frame más al
         // vector y nunca lo vaciaba. Como loadAllBlockTextures() se llamaba
         // repetidamente (incluso desde el bucle de render de la hotbar),
@@ -7035,6 +7195,7 @@ public:
     double cargaFrameDelay = 0.1;
 
     void loadCargaAnimation() {
+        if (colaDiferida) { colaDiferida->push_back("#carga"); return; }     // se cargara luego
         if (!cargaFrames.empty()) {
             glDeleteTextures((GLsizei)cargaFrames.size(), cargaFrames.data());
             cargaFrames.clear();
@@ -7063,6 +7224,7 @@ public:
 
     // ANIMACIÓN: cargar los cuadros del fuego del horno.
     void loadHornoAnimation() {
+        if (colaDiferida) { colaDiferida->push_back("#horno"); return; }     // se cargara luego
         // Idempotencia: esto puede llamarse más de una vez (loadAllBlockTextures
         // se invoca desde varios sitios). Sin borrar antes, cada llamada
         // dejaría los handles viejos colgando en la VRAM.
@@ -7149,6 +7311,7 @@ public:
 
     // ANIMACIÓN: Cargar texturas de destrucción de bloques (grietas)
     void loadDestroyStageTextures() {
+        if (colaDiferida) { colaDiferida->push_back("#grietas"); return; }     // se cargara luego
         // ⭐⭐⭐ GUARDA DE IDEMPOTENCIA — CORRIGE LA FUGA PRINCIPAL DE VRAM
         //
         // Estas texturas NO viven en el mapa `textures`, así que ni el caché
@@ -7418,9 +7581,14 @@ public:
         // silencioso que hacia que el barro y los tazones con aguamiel se
         // vieran como montones de piedra gris.
         loadTexture("../Items/Pedazo de barro.png");
-        loadTexture("../Items/Tazon de madera pino con aguamiel.png");
-        loadTexture("../Items/Tazon de Encino con aguamiel.png");
-        loadTexture("../Items/Tazon de madera de oyame con aguamiel.png");
+        loadTexture("../Items/Tazon de madera de pino con aguamiel.png");
+        loadTexture("../Items/Tazon de madera de encino con aguamiel.png");
+        loadTexture("../Items/Tazon de madera de Oyame con aguamiel.png");
+        loadTexture("../Items/Tazon de madera Pinus montezumae con aguamiel.png");
+        loadTexture("../Items/Tazon de Madera de Pino patula con aguamiel.png");
+        loadTexture("../Items/Tazon Madera de Pino pinonero mexicano con aguamiel.png");
+        loadTexture("../Items/Tazon Madera de Pino de las alturas con aguamiel.png");
+        loadTexture("../Items/Tazon madera de Pino de pseudostrobus con aguamiel.png");
         // Corazones del HUD de vida
         loadTexture("../Entitys/Player/corazon del jugador.png");
         // "a la mitad" y "vacio" aun no estan en el resourcepack; se cargaran
@@ -7785,35 +7953,19 @@ public:
         unsigned char* px = stbi_load(ruta.c_str(), &w, &h, &canales, STBI_rgb_alpha);
         if (!px) return loadTextureFromPath(ruta);   // sin cache negativa
 
-        // Para cada pixel vacio, buscar el opaco mas cercano y copiarle el
-        // color. La imagen es de 16x16, asi que la busqueda directa cuesta
-        // nada y se hace una sola vez en toda la partida.
-        std::vector<unsigned char> out(px, px + (size_t)w * h * 4);
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                const size_t o = ((size_t)y * w + x) * 4;
-                if (px[o + 3] >= 250) continue;      // ya es opaco
-
-                int mejorD = 1 << 30;
-                size_t mejor = 0;
-                bool hay = false;
-                for (int sy = 0; sy < h; ++sy) {
-                    for (int sx = 0; sx < w; ++sx) {
-                        const size_t s = ((size_t)sy * w + sx) * 4;
-                        if (px[s + 3] < 250) continue;
-                        const int dx = sx - x, dy = sy - y;
-                        const int d = dx * dx + dy * dy;
-                        if (d < mejorD) { mejorD = d; mejor = s; hay = true; }
-                    }
-                }
-                if (!hay) continue;   // textura vacia entera: se deja igual
-                out[o + 0] = px[mejor + 0];
-                out[o + 1] = px[mejor + 1];
-                out[o + 2] = px[mejor + 2];
-                out[o + 3] = 255;     // ya no hay transparencia
-            }
-        }
+        // Cada pixel vacio toma el color del opaco mas cercano, y la imagen
+        // queda maciza. EN TIEMPO LINEAL (ver render/RellenoTextura.h): la
+        // busqueda directa de antes recorria la imagen entera por cada pixel
+        // vacio, y con una textura de 1286x1223 el juego se quedaba colgado
+        // aqui, antes de abrir el menu. Lo que llega enorme, ademas, se reduce
+        // antes a 256 px de lado: no se ve la diferencia y carga 25 veces antes.
+        int wChica = w, hChica = h;
+        const std::vector<unsigned char> chica =
+            RellenoTextura::reducir(px, w, h, RellenoTextura::divisorPara(w, h), wChica, hChica);
         stbi_image_free(px);
+        w = wChica;
+        h = hChica;
+        const std::vector<unsigned char> out = RellenoTextura::rellenar(chica.data(), w, h);
 
         while (glGetError() != GL_NO_ERROR) { /* limpiar errores ajenos */ }
 
@@ -8282,8 +8434,16 @@ public:
         // Los cinco de despues (potatorum y los de tronco): la hoja de su tabla.
         if (Compuesto::esCompuesto(type) &&
             Compuesto::familiaDe(type) >= Compuesto::FAM_AGAVE_POTATORUM &&
-            Compuesto::familiaDe(type) <= Compuesto::FAM_MAGUEY_CIRIAL)
+            Compuesto::familiaDe(type) <= Compuesto::FAM_MAGUEY_SISAL)
             return getBlockTexture(Compuesto::AgaveRigido::formaDe(Compuesto::familiaDe(type)).penca, face);
+        // El fourcroydes y el americana: igual, la hoja de su tabla.
+        if (Compuesto::esCompuesto(type) &&
+            (Compuesto::familiaDe(type) == Compuesto::FAM_AGAVE_FOURCROYDES ||
+             Compuesto::familiaDe(type) == Compuesto::FAM_AGAVE_AMERICANA))
+            return getBlockTexture(Compuesto::AgaveRigido::formaDe(Compuesto::familiaDe(type)).penca, face);
+        // Las flores: la imagen de la planta entera, la misma del item.
+        if (Compuesto::Flor::esFlor(type))
+            return getBlockTexture(itemDeFlor((int)Compuesto::Flor::especieDe(type)), face);
         if (Compuesto::esCompuesto(type) &&
             Compuesto::familiaDe(type) == Compuesto::FAM_AGAVE_ALBOMARGINATA)
             return getTexture("Agave albomarginata penca.png");
@@ -8397,6 +8557,13 @@ public:
             case BLOCK_MAGUEY_MADRECUIXE_PENCA: return getTexture("Agave Madrecuixe.png");
             case BLOCK_MAGUEY_CUISHE_PENCA:     return getTexture("Agave Cuishe.png");
             case BLOCK_MAGUEY_CIRIAL_PENCA:     return getTexture("Agave Cirial.png");
+            case BLOCK_MAGUEY_SISAL_PENCA:      return getTexture("maguey sisal.png");
+            case BLOCK_AGAVE_FOURCROYDES_PENCA: return getTexture("Agave fourcroydes.png");
+            case BLOCK_AGAVE_AMERICANA_PENCA:   return getTexture("Agave Americana.png");
+            case BLOCK_FLOR_CEMPASUCHIL:        return getTexture("../Items/Cempasuchil.png");
+            case BLOCK_FLOR_NOCHEBUENA:         return getTexture("../Items/Nochebuena.png");
+            case BLOCK_FLOR_COSMOS:             return getTexture("../Items/Cosmos.png");
+            case BLOCK_FLOR_DALIA:              return getTexture("../Items/Dalia.png");
             case BLOCK_AGAVE_ALBOMARGINATA_PENCA:
                 return getTexture("Agave albomarginata penca.png");
             case BLOCK_MAGUEY_SALMIANA_PENCA:
@@ -8856,6 +9023,11 @@ public:
             // --- IXTLE (lechuguilla) ---
             case BLOCK_PEDAZO_GRAVA:
                 return getTexture("Grava.png");
+            case BLOCK_PEDAZO_OBSIDIANA:
+                // Como el pedernal: el dibujo no llena el cuadro, asi que se
+                // rellena para que el canto no se vea agujereado.
+                return cargarTunaSinHuecos("obsidiana",
+                    gamePath("resourcepacks/Textures/Items/Obsidiana.png"));
             case BLOCK_PEDAZO_PEDERNAL:
                 // ⭐ SIN ZONAS INVISIBLES
                 //
@@ -8929,11 +9101,21 @@ public:
             case BLOCK_PEDAZO_BARRO:
                 return getTexture("../Items/Pedazo de barro.png");
             case BLOCK_TAZON_PINO_AGUAMIEL:
-                return getTexture("../Items/Tazon de madera pino con aguamiel.png");
+                return getTexture("../Items/Tazon de madera de pino con aguamiel.png");
             case BLOCK_TAZON_ENCINO_AGUAMIEL:
-                return getTexture("../Items/Tazon de Encino con aguamiel.png");
+                return getTexture("../Items/Tazon de madera de encino con aguamiel.png");
             case BLOCK_TAZON_OYAMEL_AGUAMIEL:
-                return getTexture("../Items/Tazon de madera de oyame con aguamiel.png");
+                return getTexture("../Items/Tazon de madera de Oyame con aguamiel.png");
+            case BLOCK_TAZON_OCOTE_AGUAMIEL:
+                return getTexture("../Items/Tazon de madera Pinus montezumae con aguamiel.png");
+            case BLOCK_TAZON_PATULA_AGUAMIEL:
+                return getTexture("../Items/Tazon de Madera de Pino patula con aguamiel.png");
+            case BLOCK_TAZON_PINONERO_AGUAMIEL:
+                return getTexture("../Items/Tazon Madera de Pino pinonero mexicano con aguamiel.png");
+            case BLOCK_TAZON_ALTURAS_AGUAMIEL:
+                return getTexture("../Items/Tazon Madera de Pino de las alturas con aguamiel.png");
+            case BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL:
+                return getTexture("../Items/Tazon madera de Pino de pseudostrobus con aguamiel.png");
 
             // --- La tierra que ha bebido agua ---
             //
@@ -9954,6 +10136,7 @@ struct Chunk {
 
         return b == BLOCK_AIR || b == BLOCK_WATER ||
                b == BLOCK_TALLGRASS || b == BLOCK_ORANGE_FLOWER ||
+               Compuesto::Flor::esFlor(b) ||
                // El tallo de ixtle NO: es macizo y corta el sol como
                // cualquier bloque de suelo.
                esIxtleHoja(b) || b == BLOCK_IXTLE_PUNTA ||
@@ -11287,6 +11470,70 @@ public:
             recipes.push_back(recipe);
         }
 
+        // ⭐ OBSIDIANA AFILADA: OBSIDIANA + MARTILLO. PEDIDO: "que con el
+        // martillo hagas su version afilada". El mismo gesto que con el
+        // pedernal, con cualquiera de los dos martillos; se gasta la
+        // obsidiana y al martillo se le quita un uso.
+        {
+            CraftingRecipe recipe(BLOCK_OBSIDIANA_AFILADA, 1, true);
+            recipe.pattern[0] = BLOCK_MARTILLO_PIEDRA;
+            recipe.pattern[1] = BLOCK_PEDAZO_OBSIDIANA;
+            recipes.push_back(recipe);
+        }
+        {
+            CraftingRecipe recipe(BLOCK_OBSIDIANA_AFILADA, 1, true);
+            recipe.pattern[0] = BLOCK_MARTILLO_PEDERNAL;
+            recipe.pattern[1] = BLOCK_PEDAZO_OBSIDIANA;
+            recipes.push_back(recipe);
+        }
+
+        // ====================================================================
+        // ⭐ PALAS, LANZAS Y LA DAGA DE OBSIDIANA
+        // ====================================================================
+        // PEDIDO: "anade la pala de piedra, lanza de piedra, daga de obsidiana,
+        // lanza de pedernal, pala de pedernal", con las recetas de las
+        // capturas. Las tres llevan lo mismo -- la cabeza, hilo de ixtle y un
+        // palo --; lo que las distingue es COMO se colocan:
+        //
+        //   PALA    en columna, a la izquierda     cabeza / hilo / palo
+        //   LANZA   en diagonal                    cabeza \ hilo \ palo
+        //   DAGA    en fila, arriba                cabeza - hilo - palo
+        {
+            CraftingRecipe recipe(BLOCK_PALA_PIEDRA, 1, false);
+            recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;     // arriba izquierda
+            recipe.pattern[3] = BLOCK_HILO_IXTLE;        // centro izquierda
+            recipe.pattern[6] = BLOCK_STICK;             // abajo izquierda
+            recipes.push_back(recipe);
+        }
+        {
+            CraftingRecipe recipe(BLOCK_PALA_PEDERNAL, 1, false);
+            recipe.pattern[0] = BLOCK_PEDERNAL_AFILADO;
+            recipe.pattern[3] = BLOCK_HILO_IXTLE;
+            recipe.pattern[6] = BLOCK_STICK;
+            recipes.push_back(recipe);
+        }
+        {
+            CraftingRecipe recipe(BLOCK_LANZA_PIEDRA, 1, false);
+            recipe.pattern[0] = BLOCK_PEDAZO_PIEDRA;     // arriba izquierda
+            recipe.pattern[4] = BLOCK_HILO_IXTLE;        // centro
+            recipe.pattern[8] = BLOCK_STICK;             // abajo derecha
+            recipes.push_back(recipe);
+        }
+        {
+            CraftingRecipe recipe(BLOCK_LANZA_PEDERNAL, 1, false);
+            recipe.pattern[0] = BLOCK_PEDERNAL_AFILADO;
+            recipe.pattern[4] = BLOCK_HILO_IXTLE;
+            recipe.pattern[8] = BLOCK_STICK;
+            recipes.push_back(recipe);
+        }
+        {
+            CraftingRecipe recipe(BLOCK_DAGA_OBSIDIANA, 1, false);
+            recipe.pattern[0] = BLOCK_OBSIDIANA_AFILADA; // arriba izquierda
+            recipe.pattern[1] = BLOCK_HILO_IXTLE;        // arriba centro
+            recipe.pattern[2] = BLOCK_STICK;             // arriba derecha
+            recipes.push_back(recipe);
+        }
+
         // ========================================================================
         // MACHACAR PIEDRA LABRADA: 1 BLOQUE -> 5 PEDAZOS
         // ========================================================================
@@ -11377,24 +11624,27 @@ public:
 
         // ⭐ TAZONES DE MADERA
         //
-        //     M  P  M      M = palo
-        //     .  T  .      P = pedazo de piedra (para vaciar la madera)
-        //     .  .  .      T = tablones (el cuerpo del tazon)
+        //     .  .  .      T = tablones (las paredes y el fondo del tazon)
+        //     T  P  T      P = pedazo de piedra (para vaciar la madera)
+        //     .  T  .
         //
-        // Uno por especie: el tazon sale de la madera que se use, igual que
-        // los tablones salen de su tronco. Sirven para recoger el aguamiel
-        // del maguey capado.
+        // PEDIDO: "cambia el crafteo de los tazones a esto con todas las
+        // maderas". Tres tablones en U y la piedra en el hueco; antes eran dos
+        // palos, la piedra y un tablon.
+        //
+        // ⭐ CADA MADERA, SU TAZON. PEDIDO: "arregla que cada tablones de
+        // madera tenga su propio tazon". Los tres tablones han de ser de la
+        // misma madera, y el tazon sale de esa: ocho maderas, ocho tazones
+        // (JUEGOS_DE_TAZON, en BlockType.h). Antes habia tres y las otras
+        // cinco daban el de pino. Sirven para recoger agua y aguamiel.
         {
-            const BlockType TABLON[3] = { BLOCK_PLANKS, BLOCK_PLANKS_ENCINO,
-                                          BLOCK_PLANKS_OYAMEL };
-            const BlockType TAZON[3]  = { BLOCK_TAZON_PINO, BLOCK_TAZON_ENCINO,
-                                          BLOCK_TAZON_OYAMEL };
-            for (int i = 0; i < 3; ++i) {
-                CraftingRecipe recipe(TAZON[i], 1, false);
-                recipe.pattern[0] = BLOCK_STICK;          // arriba izquierda
-                recipe.pattern[1] = BLOCK_PEDAZO_PIEDRA;  // arriba centro
-                recipe.pattern[2] = BLOCK_STICK;          // arriba derecha
-                recipe.pattern[4] = TABLON[i];            // centro
+            for (int k = 0; k < NUM_JUEGOS_DE_TAZON; ++k) {
+                const struct { BlockType tablon, tazon; } t = { juegoDeTazon(k).tablon, juegoDeTazon(k).vacio };
+                CraftingRecipe recipe(t.tazon, 1, false);
+                recipe.pattern[3] = t.tablon;             // centro izquierda
+                recipe.pattern[4] = BLOCK_PEDAZO_PIEDRA;  // centro
+                recipe.pattern[5] = t.tablon;             // centro derecha
+                recipe.pattern[7] = t.tablon;             // abajo centro
                 recipes.push_back(recipe);
             }
         }
@@ -11600,12 +11850,8 @@ public:
         // martillo, que se gasta en vez de desaparecer). Tragarse el tazon
         // obligaria a tallar uno nuevo por cada barro, que no tiene sentido.
         {
-            const BlockType TAZONES_AGUA[] = {
-                BLOCK_TAZON_PINO_AGUA,
-                BLOCK_TAZON_ENCINO_AGUA,
-                BLOCK_TAZON_OYAMEL_AGUA
-            };
-            for (BlockType t : TAZONES_AGUA) {
+            for (int k = 0; k < NUM_JUEGOS_DE_TAZON; ++k) {
+                const BlockType t = juegoDeTazon(k).agua;      // el de cualquier madera
                 CraftingRecipe recipe(BLOCK_PEDAZO_BARRO, 1, true);
                 recipe.pattern[0] = t;
                 recipe.pattern[1] = BLOCK_DIRT_POWDER;
@@ -15402,6 +15648,41 @@ public:
                     }
                 }
 
+                // ---- FLORES: cempasuchil, nochebuena, cosmos y dalia ----
+                // PEDIDO: "que tengan la capacidad de crecer [...] en donde
+                // sea". Salen en manchones sueltos en CUALQUIER bioma y sobre
+                // cualquier suelo macizo. Cada especie tiene su rejilla y su
+                // sal, para que no caigan todas en los mismos puntos; dentro
+                // de un manchon hay de todo, del brote a la flor abierta, y
+                // desde ahi siguen creciendo y sembrandose solas.
+                if (chunk->getBlock(x, surfaceY + 1, z) == BLOCK_AIR && sueloDeFlor(ground)) {
+                    namespace FL = Compuesto::Flor;
+                    for (unsigned e = 0; e < (unsigned)FL::N_ESPECIES; ++e) {
+                        const int R = 19 + (int)e * 4;
+                        const int fx = (worldX >= 0 ? worldX : worldX - (R - 1)) / R;
+                        const int fz = (worldZ >= 0 ? worldZ : worldZ - (R - 1)) / R;
+                        unsigned hf = (unsigned)(fx * 2654435761u) ^ (unsigned)(fz * 2246822519u) ^ (0xf10e5u + e * 0x9e3779b9u);
+                        hf ^= hf >> 13; hf *= 1274126177u; hf ^= hf >> 16;
+                        if ((hf % 3u) != 0u) continue;                  // 1 de cada 3 focos
+                        const int cx = fx * R + (int)((hf >> 3) % (unsigned)R);
+                        const int cz = fz * R + (int)((hf >> 11) % (unsigned)R);
+                        const int dx = worldX - cx, dz = worldZ - cz;
+                        const int radio = 2 + (int)((hf >> 19) % 3u);
+                        if (dx * dx + dz * dz > radio * radio) continue;
+                        unsigned ha = (unsigned)(worldX * 6151) ^ (unsigned)(worldZ * 7919) ^ (0xf10e5u * 3u + e);
+                        ha ^= ha >> 13; ha *= 2246822519u; ha ^= ha >> 16;
+                        if ((ha % 100u) >= 26u) continue;               // ralo dentro del manchon
+                        const unsigned d100 = (ha >> 7) % 100u;
+                        const uint16_t etapa = d100 < 8u  ? (uint16_t)FL::BROTE
+                                             : d100 < 18u ? (uint16_t)FL::PLANTULA
+                                             : d100 < 32u ? (uint16_t)FL::TALLO
+                                             : d100 < 52u ? (uint16_t)FL::JOVEN
+                                                          : (uint16_t)FL::ABIERTA;
+                        chunk->setBlock(x, surfaceY + 1, z, FL::crear((uint16_t)e, etapa, (uint16_t)((ha >> 17) & 3u)));
+                        break;
+                    }
+                }
+
                 // ---- NOPAL DE CASTILLA ----
                 // Crece en CUALQUIER suelo natural blando: pasto, tierra,
                 // arena, grava, arcilla y sus variantes. NO en piedra, caliza
@@ -15607,6 +15888,15 @@ public:
                         { Compuesto::FAM_MAGUEY_MADRECUIXE,   30, 3u, 0xa54ff53au, 3, 2, 12u, valleSeco, 1 },
                         { Compuesto::FAM_MAGUEY_CUISHE,       30, 4u, 0x9b05688cu, 3, 3, 10u, valleSeco, 1 },
                         { Compuesto::FAM_MAGUEY_CIRIAL,       34, 4u, 0x1f83d9abu ^ 0x77u, 3, 3, 9u, valleSeco, 1 },
+                        // El sisal, de tierra caliente y seca: desierto y
+                        // planicie, en grupos ordenados y con sitio alrededor.
+                        { Compuesto::FAM_MAGUEY_SISAL,        24, 3u, 0x5be0cd19u, 3, 3, 12u, valleSeco, 2 },
+                        // El fourcroydes (henequen), de tierra caliente y seca
+                        // como el sisal, mas ralo: es alto y se ve de lejos.
+                        { Compuesto::FAM_AGAVE_FOURCROYDES,   32, 4u, 0xcbbb9d5du, 3, 3, 10u, valleSeco, 2 },
+                        // El americana, el maguey de casi todas partes: llano y
+                        // bosque abierto, en matas grandes y separadas.
+                        { Compuesto::FAM_AGAVE_AMERICANA,     30, 3u, 0x629a292au, 3, 3, 9u, altiplano, 2 },
                     };
                     for (const Siembra& sb : SIEMBRAS) {
                         if (!sb.aqui) continue;
@@ -16045,7 +16335,18 @@ public:
                     // alfombra. La proporcion entre terreno normal y zonas de
                     // acumulacion se mantiene (~3x), asi que el risco y la
                     // orilla siguen siendo notoriamente mas ricos.
-                    const unsigned cada = (enMontana || enPlaya || enRio) ? 22u : 60u;
+                    // ⭐ OBSIDIANA: donde hay monte o volcan salen mas pedazos (y mas
+                    // obsidiana entre ellos), y en el CRATER de un volcan, muchos
+                    // mas: es de donde viene.
+                    float uRelieve = 1.0f;
+                    const TerrainGen::MountainGenerator relieveAqui(seed);
+                    const int formaAqui = relieveAqui.RelieveEn((float)worldX, (float)worldZ, &uRelieve);
+                    const bool enMonte  = formaAqui == TerrainGen::MountainGenerator::MONTE ||
+                                          formaAqui == TerrainGen::MountainGenerator::VOLCAN;
+                    const bool enCrater = formaAqui == TerrainGen::MountainGenerator::VOLCAN &&
+                                          uRelieve < TerrainGen::MountainGenerator::U_CRATER;
+                    const unsigned cada = enCrater ? 9u
+                                        : (enMontana || enPlaya || enRio || enMonte) ? 22u : 60u;
 
                     if ((hpd % cada) == 0u) {
                         // ⭐ DE QUE ES EL GUIJARRO
@@ -16070,7 +16371,7 @@ public:
                         // no rompe nada pero sesga el reparto sin avisar --
                         // los ultimos en entrar (el pedernal) no saldrian
                         // nunca en el sitio donde mas debian salir.
-                        BlockType posibles[72];
+                        BlockType posibles[128];
                         int n = 0;
                         auto meter = [&](BlockType b, int veces) {
                             for (int k = 0; k < veces &&
@@ -16171,6 +16472,13 @@ public:
                                                 ground == BLOCK_STONE);
 
                         // Comun en cualquier sitio, como el cobre.
+                        // En cualquier suelo -- pasto, arena, tierra, piedra --: ni
+                        // comun ni rara. En monte y volcan, bastante mas; en el
+                        // crater, la que mas.
+                        meter(BLOCK_PEDAZO_OBSIDIANA, 2);
+                        if (enMontana) meter(BLOCK_PEDAZO_OBSIDIANA, 3);
+                        if (enMonte)   meter(BLOCK_PEDAZO_OBSIDIANA, 5);
+                        if (enCrater)  meter(BLOCK_PEDAZO_OBSIDIANA, 16);
                         meter(BLOCK_PEDAZO_PEDERNAL, 2);
                         if (enPlaya)              meter(BLOCK_PEDAZO_PEDERNAL, 5);
                         if (enMontana)            meter(BLOCK_PEDAZO_PEDERNAL, 4);
@@ -16229,14 +16537,17 @@ public:
 
                             // Reparto de cueva: cobre y pedernal dominan, y
                             // la piedra y la caliza salen de vez en cuando.
-                            static const BlockType DE_CUEVA[10] = {
+                            static const BlockType DE_CUEVA[14] = {
                                 BLOCK_PEDAZO_COBRE,    BLOCK_PEDAZO_COBRE,
                                 BLOCK_PEDAZO_COBRE,    BLOCK_PEDAZO_COBRE,
                                 BLOCK_PEDAZO_PEDERNAL, BLOCK_PEDAZO_PEDERNAL,
                                 BLOCK_PEDAZO_PEDERNAL, BLOCK_PEDAZO_PEDERNAL,
-                                BLOCK_PEDAZO_PIEDRA,   BLOCK_PEDAZO_CALIZA
+                                BLOCK_PEDAZO_PIEDRA,   BLOCK_PEDAZO_CALIZA,
+                                // En las cuevas la obsidiana sale mas que arriba.
+                                BLOCK_PEDAZO_OBSIDIANA, BLOCK_PEDAZO_OBSIDIANA,
+                                BLOCK_PEDAZO_OBSIDIANA, BLOCK_PEDAZO_OBSIDIANA
                             };
-                            chunk->setBlock(x, cy, z, DE_CUEVA[(hc >> 9) % 10u]);
+                            chunk->setBlock(x, cy, z, DE_CUEVA[(hc >> 9) % 14u]);
                             break;   // uno por columna
                         }
                     }
@@ -22590,8 +22901,14 @@ public:
                         const float B = tope1(lz * lightColorB);
                         // La sombra de cada cara, como en cualquier bloque.
                         static const float SOMBRA[6] = { 1.0f, 0.55f, 0.80f, 0.80f, 0.90f, 0.70f };
-                        float cajas[4][6];
-                        const int nCajas = Formas::cajasDePieza(block, cajas);
+                        float cajas[8][6];
+                        // Con las vecinas: una escalera que hace esquina con otra
+                        // se dibuja con su esquina (ver Formas::unionDeEscalera).
+                        const int nCajas = Formas::cajasDePiezaEnMundo(block,
+                            [&](int dx, int dy, int dz) { return getNeighborBlockCached(x, y, z, dx, dy, dz); }, cajas);
+                        // En diagonal, cada vertice se gira 45 grados sobre el
+                        // centro de la casilla.
+                        const bool enDiagonal = Formas::diagonalDe(block);
                         for (int q = 0; q < nCajas; ++q) {
                             const float x0 = cajas[q][0], y0 = cajas[q][1], z0 = cajas[q][2];
                             const float x1 = cajas[q][3], y1 = cajas[q][4], z1 = cajas[q][5];
@@ -22617,9 +22934,11 @@ public:
                                 auto& U = uvsByTexture[texCara[cara]];
                                 const float s = SOMBRA[cara];
                                 for (int i = 0; i < 4; ++i) {
-                                    V.push_back(wx + P[cara][i][0]);
+                                    float px = P[cara][i][0], pz = P[cara][i][2];
+                                    if (enDiagonal) Formas::puntoEnDiagonal(px, pz);
+                                    V.push_back(wx + px);
                                     V.push_back(wy + P[cara][i][1]);
-                                    V.push_back(wz + P[cara][i][2]);
+                                    V.push_back(wz + pz);
                                     C.push_back(R * s); C.push_back(G * s);
                                     C.push_back(B * s); C.push_back(1.0f);
                                     U.push_back(T[cara][i][0]);
@@ -24046,6 +24365,82 @@ public:
                         chunk->setBlock(x, y, z, BLOCK_AIR);
                         chunk->needsRebuild = true;
                         continue;   // no emitir las caras del cubo
+                    }
+
+                    // ========================================================
+                    // ⭐ LAS FLORES, EN 3D
+                    // ========================================================
+                    // Tres laminas cruzadas a 60 grados con la planta entera
+                    // (o solo su tallo y hojas mientras no ha florecido), y
+                    // la corola tumbada encima: desde arriba se ve la flor.
+                    // Todo a doble cara, porque el mundo descarta las caras
+                    // de espaldas.
+                    if (Compuesto::Flor::esFlor(block)) {
+                        namespace FL = Compuesto::Flor;
+                        const GLuint texF = texSegura(block, 2);
+                        if (texF == 0) continue;
+                        const FL::Medidas md = FL::medidasDe(FL::especieDe(block));
+                        const bool flor = FL::abierta(block);
+                        const float H = FL::altoDe(block);
+                        // Sin flor se ensena de vTallo para abajo, a su proporcion.
+                        const float v0 = flor ? 0.0f : md.vTallo;
+                        float W = H / (1.0f - v0);
+                        if (W > 1.6f * H + 0.2f) W = 1.6f * H + 0.2f;
+                        auto tope1f = [](float v) { return v > 1.0f ? 1.0f : v; };
+                        const float lzf = faceLightFactor(x, y, z, 0, 1, 0);
+                        const float Rf = tope1f(lzf * lightColorR), Gf = tope1f(lzf * lightColorG),
+                                    Bf = tope1f(lzf * lightColorB);
+                        auto& VF = verticesByTexture[texF];
+                        auto& CF = colorsByTexture[texF];
+                        auto& UF = uvsByTexture[texF];
+                        auto vert = [&](float px, float py, float pz, float u, float v, float br) {
+                            VF.push_back(wx + px); VF.push_back(wy + py); VF.push_back(wz + pz);
+                            CF.push_back(Rf * br); CF.push_back(Gf * br); CF.push_back(Bf * br); CF.push_back(1.0f);
+                            UF.push_back(u); UF.push_back(v);
+                        };
+                        // Un cuadrilatero por sus cuatro esquinas, por las dos caras.
+                        auto cuadro = [&](const float P[4][3], const float T[4][2], float br) {
+                            for (int i = 0; i < 4; ++i) vert(P[i][0], P[i][1], P[i][2], T[i][0], T[i][1], br);
+                            for (int i = 3; i >= 0; --i) vert(P[i][0], P[i][1], P[i][2], T[i][0], T[i][1], br);
+                        };
+                        const float giro = (float)FL::giroDe(block) * 0.3927f;         // 22,5 grados por paso
+                        for (int k = 0; k < 3; ++k) {
+                            const float a = giro + (float)k * 1.0472f;                 // 60 grados
+                            const float ca = std::cos(a), sa = std::sin(a);
+                            // El pie del tallo cae en el centro de la celda.
+                            const float i0 = -md.uPie * W, i1 = (1.0f - md.uPie) * W;
+                            const float P[4][3] = {
+                                { 0.5f + ca * i0, 0.0f, 0.5f + sa * i0 },
+                                { 0.5f + ca * i1, 0.0f, 0.5f + sa * i1 },
+                                { 0.5f + ca * i1, H,    0.5f + sa * i1 },
+                                { 0.5f + ca * i0, H,    0.5f + sa * i0 } };
+                            // (Las imagenes se cargan volteadas: en la textura
+                            // v = 0 es el PIE de la imagen y v = 1 su borde de
+                            // arriba. Las medidas de Flor van como en el
+                            // dibujo, de arriba abajo, asi que se les da la
+                            // vuelta aqui.)
+                            const float T[4][2] = { { 0.0f, 0.0f }, { 1.0f, 0.0f },
+                                                    { 1.0f, 1.0f - v0 }, { 0.0f, 1.0f - v0 } };
+                            cuadro(P, T, k == 0 ? 1.0f : (k == 1 ? 0.92f : 0.86f));
+                        }
+                        if (flor) {
+                            // La corola: el recorte de la flor, tumbado a la
+                            // altura de su centro y un pelo inclinado.
+                            const float r = md.rCab * H * 0.92f;
+                            const float yc = H * (1.0f - md.vCab);
+                            const float cx = 0.5f + (md.uCab - md.uPie) * H * std::cos(giro);
+                            const float cz = 0.5f + (md.uCab - md.uPie) * H * std::sin(giro);
+                            const float inc = r * 0.18f;
+                            const float P[4][3] = {
+                                { cx - r, yc - inc, cz - r }, { cx + r, yc - inc, cz - r },
+                                { cx + r, yc + inc, cz + r }, { cx - r, yc + inc, cz + r } };
+                            const float vA = 1.0f - (md.vCab + md.rCab), vB = 1.0f - (md.vCab - md.rCab);
+                            const float T[4][2] = {
+                                { md.uCab - md.rCab, vA }, { md.uCab + md.rCab, vA },
+                                { md.uCab + md.rCab, vB }, { md.uCab - md.rCab, vB } };
+                            cuadro(P, T, 1.0f);
+                        }
+                        continue;       // no hay cubo que dibujar
                     }
 
                     if (Compuesto::esCompuesto(block) &&
@@ -30625,6 +31020,23 @@ public:
         }
     }
 
+    // Para el arranque por pasos (ver CargaDeArranque): construye UNA malla
+    // pendiente, la mas cercana al origen. Devuelve false cuando no queda
+    // ninguna. Es buildAllPendingMeshes() de una en una, para no parar el menu.
+    bool construirUnaMallaPendiente() {
+        Chunk* mejor = nullptr;
+        long mejorD = 0;
+        for (auto& par : chunks) {
+            Chunk* c = par.second;
+            if (c == nullptr || !c->needsRebuild || !c->isGenerated) continue;
+            const long d = (long)c->position.x * c->position.x + (long)c->position.z * c->position.z;
+            if (mejor == nullptr || d < mejorD) { mejor = c; mejorD = d; }
+        }
+        if (mejor == nullptr) return false;
+        buildChunkMesh(mejor);
+        return true;
+    }
+
     // Obtener numero de chunks cargados
     int getChunkCount() const {
         return chunks.size();
@@ -32363,6 +32775,7 @@ PlayerSys::PlayerDebug         g_playerDebug;
 // ---- AUDIO ----
 Audio::AudioMixer      g_audioMixer;
 Audio::FootstepSystem  g_footsteps;
+Audio::SonidosDeBloque g_sonidosBloque;      // colocar, golpear y romper
 Audio::Musica          g_musica;
 
 // ⭐ EL CLIC DE LOS BOTONES (ver audio/ClicBoton.h). Quien DIBUJA un boton con
@@ -32385,8 +32798,30 @@ inline void sonarClicDeBoton() {
 }
 
 // Traduce un bloque del juego al material acústico correspondiente.
+// ⭐ LA IDENTIDAD DE UN BLOQUE PARA SU VOZ (ver audio/SonidoBloque.h).
+// PEDIDO: "que sea unico y diferente cada bloque". El numero del que sale el
+// tono, el brillo y la resonancia de un bloque. Un nivel de tierra tiene la voz
+// de la tierra y una pieza de pino la del pino; cada especie de planta, la suya.
+inline uint32_t idDeVoz(BlockType b) {
+    b = plantaSeca(b);
+    if (Formas::esPieza(b)) b = Formas::materialBloque(b);
+    if (esNivelParcial(b)) b = bloqueBaseDe(b);
+    else if (esCeldaDeCapas(b)) b = bloqueBaseDe(materialAbajo(b));
+    if (Compuesto::esCompuesto(b)) {
+        uint32_t id = 100000u + (uint32_t)Compuesto::familiaDe(b) * 16u;
+        if (Compuesto::Flor::esFlor(b)) id += 1u + (uint32_t)Compuesto::Flor::especieDe(b);
+        return id;
+    }
+    return (uint32_t)(int)b;
+}
 inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
     if (Formas::esPieza(b)) b = Formas::materialBloque(b);    // suena como su material
+    // Un nivel o una casilla de capas suena como el bloque del que esta hecho
+    // (lo de arriba, que es lo que se pisa y se golpea); una planta, a hoja.
+    if (esNivelParcial(b)) b = bloqueBaseDe(b);
+    else if (esCeldaDeCapas(b)) b = bloqueBaseDe(materialAbajo(b));
+    if (Compuesto::esCompuesto(b)) return Audio::StepMaterial::Leaves;
+    if (b == BLOCK_CLAY || b == BLOCK_CLAY_DIRT) return Audio::StepMaterial::Dirt;
     switch (b) {
         case BLOCK_STONE:
         case BLOCK_COBBLESTONE:
@@ -32438,6 +32873,12 @@ inline Audio::StepMaterial blockToStepMaterial(BlockType b) {
             if (esRocaParaPico(b)) return Audio::StepMaterial::Stone;
             return Audio::StepMaterial::Grass;
     }
+}
+
+// Colocar, golpear o romper un bloque: suena con su material y con SU voz.
+inline void sonarBloque(Audio::GestoBloque gesto, BlockType b, float volumen) {
+    if (b == BLOCK_AIR || !g_audioMixer.isReady()) return;
+    g_sonidosBloque.sonar(g_audioMixer, gesto, blockToStepMaterial(b), idDeVoz(b), volumen);
 }
 
 // ----------------------------------------------------------------------------
@@ -33523,6 +33964,7 @@ struct GameState {
         if (!world.chunkCargadoEn(x, z)) return -1.0f;
         const BlockType b = world.getBlock(x, y, z);
         if (!(isBlockSolid(b) || esNivelParcial(b))) return 0.0f;
+        if (Formas::esPieza(b)) return (std::max)(0.05f, Formas::altoDePieza(b));     // no flota sobre un piso fino
         return (std::min)(1.0f, (std::max)(0.05f, alturaDe(b)));
     }
 
@@ -34229,10 +34671,11 @@ RaycastResult raycastBlock(World& world, Vec3 origin, Vec3 direction, float maxD
             // sigue buscando detras. El punto de impacto corresponde a la
             // geometria real.
             {
-                const FormaBloque fm = formaDeBloque(block,
+                FormaBloque fm = formaDeBloque(block,
                     [&](int dx, int dy, int dz) {
                         return world.getBlock(x + dx, y + dy, z + dz);
                     }, x, y, z);
+                anadirJuntos(fm, x, y, z);
 
                 // ⭐ PEDIDO: "que las paredes sean seleccionables sin problemas".
                 // Una pieza se selecciona si el rayo toca ALGUNA de sus cajas,
@@ -34564,6 +35007,9 @@ std::vector<BlockDrop> getBlockDrops(BlockType blockType,
             // (el pedernal no tenia item propio: se le da el suyo)
             drops.push_back({BLOCK_PEDAZO_PEDERNAL, 1, 1.0f});
             break;
+        case BLOCK_PEDAZO_OBSIDIANA:
+            drops.push_back({BLOCK_PEDAZO_OBSIDIANA, 1, 1.0f});
+            break;
 
         case BLOCK_PEDAZO_TIERRA:
             // Los terrones sueltos son POLVO DE TIERRA, que ya es un item
@@ -34884,7 +35330,7 @@ void updateMining(GameState* state, float deltaTime) {
         const int idTocado = state->pecaries->pecariApuntado(
             origin.x, origin.y, origin.z,
             direction.x, direction.y, direction.z,
-            GameState::ALCANCE_GOLPE_FAUNA);
+            GameState::ALCANCE_GOLPE_FAUNA + alcanceExtraDeArma(state->inventory.getSelectedBlock()));
 
         if (idTocado >= 0) {
             state->golpeSoltado = false;   // consumido hasta que suelte
@@ -34893,10 +35339,13 @@ void updateMining(GameState* state, float deltaTime) {
             // mas que un puño, que es lo que ya distingue el motor para los
             // bloques.
             const BlockType enMano = state->inventory.getSelectedBlock();
-            const int dano = esHacha(enMano)   ? 6
+            const int dano = esArma(enMano)    ? danoDeArma(enMano)       // lanza o daga
+                           : esHacha(enMano)   ? 6
                            : esPico(enMano)    ? 4
                            : esHerramientaGastable(enMano) ? 3
                                                : 2;   // a mano limpia
+            // Las armas se gastan al herir (las herramientas, al picar).
+            if (esArma(enMano)) state->inventory.gastarHerramienta(2);
 
             TerrainGen::WorldGeneratorAAA* gen = state->world.getWorldGen();
             AdaptadorMundoFauna adaptador(gen, &state->world);
@@ -35039,6 +35488,22 @@ void updateMining(GameState* state, float deltaTime) {
     } else {
         state->miningProgress += deltaTime / breakTime;
 
+        // ⭐ CADA GOLPE SUENA, con el material y la voz del bloque. Uno cada
+        // 0,24 s mientras se pica (el ritmo del brazo), y el primero nada mas
+        // empezar.
+        {
+            static double ultimoGolpe = -1e9;
+            static Vec3i celdaGolpeada(-999999, -999999, -999999);
+            const double ahoraG = glfwGetTime();
+            const bool otraCelda = celdaGolpeada.x != result.blockPos.x || celdaGolpeada.y != result.blockPos.y ||
+                                   celdaGolpeada.z != result.blockPos.z;
+            if (otraCelda || ahoraG - ultimoGolpe >= 0.24) {
+                ultimoGolpe = ahoraG;
+                celdaGolpeada = result.blockPos;
+                sonarBloque(Audio::GestoBloque::GOLPEAR, blockType, 0.50f);
+            }
+        }
+
         // PARTÍCULAS PROGRESIVAS mientras se mina
         state->miningParticleTimer += deltaTime;
         if (state->miningParticleTimer >= 0.1f) {  // Cada 0.1 segundos
@@ -35052,6 +35517,29 @@ void updateMining(GameState* state, float deltaTime) {
 
     // Si completamos el minado, romper el bloque
     if (state->miningProgress >= 1.0f) {
+        sonarBloque(Audio::GestoBloque::ROMPER, blockType, 0.80f);       // se rompe: mas cuerpo y escombro
+        // ⭐ CASILLA CON COSAS JUNTAS: se quita lo ULTIMO que se junto (lo de
+        // encima del monton) y lo demas se queda. El bloque de la casilla
+        // solo se rompe cuando ya no tiene nada juntado.
+        if (g_celdasJuntas.tiene(result.blockPos.x, result.blockPos.y, result.blockPos.z)) {
+            const CeldasJuntas::Junto j = g_celdasJuntas.quitarUltimo(
+                result.blockPos.x, result.blockPos.y, result.blockPos.z);
+            if (state->currentGameMode != 1 && j.tipo != BLOCK_AIR) {
+                const Vec3 cae(result.blockPos.x + 0.5f, result.blockPos.y + 0.5f, result.blockPos.z + 0.5f);
+                if (Formas::esPieza(j.tipo)) {
+                    state->spawnItem(cae, Formas::conGiro(j.tipo, 0));
+                } else {
+                    for (const auto& d : getBlockDrops(j.tipo)) {
+                        if (d.chance < 1.0f) continue;
+                        for (int n = 0; n < d.count; ++n) state->spawnItem(cae, d.itemType);
+                    }
+                }
+            }
+            state->isMining = false;
+            state->miningProgress = 0.0f;
+            state->miningParticleTimer = 0.0f;
+            return;
+        }
         // ⭐ ARMA EL FRENO PARA EL SIGUIENTE BLOQUE (solo en creativo).
         //
         // En supervivencia no hace falta: el propio tiempo de rotura del
@@ -35116,7 +35604,22 @@ void updateMining(GameState* state, float deltaTime) {
 
             const Vec3 pos(bx + 0.5f, by + 0.5f, bz + 0.5f);
 
-            if (Compuesto::componenteN(blockType, comp) ==
+            // ⭐ SOLO EL PULQUERO TIENE PUNTAS QUE ARRANCAR.
+            //
+            // BUG: "cuando rompo una variante del maguey, aparece el maguey
+            // normal de la nada y la hitbox de la otra especie se pone
+            // arriba". Esta rama arranca una punta y deja la planta, y lo hace
+            // con las funciones del PULQUERO (Maguey::conPuntas), que escriben
+            // el bloque como FAM_MAGUEY. Entraba cualquier compuesto cuya
+            // pieza golpeada fuera el "adorno" -- la punta de un espadin, de
+            // un salmiana, de un tequilana --, asi que la celda golpeada se
+            // convertia en un maguey pulquero y el resto de la planta de la
+            // otra especie se quedaba encima, suelto.
+            //
+            // Ahora solo entra el pulquero. En las demas especies, golpear la
+            // punta es golpear la planta: cae entera, como al darle al cuerpo.
+            if (Compuesto::familiaDe(blockType) == Compuesto::FAM_MAGUEY &&
+                Compuesto::componenteN(blockType, comp) ==
                 Compuesto::COMP_ADORNO) {
                 // Una punta: se arranca UNA y la planta sigue en pie.
                 namespace M = Compuesto::Maguey;
@@ -35225,9 +35728,20 @@ void updateMining(GameState* state, float deltaTime) {
             // Es el mismo criterio que el tiempo de rotura: lo que tiene filo
             // sirve, la mano no. Un agave se ha jimado con lasca desde mucho
             // antes de que existiera el metal.
+            // ⭐ UNA FLOR SE CORTA CON LA MANO. Si ya abrio da su flor, y dos
+            // si esta del todo abierta: con una se queda uno y la otra se
+            // vuelve a plantar. Antes de florecer no da nada.
+            if (Compuesto::Flor::esFlor(blockType)) {
+                namespace FL = Compuesto::Flor;
+                const int cuantas = FL::etapaDe(blockType) >= FL::ABIERTA ? 2
+                                  : (FL::etapaDe(blockType) >= FL::JOVEN ? 1 : 0);
+                for (int i = 0; i < cuantas; ++i)
+                    state->spawnItem(pos, itemDeFlor((int)FL::especieDe(blockType)));
+            }
+
             const bool tieneFilo = esHacha(herramienta) ||
                                    herramienta == BLOCK_PEDAZO_PIEDRA ||
-                                   herramienta == BLOCK_PEDAZO_PEDERNAL ||
+                                   herramienta == BLOCK_PEDAZO_PEDERNAL || herramienta == BLOCK_OBSIDIANA_AFILADA || esDaga(herramienta) ||
                                    herramienta == BLOCK_PEDAZO_CALIZA;
 
             if (tieneFilo) {
@@ -35264,14 +35778,25 @@ void updateMining(GameState* state, float deltaTime) {
                 } else if (fam == Compuesto::FAM_FORMA) {
                     state->spawnItem(pos, Formas::conGiro(blockType, 0));
                 } else if (Compuesto::AgaveRigido::esRigido(fam)) {
-                    // El espadin, el albomarginata y el salmiana dan pencas de
-                    // maguey: tantas como celdas llena la mata, y una mas si
-                    // esta hecha (el salmiana grande, hasta cinco).
+                    // ⭐ CADA MAGUEY DA SU PENCA. PEDIDO: "que cada maguey
+                    // tenga su item". Antes el espadin, el salmiana y los
+                    // demas soltaban todos la penca del pulquero; ahora cada
+                    // especie suelta la suya (la misma hoja con la que se
+                    // dibuja la planta: Compuesto::AgaveRigido::formaDe).
+                    // Tantas como celdas llena la mata, y una mas si esta
+                    // hecha (el salmiana grande, hasta cinco).
                     const uint16_t et = Compuesto::AgaveAzul::etapaDe(blockType);
                     const int pencas = Compuesto::AgaveRigido::celdasDeEtapa(fam, et) +
                                        (et >= Compuesto::AgaveAzul::HECHA ? 1 : 0);
+                    const BlockType suPenca = Compuesto::AgaveRigido::formaDe(fam).penca;
                     for (int i = 0; i < pencas; ++i)
-                        state->spawnItem(pos, BLOCK_IXTLE_HOJA);
+                        state->spawnItem(pos, suPenca);
+                } else if (fam == Compuesto::FAM_AGAVE_ABISAII) {
+                    // El abisaii no soltaba nada. Da su hoja, como los demas.
+                    namespace AB = Compuesto::AgaveAbisaii;
+                    const int pencas = AB::celdasDeEtapa(AB::etapaDe(blockType));
+                    for (int i = 0; i < pencas; ++i)
+                        state->spawnItem(pos, BLOCK_AGAVE_ABISAII_PENCA);
                 }
             }
 
@@ -35663,6 +36188,9 @@ void updateMining(GameState* state, float deltaTime) {
         contarMinado(state, blockType, result.blockPos.x, result.blockPos.y, result.blockPos.z);
         // ⭐ SISTEMA DE DROPS: Spawnear items según el tipo de bloque
         Vec3 itemPos(result.blockPos.x + 0.5f, result.blockPos.y + 0.5f, result.blockPos.z + 0.5f);
+        // ⭐ La hoja de un PINO, a veces, traia una pina.
+        if (daPinas(blockType) && (rand() % 100) < PinasDePino::AL_ROMPER_DE_100)
+            state->spawnItem(itemPos, BLOCK_PINA_PINO);
         // Se pasa la POSICION: los minerales la necesitan para saber cuantos
         // cristales tenia ese bloque, que es lo que decide cuanto sueltan.
         std::vector<BlockDrop> drops = getBlockDrops(
@@ -35918,6 +36446,8 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
             const bool item3D = (item.blockType == BLOCK_RAW_COPPER ||
                                  item.blockType == BLOCK_PEDAZO_COBRE ||
                                  item.blockType == BLOCK_PEDAZO_PEDERNAL ||
+                                 item.blockType == BLOCK_PEDAZO_OBSIDIANA ||
+                                 item.blockType == BLOCK_OBSIDIANA_AFILADA ||
                                  item.blockType == BLOCK_DIRT_POWDER ||
                                  item.blockType == BLOCK_PEDAZO_TIERRA ||
                                  item.blockType == BLOCK_PEDAZO_CALIZA ||
@@ -36017,6 +36547,18 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
                     siluetaPNG = "Textures/Items/Hacha de Pedernal afilado.png"; break;
                 case BLOCK_PICO_PEDERNAL:
                     siluetaPNG = "Textures/Items/pico de pedernal afilado.png"; break;
+                case BLOCK_PALA_PIEDRA:
+                    siluetaPNG = "Textures/Items/Pala de piedra.png"; break;
+                case BLOCK_PALA_PEDERNAL:
+                    siluetaPNG = "Textures/Items/Pala de Pedernal.png"; break;
+                case BLOCK_LANZA_PIEDRA:
+                    siluetaPNG = "Textures/Items/Lanza de piedra.png"; break;
+                case BLOCK_LANZA_PEDERNAL:
+                    siluetaPNG = "Textures/Items/Lanza de pedernal afilado.png"; break;
+                case BLOCK_DAGA_OBSIDIANA:
+                    siluetaPNG = "Textures/Items/Daga de Obsidiana.png"; break;
+                case BLOCK_PINA_PINO:
+                    siluetaPNG = "Textures/Items/Pina de Pino.png"; break;
                 case BLOCK_MARTILLO_PEDERNAL:
                     siluetaPNG = "Textures/Items/Martillo de Pedernal afilado.png"; break;
 
@@ -36034,6 +36576,40 @@ void dibujarItem3D(BlockType tipoItem, float luzIt, bool enMano) {
                 case BLOCK_PENCA_AGAVE_AZUL:
                 case BLOCK_AGAVE_AZUL_PENCA:
                     siluetaPNG = "Textures/Blocks/Maguey de Tequilana azulado.png"; break;
+                // La penca de cada especie, con la foto de su hoja.
+                case BLOCK_AGAVE_ABISAII_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave abisaii penca.png"; break;
+                case BLOCK_MAGUEY_ESPADIN_PENCA:
+                    siluetaPNG = "Textures/Blocks/Maguey Espadin.png"; break;
+                case BLOCK_AGAVE_ALBOMARGINATA_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave albomarginata penca.png"; break;
+                case BLOCK_MAGUEY_SALMIANA_PENCA:
+                    siluetaPNG = "Textures/Blocks/Maguey de salmiana.png"; break;
+                case BLOCK_AGAVE_POTATORUM_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave potatorum.png"; break;
+                case BLOCK_AGAVE_KARWINSKII_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave karwinskii.png"; break;
+                case BLOCK_MAGUEY_MADRECUIXE_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave Madrecuixe.png"; break;
+                case BLOCK_MAGUEY_CUISHE_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave Cuishe.png"; break;
+                case BLOCK_MAGUEY_CIRIAL_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave Cirial.png"; break;
+                case BLOCK_MAGUEY_SISAL_PENCA:
+                    siluetaPNG = "Textures/Blocks/maguey sisal.png"; break;
+                case BLOCK_AGAVE_FOURCROYDES_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave fourcroydes.png"; break;
+                case BLOCK_AGAVE_AMERICANA_PENCA:
+                    siluetaPNG = "Textures/Blocks/Agave Americana.png"; break;
+                // Las flores cortadas: su silueta, con grosor.
+                case BLOCK_FLOR_CEMPASUCHIL:
+                    siluetaPNG = "Textures/Items/Cempasuchil.png"; break;
+                case BLOCK_FLOR_NOCHEBUENA:
+                    siluetaPNG = "Textures/Items/Nochebuena.png"; break;
+                case BLOCK_FLOR_COSMOS:
+                    siluetaPNG = "Textures/Items/Cosmos.png"; break;
+                case BLOCK_FLOR_DALIA:
+                    siluetaPNG = "Textures/Items/Dalia.png"; break;
                 case BLOCK_AGAVE_AZUL_PUNTA:
                     siluetaPNG = "Textures/Blocks/punta de Maguey de Tequilana azul.png"; break;
 
@@ -36619,6 +37195,8 @@ void prewarmItemTextures() {
         // vistazo.
         { BLOCK_PEDAZO_PIEDRA, "Pedazo de piedra.png"                    },
         { BLOCK_PEDAZO_PEDERNAL,"pedernal.png"                           },
+        { BLOCK_PEDAZO_OBSIDIANA, "Obsidiana.png"                        },
+        { BLOCK_OBSIDIANA_AFILADA, "Obsidiana afilada.png"               },
         { BLOCK_PEDAZO_TIERRA, "Polvo de Tierra.png"                     },
         { BLOCK_PEDAZO_CALIZA, "pedazo de piedra caliza.png"             },
         { BLOCK_PEDAZO_COBRE,  "cobre crudo.png"                         },
@@ -36639,6 +37217,10 @@ void prewarmItemTextures() {
         { BLOCK_PEDAZO_HEMATITE, "../Blocks/Hematita.png"                 },
         { BLOCK_PEDAZO_LIMONITA, "../Blocks/Limonita.png"                 },
         { BLOCK_HILO_IXTLE,    "Hilo de Ixtle.png"                       },
+        { BLOCK_FLOR_CEMPASUCHIL, "Cempasuchil.png"                      },
+        { BLOCK_FLOR_NOCHEBUENA,  "Nochebuena.png"                       },
+        { BLOCK_FLOR_COSMOS,      "Cosmos.png"                           },
+        { BLOCK_FLOR_DALIA,       "Dalia.png"                            },
         { BLOCK_HACHA_PIEDRA,  "hacha de piedra.png"                     },
         { BLOCK_MARTILLO_PIEDRA, "Martillo de Piedra.png"                },
         { BLOCK_PICO_PIEDRA,     "Pico de piedra.png"                    },
@@ -36651,19 +37233,40 @@ void prewarmItemTextures() {
         // ("Hacha de Pedernal afilado.png") ya estaba en disco, sin usar.
         { BLOCK_HACHA_PEDERNAL, "Hacha de Pedernal afilado.png" },
         { BLOCK_PICO_PEDERNAL, "pico de pedernal afilado.png"                    },
+        { BLOCK_PALA_PIEDRA,    "Pala de piedra.png"                             },
+        { BLOCK_PALA_PEDERNAL,  "Pala de Pedernal.png"                           },
+        { BLOCK_LANZA_PIEDRA,   "Lanza de piedra.png"                            },
+        { BLOCK_LANZA_PEDERNAL, "Lanza de pedernal afilado.png"                  },
+        { BLOCK_DAGA_OBSIDIANA, "Daga de Obsidiana.png"                          },
+        { BLOCK_PINA_PINO,      "Pina de Pino.png"                               },
         { BLOCK_MARTILLO_PEDERNAL, "Martillo de Pedernal afilado.png"            },
         { BLOCK_NOPAL_SECO,    "../Blocks/Penca de nopal de castilla seco sin espinas.png" },
         { BLOCK_ESPINAS_NOPAL, "Espinas de Nopal de castilla.png"        },
-        { BLOCK_TAZON_PINO,    "tazon de madera de pino.png"             },
-        { BLOCK_TAZON_ENCINO,  "tazon de madera de encino.png"           },
-        { BLOCK_TAZON_OYAMEL,  "tazon de madera de oyame.png"            },
-        { BLOCK_TAZON_PINO_AGUA,   "Tazon de madera de Pino con agua.png"   },
-        { BLOCK_TAZON_ENCINO_AGUA, "Tazon de madera de Encino con agua.png" },
-        { BLOCK_TAZON_OYAMEL_AGUA, "Tazon de madera de oyame con agua.png"  },
+        { BLOCK_TAZON_PINO, "tazon de madera de pino.png" },
+        { BLOCK_TAZON_PINO_AGUA, "Tazon de madera de pino con agua.png" },
+        { BLOCK_TAZON_ENCINO, "tazon de madera de encino.png" },
+        { BLOCK_TAZON_ENCINO_AGUA, "Tazon de madera de encino con agua.png" },
+        { BLOCK_TAZON_OYAMEL, "Tazon Madera de Oyame.png" },
+        { BLOCK_TAZON_OYAMEL_AGUA, "Tazon de madera de Oyame con agua.png" },
+        { BLOCK_TAZON_OCOTE, "Tazon de madera Pinus montezumae.png" },
+        { BLOCK_TAZON_OCOTE_AGUA, "Tazon de madera Pinus montezumae con agua.png" },
+        { BLOCK_TAZON_PATULA, "Tazon de Madera de Pino patula.png" },
+        { BLOCK_TAZON_PATULA_AGUA, "Tazon de Madera de Pino patula con agua.png" },
+        { BLOCK_TAZON_PINONERO, "Tazon Madera de Pino pinonero mexicano.png" },
+        { BLOCK_TAZON_PINONERO_AGUA, "Tazon Madera de Pino pinonero mexicano con agua.png" },
+        { BLOCK_TAZON_ALTURAS, "Tazon Madera de Pino de las alturas.png" },
+        { BLOCK_TAZON_ALTURAS_AGUA, "Tazon Madera de Pino de las alturas con agua.png" },
+        { BLOCK_TAZON_PSEUDOSTROBUS, "Tazon madera de Pino de pseudostrobus.png" },
+        { BLOCK_TAZON_PSEUDOSTROBUS_AGUA, "Tazon madera de Pino de pseudostrobus con agua.png" },
         { BLOCK_PEDAZO_BARRO,  "Pedazo de barro.png"                     },
-        { BLOCK_TAZON_PINO_AGUAMIEL,   "Tazon de madera pino con aguamiel.png"  },
-        { BLOCK_TAZON_ENCINO_AGUAMIEL, "Tazon de Encino con aguamiel.png"       },
-        { BLOCK_TAZON_OYAMEL_AGUAMIEL, "Tazon de madera de oyame con aguamiel.png" },
+        { BLOCK_TAZON_PINO_AGUAMIEL, "Tazon de madera de pino con aguamiel.png" },
+        { BLOCK_TAZON_ENCINO_AGUAMIEL, "Tazon de madera de encino con aguamiel.png" },
+        { BLOCK_TAZON_OYAMEL_AGUAMIEL, "Tazon de madera de Oyame con aguamiel.png" },
+        { BLOCK_TAZON_OCOTE_AGUAMIEL, "Tazon de madera Pinus montezumae con aguamiel.png" },
+        { BLOCK_TAZON_PATULA_AGUAMIEL, "Tazon de Madera de Pino patula con aguamiel.png" },
+        { BLOCK_TAZON_PINONERO_AGUAMIEL, "Tazon Madera de Pino pinonero mexicano con aguamiel.png" },
+        { BLOCK_TAZON_ALTURAS_AGUAMIEL, "Tazon Madera de Pino de las alturas con aguamiel.png" },
+        { BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL, "Tazon madera de Pino de pseudostrobus con aguamiel.png" },
     };
 
     for (const ItemTex& it : ITEM_TEXTURES) {
@@ -36729,6 +37332,7 @@ void prewarmItemTextures() {
     // ya estan en cache y solo se devuelve el handle.
     if (g_textureManager) {
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_PEDERNAL, 0);
+        g_textureManager->getBlockTexture(BLOCK_PEDAZO_OBSIDIANA, 0);
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_TIERRA, 0);
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_CALIZA, 0);
         g_textureManager->getBlockTexture(BLOCK_PEDAZO_COBRE, 0);
@@ -36916,6 +37520,16 @@ void dibujarIconoDePieza(BlockType pieza, float cx, float cy, float size) {
         }
     }
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    // ⭐ SE APAGA LA TEXTURA AL SALIR.
+    //
+    // BUG: "cuando estoy ya en las ultimas dos filas de inventario, todo se
+    // pone oscuro, el inventario y la zona de crafteo". Las piezas de la mesa
+    // de refineria estan en esas filas, y este icono encendia GL_TEXTURE_2D y
+    // se iba sin apagarlo. Todo lo que se pinta despues sin textura -- el
+    // fondo de las casillas, la parrilla de crafteo -- salia multiplicado por
+    // un pixel de la ultima textura puesta: oscuro. Los demas iconos
+    // (drawItemIcon) ya lo apagaban; este era el unico que no.
+    glDisable(GL_TEXTURE_2D);
 }
 
 void drawItemIcon(BlockType blockType, float cx, float cy, float size) {
@@ -38403,6 +39017,128 @@ void actualizarVida(GameState* state, float deltaTime) {
     // tocan, en el orden en que las sembraria el mundo. Una pieza que el
     // jugador haya roto vuelve a salir: la planta sigue creciendo.
     {
+        // ====================================================================
+        // ⭐ LAS PINAS CAEN DE LOS PINOS
+        // ====================================================================
+        // PEDIDO: "haz que esto este en el suelo o caiga de las hojas de los
+        // arboles, solo de la especie de la vida real que da esto".
+        //
+        // Se miran casillas al azar alrededor del jugador. Donde hay copa de
+        // PINO (daPinas: ni encino ni oyamel) con aire debajo, de vez en
+        // cuando se suelta una pina: nace bajo la hoja, cae con su fisica y
+        // se queda en el suelo, donde se recoge como cualquier cosa dejada.
+        // Si cerca ya hay bastantes, no cae ninguna mas.
+        {
+            static double ultimaPina = -1e9;
+            static uint32_t dadoPina = 0x2545F491u;
+            const double ahoraP = state->tiempoJugadoSegundos;
+            if (ahoraP - ultimaPina >= 1.0 || ahoraP < ultimaPina) {
+                ultimaPina = ahoraP;
+                auto azar = [&]() {
+                    dadoPina ^= dadoPina << 13; dadoPina ^= dadoPina >> 17; dadoPina ^= dadoPina << 5;
+                    return dadoPina;
+                };
+                const Vec3 pjP = state->player.position;
+                int cerca = 0;
+                for (const ItemEntity& it : state->items) {
+                    if (it.blockType != BLOCK_PINA_PINO) continue;
+                    const float dx = it.position.x - pjP.x, dz = it.position.z - pjP.z;
+                    if (dx * dx + dz * dz < 48.0f * 48.0f) ++cerca;
+                }
+                if (cerca < PinasDePino::MAXIMAS) {
+                    World& mundoP = state->world;
+                    const int jx = (int)std::floor(pjP.x), jy = (int)std::floor(pjP.y), jz = (int)std::floor(pjP.z);
+                    const unsigned lado = (unsigned)(2 * PinasDePino::RADIO + 1);
+                    for (int m = 0; m < PinasDePino::MUESTRAS; ++m) {
+                        const int x = jx + (int)(azar() % lado) - PinasDePino::RADIO;
+                        const int z = jz + (int)(azar() % lado) - PinasDePino::RADIO;
+                        if (!mundoP.chunkCargadoEn(x, z)) continue;
+                        // De arriba abajo: la hoja mas baja de la copa, la que
+                        // tiene aire debajo.
+                        const int yAlto = (std::min)(CHUNK_HEIGHT - 2, jy + 40);
+                        const int yBajo = (std::max)(2, jy - 12);
+                        for (int y = yBajo; y <= yAlto; ++y) {
+                            if (!daPinas(plantaSeca(mundoP.getBlock(x, y, z)))) continue;
+                            if (mundoP.getBlock(x, y - 1, z) != BLOCK_AIR) break;     // copa cerrada: de aqui no cae
+                            if (azar() % PinasDePino::UNO_DE == 0u)
+                                state->dejarItem(Vec3((float)x + 0.5f, (float)y - 0.35f, (float)z + 0.5f),
+                                                 BLOCK_PINA_PINO);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        // ====================================================================
+        // ⭐ LAS FLORES CRECEN, Y SE SIEMBRAN SOLAS
+        // ====================================================================
+        // PEDIDO: "que tengan la capacidad de crecer de forma realista y en
+        // donde sea". No se lleva lista de flores: se miran casillas al azar
+        // alrededor del jugador y, donde hay una flor, se le deja crecer. La
+        // edad va en el propio bloque, asi que no hay nada mas que guardar y
+        // una flor que se quedo lejos sigue donde estaba al volver.
+        //
+        //   - de brote a abierta, etapa a etapa (ver Flor::segundosPorEtapa);
+        //   - una flor abierta suelta semilla a pocos pasos, si alli hay
+        //     suelo y no esta ya lleno de flores: asi se hacen los manchones;
+        //   - si se queda sin suelo debajo, se pierde.
+        {
+            namespace FL = Compuesto::Flor;
+            static double ultimaFlor = -1e9;
+            static uint32_t dadoFlor = 0x9e3779b9u;
+            const double ahoraF = state->tiempoJugadoSegundos;
+            if (ahoraF - ultimaFlor >= (double)FL::PASO_S || ahoraF < ultimaFlor) {
+                ultimaFlor = ahoraF;
+                auto azar = [&]() {
+                    dadoFlor ^= dadoFlor << 13; dadoFlor ^= dadoFlor >> 17; dadoFlor ^= dadoFlor << 5;
+                    return dadoFlor;
+                };
+                World& mundoF = state->world;
+                const int jx = (int)std::floor(state->player.position.x);
+                const int jy = (int)std::floor(state->player.position.y);
+                const int jz = (int)std::floor(state->player.position.z);
+                const unsigned lado = (unsigned)(2 * FL::RADIO + 1);
+                for (int m = 0; m < FL::MUESTRAS; ++m) {
+                    const int x = jx + (int)(azar() % lado) - FL::RADIO;
+                    const int z = jz + (int)(azar() % lado) - FL::RADIO;
+                    if (!mundoF.chunkCargadoEn(x, z)) continue;
+                    const int yAlto = (std::min)(CHUNK_HEIGHT - 1, jy + 14);
+                    const int yBajo = (std::max)(1, jy - 14);
+                    for (int y = yAlto; y >= yBajo; --y) {
+                        const BlockType b = mundoF.getBlock(x, y, z);
+                        if (!FL::esFlor(b)) continue;
+                        if (!sueloDeFlor(mundoF.getBlock(x, y - 1, z))) {
+                            mundoF.setBlock(x, y, z, BLOCK_AIR);            // sin suelo no vive
+                            break;
+                        }
+                        const uint32_t dado = azar();
+                        if (FL::etapaDe(b) < FL::ABIERTA) {
+                            if (dado % FL::UNO_DE_CRECER == 0u) mundoF.setBlock(x, y, z, FL::crecida(b));
+                        } else if (dado % FL::UNO_DE_SEMBRAR == 0u) {
+                            const int al = 2 * FL::ALCANCE_SEMILLA + 1;
+                            const int sx = x + (int)(azar() % (unsigned)al) - FL::ALCANCE_SEMILLA;
+                            const int sz = z + (int)(azar() % (unsigned)al) - FL::ALCANCE_SEMILLA;
+                            if (!mundoF.chunkCargadoEn(sx, sz)) break;
+                            for (int sy = (std::min)(CHUNK_HEIGHT - 2, y + 2); sy >= (std::max)(1, y - 2); --sy) {
+                                if (mundoF.getBlock(sx, sy, sz) != BLOCK_AIR ||
+                                    !sueloDeFlor(mundoF.getBlock(sx, sy - 1, sz))) continue;
+                                int cerca = 0;
+                                for (int ox = -2; ox <= 2; ++ox)
+                                    for (int oz = -2; oz <= 2; ++oz)
+                                        for (int oy = -1; oy <= 1; ++oy)
+                                            if (FL::esFlor(mundoF.getBlock(sx + ox, sy + oy, sz + oz))) ++cerca;
+                                if (cerca < FL::MAX_VECINAS)
+                                    mundoF.setBlock(sx, sy, sz, FL::crear(FL::especieDe(b), FL::BROTE,
+                                                                          (uint16_t)(azar() & 3u)));
+                                break;
+                            }
+                        }
+                        break;      // una flor por columna
+                    }
+                }
+            }
+        }
+
         static double ultimoCrecer = -1e9;
         const double ahora = state->tiempoJugadoSegundos;
         if (!g_nopalesCreciendo.empty() &&
@@ -39883,9 +40619,9 @@ void renderBlockOutline(Vec3i blockPos, Vec3 cameraPos, Vec3i normal) {
     // quedan de espaldas -- que es justo lo pedido. La prueba es la de
     // siempre para saber si una cara se ve: el producto punto entre su
     // normal y el vector que va de la cara al ojo. Positivo = de cara.
-    const CajaForma* piezas[8];
+    const CajaForma* piezas[MAX_PIEZAS_FORMA];
     int nPiezas = 0;
-    for (int pz = 0; pz < formaCache.n && nPiezas < 8; ++pz)
+    for (int pz = 0; pz < formaCache.n && nPiezas < MAX_PIEZAS_FORMA; ++pz)
         piezas[nPiezas++] = &formaCache.piezas[pz];
 
     const float O = SELECTION_OFFSET;
@@ -40118,8 +40854,15 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_MARTILLO_PIEDRA: // Martillo - herramienta de taller
         case BLOCK_PICO_PIEDRA:     // Pico - herramienta
         case BLOCK_PEDERNAL_AFILADO: // Pedernal afilado - item puro
+        case BLOCK_OBSIDIANA_AFILADA: // Obsidiana afilada - item puro
         case BLOCK_HACHA_PEDERNAL:  // Hacha de pedernal - herramienta
         case BLOCK_PICO_PEDERNAL:   // Pico de pedernal - herramienta
+        case BLOCK_PALA_PIEDRA:     // Palas, lanzas y daga - herramientas
+        case BLOCK_PALA_PEDERNAL:
+        case BLOCK_LANZA_PIEDRA:
+        case BLOCK_LANZA_PEDERNAL:
+        case BLOCK_DAGA_OBSIDIANA:
+        case BLOCK_PINA_PINO:       // La pina - item puro
         case BLOCK_MARTILLO_PEDERNAL: // Martillo de pedernal - herramienta
         case BLOCK_ESPINAS_NOPAL:   // Espinas - item puro
         case BLOCK_AGUAMIEL:        // Aguamiel - liquido, se recoge con tazon
@@ -40135,6 +40878,12 @@ bool isPlaceableItem(BlockType type) {
         case BLOCK_TAZON_PINO_AGUAMIEL:
         case BLOCK_TAZON_ENCINO_AGUAMIEL:
         case BLOCK_TAZON_OYAMEL_AGUAMIEL:
+        // Y los de las otras cinco maderas, igual.
+        case BLOCK_TAZON_OCOTE: case BLOCK_TAZON_OCOTE_AGUA: case BLOCK_TAZON_OCOTE_AGUAMIEL:
+        case BLOCK_TAZON_PATULA: case BLOCK_TAZON_PATULA_AGUA: case BLOCK_TAZON_PATULA_AGUAMIEL:
+        case BLOCK_TAZON_PINONERO: case BLOCK_TAZON_PINONERO_AGUA: case BLOCK_TAZON_PINONERO_AGUAMIEL:
+        case BLOCK_TAZON_ALTURAS: case BLOCK_TAZON_ALTURAS_AGUA: case BLOCK_TAZON_ALTURAS_AGUAMIEL:
+        case BLOCK_TAZON_PSEUDOSTROBUS: case BLOCK_TAZON_PSEUDOSTROBUS_AGUA: case BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL:
         // El BARRO es material en bruto: se lleva en la mano y se craftea,
         // pero todavia no es un bloque que se ponga en el suelo.
         case BLOCK_PEDAZO_BARRO:
@@ -40280,6 +41029,28 @@ void placeBlock(GameState* state) {
         }
     }
     if (!state->inventory.hasSelectedBlock()) return;
+    // ========================================================================
+    // ⭐ EL MARTILLO GIRA LA PIEZA
+    // ========================================================================
+    // PEDIDO: "que al presionar clic derecho con el martillo cambies la
+    // orientacion de norte, sur, este, oeste, noreste, sureste, suroeste,
+    // noroeste". Con un martillo en la mano, el clic derecho sobre una pieza
+    // de la mesa la pasa a la orientacion siguiente, en ese orden, y de la
+    // ultima otra vez al norte. No gasta el martillo ni mueve la pieza.
+    if (esMartillo(state->inventory.getSelectedBlock())) {
+        const RaycastResult miraM = raycastBlock(state->world, ojoDelJugador(state->player),
+                                                 state->player.getForward(), 5.0f);
+        if (miraM.hit) {
+            const BlockType tocada = state->world.getBlock(miraM.blockPos.x, miraM.blockPos.y, miraM.blockPos.z);
+            if (Formas::esPieza(tocada)) {
+                const BlockType girada = Formas::siguienteOrientacion(tocada);
+                state->world.setBlock(miraM.blockPos.x, miraM.blockPos.y, miraM.blockPos.z, girada);
+                sonarBloque(Audio::GestoBloque::COLOCAR, girada, 0.45f);
+                state->placeCooldown = 0.25f;
+                return;
+            }
+        }
+    }
 
     // ⭐ Todo lo que esta funcion escriba cuenta como accion del jugador, asi
     // que su chunk adelanta a cualquier terreno nuevo en la cola de mallado.
@@ -40689,6 +41460,14 @@ void placeBlock(GameState* state) {
     Vec3 direction = state->player.getForward();
 
     RaycastResult result = raycastBlock(state->world, origin, direction, 5.0f);
+    // ⭐ La altura del punto apuntado dentro de su casilla (0 abajo, 1 arriba):
+    // decide si una pieza de la mesa se coloca normal o cabeza abajo cuando se
+    // apunta a una cara de lado (ver Formas::alColocar).
+    float alturaApuntada = 0.0f;
+    if (result.hit) {
+        alturaApuntada = origin.y + direction.y * result.distance - (float)result.blockPos.y;
+        alturaApuntada = alturaApuntada < 0.0f ? 0.0f : (alturaApuntada > 1.0f ? 1.0f : alturaApuntada);
+    }
 
     // ⭐ EL NOPAL Y EL MAGUEY NO SE CONVIERTEN EN BLOQUE: SE DEJA EL ITEM.
     //
@@ -40720,6 +41499,55 @@ void placeBlock(GameState* state) {
         return;
     }
 
+    // ========================================================================
+    // ⭐⭐ JUNTAR EN LA MISMA CASILLA
+    // ========================================================================
+    // PEDIDO: "que los bloques modificados en la mesa de refineria no se
+    // repelan de los niveles y se junten sin predominar uno; que cada nivel
+    // tenga su propia casilla [...] y deje espacio para los demas, sin limite
+    // de combinarse y apilarse".
+    //
+    // Si lo que se lleva es una PIEZA de la mesa o un NIVEL, y se apunta a una
+    // casilla que ya tiene una pieza o un nivel, lo nuevo entra EN ESA MISMA
+    // casilla, en el hueco que quede: en el suelo si esta libre, o apoyado
+    // encima de lo que haya (ver CeldasJuntas::buscarHueco). No se borra ni se
+    // tapa nada. Solo si no cabe sin atravesar algo se sigue con lo de
+    // siempre (la casilla de al lado).
+    //
+    // Un nivel sobre otro nivel, sin piezas por medio, sigue con su apilado
+    // de toda la vida: aqui solo entra lo que antes se repelia.
+    if (result.hit) {
+        BlockType nuevo = BLOCK_AIR;
+        if (Formas::esPieza(selectedBlock))
+            nuevo = Formas::alColocar(selectedBlock, direction.x, direction.z, result.normal.y, alturaApuntada);
+        else if (esNivelParcial(selectedBlock))
+            nuevo = selectedBlock;
+        else if (admiteNiveles(selectedBlock) && !seColocaEntero(selectedBlock))
+            nuevo = primerNivelDe(bloqueBaseDe(selectedBlock));
+        if (nuevo != BLOCK_AIR && cosaQueSeJunta(nuevo)) {
+            const Vec3i donde[2] = { result.blockPos, result.previousPos };
+            for (const Vec3i& c : donde) {
+                const BlockType hay = state->world.getBlock(c.x, c.y, c.z);
+                if (!cosaQueSeJunta(hay)) continue;
+                const std::vector<CeldasJuntas::Junto>& juntos = g_celdasJuntas.de(c.x, c.y, c.z);
+                if (!Formas::esPieza(nuevo) && !Formas::esPieza(hay) && juntos.empty()) continue;
+                CeldasJuntas::Caja puestas[4 + 4 * CeldasJuntas::MAX_POR_CELDA];
+                int np = cajasDeCosa(hay, 0.0f, puestas);
+                for (const CeldasJuntas::Junto& j : juntos) np += cajasDeCosa(j.tipo, j.y0, puestas + np);
+                CeldasJuntas::Caja nuevas[4];
+                const int nn = cajasDeCosa(nuevo, 0.0f, nuevas);
+                float alto = 0.0f;
+                for (int q = 0; q < nn; ++q) if (nuevas[q].y1 > alto) alto = nuevas[q].y1;
+                const float y0 = CeldasJuntas::buscarHueco(puestas, np, nuevas, nn, alto);
+                if (y0 < 0.0f) continue;                    // no cabe sin atravesar algo
+                if (!g_celdasJuntas.juntar(c.x, c.y, c.z, nuevo, y0)) continue;
+                sonarBloque(Audio::GestoBloque::COLOCAR, nuevo, 0.60f);
+                state->inventory.consumeSelected();
+                state->placeCooldown = 0.25f;
+                return;
+            }
+        }
+    }
     if (result.hit) {
         Vec3i placePos = result.previousPos;
 
@@ -41527,10 +42355,18 @@ void placeBlock(GameState* state) {
             // la penca de maguey ya convertida y el resto como item.)
             if (esPencaDeMaguey(blockToPlace)) blockToPlace = posado;
 
+            // ⭐ UNA FLOR SE PLANTA: de la flor cortada nace un BROTE, que
+            // crece solo. "En donde sea": sobre cualquier bloque macizo.
+            if (esItemDeFlor(blockToPlace)) {
+                if (!sueloDeFlor(state->world.getBlock(placePos.x, placePos.y - 1, placePos.z))) return;
+                blockToPlace = Compuesto::Flor::crear((uint16_t)especieDeItemDeFlor(blockToPlace),
+                                                      Compuesto::Flor::BROTE, (uint16_t)(rand() & 3));
+            }
+
             // Una pieza de la mesa de refineria se coloca DE FRENTE a quien la
             // pone: la escalera sube alejandose de el y la pared queda al fondo.
             if (Formas::esPieza(blockToPlace))
-                blockToPlace = Formas::conGiro(blockToPlace, Formas::giroDeYaw(state->player.yaw));
+                blockToPlace = Formas::alColocar(blockToPlace, direction.x, direction.z, result.normal.y, alturaApuntada);
 
             // ================================================================
             // DOS BLOQUES EN EL MISMO ESPACIO
@@ -42325,9 +43161,8 @@ void placeBlock(GameState* state) {
             }
 
             // ⭐ SONIDO: Reproducir sonido de colocar bloque
-            if (g_soundManager) {
-                g_soundManager->playPlaceBlock(glfwGetTime());
-            }
+            // (Sintetizado, con la voz de ese bloque: ver audio/SonidoBloque.h.)
+            sonarBloque(Audio::GestoBloque::COLOCAR, blockToPlace, 0.60f);
 
             // ⭐ Y SI EL BLOQUE NACIO BAJO LOS PIES, SUBIR ENCIMA.
             //
@@ -46572,13 +47407,12 @@ static void tituloDelMenuPrincipal(int w, int h, float t) {
 //
 // La seguridad esta en Cuenta.h (con sus pruebas). Aqui esta la pantalla:
 //
-//   SIN CUENTA EN EL EQUIPO   se crea en dos pasos: primero nombre, cuenta y
-//                             contrasena; luego el juego ensena la clave del
-//                             autenticador, se mete en la aplicacion del
-//                             telefono y se confirma con el primer codigo.
-//                             Tambien se puede IMPORTAR la que crea la pagina
-//                             web (es el mismo archivo).
-//   CON CUENTA                cuenta, contrasena y el codigo de 6 digitos.
+//   SIN CUENTA EN EL EQUIPO   se crea con nombre, cuenta (@ludora.engine) y
+//                             contrasena. Tambien se puede IMPORTAR la que
+//                             crea la pagina web (es el mismo archivo).
+//   CON CUENTA                cuenta y contrasena.
+//
+// (Antes pedia ademas el codigo de un autenticador; se quito a peticion.)
 //
 // Va DENTRO del menu principal, sobre su fondo: mientras `dentro` sea false no
 // se dibujan sus botones ni se atienden, asi que no hay manera de llegar a los
@@ -46587,11 +47421,9 @@ static void tituloDelMenuPrincipal(int w, int h, float t) {
 struct PantallaCuenta {
     bool leida = false, hay = false, dentro = false;
     Cuenta::Registro reg;
-    int paso = 0;                  // al crear: 0 los datos, 1 el autenticador
     int foco = 0;
-    std::string nombre, usuario, clave, codigo, aviso;
+    std::string nombre, usuario, clave, aviso;
     bool avisoBueno = false;
-    Cuenta::Bytes secreto, sal, salTotp;
     std::string fotoElegida;       // al crear: la que se eligio (ruta completa)
     GLuint texFoto = 0;
     bool fotoMirada = false;
@@ -46628,34 +47460,35 @@ bool cuentaPideEntrada() {
     return g_gameState && g_gameState->screenState == SCREEN_MAIN_MENU && !g_cuentaUI.dentro;
 }
 // Los campos de ahora: cuales son y como se llaman.
+//
+// ⭐ PEDIDO: "arregla que no pida codigo, que puedas crear una cuenta
+// libremente pero use el arroba ludora.engine y contrasena y nombre". Ya no hay
+// paso del autenticador: crear son tres campos y entrar, dos.
 static int cuentaCampos(std::string* campo[3], const char* rotulo[3]) {
     PantallaCuenta& c = g_cuentaUI;
-    if (!c.hay && c.paso == 0) {
+    if (!c.hay) {
         campo[0] = &c.nombre;  rotulo[0] = "TU NOMBRE";
         campo[1] = &c.usuario; rotulo[1] = "CUENTA";
-        campo[2] = &c.clave;   rotulo[2] = "CONTRASEÃ" "A  (8 O MÃS)";
+        campo[2] = &c.clave;   rotulo[2] = "CONTRASE\xC3\x91" "A  (6 O M\xC3\x81S)";
         return 3;
     }
-    if (!c.hay) { campo[0] = &c.codigo; rotulo[0] = "CÃ" "DIGO DEL AUTENTICADOR  (6 DÃGITOS)"; return 1; }
     campo[0] = &c.usuario; rotulo[0] = "CUENTA";
-    campo[1] = &c.clave;   rotulo[1] = "CONTRASEÃ" "A";
-    campo[2] = &c.codigo;  rotulo[2] = "CÃ" "DIGO DEL AUTENTICADOR  (6 DÃGITOS)";
-    return 3;
+    campo[1] = &c.clave;   rotulo[1] = "CONTRASE\xC3\x91" "A";
+    campo[2] = &c.clave;   rotulo[2] = "";
+    return 2;
 }
-struct LayoutCuenta { MenuPausa::Rect panel, campo[3], principal, izq, der; float yTitulo, ySecreto; };
+struct LayoutCuenta { MenuPausa::Rect panel, campo[3], principal, izq, der; float yTitulo; };
 static LayoutCuenta layoutCuenta(int width, int height) {
     LayoutCuenta l;
     const PantallaCuenta& c = g_cuentaUI;
     const float W = (float)width, H = (float)height;
     const float pw = (std::min)(580.0f, W - 24.0f);
-    const bool pasoDos = !c.hay && c.paso == 1;
-    const int n = pasoDos ? 1 : 3;
-    const float alto = 70.0f + (pasoDos ? 150.0f : 0.0f) + n * 68.0f + 124.0f;
+    const int n = c.hay ? 2 : 3;
+    const float alto = 70.0f + n * 68.0f + (c.hay ? 84.0f : 124.0f);
     const float px = (W - pw) / 2.0f, py = (std::max)(10.0f, (H - alto) / 2.0f);
     l.panel = { px, py, pw, alto };
     l.yTitulo = py + 18.0f;
-    l.ySecreto = py + 62.0f;
-    float y = py + 70.0f + (pasoDos ? 150.0f : 0.0f);
+    float y = py + 70.0f;
     for (int i = 0; i < 3; ++i) { l.campo[i] = { px + 24.0f, y + 16.0f, pw - 48.0f, 40.0f }; if (i < n) y += 68.0f; }
     l.principal = { px + 24.0f, y + 6.0f, pw - 48.0f, 46.0f };
     const float bw = (pw - 60.0f) / 2.0f;
@@ -46694,59 +47527,37 @@ static void cuentaPonerFoto(const std::string& origen) {
 static void cuentaEnviar() {
     PantallaCuenta& c = g_cuentaUI;
     c.avisoBueno = false;
-    auto codigoDe = [&](int& out) {
-        if (c.codigo.size() != 6) return false;
-        out = atoi(c.codigo.c_str());
-        return true;
-    };
-    if (!c.hay && c.paso == 0) {
+    if (!c.hay) {
+        // Crear: nombre, cuenta y contrasena. Sin codigos.
         while (!c.nombre.empty() && c.nombre.back() == ' ') c.nombre.pop_back();
         if (!Cuenta::nombreVale(c.nombre)) { c.aviso = "PON TU NOMBRE"; c.foco = 0; return; }
         if (!Cuenta::usuarioVale(Cuenta::normalizarUsuario(c.usuario))) {
             c.aviso = "LA CUENTA: DE 3 A 24 LETRAS O NUMEROS, SIN ESPACIOS"; c.foco = 1; return;
         }
-        if (!Cuenta::claveVale(c.clave)) { c.aviso = "LA CONTRASENA: DE 8 A 64 CARACTERES"; c.foco = 2; return; }
-        c.sal = cuentaAzar(16);
-        c.salTotp = cuentaAzar(16);
-        c.secreto = cuentaAzar(20);
-        c.paso = 1;
-        c.foco = 0;
-        c.codigo.clear();
-        c.aviso.clear();
-        return;
-    }
-    if (!c.hay) {
-        int codigo = 0;
-        if (!codigoDe(codigo) || !Cuenta::totpVale(c.secreto, codigo, (long long)time(nullptr))) {
-            c.aviso = "ESE CODIGO NO VALE. MIRA EL DE AHORA EN TU APLICACION";
-            c.codigo.clear();
-            return;
-        }
+        if (!Cuenta::claveVale(c.clave)) { c.aviso = "LA CONTRASENA: DE 6 A 64 CARACTERES"; c.foco = 2; return; }
         const std::string foto = c.fotoElegida;
-        c.reg = Cuenta::crear(c.nombre, c.usuario, c.clave, c.sal, c.salTotp, c.secreto);
+        c.reg = Cuenta::crear(c.nombre, c.usuario, c.clave, cuentaAzar(16));
         cuentaPonerFoto(foto);
         if (!cuentaGuardar()) { c.aviso = "NO SE PUDO GUARDAR LA CUENTA EN ESTE EQUIPO"; return; }
         c.hay = true;
         c.dentro = true;
     } else {
-        int codigo = -1;
-        codigoDe(codigo);
-        const Cuenta::Entrada e = Cuenta::entrar(c.reg, c.usuario, c.clave, codigo, (long long)time(nullptr));
+        const Cuenta::Entrada e = Cuenta::entrar(c.reg, c.usuario, c.clave);
         if (e != Cuenta::Entrada::DENTRO) {
             c.aviso = Cuenta::mensaje(e);
-            c.codigo.clear();
-            if (e == Cuenta::Entrada::CREDENCIALES) { c.clave.assign(c.clave.size(), '\0'); c.clave.clear(); c.foco = 1; }
-            else c.foco = 2;
+            c.clave.assign(c.clave.size(), '\0');
+            c.clave.clear();
+            c.foco = 1;
             return;
         }
+        // Una cuenta de antes (con @voxelworld o con autenticador) se guarda
+        // ya con la forma de ahora.
+        cuentaGuardar();
         c.dentro = true;
     }
     // Dentro: lo tecleado no se queda en memoria.
     c.clave.assign(c.clave.size(), '\0');
     c.clave.clear();
-    c.codigo.clear();
-    c.secreto.assign(c.secreto.size(), 0);
-    c.secreto.clear();
     c.aviso.clear();
 }
 void cuentaChar(unsigned int cp) {
@@ -46766,8 +47577,6 @@ void cuentaChar(unsigned int cp) {
         if (vale && t.size() < Cuenta::USUARIO_MAX + 12 && !(cp == '@' && t.find('@') != std::string::npos)) t += (char)cp;
     } else if (&t == &c.clave) {
         if (Utf8::largo(t) < Cuenta::CLAVE_MAX) Utf8::anadir(t, cp);
-    } else if (&t == &c.codigo) {
-        if (t.size() < 6 && cp >= '0' && cp <= '9') t += (char)cp;
     }
     c.aviso.clear();
 }
@@ -46788,10 +47597,6 @@ void cuentaTecla(int key, int action) {
         for (int i = 0; i < n; ++i)
             if (campo[i]->empty()) { c.foco = i; return; }
         cuentaEnviar();
-    } else if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS && !c.hay && c.paso == 1) {
-        c.paso = 0;                // volver a los datos
-        c.foco = 0;
-        c.aviso.clear();
     }
 }
 void cuentaClic(float mx, float my, int width, int height) {
@@ -46804,10 +47609,6 @@ void cuentaClic(float mx, float my, int width, int height) {
         if (l.campo[i].contiene(mx, my)) { c.foco = i; return; }
     if (l.principal.contiene(mx, my)) { cuentaEnviar(); return; }
     if (c.hay) return;
-    if (c.paso == 1) {
-        if (l.izq.contiene(mx, my)) { c.paso = 0; c.foco = 0; c.aviso.clear(); }
-        return;
-    }
     if (l.izq.contiene(mx, my)) {
         const std::string f = cuentaElegirArchivo("Imagenes\0*.png;*.jpg;*.jpeg;*.bmp\0", "Foto de tu cuenta");
         if (!f.empty()) { c.fotoElegida = f; c.aviso = "FOTO ELEGIDA"; c.avisoBueno = true; }
@@ -46825,9 +47626,8 @@ void cuentaClic(float mx, float my, int width, int height) {
         c.hay = true;
         c.usuario = r.cuenta.substr(0, r.cuenta.find('@'));
         c.clave.clear();
-        c.codigo.clear();
         c.foco = 1;
-        c.aviso = "CUENTA IMPORTADA. ENTRA CON TU CONTRASENA Y TU CODIGO";
+        c.aviso = "CUENTA IMPORTADA. ENTRA CON TU CONTRASENA";
         c.avisoBueno = true;
     }
 }
@@ -46854,30 +47654,11 @@ void dibujarCuenta(GLFWwindow* window, int width, int height) {
     glColor4f(0.30f, 0.36f, 0.50f, 1.0f);
     bordeUI(CeldaUI{ l.panel.x, l.panel.y, l.panel.w, l.panel.h });
 
-    const bool pasoDos = !c.hay && c.paso == 1;
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-    textoCentrado(c.hay ? "INICIA SESIÃN" : (pasoDos ? "TU AUTENTICADOR" : "CREA TU CUENTA"), cx, l.yTitulo, 24);
+    textoCentrado(c.hay ? "INICIA SESI\xC3\x93N" : "CREA TU CUENTA", cx, l.yTitulo, 24);
     glColor4f(0.62f, 0.68f, 0.80f, 1.0f);
     if (c.hay) textoCentrado(c.reg.nombre + "  -  PARA JUGAR HACE FALTA TU CUENTA", cx, l.yTitulo + 32.0f, 11);
-    else if (!pasoDos) textoCentrado("PARA JUGAR HACE FALTA UNA CUENTA. SE GUARDA EN ESTE EQUIPO", cx, l.yTitulo + 32.0f, 11);
-
-    if (pasoDos) {
-        // La clave que hay que meter en la aplicacion del telefono.
-        const float y = l.ySecreto;
-        glColor4f(0.80f, 0.84f, 0.92f, 1.0f);
-        textoCentrado("1. ABRE TU APLICACION DE AUTENTICADOR EN EL TELEFONO", cx, y, 11);
-        textoCentrado("2. ELIGE INTRODUCIR UNA CLAVE Y ESCRIBE ESTA", cx, y + 17.0f, 11);
-        const std::string clave = Cuenta::secretoLegible(c.secreto);
-        const float tam = (std::min)(17.0f, (l.panel.w - 60.0f) / ((float)clave.size() * 0.7f));
-        glColor4f(0.03f, 0.03f, 0.05f, 1.0f);
-        rectUI(l.panel.x + 24.0f, y + 42.0f, l.panel.x + l.panel.w - 24.0f, y + 42.0f + tam + 22.0f);
-        glColor4f(1.0f, 0.86f, 0.35f, 1.0f);
-        textoCentrado(clave, cx, y + 53.0f, tam);
-        glColor4f(0.80f, 0.84f, 0.92f, 1.0f);
-        textoCentrado("3. PON AQUI ABAJO EL CODIGO DE 6 DIGITOS QUE TE DA", cx, y + 96.0f, 11);
-        glColor4f(0.95f, 0.62f, 0.45f, 1.0f);
-        textoCentrado("GUARDA ESA CLAVE: SIN EL AUTENTICADOR NO SE PUEDE ENTRAR", cx, y + 116.0f, 10);
-    }
+    else textoCentrado("PARA JUGAR HACE FALTA UNA CUENTA. SE GUARDA EN ESTE EQUIPO", cx, l.yTitulo + 32.0f, 11);
 
     std::string* campo[3];
     const char* rot[3];
@@ -46922,14 +47703,11 @@ void dibujarCuenta(GLFWwindow* window, int width, int height) {
         }
     }
 
-    const char* accion = c.hay ? "ENTRAR" : (pasoDos ? "CREAR CUENTA" : "CONTINUAR");
-    botonDePausa(l.principal, accion, 20, l.principal.contiene(mx, my), 0.17f, 0.42f, 0.24f);
-    if (!c.hay && !pasoDos) {
+    botonDePausa(l.principal, c.hay ? "ENTRAR" : "CREAR CUENTA", 20, l.principal.contiene(mx, my), 0.17f, 0.42f, 0.24f);
+    if (!c.hay) {
         botonDePausa(l.izq, c.fotoElegida.empty() ? "ELEGIR FOTO" : "CAMBIAR FOTO", 13, l.izq.contiene(mx, my),
                      0.20f, 0.23f, 0.31f);
         botonDePausa(l.der, "IMPORTAR CUENTA", 13, l.der.contiene(mx, my), 0.20f, 0.23f, 0.31f);
-    } else if (pasoDos) {
-        botonDePausa(l.izq, "VOLVER", 13, l.izq.contiene(mx, my), 0.20f, 0.23f, 0.31f);
     }
     if (!c.aviso.empty()) {
         if (c.avisoBueno) glColor4f(0.55f, 0.95f, 0.60f, 1.0f);
@@ -47021,6 +47799,7 @@ void dibujarInsigniaDeCuenta(int width, int height) {
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
+static void marcaDeArranque(const char* paso);
 void renderMainMenu(GameState* state, int screenWidth, int screenHeight, GLFWwindow* window) {
     // Recalcular posiciones de botones según el tamaño actual de la ventana
     initMainMenuButtons(state, screenWidth, screenHeight);
@@ -49251,6 +50030,11 @@ void saveWorld(GameState* state, bool isAutoSave) {
         std::ofstream f(worldPath / "niveles_cubiertos.dat", std::ios::binary);
         if (f.is_open()) g_nivelesCubiertos.guardar(f);
     }
+    // Lo que se ha juntado a cada casilla (ver CeldasJuntas.h).
+    {
+        std::ofstream f(worldPath / "celdas_juntas.dat", std::ios::binary);
+        if (f.is_open()) g_celdasJuntas.guardar(f);
+    }
 
     // ⭐ PASO 1: Guardar datos del jugador
     std::cout << "📍 Guardando jugador..." << std::endl;
@@ -49574,6 +50358,12 @@ bool loadWorldData(GameState* state, const std::string& worldName) {
     {
         std::ifstream f(worldPath / "niveles_cubiertos.dat", std::ios::binary);
         if (f.is_open()) g_nivelesCubiertos.cargar(f);
+    }
+    // Y las casillas con cosas juntas de este mundo (y ninguna del anterior).
+    g_celdasJuntas.clear();
+    {
+        std::ifstream f(worldPath / "celdas_juntas.dat", std::ios::binary);
+        if (f.is_open()) g_celdasJuntas.cargar(f);
     }
 
     // ⭐ PASO 2: Cargar datos del jugador con validación
@@ -51002,6 +51792,191 @@ void dibujarCieloYAstros() {
     glDepthMask(GL_TRUE);
 }
 
+// ⭐ LAS CAJAS CON LAS QUE SE CHOCA EN UNA CASILLA, UNA A UNA.
+//
+// PEDIDO: "arregla que donde un bloque modificado tenga vacio, no contara como
+// bloque completo y el jugador puede pasar libre". Una pieza de la mesa de
+// refineria da SUS cajas (los peldanos de la escalera, los dos lados de la
+// puerta, el fuste de la columna); lo demas, la unica de siempre. Y lo que se
+// haya juntado a la casilla, cada cosa con las suyas.
+bool nopalHitboxMundo(BlockType type, int x, int y, int z,
+                      float& minX, float& minY, float& minZ,
+                      float& maxX, float& maxY, float& maxZ);
+int cajasDeCeldaMundo(BlockType type, int x, int y, int z, float cajas[][6], int maximo) {
+    int n = 0;
+    auto anadir = [&](float x0, float y0, float z0, float x1, float y1, float z1) {
+        if (n >= maximo) return;
+        cajas[n][0] = x0; cajas[n][1] = y0; cajas[n][2] = z0;
+        cajas[n][3] = x1; cajas[n][4] = y1; cajas[n][5] = z1;
+        ++n;
+    };
+    const BlockType t = plantaSeca(type);
+    if (Formas::esPieza(t)) {
+        float c[32][6];
+        const int k = Formas::cajasDeChoque(t, [&](int dx, int dy, int dz) {
+            return g_gameState ? g_gameState->world.getBlock(x + dx, y + dy, z + dz) : BLOCK_AIR;
+        }, c, 32);
+        for (int i = 0; i < k; ++i) anadir(c[i][0], c[i][1], c[i][2], c[i][3], c[i][4], c[i][5]);
+    } else {
+        float a, b, c, d, e, f;
+        if (nopalHitboxMundo(type, x, y, z, a, b, c, d, e, f)) anadir(a, b, c, d, e, f);
+        else anadir(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
+    }
+    for (const CeldasJuntas::Junto& j : g_celdasJuntas.de(x, y, z)) {
+        CeldasJuntas::Caja c[4];
+        const int k = cajasDeCosa(j.tipo, j.y0, c);
+        for (int i = 0; i < k; ++i) anadir(c[i].x0, c[i].y0, c[i].z0, c[i].x1, c[i].y1, c[i].z1);
+    }
+    return n;
+}
+// La caja con la que se choca en una casilla: la del bloque y, si se le ha
+// juntado algo, lo que abarcan todos juntos.
+bool cajaDeCeldaMundo(BlockType type, int x, int y, int z,
+                      float& minX, float& minY, float& minZ,
+                      float& maxX, float& maxY, float& maxZ) {
+    const bool propia = nopalHitboxMundo(type, x, y, z, minX, minY, minZ, maxX, maxY, maxZ);
+    const std::vector<CeldasJuntas::Junto>& juntos = g_celdasJuntas.de(x, y, z);
+    if (juntos.empty()) return propia;
+    if (!propia) { minX = minY = minZ = 0.0f; maxX = maxY = maxZ = 1.0f; }
+    for (const CeldasJuntas::Junto& j : juntos) {
+        CeldasJuntas::Caja c[4];
+        const int n = cajasDeCosa(j.tipo, j.y0, c);
+        for (int k = 0; k < n; ++k) {
+            if (c[k].x0 < minX) minX = c[k].x0;
+            if (c[k].y0 < minY) minY = c[k].y0;
+            if (c[k].z0 < minZ) minZ = c[k].z0;
+            if (c[k].x1 > maxX) maxX = c[k].x1;
+            if (c[k].y1 > maxY) maxY = c[k].y1;
+            if (c[k].z1 > maxZ) maxZ = c[k].z1;
+        }
+    }
+    return true;
+}
+static void marcaDeArranque(const char* paso);
+void prewarmItemTextures();
+
+// ============================================================================
+// ⭐ LAS TEXTURAS SE CARGAN CON EL MENU YA ABIERTO
+// ============================================================================
+// Antes el juego cargaba TODAS las texturas (bloques, caras, items) antes de
+// ensenar la primera imagen: unos tres segundos de ventana en blanco. El menu
+// no las necesita, asi que ahora se abre primero y esto se reparte despues:
+// unos milisegundos por cuadro, mientras el menu ya se ve y responde.
+//
+// Lo mismo con el terreno de alrededor del origen, que tambien se generaba y se
+// mallaba entero antes de ensenar nada: casi otro segundo.
+//
+// Si el jugador sale del menu antes de que termine (o se entra directo a un
+// mundo, como hace el banco de pruebas), se acaba lo que falte de una vez:
+// a un mundo nunca se entra con texturas a medias.
+struct CargaDeArranque {
+    std::vector<std::string> apuntadas;    // lo que pidio loadAllBlockTextures
+    size_t siguiente = 0;
+    int idCaras = 1;                       // por que bloque va la precarga de caras
+    std::vector<Vec3i> porGenerar;         // los chunks de alrededor del origen
+    size_t iGenerar = 0;
+    bool listaHecha = false;
+    int mallasHechas = 0;
+    int fase = 0;
+    bool hecha = false;
+
+    void preparar() {
+        g_textureManager->colaDiferida = &apuntadas;
+        g_textureManager->loadAllBlockTextures();      // solo apunta
+        g_textureManager->colaDiferida = nullptr;
+    }
+    // Trabaja hasta gastar `segundos`. Devuelve true cuando ya no queda nada.
+    bool paso(double segundos) {
+        if (hecha) return true;
+        const double t0 = glfwGetTime();
+        do {
+            const double tPaso = glfwGetTime();
+            const int faseAntes = fase;
+            const size_t sigAntes = siguiente;
+            struct AlSalir {
+                double t; int f; size_t s; CargaDeArranque* c;
+                ~AlSalir() {
+                    // Un paso que tarda se apunta: es un tiron en el menu.
+                    if (glfwGetTime() - t > 0.040) {
+                        char b[160];
+                        snprintf(b, sizeof(b), "  paso lento: fase %d, %s", f,
+                                 (f == 0 && s < c->apuntadas.size()) ? c->apuntadas[s].c_str() : "-");
+                        marcaDeArranque(b);
+                    }
+                }
+            } alSalir{ tPaso, faseAntes, sigAntes, this };
+            if (fase == 0) {
+                if (siguiente < apuntadas.size()) g_textureManager->cargarLoApuntado(apuntadas[siguiente++]);
+                else fase = 1;
+            } else if (fase == 1) {
+                // Las seis caras de cada bloque, de uno en uno.
+                if (idCaras <= BLOCK_TYPE_MAX) {
+                    for (int cara = 0; cara < 6; ++cara) g_textureManager->getBlockTexture((BlockType)idCaras, cara);
+                    ++idCaras;
+                } else fase = 2;
+            } else if (fase == 2) {
+                g_textureManager->precargarTodasLasCaras();     // lo que quede (las tunas...)
+                fase = 3;
+            } else if (fase == 3) {
+                prewarmItemTextures();
+                fase = 4;
+            } else if (fase == 4) {
+                // El terreno de alrededor del origen, chunk a chunk (lo que
+                // hacia generateInitialChunks(2) de un tiron, con la ventana
+                // todavia en blanco).
+                if (porGenerar.empty() && !listaHecha) {
+                    listaHecha = true;
+                    const int R = 2;
+                    porGenerar.push_back(Vec3i(0, 0, 0));
+                    for (int r = 1; r <= R; ++r)
+                        for (int x = -r; x <= r; ++x)
+                            for (int z = -r; z <= r; ++z)
+                                if ((std::abs(x) == r || std::abs(z) == r) && x * x + z * z <= R * R)
+                                    porGenerar.push_back(Vec3i(x, 0, z));
+                }
+                if (iGenerar < porGenerar.size()) {
+                    try { g_gameState->world.getOrCreateChunk(porGenerar[iGenerar]); } catch (...) {}
+                    ++iGenerar;
+                } else fase = 5;
+            } else if (fase == 5) {
+                // Y sus mallas, de una en una (como mucho 20, igual que antes).
+                bool queda = false;
+                if (mallasHechas < 20) {
+                    try { queda = g_gameState->world.construirUnaMallaPendiente(); } catch (...) {}
+                    ++mallasHechas;
+                }
+                if (!queda) fase = 6;
+            } else if (fase == 6) {
+                g_gameState->world.finishInitialGeneration();      // arranca los hilos de trabajo
+                fase = 7;
+            } else {
+                hecha = true;
+                marcaDeArranque("texturas y terreno inicial listos (con el menu ya abierto)");
+                return true;
+            }
+        } while (glfwGetTime() - t0 < segundos);
+        return false;
+    }
+    void todo() { while (!paso(1e9)) {} }
+};
+static CargaDeArranque g_cargaDeArranque;
+
+
+// ⭐ CUANTO TARDA EN ABRIR. Cada paso del arranque deja su marca en
+// arranque.log (junto al juego): asi se ve DONDE se va el tiempo en vez de
+// suponerlo. Son unas pocas lineas y se reescribe en cada arranque.
+static double g_cronoArranqueAntes = 0.0;
+static bool g_cronoArranqueAbierto = false;
+static void marcaDeArranque(const char* paso) {
+    const double t = glfwGetTime();         // cuenta desde glfwInit
+    if (FILE* f = fopen("arranque.log", g_cronoArranqueAbierto ? "ab" : "wb")) {
+        fprintf(f, "%8.0f ms  (+%6.0f)  %s\n", t * 1000.0, (t - g_cronoArranqueAntes) * 1000.0, paso);
+        fclose(f);
+    }
+    g_cronoArranqueAbierto = true;
+    g_cronoArranqueAntes = t;
+}
+
 int main() {
     // Lo primero: sin consola, hasta los errores del arranque se perderían.
     initLogging();
@@ -51204,33 +52179,36 @@ int main() {
 
     // Inicializar TextureManager (debe hacerse DESPUÉS de crear contexto OpenGL)
     std::cout << "Inicializando sistema de texturas..." << std::endl;
+    marcaDeArranque("ventana, OpenGL y shaders");
     g_textureManager = new TextureManager();
     // El array de texturas ANTES de cargar nada: asi cada textura que se
     // cargue se copia a su capa sobre la marcha (ver registrarCapa).
     g_textureManager->crearArrayTexturas();
-    g_textureManager->loadAllBlockTextures();
+    marcaDeArranque("array de texturas");
+    g_cargaDeArranque.preparar();      // se apunta lo que hay que cargar; se carga con el menu abierto
+    marcaDeArranque("texturas apuntadas");
     // ⭐ Y el barrido exhaustivo: sin esto, la primera vez que el mesher pide
     // una textura no listada lo hace desde un worker y recibe 0 -- que es el
     // parpadeo al romper un bloque. Ver precargarTodasLasCaras().
-    g_textureManager->precargarTodasLasCaras();
 
     // ⭐⭐⭐ PRECARGA DE TEXTURAS DE ITEMS
     // Registra TODOS los BlockType (no solo 1..15 como antes, que dejaba sin
     // textura los items nuevos: hoz, carbón, zinc, cobre...). A partir de
     // aquí el render resuelve siempre por caché, sin tocar el disco.
     std::cout << "Pre-cargando texturas de items para hotbar..." << std::endl;
-    prewarmItemTextures();
     std::cout << "Sistema de texturas listo!" << std::endl;
 
     // ⭐ Inicializar SoundManager
     std::cout << "Inicializando sistema de audio..." << std::endl;
     g_soundManager = new SoundManager();
+    marcaDeArranque("SoundManager");
     std::cout << "Sistema de audio listo! (Sonidos: pasos, romper, colocar)" << std::endl;
 
 
     // ⭐⭐⭐ PROTECCIÓN CRÍTICA: Try-catch en inicialización de GameState
     try {
         g_gameState = new GameState();
+        marcaDeArranque("GameState");
 
         // Mostrar la semilla del mundo
         std::cout << "======================================" << std::endl;
@@ -51270,7 +52248,8 @@ int main() {
         // Hitbox propia para los bloques que no llenan su voxel (cladodio y
         // fruto del nopal). Consulta el mundo para conocer los vecinos, que
         // son los que determinan la forma.
-        g_worldQuery->setBlockBoxProvider(&nopalHitboxMundo);
+        g_worldQuery->setBlockBoxProvider(&cajaDeCeldaMundo);
+        g_worldQuery->setBlockBoxesProvider(&cajasDeCeldaMundo);      // caja a caja: por los huecos se pasa
 
         g_playerController = new PlayerSys::PlayerController(g_worldQuery);
 
@@ -51291,6 +52270,7 @@ int main() {
             g_audioMixer.setMasterVolume(0.85f);   // con el limitador suave del mezclador
             // La musica: las piezas de sounds/Music, barajadas distinto cada vez.
             g_musica.iniciar(gamePath("sounds/Music"), (uint32_t)time(nullptr));
+            marcaDeArranque("mezclador y musica");
             std::cout << "[MUSICA] " << g_musica.cuantas() << " piezas" << std::endl;
             g_footsteps.init(&g_audioMixer);
             std::cout << "Audio inicializado (waveOut " << Audio::AudioMixer::SAMPLE_RATE
@@ -51307,6 +52287,7 @@ int main() {
     int width, height;
     glfwGetWindowSize(window, &width, &height);
     initMainMenuButtons(g_gameState, width, height);
+    marcaDeArranque("controlador, pasos y botones del menu");
 
     glfwSetKeyCallback(window, keyCallback);
     glfwSetCharCallback(window, charCallback);
@@ -51343,18 +52324,15 @@ int main() {
     try {
         // ⭐ MEJORADO: Pasar ventana para procesar mensajes de Windows (evita "No responde")
         // OPTIMIZADO: 5x5 = 25 chunks (radio de 2) - Inicio más rápido
-        std::cout << "🌍 Paso 1/3: Generando chunks..." << std::endl;
-        g_gameState->world.generateInitialChunks(2, window);
+        // (El terreno inicial ya no se genera aqui, con la ventana en blanco:
+        // lo hace CargaDeArranque por pasos, con el menu abierto.)
 
         // Construir todos los meshes
         std::cout << "🎨 Paso 2/3: Construyendo meshes..." << std::endl;
-        g_gameState->world.buildAllPendingMeshes(window);
 
         // Marcar que la generación inicial ha terminado (activa rebuilds inmediatos)
         std::cout << "✨ Paso 3/3: Finalizando generación..." << std::endl;
-        g_gameState->world.finishInitialGeneration();
 
-        std::cout << "✅ Sistema de mundo inicializado! (" << g_gameState->world.getChunkCount() << " chunks)" << std::endl;
 
     } catch (const std::exception& e) {
         std::cerr << "\n╔════════════════════════════════════════╗" << std::endl;
@@ -51713,9 +52691,9 @@ int main() {
                     // Con =2, en vez de piezas, una fila de magueyes maduros.
                     if (*getenv("VOXELWORLD_BENCH_PIEZAS") == '2') {
                         static const Compuesto::Familia FAMS[8] = {
-                            Compuesto::FAM_AGAVE_POTATORUM, Compuesto::FAM_AGAVE_KARWINSKII,
-                            Compuesto::FAM_MAGUEY_MADRECUIXE, Compuesto::FAM_MAGUEY_CUISHE,
-                            Compuesto::FAM_MAGUEY_CIRIAL, Compuesto::FAM_MAGUEY_ESPADIN,
+                            Compuesto::FAM_MAGUEY_SISAL, Compuesto::FAM_AGAVE_KARWINSKII,
+                            Compuesto::FAM_MAGUEY_MADRECUIXE, Compuesto::FAM_AGAVE_FOURCROYDES,
+                            Compuesto::FAM_AGAVE_AMERICANA, Compuesto::FAM_MAGUEY_ESPADIN,
                             Compuesto::FAM_AGAVE_ALBOMARGINATA, Compuesto::FAM_MAGUEY_SALMIANA };
                         for (int i = 0; i < 8; ++i) {
                             const int xx = bx - 10 + i * 3;
@@ -51730,6 +52708,31 @@ int main() {
                                 g_gameState->world.setBlock(xx, by + dy, bz - 7,
                                                             Compuesto::AgaveRigido::conSegmento(planta, (uint16_t)dy));
                         }
+                    } else if (*getenv("VOXELWORLD_BENCH_PIEZAS") == '3') {
+                        // Con =3, las cuatro flores en sus cinco etapas (una
+                        // fila por especie, del brote a la abierta) y un sisal.
+                        // A los cuatro lados, para que se vean se mire a donde se mire.
+                        for (int dx = -9; dx <= 9; ++dx)
+                            for (int dz = -9; dz <= 9; ++dz) {
+                                g_gameState->world.setBlock(bx + dx, by - 1, bz + dz, BLOCK_GRASS);
+                                for (int dy = 0; dy < 5; ++dy)
+                                    g_gameState->world.setBlock(bx + dx, by + dy, bz + dz, BLOCK_AIR);
+                            }
+                        for (int lado = 0; lado < 4; ++lado)
+                            for (int e = 0; e < (int)Compuesto::Flor::N_ESPECIES; ++e)
+                                for (int t = 0; t < (int)Compuesto::Flor::N_ETAPAS; ++t) {
+                                    const int l = -4 + t * 2 + (e & 1), f = 3 + e;
+                                    const int ox = lado == 0 ? l : (lado == 1 ? -l : (lado == 2 ? -f : f));
+                                    const int oz = lado == 0 ? -f : (lado == 1 ? f : (lado == 2 ? l : -l));
+                                    g_gameState->world.setBlock(bx + ox, by, bz + oz,
+                                        Compuesto::Flor::crear((uint16_t)e, (uint16_t)t, (uint16_t)(e + t)));
+                                }
+                        const BlockType sisal = Compuesto::AgaveRigido::nuevo(Compuesto::FAM_MAGUEY_SISAL,
+                                                                              Compuesto::AgaveAzul::MADURA, 3);
+                        for (int esq = 0; esq < 4; ++esq)
+                            for (int dy = 0; dy < Compuesto::AgaveRigido::celdasDe(sisal); ++dy)
+                                g_gameState->world.setBlock(bx + ((esq & 1) ? 8 : -8), by + dy, bz + ((esq & 2) ? 8 : -8),
+                                                            Compuesto::AgaveRigido::conSegmento(sisal, (uint16_t)dy));
                     } else {
                     static const BlockType MAT[6] = { BLOCK_PLANKS, BLOCK_STONE, BLOCK_DIRT, BLOCK_PLANKS_ENCINO,
                                                       BLOCK_COBBLESTONE, BLOCK_SAND };
@@ -51847,6 +52850,15 @@ int main() {
                     }
                 }
             }
+            // ⭐ Las texturas, a ratos: 6 ms por cuadro mientras se esta en el
+            // menu; de golpe lo que falte en cuanto se sale de el.
+            if (!g_cargaDeArranque.hecha && g_gameState) {
+                // (Los dos primeros cuadros, nada: primero se ENSENA el menu.)
+                static int cuadrosVistos = 0;
+                if (g_gameState->screenState != SCREEN_MAIN_MENU) g_cargaDeArranque.todo();
+                else if (++cuadrosVistos > 2) g_cargaDeArranque.paso(0.006);
+            }
+
             // ⭐ Protección crítica: Verificar que el estado del juego es válido
             if (!g_gameState) {
                 std::cerr << "❌ ERROR CRÍTICO: g_gameState es NULL en el bucle principal!" << std::endl;
@@ -52060,6 +53072,9 @@ int main() {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             }
             renderMainMenu(g_gameState, width, height, window);
+            { static int cuadrosDeMenu = 0;
+              if (cuadrosDeMenu < 3) marcaDeArranque(cuadrosDeMenu == 0 ? "primer cuadro del menu" : "otro cuadro del menu");
+              ++cuadrosDeMenu; }
             // Para ver el menu sin tocar la ventana: VOXELWORLD_FOTO_MENU=ruta.png
             // guarda el frame a los 3 s y cierra (como VOXELWORLD_BENCH_FOTO).
             static const char* fotoMenu = getenv("VOXELWORLD_FOTO_MENU");
@@ -52303,8 +53318,16 @@ int main() {
                     ponerEnCreativo(BLOCK_PICO_PIEDRA);
                     ponerEnCreativo(BLOCK_MARTILLO_PIEDRA);
                     ponerEnCreativo(BLOCK_PEDERNAL_AFILADO);
+                    ponerEnCreativo(BLOCK_PEDAZO_OBSIDIANA);
+                    ponerEnCreativo(BLOCK_OBSIDIANA_AFILADA);
                     ponerEnCreativo(BLOCK_HACHA_PEDERNAL);
                     ponerEnCreativo(BLOCK_PICO_PEDERNAL);
+                    ponerEnCreativo(BLOCK_PALA_PIEDRA);
+                    ponerEnCreativo(BLOCK_PALA_PEDERNAL);
+                    ponerEnCreativo(BLOCK_LANZA_PIEDRA);
+                    ponerEnCreativo(BLOCK_LANZA_PEDERNAL);
+                    ponerEnCreativo(BLOCK_DAGA_OBSIDIANA);
+                    ponerEnCreativo(BLOCK_PINA_PINO);
                     ponerEnCreativo(BLOCK_MARTILLO_PEDERNAL);
                     ponerEnCreativo(BLOCK_NOPAL_SECO);
                     ponerEnCreativo(BLOCK_ESPINAS_NOPAL);
@@ -52338,9 +53361,45 @@ int main() {
                     ponerEnCreativo(BLOCK_TAZON_PINO_AGUAMIEL);
                     ponerEnCreativo(BLOCK_TAZON_ENCINO_AGUAMIEL);
                     ponerEnCreativo(BLOCK_TAZON_OYAMEL_AGUAMIEL);
+                    // --- El tazon de cada una de las otras maderas ---
+                    ponerEnCreativo(BLOCK_TAZON_OCOTE);
+                    ponerEnCreativo(BLOCK_TAZON_PATULA);
+                    ponerEnCreativo(BLOCK_TAZON_PINONERO);
+                    ponerEnCreativo(BLOCK_TAZON_ALTURAS);
+                    ponerEnCreativo(BLOCK_TAZON_PSEUDOSTROBUS);
+                    ponerEnCreativo(BLOCK_TAZON_OCOTE_AGUA);
+                    ponerEnCreativo(BLOCK_TAZON_PATULA_AGUA);
+                    ponerEnCreativo(BLOCK_TAZON_PINONERO_AGUA);
+                    ponerEnCreativo(BLOCK_TAZON_ALTURAS_AGUA);
+                    ponerEnCreativo(BLOCK_TAZON_PSEUDOSTROBUS_AGUA);
+                    ponerEnCreativo(BLOCK_TAZON_OCOTE_AGUAMIEL);
+                    ponerEnCreativo(BLOCK_TAZON_PATULA_AGUAMIEL);
+                    ponerEnCreativo(BLOCK_TAZON_PINONERO_AGUAMIEL);
+                    ponerEnCreativo(BLOCK_TAZON_ALTURAS_AGUAMIEL);
+                    ponerEnCreativo(BLOCK_TAZON_PSEUDOSTROBUS_AGUAMIEL);
 
                     // --- La penca cortada del tequilana ---
                     ponerEnCreativo(BLOCK_PENCA_AGAVE_AZUL);
+
+                    // --- La penca de cada maguey ---
+                    ponerEnCreativo(BLOCK_MAGUEY_ESPADIN_PENCA);
+                    ponerEnCreativo(BLOCK_AGAVE_ALBOMARGINATA_PENCA);
+                    ponerEnCreativo(BLOCK_MAGUEY_SALMIANA_PENCA);
+                    ponerEnCreativo(BLOCK_AGAVE_POTATORUM_PENCA);
+                    ponerEnCreativo(BLOCK_AGAVE_KARWINSKII_PENCA);
+                    ponerEnCreativo(BLOCK_MAGUEY_MADRECUIXE_PENCA);
+                    ponerEnCreativo(BLOCK_MAGUEY_CUISHE_PENCA);
+                    ponerEnCreativo(BLOCK_MAGUEY_CIRIAL_PENCA);
+                    ponerEnCreativo(BLOCK_MAGUEY_SISAL_PENCA);
+                    ponerEnCreativo(BLOCK_AGAVE_FOURCROYDES_PENCA);
+                    ponerEnCreativo(BLOCK_AGAVE_AMERICANA_PENCA);
+
+                    // --- Las flores (se plantan: nace un brote y crece) ---
+                    ponerEnCreativo(BLOCK_FLOR_CEMPASUCHIL);
+                    ponerEnCreativo(BLOCK_FLOR_NOCHEBUENA);
+                    ponerEnCreativo(BLOCK_FLOR_COSMOS);
+                    ponerEnCreativo(BLOCK_FLOR_DALIA);
+                    ponerEnCreativo(BLOCK_AGAVE_ABISAII_PENCA);
 
                     // --- El ocote blanco (Pinus montezumae) ---
                     ponerEnCreativo(BLOCK_WOOD_OCOTE);
@@ -52437,34 +53496,24 @@ int main() {
                     // mundo, asi que el inventario de ~115 casillas que deja
                     // una partida creativa seguia en memoria al entrar aqui.
                     //
-                    // No basta con el arreglo de loadWorldData (que ahora
-                    // ajusta el tamaño exacto al leer player.dat), porque un
-                    // mundo RECIEN CREADO no tiene player.dat: no se lee
-                    // nada, no se ajusta nada, y el inventario creativo
-                    // entero pasaba tal cual al mundo nuevo.
+                    // ⭐ PEDIDO: "estas filas de casillas no guardan informacion".
                     //
-                    // ⚠️ AQUI NO SE PUEDE LLAMAR A clear().
+                    // AQUI SE PERDIAN. Este bloque recortaba el inventario a
+                    // las 45 casillas de la parrilla cada vez que se entraba
+                    // a un mundo de supervivencia, dando por hecho que "en
+                    // supervivencia el inventario nunca crece". Pero SI crece:
+                    // al llenarse abre filas nuevas (ver Inventory::at). Esas
+                    // filas se guardaban bien en player.dat, se leian bien...
+                    // y al acabar la pantalla de carga se tiraban aqui.
                     //
-                    // Este codigo corre al TERMINAR la pantalla de carga, y
-                    // `loadWorldData` ya se ejecuto mucho antes (al pulsar
-                    // jugar). Un clear() aqui borraria la partida que acaba
-                    // de cargarse del disco.
-                    //
-                    // Lo que se hace es RECORTAR el excedente: las casillas
-                    // que pasan de las 45 reglamentarias solo pueden venir de
-                    // un inventario creativo anterior, porque en
-                    // supervivencia el inventario nunca crece por encima de
-                    // ese tamaño. Las 45 primeras se respetan tal cual: son
-                    // las que escribio loadWorldData.
+                    // El recorte ya no hace falta para lo que nacio (que no se
+                    // cuelen los items del creativo): los tres caminos de
+                    // entrada dejan el inventario exacto por su cuenta --
+                    // createNewWorld() y loadWorldData() sin player.dat lo
+                    // vacian, y loadWorldData() con player.dat lo deja del
+                    // tamano justo que dice el archivo.
                     Inventory& inv = g_gameState->inventory;
-                    if (inv.total() > Inventory::SLOTS) {
-                        std::cout << "Supervivencia: recortadas "
-                                  << (inv.total() - Inventory::SLOTS)
-                                  << " casillas heredadas del creativo"
-                                  << std::endl;
-                        inv.slots.resize((size_t)Inventory::SLOTS);
-                    }
-                    if (inv.selectedSlot >= Inventory::SLOTS || inv.selectedSlot < 0)
+                    if (inv.selectedSlot >= inv.total() || inv.selectedSlot < 0)
                         inv.selectedSlot = 0;
                 }
 
@@ -52706,11 +53755,14 @@ int main() {
                     }
 
                     const Audio::StepMaterial mat = blockToStepMaterial(ground);
+                    // ⭐ Y LA VOZ DEL BLOQUE QUE SE PISA: su tono y su brillo. El
+                    // pasto no suena como la tierra ni el encino como el pino.
+                    const Audio::VozDeBloque vozSuelo = Audio::vozDeBloque(idDeVoz(ground));
 
                     // Aterrizaje: golpe más fuerte y grave al tocar suelo
                     // tras una caída apreciable.
                     if (!wasOnGroundForAudio && g_gameState->player.onGround) {
-                        g_footsteps.playLanding(mat, fallSpeedBefore);
+                        g_footsteps.playLanding(mat, fallSpeedBefore, vozSuelo.tono, vozSuelo.brillo);
                     } else {
                         bool sprinting = false, crouching = false;
                         if (g_playerController) {
@@ -52718,7 +53770,7 @@ int main() {
                             crouching = g_playerController->getState().isCrouching;
                         }
                         g_footsteps.update(dx, dz, g_gameState->player.onGround,
-                                           mat, sprinting, crouching);
+                                           mat, sprinting, crouching, vozSuelo.tono, vozSuelo.brillo);
                     }
                 }
 
@@ -54252,10 +55304,13 @@ int main() {
                 ea.herramienta = esPico(enMano) ? Herramienta::PICO
                                : esHacha(enMano) ? Herramienta::HACHA
                                : esMartillo(enMano) ? Herramienta::MARTILLO
-                               : enMano == BLOCK_HOE ? Herramienta::AZADA
+                               : (enMano == BLOCK_HOE || esPala(enMano)) ? Herramienta::AZADA      // la pala cava como la azada
+                               : esLanza(enMano) ? Herramienta::PICO                               // la lanza clava de arriba abajo
+                               : esDaga(enMano) ? Herramienta::HACHA                               // la daga taja
                                : Herramienta::MANO;
                 ea.pedernal = enMano == BLOCK_HACHA_PEDERNAL || enMano == BLOCK_PICO_PEDERNAL ||
-                              enMano == BLOCK_MARTILLO_PEDERNAL;
+                              enMano == BLOCK_MARTILLO_PEDERNAL || enMano == BLOCK_PALA_PEDERNAL ||
+                              enMano == BLOCK_LANZA_PEDERNAL;
                 auto esConstruido = [](BlockType b) {
                     b = bloqueBaseDe(plantaSeca(b));
                     return b == BLOCK_PLANKS || b == BLOCK_PLANKS_ENCINO || b == BLOCK_PLANKS_OYAMEL ||
@@ -54836,10 +55891,20 @@ int main() {
             const float luzIt = luzDelItem(item.position);
 
             // Dejado a proposito: acostado sobre su base, quieto.
+            // ⭐ CADA PENCA DE MAGUEY, DE SU TAMANO. PEDIDO: "diferentes
+            // tamanos de maguey colocado". La del salmiana es mas del doble
+            // que la del potatorum, y dos de la misma especie tampoco salen
+            // iguales (ver tamanoDePenca y tamanoDeItemDejado).
+            const bool pencaMaguey = esPencaDeMaguey(item.blockType);
             if (item.tirado) {
-                glTranslatef(item.position.x, item.position.y + 0.5f * ItemsTirados::GROSOR, item.position.z);
+                const float e = tamanoDeItemDejado(item.blockType, item.giro);
+                // Apoyada en el suelo: medio grosor de la hoja por encima
+                // (una penca de maguey mide 0,1 de grueso por su tamano).
+                const float medioGrosor = pencaMaguey ? (0.05f * e + 0.01f) : 0.5f * ItemsTirados::GROSOR;
+                glTranslatef(item.position.x, item.position.y + medioGrosor, item.position.z);
                 glRotatef(item.giro, 0, 1, 0);
                 glRotatef(-90.0f, 1, 0, 0);         // el modelo va de pie en su plano: se tumba
+                if (e != 1.0f) glScalef(e, e, e);
                 dibujarItem3D(item.blockType, luzIt, false);
                 glPopMatrix();
                 continue;
@@ -54852,11 +55917,81 @@ int main() {
             // Rotación animada basada en tiempo de vida
             glRotatef(item.lifetime * 100.0f, 0, 1, 0);
 
+            // Suelta (recien cortada), tambien de su tamano.
+            if (pencaMaguey) {
+                const float e = tamanoDePenca(item.blockType);
+                glScalef(e, e, e);
+            }
             dibujarItem3D(item.blockType, luzIt, false);
             glPopMatrix();
         }
         glPopMatrix();
 
+        // ====================================================================
+        // ⭐ LO QUE SE HA JUNTADO A UNA CASILLA (ver CeldasJuntas.h)
+        // ====================================================================
+        // El bloque de la casilla lo dibuja el mundo, como siempre. Lo que se
+        // le ha juntado -- la pieza de la mesa, el nivel -- se dibuja aqui,
+        // caja a caja, con la textura de su material y la luz de su sitio.
+        if (g_celdasJuntas.celdas() > 0 && g_textureManager) {
+            World& mundoJ = g_gameState->world;
+            const Vec3 pjJ = g_gameState->player.position;
+            const bool teniaTex = glIsEnabled(GL_TEXTURE_2D);
+            const bool teniaCull = glIsEnabled(GL_CULL_FACE);
+            glEnable(GL_TEXTURE_2D);
+            glDisable(GL_CULL_FACE);
+            std::vector<CeldasJuntas::Celda> huerfanas;
+            for (const auto& [c, juntos] : g_celdasJuntas.todas()) {
+                const float ddx = (float)c.x + 0.5f - pjJ.x, ddz = (float)c.z + 0.5f - pjJ.z;
+                if (ddx * ddx + ddz * ddz > 72.0f * 72.0f) continue;
+                if (!mundoJ.chunkCargadoEn(c.x, c.z)) continue;
+                // Si el bloque de la casilla ya no esta (cayo, se lo llevo
+                // el agua), uno de los juntados pasa a ocupar su sitio.
+                if (mundoJ.getBlock(c.x, c.y, c.z) == BLOCK_AIR) { huerfanas.push_back(c); continue; }
+                const float luzJ = luzDelItem(Vec3((float)c.x + 0.5f, (float)c.y + 0.5f, (float)c.z + 0.5f));
+                for (const CeldasJuntas::Junto& j : juntos) {
+                    CeldasJuntas::Caja cajas[4];
+                    const int n = cajasDeCosa(j.tipo, j.y0, cajas);
+                    for (int b = 0; b < n; ++b) {
+                        const float x0 = (float)c.x + cajas[b].x0, x1 = (float)c.x + cajas[b].x1;
+                        const float y0 = (float)c.y + cajas[b].y0, y1 = (float)c.y + cajas[b].y1;
+                        const float z0 = (float)c.z + cajas[b].z0, z1 = (float)c.z + cajas[b].z1;
+                        const float u0 = cajas[b].x0, u1 = cajas[b].x1, w0 = cajas[b].z0, w1 = cajas[b].z1;
+                        const float v0 = cajas[b].y0 - j.y0, v1 = cajas[b].y1 - j.y0;
+                        // Seis caras: cuatro esquinas (x, y, z, u, v) y su sombra.
+                        const float Q[6][4][5] = {
+                            { {x0,y1,z0,u0,w0}, {x0,y1,z1,u0,w1}, {x1,y1,z1,u1,w1}, {x1,y1,z0,u1,w0} },   // arriba
+                            { {x0,y0,z0,u0,w0}, {x1,y0,z0,u1,w0}, {x1,y0,z1,u1,w1}, {x0,y0,z1,u0,w1} },   // abajo
+                            { {x0,y0,z1,u0,v0}, {x1,y0,z1,u1,v0}, {x1,y1,z1,u1,v1}, {x0,y1,z1,u0,v1} },   // +Z
+                            { {x0,y0,z0,u0,v0}, {x0,y1,z0,u0,v1}, {x1,y1,z0,u1,v1}, {x1,y0,z0,u1,v0} },   // -Z
+                            { {x1,y0,z0,w0,v0}, {x1,y1,z0,w0,v1}, {x1,y1,z1,w1,v1}, {x1,y0,z1,w1,v0} },   // +X
+                            { {x0,y0,z0,w0,v0}, {x0,y0,z1,w1,v0}, {x0,y1,z1,w1,v1}, {x0,y1,z0,w0,v1} },   // -X
+                        };
+                        static const float SOMBRA[6] = { 1.0f, 0.50f, 0.80f, 0.80f, 0.62f, 0.62f };
+                        for (int cara = 0; cara < 6; ++cara) {
+                            const GLuint tex = g_textureManager->getBlockTexture(j.tipo, cara);
+                            if (tex == 0) continue;
+                            g_textureManager->bindForUI(tex);
+                            const float br = luzJ * SOMBRA[cara];
+                            glColor4f(br, br, br, 1.0f);
+                            glBegin(GL_QUADS);
+                            for (int e = 0; e < 4; ++e) {
+                                glTexCoord2f(Q[cara][e][3], Q[cara][e][4]);
+                                glVertex3f(Q[cara][e][0], Q[cara][e][1], Q[cara][e][2]);
+                            }
+                            glEnd();
+                        }
+                    }
+                }
+            }
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            if (teniaCull) glEnable(GL_CULL_FACE);
+            if (!teniaTex) glDisable(GL_TEXTURE_2D);
+            for (const CeldasJuntas::Celda& c : huerfanas) {
+                const CeldasJuntas::Junto j = g_celdasJuntas.quitarPrimero(c.x, c.y, c.z);
+                if (j.tipo != BLOCK_AIR) mundoJ.setBlock(c.x, c.y, c.z, j.tipo);
+            }
+        }
         // ====================================================================
         // ⭐ LAS PENCAS DE NOPAL COLOCADAS: EL ITEM EN 3D, POSADO
         // ====================================================================
@@ -55190,6 +56325,52 @@ int main() {
         // De paso se ahorra un raycast completo por frame: el de abajo
         // (rayResult) ya calculaba exactamente lo mismo.
 
+        // ====================================================================
+        // ⭐ VISTA PREVIA DE LA PIEZA QUE SE VA A COLOCAR
+        // ====================================================================
+        // Con una pieza de la mesa en la mano se dibuja, en lineas, donde
+        // quedaria y COMO: girada segun la mirada y normal o cabeza abajo
+        // segun a donde se apunte. Usa la MISMA funcion que colocar
+        // (Formas::alColocar), asi que lo que se ve es lo que queda.
+        if (rayResult.hit && !g_gameState->isPaused && !g_gameState->inventoryOpen) {
+            const BlockType enManoV = g_gameState->inventory.getSelectedBlock();
+            if (Formas::esPieza(enManoV)) {
+                float alturaV = rayOrigin.y + rayDirection.y * rayResult.distance - (float)rayResult.blockPos.y;
+                alturaV = alturaV < 0.0f ? 0.0f : (alturaV > 1.0f ? 1.0f : alturaV);
+                const BlockType comoQueda = Formas::alColocar(enManoV, rayDirection.x, rayDirection.z,
+                                                              rayResult.normal.y, alturaV);
+                const Vec3i donde = rayResult.previousPos;
+                if (g_gameState->world.getBlock(donde.x, donde.y, donde.z) == BLOCK_AIR) {
+                    float cajasV[4][6];
+                    const int nV = Formas::cajasDePieza(comoQueda, cajasV);
+                    const bool teniaTexV = glIsEnabled(GL_TEXTURE_2D);
+                    glDisable(GL_TEXTURE_2D);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glLineWidth(1.5f);
+                    glColor4f(1.0f, 1.0f, 1.0f, 0.55f);
+                    for (int q = 0; q < nV; ++q) {
+                        const float x0 = donde.x + cajasV[q][0], y0 = donde.y + cajasV[q][1], z0 = donde.z + cajasV[q][2];
+                        const float x1 = donde.x + cajasV[q][3], y1 = donde.y + cajasV[q][4], z1 = donde.z + cajasV[q][5];
+                        glBegin(GL_LINE_LOOP);
+                        glVertex3f(x0, y0, z0); glVertex3f(x1, y0, z0); glVertex3f(x1, y0, z1); glVertex3f(x0, y0, z1);
+                        glEnd();
+                        glBegin(GL_LINE_LOOP);
+                        glVertex3f(x0, y1, z0); glVertex3f(x1, y1, z0); glVertex3f(x1, y1, z1); glVertex3f(x0, y1, z1);
+                        glEnd();
+                        glBegin(GL_LINES);
+                        glVertex3f(x0, y0, z0); glVertex3f(x0, y1, z0);
+                        glVertex3f(x1, y0, z0); glVertex3f(x1, y1, z0);
+                        glVertex3f(x1, y0, z1); glVertex3f(x1, y1, z1);
+                        glVertex3f(x0, y0, z1); glVertex3f(x0, y1, z1);
+                        glEnd();
+                    }
+                    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                    glLineWidth(1.0f);
+                    if (teniaTexV) glEnable(GL_TEXTURE_2D);
+                }
+            }
+        }
         if (rayResult.hit && !g_gameState->isPaused) {
             renderBlockOutline(rayResult.blockPos, g_gameState->player.position,
                                rayResult.normal);

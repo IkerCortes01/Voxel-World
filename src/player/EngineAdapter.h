@@ -49,6 +49,7 @@ private:
     // Sirve para bloques que no llenan el cubo, como el cladodio del nopal.
     bool (*boxFn)(TBlockEnum, int, int, int,
                   float&, float&, float&, float&, float&, float&);
+    int (*boxesFn)(TBlockEnum, int, int, int, float[][6], int) = nullptr;
     TBlockEnum waterBlock;
     TBlockEnum lavaBlock;
     TBlockEnum ladderBlock;
@@ -70,6 +71,12 @@ public:
         bool (*fn)(TBlockEnum, int, int, int,
                    float&, float&, float&, float&, float&, float&)) {
         boxFn = fn;
+    }
+
+    // El proveedor de VARIAS cajas por bloque (ver IWorldQuery::getBlockBoxes).
+    // Si no se instala, cada bloque tiene la unica caja de siempre.
+    void setBlockBoxesProvider(int (*fn)(TBlockEnum, int, int, int, float[][6], int)) {
+        boxesFn = fn;
     }
 
     void setWorld(TWorld* w) { world = w; }
@@ -108,6 +115,18 @@ public:
         minX = 0.0f; minY = 0.0f; minZ = 0.0f;
         maxX = 1.0f; maxY = 1.0f; maxZ = 1.0f;
         return true;
+    }
+
+    int getBlockBoxes(int x, int y, int z, float cajas[][6], int maximo) const override {
+        if (!world || maximo < 1) return 0;
+        const TBlockEnum b = world->getBlock(x, y, z);
+        if (!solidFn(b)) return 0;
+        if (boxesFn) {
+            const int n = boxesFn(b, x, y, z, cajas, maximo);
+            if (n > 0) return n;
+        }
+        return getBlockBox(x, y, z, cajas[0][0], cajas[0][1], cajas[0][2],
+                                    cajas[0][3], cajas[0][4], cajas[0][5]) ? 1 : 0;
     }
 };
 

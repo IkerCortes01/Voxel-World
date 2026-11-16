@@ -150,7 +150,7 @@ inline int rinde(int formaIdx) {
 // ---------------------------------------------------------------------------
 // LOS MATERIALES: los bloques enteros que la mesa sabe trabajar.
 // ---------------------------------------------------------------------------
-constexpr int NUM_MATERIALES = 22;
+constexpr int NUM_MATERIALES = 43;
 inline BlockType bloqueDeMaterial(int m) {
     static const BlockType M[NUM_MATERIALES] = {
         // Madera: tablones y troncos.
@@ -163,6 +163,19 @@ inline BlockType bloqueDeMaterial(int m) {
         BLOCK_STONE, BLOCK_COBBLESTONE, BLOCK_LIMESTONE, BLOCK_BRICKS,
         // Pasto: se trabaja como tierra con su capa verde.
         BLOCK_GRASS,
+        // ⭐ PEDIDO: "que todos los bloques, no items, tengan la capacidad de
+        // ser modificados". El resto de bloques enteros del juego: los
+        // troncos y tablones que faltaban, las hojas de todos los arboles,
+        // los techos, la nieve, el vidrio y el mineral.
+        // ⚠️ SE ANADEN AL FINAL: el numero de cada material va guardado en las
+        // piezas ya puestas en los mundos, y no puede cambiar.
+        BLOCK_WOOD_OCOTE_CHINO, BLOCK_WOOD_PATULA, BLOCK_WOOD_PINONERO, BLOCK_WOOD_ALTURAS,
+        BLOCK_WOOD_PSEUDOSTROBUS, BLOCK_PLANKS_ALTURAS,
+        BLOCK_LEAVES, BLOCK_LEAVES_ENCINO, BLOCK_LEAVES_OYAMEL, BLOCK_LEAVES_OCOTE,
+        BLOCK_LEAVES_OCOTE_CHINO, BLOCK_LEAVES_PATULA, BLOCK_LEAVES_PINONERO, BLOCK_LEAVES_ALTURAS,
+        BLOCK_LEAVES_PSEUDOSTROBUS,
+        BLOCK_TECHO_HOJAS, BLOCK_TECHO_SUELO,
+        BLOCK_SNOW, BLOCK_GLASS, BLOCK_IRON_ORE, BLOCK_BEDROCK,
     };
     return m >= 0 && m < NUM_MATERIALES ? M[m] : BLOCK_AIR;
 }
@@ -175,18 +188,47 @@ inline int materialDe(BlockType b) {
 // ---------------------------------------------------------------------------
 // LA PIEZA COMO BLOQUE
 // ---------------------------------------------------------------------------
-constexpr Compuesto::Campo C_MATERIAL = { 0, 7 };
-constexpr Compuesto::Campo C_FORMA    = { 7, 6 };
-constexpr Compuesto::Campo C_GIRO     = { 13, 2 };
+// ============================================================================
+// ⭐⭐ EL ESTADO DE UNA PIEZA: MATERIAL, FORMA Y ORIENTACION
+// ============================================================================
+// PEDIDO: "que escaleras, paredes y miles de modificaciones de bloques mas,
+// como en Minecraft, se coloquen con la cara viendo frente al jugador" (el
+// sistema universal de orientacion), y "que al presionar clic derecho con el
+// martillo cambies la orientacion de norte, sur, este, oeste, noreste,
+// sureste, suroeste, noroeste".
+//
+// Los 16 bits del estado de la pieza:
+//
+//   bits 0..5    MATERIAL    de que bloque esta hecha (hasta 64)
+//   bit  6       DIAGONAL    girada 45 grados mas (NE, SE, SO, NO)
+//   bits 7..12   FORMA       cual de las 50
+//   bits 13..14  GIRO        0 mira a +Z (sur), 1 a -X (oeste), 2 a -Z
+//                            (norte), 3 a +X (este)
+//   bit  15      INVERTIDA   cabeza abajo (la escalera colgada del techo)
+//
+// ⚠️ COMPATIBLE CON LO YA GUARDADO. Antes el material ocupaba los bits 0..6 y
+// el 15 no se usaba; como nunca hubo mas de 22 materiales, en todas las piezas
+// ya puestas los bits 6 y 15 estan a cero: se leen como "ni diagonal ni
+// invertida", que es lo que eran. No hace falta migrar ningun mundo.
+//
+// Todo lo que orienta una pieza -- colocarla, la vista previa, el martillo --
+// pasa por las funciones de aqui: no hay dos sitios que calculen el giro.
+constexpr Compuesto::Campo C_MATERIAL  = { 0, 6 };
+constexpr Compuesto::Campo C_DIAGONAL  = { 6, 1 };
+constexpr Compuesto::Campo C_FORMA     = { 7, 6 };
+constexpr Compuesto::Campo C_GIRO      = { 13, 2 };
+constexpr Compuesto::Campo C_INVERTIDA = { 15, 1 };
 
 inline bool esPieza(BlockType t) {
     return Compuesto::esCompuesto(t) && Compuesto::familiaDe(t) == Compuesto::FAM_FORMA;
 }
-inline BlockType pieza(int material, int formaIdx, int giro = 0) {
+inline BlockType pieza(int material, int formaIdx, int giro = 0, bool invertida = false, bool diagonal = false) {
     uint16_t e = 0;
     e = Compuesto::escribir(e, C_MATERIAL, (uint16_t)material);
     e = Compuesto::escribir(e, C_FORMA, (uint16_t)formaIdx);
     e = Compuesto::escribir(e, C_GIRO, (uint16_t)(giro & 3));
+    e = Compuesto::escribir(e, C_INVERTIDA, (uint16_t)(invertida ? 1 : 0));
+    e = Compuesto::escribir(e, C_DIAGONAL, (uint16_t)(diagonal ? 1 : 0));
     return Compuesto::hacer(Compuesto::FAM_FORMA, e);
 }
 inline int materialDePieza(BlockType t) { return Compuesto::leer(Compuesto::estadoDe(t), C_MATERIAL); }
@@ -195,24 +237,40 @@ inline int formaDePieza(BlockType t) {
     return f < NUM ? f : 0;
 }
 inline int giroDePieza(BlockType t) { return Compuesto::leer(Compuesto::estadoDe(t), C_GIRO); }
+inline bool invertidaDe(BlockType t) { return Compuesto::leer(Compuesto::estadoDe(t), C_INVERTIDA) != 0; }
+inline bool diagonalDe(BlockType t) { return Compuesto::leer(Compuesto::estadoDe(t), C_DIAGONAL) != 0; }
+// La misma pieza con ese giro y NADA mas: ni invertida ni en diagonal. Es
+// como se guarda en el inventario (conGiro(t, 0)): la orientacion se decide
+// al colocarla, no viaja con el item.
 inline BlockType conGiro(BlockType t, int giro) {
     return pieza(materialDePieza(t), formaDePieza(t), giro);
+}
+// La misma pieza con la orientacion entera.
+inline BlockType conOrientacion(BlockType t, int giro, bool invertida, bool diagonal) {
+    return pieza(materialDePieza(t), formaDePieza(t), giro, invertida, diagonal);
 }
 // El bloque del que esta hecha (su textura, su sonido, lo que es).
 inline BlockType materialBloque(BlockType t) {
     const BlockType b = bloqueDeMaterial(materialDePieza(t));
     return b == BLOCK_AIR ? BLOCK_STONE : b;
 }
-// Las cajas de una pieza ya girada, en fracciones de bloque (0..1). Devuelve
-// cuantas escribe en `out` (hasta 4), cada una como x0,y0,z0,x1,y1,z1.
+// Una caja de la forma, ya girada y (si toca) cabeza abajo, de 0 a 1.
+inline void cajaColocada(Caja c, int giro, bool invertida, float out[6]) {
+    c = girar(c, giro);
+    float y0 = c.y0 / 16.0f, y1 = c.y1 / 16.0f;
+    if (invertida) { const float a = 1.0f - y1; y1 = 1.0f - y0; y0 = a; }
+    out[0] = c.x0 / 16.0f; out[1] = y0; out[2] = c.z0 / 16.0f;
+    out[3] = c.x1 / 16.0f; out[4] = y1; out[5] = c.z1 / 16.0f;
+}
+// Las cajas de una pieza ya girada e invertida, en fracciones de bloque
+// (0..1). Devuelve cuantas escribe en `out` (hasta 4), cada una como
+// x0,y0,z0,x1,y1,z1. (Sin el giro de 45 grados ni las uniones de escalera con
+// las vecinas: para eso, cajasDePiezaEnMundo y cajasDeChoque, mas abajo.)
 inline int cajasDePieza(BlockType t, float out[4][6]) {
     const Forma& f = forma(formaDePieza(t));
     const int g = giroDePieza(t);
-    for (int i = 0; i < f.n; ++i) {
-        const Caja c = girar(f.c[i], g);
-        out[i][0] = c.x0 / 16.0f; out[i][1] = c.y0 / 16.0f; out[i][2] = c.z0 / 16.0f;
-        out[i][3] = c.x1 / 16.0f; out[i][4] = c.y1 / 16.0f; out[i][5] = c.z1 / 16.0f;
-    }
+    const bool inv = invertidaDe(t);
+    for (int i = 0; i < f.n; ++i) cajaColocada(f.c[i], g, inv, out[i]);
     return f.n;
 }
 // Hacia donde mira quien la pone -> el giro. `yaw` en grados, como el del
@@ -225,5 +283,245 @@ inline int giroDeYaw(float yaw) {
     static const int G[4] = { 2, 1, 0, 3 };
     return G[cuadrante];
 }
+
+// ⭐ EL GIRO SEGUN A DONDE SE MIRA. PEDIDO: "que dependiendo de donde vea el
+// jugador, se colocara frente el bloque modificado".
+//
+// (dx, dz) es la direccion de la mirada en el plano del suelo -- el mismo rayo
+// con el que se apunta al colocar --. La pieza queda DE FRENTE al jugador: la
+// escalera sube alejandose de el, la pared queda al fondo, el alero vuela
+// hacia donde mira. Se usa el rayo y no el angulo guardado del jugador porque
+// el rayo es, exactamente, a donde se esta mirando en ese instante.
+inline int giroDeMirada(float dx, float dz) {
+    const float ax = dx < 0.0f ? -dx : dx, az = dz < 0.0f ? -dz : dz;
+    if (az >= ax) return dz < 0.0f ? 2 : 0;       // mira a -Z : a +Z
+    return dx < 0.0f ? 1 : 3;                     // mira a -X : a +X
+}
+
+// Lo que mide de alto una pieza: hasta donde llega su caja mas alta (0..1).
+inline float altoDePieza(BlockType t) {
+    float c[4][6];
+    const int n = cajasDePieza(t, c);
+    float y = 0.0f;
+    for (int i = 0; i < n; ++i) if (c[i][4] > y) y = c[i][4];
+    return y;
+}
+
+// ============================================================================
+// ⭐ COLOCAR: LA ORIENTACION SALE DE LA MIRADA Y DE DONDE SE APUNTA
+// ============================================================================
+// UNA sola funcion, para colocar y para la vista previa (asi lo que se ve
+// antes es lo que queda despues):
+//
+//   - El GIRO, de la mirada (giroDeMirada): la pieza queda de frente. La
+//     escalera sube alejandose de quien la pone y la pared queda al fondo.
+//   - INVERTIDA o no, de la cara a la que se apunta, como en Minecraft:
+//         sobre la cara de ARRIBA de un bloque ........ normal
+//         contra la cara de ABAJO (el techo) .......... invertida
+//         contra una cara de LADO: segun la altura del punto apuntado --
+//         en la mitad de arriba, invertida; en la de abajo, normal.
+//
+// `normalY` es la de la cara tocada (+1 arriba, -1 abajo, 0 de lado) y
+// `alturaImpacto` la altura del punto apuntado dentro de su casilla (0..1).
+// El umbral lleva un margen (0,5) fijo: mover un pelo la camara no la voltea
+// salvo que se cruce de verdad la mitad.
+inline bool invertidaAlColocar(int normalY, float alturaImpacto) {
+    if (normalY > 0) return false;
+    if (normalY < 0) return true;
+    return alturaImpacto > 0.5f;
+}
+inline BlockType alColocar(BlockType t, float miradaX, float miradaZ, int normalY, float alturaImpacto) {
+    return conOrientacion(t, giroDeMirada(miradaX, miradaZ), invertidaAlColocar(normalY, alturaImpacto), false);
+}
+
+// ============================================================================
+// ⭐ LAS OCHO ORIENTACIONES Y EL MARTILLO
+// ============================================================================
+// En el orden pedido: norte, sur, este, oeste, noreste, sureste, suroeste,
+// noroeste. El norte es -Z, como en Minecraft. Las cuatro diagonales son la
+// cardinal de al lado girada 45 grados mas (bit DIAGONAL).
+constexpr int NUM_ORIENTACIONES = 8;
+inline const char* nombreDeOrientacion(int o) {
+    static const char* const N[NUM_ORIENTACIONES] = { "NORTE", "SUR", "ESTE", "OESTE",
+                                                       "NORESTE", "SURESTE", "SUROESTE", "NOROESTE" };
+    return o >= 0 && o < NUM_ORIENTACIONES ? N[o] : "";
+}
+// (giro, diagonal) de cada una. Un giro son 90 grados en el sentido
+// sur -> oeste -> norte -> este; la diagonal suma 45 en ese mismo sentido.
+inline void giroDeOrientacion(int o, int& giro, bool& diagonal) {
+    static const int G[NUM_ORIENTACIONES] = { 2, 0, 3, 1,   2, 3, 0, 1 };
+    giro = G[o & 7];
+    diagonal = (o & 7) >= 4;
+}
+inline int orientacionDe(BlockType t) {
+    const int g = giroDePieza(t);
+    if (!diagonalDe(t)) { static const int O[4] = { 1, 3, 0, 2 }; return O[g]; }       // sur, oeste, norte, este
+    static const int OD[4] = { 6, 7, 4, 5 };                                           // SO, NO, NE, SE
+    return OD[g];
+}
+inline BlockType conOrientacionN(BlockType t, int o) {
+    int g = 0; bool d = false;
+    giroDeOrientacion(o, g, d);
+    return conOrientacion(t, g, invertidaDe(t), d);
+}
+// Un golpe de martillo: la orientacion siguiente de la lista (y de la ultima,
+// otra vez a la primera). Lo demas de la pieza -- material, forma, si esta
+// invertida -- no cambia.
+inline BlockType siguienteOrientacion(BlockType t) {
+    return conOrientacionN(t, (orientacionDe(t) + 1) % NUM_ORIENTACIONES);
+}
+
+// Girar un punto 45 grados alrededor del centro de la casilla, en el mismo
+// sentido que `girar`. Es lo que hace el dibujo con cada vertice de una
+// pieza en diagonal.
+inline void puntoEnDiagonal(float& x, float& z) {
+    constexpr float K = 0.70710678f;
+    const float dx = x - 0.5f, dz = z - 0.5f;
+    x = 0.5f + K * dx - K * dz;
+    z = 0.5f + K * dx + K * dz;
+}
+
+// ============================================================================
+// ⭐ ESCALERAS QUE SE UNEN EN LAS ESQUINAS
+// ============================================================================
+// Como en Minecraft: dos escaleras que forman esquina cambian de forma solas.
+// NO se guarda nada: la forma se CALCULA cada vez a partir de la pieza y de
+// sus dos vecinas (la de delante y la de detras), asi que al quitar una, la
+// otra vuelve a ser recta sin que nadie la toque.
+//
+// Vale para las escaleras de peldanos completos (la de 2, la de 3 y la de 4):
+// las tres con la MISMA regla; el numero de peldanos solo cambia la geometria.
+// Se unen dos del mismo numero de peldanos y de la misma mitad (las dos
+// normales o las dos invertidas); el material da igual. Las piezas en
+// diagonal no se unen.
+enum Union { RECTA = 0, EXTERIOR_IZQ, EXTERIOR_DER, INTERIOR_IZQ, INTERIOR_DER };
+inline bool escaleraQueSeUne(BlockType t) {
+    return esPieza(t) && formaDePieza(t) <= 2 && !diagonalDe(t);
+}
+// Hacia donde SUBE una pieza con ese giro (su lado alto).
+inline void direccionDeGiro(int giro, int& dx, int& dz) {
+    static const int DX[4] = { 0, -1, 0, 1 }, DZ[4] = { 1, 0, -1, 0 };
+    dx = DX[giro & 3]; dz = DZ[giro & 3];
+}
+// La "izquierda" de un giro, con la convencion de Minecraft (la del sur es el
+// este): un cuarto de vuelta hacia atras.
+inline int giroIzquierda(int giro) { return (giro + 3) & 3; }
+
+// `get(dx, dy, dz)` da el bloque vecino, relativo a la pieza.
+template <typename TGet>
+Union unionDeEscalera(BlockType t, TGet get) {
+    if (!escaleraQueSeUne(t)) return RECTA;
+    const int g = giroDePieza(t), f = formaDePieza(t);
+    const bool inv = invertidaDe(t);
+    auto companera = [&](BlockType v) {
+        return escaleraQueSeUne(v) && formaDePieza(v) == f && invertidaDe(v) == inv;
+    };
+    // ¿Puede tomar esa forma? Si al lado, en esa direccion, hay otra igual
+    // que mira a lo mismo, las dos siguen rectas: son un tramo, no una esquina.
+    auto puede = [&](int giroLado) {
+        int ex = 0, ez = 0;
+        direccionDeGiro(giroLado, ex, ez);
+        const BlockType v = get(ex, 0, ez);
+        return !companera(v) || giroDePieza(v) != g;
+    };
+    int fx = 0, fz = 0;
+    direccionDeGiro(g, fx, fz);
+    // La de DELANTE (hacia donde sube) manda la esquina EXTERIOR.
+    const BlockType delante = get(fx, 0, fz);
+    if (companera(delante)) {
+        const int gd = giroDePieza(delante);
+        if (((gd - g) & 1) != 0 && puede((gd + 2) & 3))
+            return gd == giroIzquierda(g) ? EXTERIOR_IZQ : EXTERIOR_DER;
+    }
+    // La de DETRAS, la INTERIOR.
+    const BlockType detras = get(-fx, 0, -fz);
+    if (companera(detras)) {
+        const int gd = giroDePieza(detras);
+        if (((gd - g) & 1) != 0 && puede(gd))
+            return gd == giroIzquierda(g) ? INTERIOR_IZQ : INTERIOR_DER;
+    }
+    return RECTA;
+}
+
+// Las cajas de una escalera con esa union, ya giradas e invertidas. En la
+// forma base la escalera sube hacia +Z y su izquierda es +X; el peldano i
+// empieza en z = z0 y ocupa de ahi al fondo.
+//   EXTERIOR  el peldano se queda solo en su rincon (se recorta tambien a lo ancho)
+//   INTERIOR  el peldano dobla la esquina: se le suma el tramo del otro lado
+// Devuelve cuantas escribe (hasta 7 con la de 4 peldanos: `out` es de 8).
+inline int cajasDeEscaleraUnida(BlockType t, Union u, float out[8][6]) {
+    const Forma& f = forma(formaDePieza(t));
+    const int g = giroDePieza(t);
+    const bool inv = invertidaDe(t);
+    int n = 0;
+    for (int i = 0; i < f.n && n < 8; ++i) {
+        Caja c = f.c[i];
+        const uint8_t z0 = c.z0;                      // donde empieza este peldano
+        if (u == EXTERIOR_IZQ)      c.x0 = z0;                        // solo desde ahi hacia +X
+        else if (u == EXTERIOR_DER) c.x1 = (uint8_t)(16 - z0);        // solo hasta ahi desde -X
+        cajaColocada(c, g, inv, out[n++]);
+        if ((u == INTERIOR_IZQ || u == INTERIOR_DER) && z0 > 0 && n < 8) {
+            Caja extra = c;
+            extra.z0 = 0; extra.z1 = z0;              // el tramo de delante...
+            if (u == INTERIOR_IZQ) { extra.x0 = z0; extra.x1 = 16; }             // ...en el lado de la izquierda
+            else                   { extra.x0 = 0;  extra.x1 = (uint8_t)(16 - z0); }
+            cajaColocada(extra, g, inv, out[n++]);
+        }
+    }
+    return n;
+}
+
+// Las cajas de una pieza TAL COMO ESTA EN EL MUNDO: giradas, invertidas y, si
+// es una escalera que hace esquina con sus vecinas, con la esquina. Es lo que
+// se dibuja. (El giro de 45 grados lo aplica el dibujo vertice a vertice, con
+// puntoEnDiagonal: estas cajas van sin el.) `out` es de 8.
+template <typename TGet>
+int cajasDePiezaEnMundo(BlockType t, TGet get, float out[8][6]) {
+    const Union u = unionDeEscalera(t, get);
+    if (u != RECTA) return cajasDeEscaleraUnida(t, u, out);
+    float c[4][6];
+    const int n = cajasDePieza(t, c);
+    for (int i = 0; i < n; ++i) for (int k = 0; k < 6; ++k) out[i][k] = c[i][k];
+    return n;
+}
+
+// Las cajas con las que se CHOCA y a las que se APUNTA. Las mismas que se
+// dibujan; y si la pieza esta en diagonal -- una caja girada 45 grados no es
+// una caja alineada --, cada una se trocea en TIRAS que siguen su contorno:
+// se choca con la pared en diagonal, no con el cuadrado que la envuelve.
+// Devuelve cuantas escribe, hasta `maximo`.
+constexpr int TIRAS_DIAGONAL = 6;
+template <typename TGet>
+int cajasDeChoque(BlockType t, TGet get, float out[][6], int maximo) {
+    float c[8][6];
+    const int n = cajasDePiezaEnMundo(t, get, c);
+    int m = 0;
+    if (!diagonalDe(t)) {
+        for (int i = 0; i < n && m < maximo; ++i, ++m) for (int k = 0; k < 6; ++k) out[m][k] = c[i][k];
+        return m;
+    }
+    constexpr float K = 0.70710678f;
+    for (int i = 0; i < n; ++i) {
+        // La caja, respecto al centro: a lo ancho [a0, a1], a lo largo [b0, b1].
+        const float a0 = c[i][0] - 0.5f, a1 = c[i][3] - 0.5f, b0 = c[i][2] - 0.5f, b1 = c[i][5] - 0.5f;
+        for (int k = 0; k < TIRAS_DIAGONAL && m < maximo; ++k) {
+            const float z0 = (float)k / TIRAS_DIAGONAL, z1 = (float)(k + 1) / TIRAS_DIAGONAL;
+            const float Z = (z0 + z1) * 0.5f - 0.5f;            // el centro de la tira
+            // Los X de esa tira que caen dentro de la caja girada.
+            float x0 = (a0 - K * Z) / K, x1 = (a1 - K * Z) / K;
+            const float y0 = (K * Z - b1) / K, y1 = (K * Z - b0) / K;
+            if (y0 > x0) x0 = y0;
+            if (y1 < x1) x1 = y1;
+            if (x0 < -0.5f) x0 = -0.5f;
+            if (x1 > 0.5f) x1 = 0.5f;
+            if (x1 - x0 < 0.02f) continue;                      // la tira no toca la caja
+            out[m][0] = x0 + 0.5f; out[m][1] = c[i][1]; out[m][2] = z0;
+            out[m][3] = x1 + 0.5f; out[m][4] = c[i][4]; out[m][5] = z1;
+            ++m;
+        }
+    }
+    return m;
+}
+
 
 }  // namespace Formas

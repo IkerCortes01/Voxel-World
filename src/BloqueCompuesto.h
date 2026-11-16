@@ -255,6 +255,25 @@ enum Familia : int {
     FAM_MAGUEY_CUISHE,
     FAM_MAGUEY_CIRIAL,
 
+    // ⭐ EL MAGUEY SISAL (Agave sisalana). PEDIDO: "anade este maguey: Maguey
+    // Sisal". Hojas gruesas de 1,5 a 2 m, verde glauco, de borde casi liso y
+    // punta marron; crece erguido y ordenado, tan alto como largas son sus
+    // hojas, en abanico circular. Usa la rama del tequilana (AgaveRigido).
+    // ⚠️ AL FINAL: los IDs de las anteriores no se mueven.
+    FAM_MAGUEY_SISAL,
+
+    // ⭐ EL AGAVE FOURCROYDES (henequen) Y EL AGAVE AMERICANA. PEDIDO: "anade
+    // este maguey Agave fourcroydes ... y Agave americana".
+    //   fourcroydes  de TRONCO: un tallo visible de 1 a 2 m (20 cm de grueso)
+    //                y arriba una roseta abierta de 2,5 m; hojas numerosas,
+    //                rigidas, de 1,2 a 1,8 m, verde grisaceo.
+    //   americana    a ras de suelo: roseta de 0,9 a 1,8 m de alto y de 1,8 a
+    //                3 m de ancho; hojas gruesas y carnosas de 1 a 2 m.
+    // Los dos van por la rama del tequilana (AgaveRigido).
+    // ⚠️ AL FINAL: los IDs de las anteriores no se mueven.
+    FAM_AGAVE_FOURCROYDES,
+    FAM_AGAVE_AMERICANA,
+
     FAM_COUNT
 };
 
@@ -1633,6 +1652,9 @@ inline int componentesDe(BlockType t) {
         case FAM_MAGUEY_MADRECUIXE:
         case FAM_MAGUEY_CUISHE:
         case FAM_MAGUEY_CIRIAL:
+        case FAM_MAGUEY_SISAL:
+        case FAM_AGAVE_FOURCROYDES:
+        case FAM_AGAVE_AMERICANA:
             return 2;       // como la roseta del tequilana
         default:
             return 1;
@@ -1696,7 +1718,8 @@ namespace AgaveRigido {
         return f == FAM_AGAVE_AZUL || f == FAM_MAGUEY_ESPADIN ||
                f == FAM_AGAVE_ALBOMARGINATA || f == FAM_MAGUEY_SALMIANA ||
                f == FAM_AGAVE_POTATORUM || f == FAM_AGAVE_KARWINSKII ||
-               f == FAM_MAGUEY_MADRECUIXE || f == FAM_MAGUEY_CUISHE || f == FAM_MAGUEY_CIRIAL;
+               f == FAM_MAGUEY_MADRECUIXE || f == FAM_MAGUEY_CUISHE || f == FAM_MAGUEY_CIRIAL ||
+               f == FAM_MAGUEY_SISAL || f == FAM_AGAVE_FOURCROYDES || f == FAM_AGAVE_AMERICANA;
     }
     inline Forma formaDe(Familia f) {
         switch (f) {
@@ -1737,6 +1760,23 @@ namespace AgaveRigido {
             case FAM_MAGUEY_CIRIAL:
                 return { 0.34f, 0.30f, 0.80f, 0.0f, 0.90f,
                          BLOCK_MAGUEY_CIRIAL_PENCA, BLOCK_MAGUEY_CIRIAL_PENCA, 2.20f, 0.11f };
+            // Sisal: 1,8 m de alto la madura y unos 2,2 de diametro; hojas
+            // gruesas, RECTAS (no se vencen: crece erguido y ordenado) y
+            // algo mas numerosas, en abanico.
+            case FAM_MAGUEY_SISAL:
+                return { 0.90f, 0.73f, 1.20f, 0.0f, 1.05f,
+                         BLOCK_MAGUEY_SISAL_PENCA, BLOCK_MAGUEY_SISAL_PENCA };
+            // Fourcroydes (henequen): tronco de 1,3 m y 10 cm de radio; arriba,
+            // roseta abierta de 1,5 m de alto y 2,5 de diametro. Hojas
+            // rectas y rigidas, y muchas. En total, 2,8 m.
+            case FAM_AGAVE_FOURCROYDES:
+                return { 0.75f, 0.83f, 1.10f, 0.0f, 1.25f,
+                         BLOCK_AGAVE_FOURCROYDES_PENCA, BLOCK_AGAVE_FOURCROYDES_PENCA, 1.30f, 0.10f };
+            // Americana: 1,6 m de alto y 2,8 de diametro, sin tronco. Hojas
+            // muy carnosas, algo menos numerosas, que se abren y se vencen un poco.
+            case FAM_AGAVE_AMERICANA:
+                return { 0.80f, 0.93f, 1.50f, 0.10f, 0.90f,
+                         BLOCK_AGAVE_AMERICANA_PENCA, BLOCK_AGAVE_AMERICANA_PENCA };
             default:
                 return { 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, BLOCK_AGAVE_AZUL_PENCA, BLOCK_AGAVE_AZUL_PUNTA };
         }
@@ -1793,6 +1833,169 @@ inline int segmentoDeMaguey(BlockType t) {
     return -1;
 }
 
+// ⭐ PEDIDO: "haz que la hitbox de casilla de los magueyes este exactamente
+// donde esta el modelo 3D".
+//
+// Lo que mide el MODELO de un maguey, con las mismas cuentas que usa el
+// dibujo: su radio (del centro de la mata a la punta de las hojas) y su alto
+// (del suelo a lo mas alto; con tronco, el tronco y la roseta). Antes la caja
+// que se marcaba salia de las celdas -- una columna de un bloque de ancho --,
+// asi que a un potatorum de 40 cm le sobraba caja por todos lados y a un
+// salmiana de 3 m de ancho le faltaba casi toda.
+struct CajaDeModelo { float radio, alto; bool vale; };
+inline CajaDeModelo cajaDelModeloDeMaguey(BlockType t) {
+    if (!esCompuesto(t)) return { 0.0f, 0.0f, false };
+    const Familia f = familiaDe(t);
+    if (f == FAM_MAGUEY) {
+        const int c = Maguey::celdasDeEtapa(Maguey::etapaDe(t));
+        return { Maguey::radioDeCeldas(c), Maguey::alturaReal(c), true };
+    }
+    if (f == FAM_AGAVE_ABISAII) {
+        const uint16_t e = AgaveAbisaii::etapaDe(t);
+        return { AgaveAbisaii::radioDeEtapa(e), AgaveAbisaii::alturaReal(e), true };
+    }
+    if (AgaveRigido::esRigido(f)) {
+        const uint16_t e = AgaveAzul::etapaDe(t);
+        // El tequilana lleva su propio radio; los demas, el de su tabla.
+        const float r = f == FAM_AGAVE_AZUL ? AgaveAzul::radioDeEtapa(e) : AgaveRigido::radioDeEtapa(f, e);
+        return { r, AgaveRigido::alturaTotal(f, e), true };
+    }
+    return { 0.0f, 0.0f, false };
+}
+
+// Y el trozo de ese modelo que cae DENTRO de una de sus celdas, que es lo que
+// frena al jugador y lo que encuentra la mirada (el motor consulta celda a
+// celda: una caja no puede salirse de la suya). Para los de roseta rigida y
+// el abisaii; el pulquero tiene su caja de cogollo de siempre.
+//   - a lo ancho, el radio del modelo, sin pasar de media celda;
+//   - a lo alto, hasta donde llega la planta en esa celda;
+//   - en el tramo que es solo TRONCO (karwinskii, cuishe...), el grosor del tronco;
+//   - en el quiote del tequilana, una vara.
+inline CajaDeModelo cajaDeCeldaDeMaguey(BlockType t) {
+    const CajaDeModelo m = cajaDelModeloDeMaguey(t);
+    const int seg = segmentoDeMaguey(t);
+    if (!m.vale || seg < 0) return { 0.5f, 1.0f, false };
+    const Familia f = familiaDe(t);
+    float r = m.radio < 0.5f ? m.radio : 0.5f;
+    float alto = m.alto - (float)seg;
+    if (AgaveRigido::esRigido(f)) {
+        const uint16_t e = AgaveAzul::etapaDe(t);
+        if ((float)(seg + 1) <= AgaveRigido::troncoDeEtapa(f, e) + 0.001f) {
+            r = AgaveRigido::formaDe(f).radioTronco;
+            alto = 1.0f;
+        }
+        if (f == FAM_AGAVE_AZUL && seg >= AgaveAzul::celdasDeEtapa(e)) { r = 0.12f; alto = 1.0f; }
+    }
+    if (r < 0.10f) r = 0.10f;
+    if (alto > 1.0f) alto = 1.0f;
+    if (alto < 0.12f) alto = 0.12f;
+    return { r, alto, true };
+}
+
+// ============================================================================
+// ⭐ LAS FLORES: CEMPASUCHIL, NOCHEBUENA, COSMOS Y DALIA
+// ============================================================================
+// PEDIDO: "anade estas flores [...] y hazlas en 3D y que tengan la capacidad de
+// crecer de forma realista y en donde sea".
+//
+// Ocupan la familia FAM_PLANTA_FLOR, que estaba reservada para esto. Una flor
+// es UNA celda; en su estado van la especie, la etapa y el giro:
+//
+//   BROTE     dos hojitas a ras de suelo
+//   PLANTULA  el tallo con sus primeras hojas
+//   TALLO     la mata hecha, todavia sin flor
+//   JOVEN     acaba de abrir: la flor, pequena
+//   ABIERTA   la planta entera, con la flor a su tamano
+//
+// CRECE SOLA, de etapa en etapa, y una flor abierta suelta semilla cerca: asi
+// una flor acaba siendo un manchon (ver el bucle de crecimiento en main.cpp).
+// Se da en cualquier suelo macizo -- pasto, tierra, arena, piedra, tablones --,
+// que es lo de "en donde sea".
+//
+// Se dibuja en 3D: tres laminas cruzadas a 60 grados con la planta, y la
+// corola tumbada encima, para que desde arriba se vea la flor y no un canto.
+namespace Flor {
+    constexpr Campo ESPECIE = { 0, 2 };   // 0..3
+    constexpr Campo ETAPA   = { 2, 3 };   // 0..4
+    constexpr Campo GIRO    = { 5, 2 };   // 0..3
+
+    enum Especie : uint16_t { CEMPASUCHIL = 0, NOCHEBUENA, COSMOS, DALIA, N_ESPECIES };
+    enum Etapa : uint16_t { BROTE = 0, PLANTULA, TALLO, JOVEN, ABIERTA, N_ETAPAS };
+
+    inline bool esFlor(BlockType t) { return esCompuesto(t) && familiaDe(t) == FAM_PLANTA_FLOR; }
+
+    inline BlockType crear(uint16_t especie, uint16_t etapa, uint16_t giro) {
+        uint16_t e = 0;
+        e = escribir(e, ESPECIE, (uint16_t)(especie % N_ESPECIES));
+        e = escribir(e, ETAPA,   (uint16_t)(etapa < N_ETAPAS ? etapa : ABIERTA));
+        e = escribir(e, GIRO,    (uint16_t)(giro & 3u));
+        return hacer(FAM_PLANTA_FLOR, e);
+    }
+    inline uint16_t especieDe(BlockType t) { return (uint16_t)(leer(estadoDe(t), ESPECIE) % N_ESPECIES); }
+    inline uint16_t etapaDe(BlockType t) {
+        const uint16_t e = leer(estadoDe(t), ETAPA);
+        return e < N_ETAPAS ? e : (uint16_t)ABIERTA;
+    }
+    inline uint16_t giroDe(BlockType t) { return leer(estadoDe(t), GIRO); }
+    inline bool abierta(BlockType t) { return etapaDe(t) >= JOVEN; }
+    // La misma planta, una etapa mas hecha (la abierta se queda como esta).
+    inline BlockType crecida(BlockType t) {
+        const uint16_t e = etapaDe(t);
+        return crear(especieDe(t), (uint16_t)(e < ABIERTA ? e + 1 : ABIERTA), giroDe(t));
+    }
+
+    // Lo que mide cada una ya abierta, y donde estan sus partes en su imagen
+    // (cuadrada, con el pie del tallo abajo: ver tools/preparar_flores.py).
+    //   alto      de la planta, en bloques
+    //   uPie      donde nace el tallo, a lo ancho de la imagen (0..1)
+    //   uCab,vCab el centro de la flor en la imagen; rCab, su radio
+    //   vTallo    de aqui para abajo solo hay tallo y hojas: es lo que se ve
+    //             mientras la planta no ha florecido
+    struct Medidas { float alto, uPie, uCab, vCab, rCab, vTallo; };
+    inline Medidas medidasDe(uint16_t especie) {
+        switch (especie % N_ESPECIES) {
+            // Cempasuchil: 60 cm a 1 m; una cabezuela densa y redonda.
+            case CEMPASUCHIL: return { 0.80f, 0.500f, 0.52f, 0.24f, 0.31f, 0.50f };
+            // Nochebuena: un arbusto; aqui la mata joven, de 1,3 m, con las
+            // bracteas rojas abiertas arriba.
+            case NOCHEBUENA:  return { 1.30f, 0.465f, 0.46f, 0.38f, 0.42f, 0.62f };
+            // Cosmos: tallo fino de mas de un metro, hoja de hilos.
+            case COSMOS:      return { 1.10f, 0.500f, 0.49f, 0.26f, 0.30f, 0.62f };
+            // Dalia: 1 m, flor grande de muchos petalos.
+            default:          return { 1.00f, 0.500f, 0.51f, 0.27f, 0.31f, 0.55f };
+        }
+    }
+    // Lo que lleva crecido en cada etapa, sobre su alto de adulta.
+    inline float escalaDeEtapa(uint16_t etapa) {
+        switch (etapa) {
+            case BROTE:    return 0.20f;
+            case PLANTULA: return 0.40f;
+            case TALLO:    return 0.62f;
+            case JOVEN:    return 0.80f;
+            default:       return 1.00f;
+        }
+    }
+    inline float altoDe(BlockType t) { return medidasDe(especieDe(t)).alto * escalaDeEtapa(etapaDe(t)); }
+
+    // --- El ritmo. El bucle mira casillas al azar cerca del jugador; cada
+    // vez que da con una flor, tira estos dados. Con MUESTRAS casillas cada
+    // PASO_S segundos en un cuadrado de (2*RADIO+1) de lado, a una flor le
+    // toca cada minuto y poco: sale a unos 4 o 5 minutos por etapa, y unos
+    // 18 de brote a flor abierta.
+    constexpr int   RADIO = 40;
+    constexpr int   MUESTRAS = 48;
+    constexpr float PASO_S = 0.5f;
+    constexpr unsigned UNO_DE_CRECER = 4;      // crece 1 de cada 4 veces que le toca
+    constexpr unsigned UNO_DE_SEMBRAR = 10;    // una abierta suelta semilla 1 de cada 10
+    constexpr int   ALCANCE_SEMILLA = 3;       // a cuantas casillas cae la semilla
+    constexpr int   MAX_VECINAS = 5;           // con tantas flores a dos pasos, ya no cabe otra
+    // Los segundos que tarda, de media, en pasar de una etapa a la siguiente.
+    inline float segundosPorEtapa() {
+        const float lado = (float)(2 * RADIO + 1);
+        return PASO_S * (lado * lado / (float)MUESTRAS) * (float)UNO_DE_CRECER;
+    }
+} // namespace Flor
+
 // ¿Que componente es el indice i?
 inline Componente componenteN(BlockType t, int i) {
     if (i < 0 || i >= componentesDe(t)) return COMP_CUERPO;
@@ -1837,6 +2040,9 @@ inline bool familiaTieneModelo(Familia f) {
         case FAM_FORMA: return true;
         case FAM_AGAVE_POTATORUM: case FAM_AGAVE_KARWINSKII: case FAM_MAGUEY_MADRECUIXE:
         case FAM_MAGUEY_CUISHE: case FAM_MAGUEY_CIRIAL: return true;
+        case FAM_MAGUEY_SISAL: return true;
+        case FAM_AGAVE_FOURCROYDES: case FAM_AGAVE_AMERICANA: return true;
+        case FAM_PLANTA_FLOR: return true;      // las cuatro flores (namespace Flor)
         default:                return false;   // reservada, aun sin geometria
     }
 }

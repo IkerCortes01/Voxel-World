@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace {
 std::string raizM() {
@@ -251,8 +252,8 @@ TEST_CASE("Cinco magueyes: nombre, textura en disco, etiqueta y siembra") {
         CHECK(f.good());
         CHECK(src.find(std::string("getTexture(\"") + e.archivo + "\")") != std::string::npos);
     }
-    CHECK((int)BLOCK_MAGUEY_CIRIAL_PENCA == (int)BLOCK_TYPE_MAX);
-    CHECK((int)FAM_MAGUEY_CIRIAL == (int)Compuesto::FAM_COUNT - 1);
+    CHECK((int)BLOCK_MAGUEY_CIRIAL_PENCA < (int)BLOCK_TYPE_MAX);
+    CHECK((int)FAM_MAGUEY_CIRIAL < (int)Compuesto::FAM_COUNT);
     // Cada una tiene su fila de siembra, y el tronco se dibuja.
     for (const char* fila : { "Compuesto::FAM_AGAVE_POTATORUM,     18", "Compuesto::FAM_AGAVE_KARWINSKII,    26",
                               "Compuesto::FAM_MAGUEY_MADRECUIXE,   30", "Compuesto::FAM_MAGUEY_CUISHE,       30",
@@ -282,4 +283,289 @@ TEST_CASE("Magueyes: el segmento de la celda se lee en todas las especies") {
     // Lo que no es un maguey no tiene segmento.
     CHECK(segmentoDeMaguey(BLOCK_STONE) == -1);
     CHECK(segmentoDeMaguey(BLOCK_AIR) == -1);
+}
+
+// PEDIDO: "haz que cada maguey tenga su item, fisicas de item suelto y
+// colocado, y diferentes tamanos de maguey colocado".
+TEST_CASE("Magueyes: cada especie da SU penca, con nombre y tamano propios") {
+    using namespace Compuesto;
+    const Familia FAMS[] = { FAM_MAGUEY_ESPADIN, FAM_AGAVE_ALBOMARGINATA, FAM_MAGUEY_SALMIANA,
+                             FAM_AGAVE_POTATORUM, FAM_AGAVE_KARWINSKII, FAM_MAGUEY_MADRECUIXE,
+                             FAM_MAGUEY_CUISHE, FAM_MAGUEY_CIRIAL };
+    std::vector<BlockType> vistas;
+    for (Familia f : FAMS) {
+        const BlockType penca = AgaveRigido::formaDe(f).penca;
+        INFO("familia " << (int)f);
+        CHECK(esPencaDeEspecie(penca));
+        CHECK(esPencaDeMaguey(penca));          // se dibuja carnosa, como las demas
+        CHECK(seTiraAlColocar(penca));          // al "colocarla" se deja en el suelo, con fisica
+        CHECK(penca != BLOCK_IXTLE_HOJA);       // ya no es la del pulquero
+        for (BlockType v : vistas) CHECK(v != penca);       // ninguna repetida
+        vistas.push_back(penca);
+        const std::string nombre = NombreItem::nombreDeItem(penca);
+        CHECK(nombre.find("PENCA") != std::string::npos);
+        CHECK(tamanoDePenca(penca) > 0.5f);
+        CHECK(tamanoDePenca(penca) < 2.5f);
+    }
+    CHECK(esPencaDeEspecie(BLOCK_AGAVE_ABISAII_PENCA));
+    CHECK(seTiraAlColocar(BLOCK_AGAVE_ABISAII_PENCA));
+    // Las de siempre siguen como estaban.
+    CHECK(seTiraAlColocar(BLOCK_IXTLE_HOJA));
+    CHECK(seTiraAlColocar(BLOCK_PENCA_AGAVE_AZUL));
+    CHECK(seTiraAlColocar(BLOCK_NOPAL_CLADODIO));
+    CHECK_FALSE(esPencaDeEspecie(BLOCK_IXTLE_HOJA));
+    CHECK_FALSE(esPencaDeEspecie(BLOCK_MAGUEY_ESPADIN_PUNTA));
+    CHECK_FALSE(seTiraAlColocar(BLOCK_STONE));
+    // De la mas grande a la mas chica: el salmiana manda y el potatorum cierra.
+    CHECK(tamanoDePenca(BLOCK_MAGUEY_SALMIANA_PENCA) > tamanoDePenca(BLOCK_IXTLE_HOJA));
+    CHECK(tamanoDePenca(BLOCK_IXTLE_HOJA) > tamanoDePenca(BLOCK_MAGUEY_ESPADIN_PENCA));
+    CHECK(tamanoDePenca(BLOCK_MAGUEY_ESPADIN_PENCA) > tamanoDePenca(BLOCK_AGAVE_POTATORUM_PENCA));
+    CHECK(tamanoDePenca(BLOCK_MAGUEY_SALMIANA_PENCA) > 2.0f * tamanoDePenca(BLOCK_AGAVE_POTATORUM_PENCA));
+    CHECK(tamanoDePenca(BLOCK_STONE) == 1.0f);
+}
+
+TEST_CASE("Magueyes: dos pencas dejadas de la misma especie no miden lo mismo") {
+    const BlockType p = BLOCK_MAGUEY_ESPADIN_PENCA;
+    const float base = tamanoDePenca(p);
+    float menor = 99.0f, mayor = 0.0f;
+    for (int g = 0; g < 360; ++g) {
+        const float t = tamanoDeItemDejado(p, (float)g);
+        CHECK(t >= base * 0.85f - 1e-4f);
+        CHECK(t <= base * 1.15f + 1e-4f);
+        if (t < menor) menor = t;
+        if (t > mayor) mayor = t;
+        // El mismo giro, el mismo tamano: no cambia al guardar y volver.
+        CHECK(tamanoDeItemDejado(p, (float)g) == t);
+    }
+    CHECK(mayor - menor > base * 0.25f);
+    // La que mide 1 de base tambien varia; lo que no es penca, no.
+    CHECK(tamanoDeItemDejado(BLOCK_AGAVE_ALBOMARGINATA_PENCA, 37.0f) != 1.0f);
+    CHECK(tamanoDeItemDejado(BLOCK_NOPAL_CLADODIO, 37.0f) == 1.0f);
+    CHECK(tamanoDeItemDejado(BLOCK_STONE, 123.0f) == 1.0f);
+}
+
+TEST_CASE("Magueyes: el motor suelta la penca de cada especie y la dibuja de su tamano") {
+    const std::string src = [] {
+        std::ifstream f(raizM() + "src/main.cpp", std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    }();
+    REQUIRE_FALSE(src.empty());
+    CHECK(src.find("const BlockType suPenca = Compuesto::AgaveRigido::formaDe(fam).penca;") != std::string::npos);
+    CHECK(src.find("state->spawnItem(pos, suPenca);") != std::string::npos);
+    CHECK(src.find("state->spawnItem(pos, BLOCK_AGAVE_ABISAII_PENCA);") != std::string::npos);
+    CHECK(src.find("const float e = tamanoDeItemDejado(item.blockType, item.giro);") != std::string::npos);
+    for (const char* png : { "Maguey Espadin.png", "Agave albomarginata penca.png", "Maguey de salmiana.png",
+                             "Agave potatorum.png", "Agave karwinskii.png", "Agave Madrecuixe.png",
+                             "Agave Cuishe.png", "Agave Cirial.png", "Agave abisaii penca.png" }) {
+        INFO(png);
+        CHECK(src.find(std::string("siluetaPNG = \"Textures/Blocks/") + png + "\"; break;") != std::string::npos);
+    }
+}
+
+// PEDIDO: "anade este maguey: Maguey Sisal" (hojas gruesas de 1,5 a 2 m, verde
+// glauco, borde casi liso y punta marron; erguido y ordenado, tan alto como
+// largas sus hojas, en abanico circular).
+TEST_CASE("Sisal: es un maguey mas, erguido, con su hoja, su nombre y su siembra") {
+    using namespace Compuesto;
+    namespace AR = AgaveRigido;
+    namespace AG = AgaveAzul;
+    CHECK(AR::esRigido(FAM_MAGUEY_SISAL));
+    CHECK((int)FAM_MAGUEY_SISAL < (int)FAM_COUNT);
+    const AR::Forma f = AR::formaDe(FAM_MAGUEY_SISAL);
+    CHECK(f.penca == BLOCK_MAGUEY_SISAL_PENCA);
+    CHECK(f.caida == 0.0f);                 // hojas rectas: crece erguido
+    CHECK(f.grueso > 1.0f);                 // gruesas y carnosas
+    CHECK(f.tronco == 0.0f);                // roseta a ras de suelo
+    // Maduro: entre 1,5 y 2 m de alto.
+    const float alto = AR::alturaReal(FAM_MAGUEY_SISAL, AG::MADURA);
+    CHECK(alto >= 1.5f);
+    CHECK(alto <= 2.0f);
+    CHECK(AR::celdasDe(AR::nuevo(FAM_MAGUEY_SISAL, AG::MADURA, 0)) == 2);
+    CHECK(puedeDibujarse(AR::nuevo(FAM_MAGUEY_SISAL, AG::MADURA, 0)));
+    CHECK(segmentoDeMaguey(AR::conSegmento(AR::nuevo(FAM_MAGUEY_SISAL, AG::MADURA, 0), 1)) == 1);
+    CHECK(std::strcmp(NombreItem::nombreDeItem(AR::nuevo(FAM_MAGUEY_SISAL, AG::HECHA, 0)), "MAGUEY SISAL") == 0);
+    CHECK(std::strcmp(NombreItem::nombreDeItem(BLOCK_MAGUEY_SISAL_PENCA), "PENCA DE MAGUEY SISAL") == 0);
+    // Su penca es un item como las demas, y de las grandes.
+    CHECK(esPencaDeEspecie(BLOCK_MAGUEY_SISAL_PENCA));
+    CHECK(seTiraAlColocar(BLOCK_MAGUEY_SISAL_PENCA));
+    CHECK(tamanoDePenca(BLOCK_MAGUEY_SISAL_PENCA) > tamanoDePenca(BLOCK_MAGUEY_ESPADIN_PENCA));
+    // La textura esta en disco y el motor la pide por su nombre.
+    std::ifstream t(raizM() + "resourcepacks/Textures/Blocks/maguey sisal.png", std::ios::binary);
+    CHECK(t.good());
+    std::ifstream fsrc(raizM() + "src/main.cpp", std::ios::binary);
+    const std::string src((std::istreambuf_iterator<char>(fsrc)), std::istreambuf_iterator<char>());
+    CHECK(src.find("case BLOCK_MAGUEY_SISAL_PENCA:      return getTexture(\"maguey sisal.png\");") != std::string::npos);
+    CHECK(src.find("{ Compuesto::FAM_MAGUEY_SISAL,        24, 3u, 0x5be0cd19u") != std::string::npos);
+}
+
+// PEDIDO: "haz que la hitbox de casilla de los magueyes este exactamente donde
+// esta el modelo 3D".
+TEST_CASE("Magueyes: la caja que se marca mide lo que mide el modelo") {
+    using namespace Compuesto;
+    namespace AR = AgaveRigido;
+    namespace AG = AgaveAzul;
+    for (Familia f : { FAM_MAGUEY_ESPADIN, FAM_AGAVE_ALBOMARGINATA, FAM_MAGUEY_SALMIANA, FAM_AGAVE_POTATORUM,
+                       FAM_AGAVE_KARWINSKII, FAM_MAGUEY_MADRECUIXE, FAM_MAGUEY_CUISHE, FAM_MAGUEY_CIRIAL,
+                       FAM_MAGUEY_SISAL, FAM_AGAVE_FOURCROYDES, FAM_AGAVE_AMERICANA })
+        for (uint16_t e : { (uint16_t)AG::HIJUELO, (uint16_t)AG::JOVEN, (uint16_t)AG::MEDIA, (uint16_t)AG::HECHA,
+                            (uint16_t)AG::MADURA }) {
+            INFO("familia " << (int)f << " etapa " << e);
+            const BlockType t = AR::nuevo(f, e, 0);
+            const CajaDeModelo m = cajaDelModeloDeMaguey(t);
+            REQUIRE(m.vale);
+            // Las mismas cuentas que el dibujo.
+            CHECK(m.radio == AR::radioDeEtapa(f, e));
+            CHECK(m.alto == AR::alturaTotal(f, e));
+            // Y da igual a que celda de la planta se apunte: la caja es la misma.
+            for (int s = 1; s < AR::celdasDe(t); ++s) {
+                const CajaDeModelo arriba = cajaDelModeloDeMaguey(AR::conSegmento(t, (uint16_t)s));
+                CHECK(arriba.radio == m.radio);
+                CHECK(arriba.alto == m.alto);
+            }
+        }
+    // El tequilana usa su propio radio, el que usa su dibujo.
+    const CajaDeModelo azul = cajaDelModeloDeMaguey(AR::nuevo(FAM_AGAVE_AZUL, AG::MADURA, 0));
+    CHECK(azul.radio == AG::radioDeEtapa(AG::MADURA));
+    // Un salmiana hecho se sale de su celda por los lados; un potatorum chico cabe de sobra.
+    CHECK(cajaDelModeloDeMaguey(AR::nuevo(FAM_MAGUEY_SALMIANA, AG::MADURA, 0)).radio > 1.0f);
+    CHECK(cajaDelModeloDeMaguey(AR::nuevo(FAM_AGAVE_POTATORUM, AG::HIJUELO, 0)).radio < 0.5f);
+    // El pulquero y el abisaii, igual.
+    const BlockType pulquero = Maguey::nuevo(Maguey::ADULTO, 0);
+    const CajaDeModelo mp = cajaDelModeloDeMaguey(pulquero);
+    REQUIRE(mp.vale);
+    CHECK(mp.radio == Maguey::radioDeCeldas(Maguey::celdasDeEtapa(Maguey::ADULTO)));
+    CHECK(mp.alto == Maguey::alturaReal(Maguey::celdasDeEtapa(Maguey::ADULTO)));
+    const CajaDeModelo ab = cajaDelModeloDeMaguey(AgaveAbisaii::nuevo(AgaveAbisaii::HECHA, 0));
+    REQUIRE(ab.vale);
+    CHECK(ab.alto == AgaveAbisaii::alturaReal(AgaveAbisaii::HECHA));
+    // Lo que no es un maguey no tiene caja de modelo.
+    CHECK_FALSE(cajaDelModeloDeMaguey(BLOCK_STONE).vale);
+    CHECK_FALSE(cajaDelModeloDeMaguey(Biznaga::nuevo(0, 0, 0)).vale);
+    CHECK_FALSE(cajaDelModeloDeMaguey(Flor::crear(0, 0, 0)).vale);
+}
+
+TEST_CASE("Magueyes: el trozo de cada celda no se sale de ella y sigue al modelo") {
+    using namespace Compuesto;
+    namespace AR = AgaveRigido;
+    namespace AG = AgaveAzul;
+    for (Familia f : { FAM_AGAVE_AZUL, FAM_MAGUEY_ESPADIN, FAM_AGAVE_ALBOMARGINATA, FAM_MAGUEY_SALMIANA,
+                       FAM_AGAVE_POTATORUM, FAM_AGAVE_KARWINSKII, FAM_MAGUEY_MADRECUIXE, FAM_MAGUEY_CUISHE,
+                       FAM_MAGUEY_CIRIAL, FAM_MAGUEY_SISAL, FAM_AGAVE_FOURCROYDES, FAM_AGAVE_AMERICANA })
+        for (uint16_t e : { (uint16_t)AG::HIJUELO, (uint16_t)AG::MEDIA, (uint16_t)AG::MADURA }) {
+            const BlockType t = AR::nuevo(f, e, 0);
+            for (int s = 0; s < AR::celdasDe(t); ++s) {
+                INFO("familia " << (int)f << " etapa " << e << " celda " << s);
+                const CajaDeModelo c = cajaDeCeldaDeMaguey(AR::conSegmento(t, (uint16_t)s));
+                REQUIRE(c.vale);
+                CHECK(c.radio <= 0.5f);         // una caja no sale de su celda
+                CHECK(c.radio >= 0.10f);
+                CHECK(c.alto <= 1.0f);
+                CHECK(c.alto > 0.0f);
+            }
+        }
+    // Una mata chica ya no es un cubo entero: su caja es mas estrecha y mas baja.
+    const CajaDeModelo chico = cajaDeCeldaDeMaguey(AR::nuevo(FAM_AGAVE_POTATORUM, AG::HIJUELO, 0));
+    CHECK(chico.radio < 0.5f);
+    CHECK(chico.alto < 1.0f);
+    // El tramo que es solo tronco tiene el grosor del tronco; arriba, la roseta.
+    const BlockType cirial = AR::nuevo(FAM_MAGUEY_CIRIAL, AG::MADURA, 0);
+    const CajaDeModelo pie = cajaDeCeldaDeMaguey(cirial);
+    const CajaDeModelo copa = cajaDeCeldaDeMaguey(AR::conSegmento(cirial, (uint16_t)(AR::celdasDe(cirial) - 1)));
+    CHECK(pie.radio == AR::formaDe(FAM_MAGUEY_CIRIAL).radioTronco);
+    CHECK(pie.alto == 1.0f);
+    CHECK(copa.radio > pie.radio);
+}
+
+// BUG: "cuando rompo una variante del maguey, aparece el maguey normal de la
+// nada y la hitbox de la otra especie se pone arriba".
+TEST_CASE("Magueyes: golpear la punta de otra especie no la convierte en pulquero") {
+    using namespace Compuesto;
+    // Por que pasaba: conPuntas es del pulquero y escribe el bloque como tal.
+    const BlockType espadin = AgaveRigido::nuevo(FAM_MAGUEY_ESPADIN, AgaveAzul::MADURA, 0);
+    CHECK(familiaDe(Maguey::conPuntas(espadin, 0)) == FAM_MAGUEY);       // la trampa sigue ahi...
+    // ...asi que el motor ya no entra en esa rama con otra familia.
+    std::ifstream fsrc(raizM() + "src/main.cpp", std::ios::binary);
+    const std::string src((std::istreambuf_iterator<char>(fsrc)), std::istreambuf_iterator<char>());
+    REQUIRE_FALSE(src.empty());
+    const size_t rama = src.find("if (Compuesto::familiaDe(blockType) == Compuesto::FAM_MAGUEY &&\n"
+                                 "                Compuesto::componenteN(blockType, comp) ==\n"
+                                 "                Compuesto::COMP_ADORNO) {");
+    const size_t ramaCr = src.find("if (Compuesto::familiaDe(blockType) == Compuesto::FAM_MAGUEY &&\r\n"
+                                   "                Compuesto::componenteN(blockType, comp) ==\r\n"
+                                   "                Compuesto::COMP_ADORNO) {");
+    CHECK((rama != std::string::npos || ramaCr != std::string::npos));
+    // Y es el unico sitio donde se arrancan puntas.
+    size_t veces = 0;
+    for (size_t k = src.find("M::conPuntas(blockType,"); k != std::string::npos;
+         k = src.find("M::conPuntas(blockType,", k + 1)) ++veces;
+    CHECK(veces == 1);
+    // La caja de cada celda y la que se marca salen del modelo.
+    CHECK(src.find("Compuesto::cajaDeCeldaDeMaguey(type);") != std::string::npos);
+    CHECK(src.find("Compuesto::cajaDelModeloDeMaguey(plantaSeca(get(0, -abajo, 0)));") != std::string::npos);
+}
+
+
+// PEDIDO: "anade este maguey Agave fourcroydes ... y Agave americana".
+TEST_CASE("Fourcroydes y americana: dos magueyes mas, uno de tronco y otro a ras de suelo") {
+    using namespace Compuesto;
+    namespace AR = AgaveRigido;
+    namespace AG = AgaveAzul;
+    // Al final de sus listas: no mueven a nadie.
+    CHECK((int)FAM_AGAVE_AMERICANA == (int)FAM_COUNT - 1);
+    CHECK((int)FAM_AGAVE_FOURCROYDES == (int)FAM_COUNT - 2);
+    CHECK((int)FAM_AGAVE_FOURCROYDES > (int)FAM_MAGUEY_SISAL);
+    CHECK((int)BLOCK_AGAVE_AMERICANA_PENCA <= (int)BLOCK_TYPE_MAX);
+    for (Familia f : { FAM_AGAVE_FOURCROYDES, FAM_AGAVE_AMERICANA }) {
+        CHECK(AR::esRigido(f));
+        CHECK(puedeDibujarse(AR::nuevo(f, AG::MADURA, 0)));
+        const AR::Forma fm = AR::formaDe(f);
+        CHECK(esPencaDeEspecie(fm.penca));
+        CHECK(seTiraAlColocar(fm.penca));
+        CHECK(fm.penca == fm.punta);
+        // Crece: el hijuelo es mas bajo que la madura.
+        CHECK(AR::alturaTotal(f, AG::HIJUELO) < AR::alturaTotal(f, AG::MADURA));
+        CHECK(AR::radioDeEtapa(f, AG::MADURA) <= AR::RADIO_MAX);
+    }
+    // Fourcroydes: tronco de 1 a 2 m y 20 cm de grueso; roseta de 2,5 m; hojas numerosas.
+    const AR::Forma fo = AR::formaDe(FAM_AGAVE_FOURCROYDES);
+    CHECK(fo.penca == BLOCK_AGAVE_FOURCROYDES_PENCA);
+    CHECK(fo.tronco >= 1.0f);
+    CHECK(fo.tronco <= 2.0f);
+    CHECK(fo.radioTronco == doctest::Approx(0.10f));
+    CHECK(AR::radioDeEtapa(FAM_AGAVE_FOURCROYDES, AG::MADURA) * 2.0f == doctest::Approx(2.5f).epsilon(0.05));
+    CHECK(fo.hojas > 1.0f);
+    CHECK(fo.caida == 0.0f);                                   // rigidas
+    CHECK(AR::celdasDe(AR::nuevo(FAM_AGAVE_FOURCROYDES, AG::MADURA, 0)) == 3);
+    // Americana: sin tronco; de 0,9 a 1,8 m de alto y de 1,8 a 3 m de ancho; hojas carnosas.
+    const AR::Forma am = AR::formaDe(FAM_AGAVE_AMERICANA);
+    CHECK(am.penca == BLOCK_AGAVE_AMERICANA_PENCA);
+    CHECK(am.tronco == 0.0f);
+    const float altoA = AR::alturaReal(FAM_AGAVE_AMERICANA, AG::MADURA);
+    CHECK(altoA >= 0.9f);
+    CHECK(altoA <= 1.8f);
+    const float anchoA = AR::radioDeEtapa(FAM_AGAVE_AMERICANA, AG::MADURA) * 2.0f;
+    CHECK(anchoA >= 1.8f);
+    CHECK(anchoA <= 3.0f);
+    CHECK(am.grueso > fo.grueso);
+    CHECK(AR::celdasDe(AR::nuevo(FAM_AGAVE_AMERICANA, AG::MADURA, 0)) == 2);
+    // Nombres, tamano de la penca e imagenes.
+    CHECK(std::strcmp(NombreItem::nombreDeItem(AR::nuevo(FAM_AGAVE_FOURCROYDES, AG::HECHA, 0)), "AGAVE FOURCROYDES") == 0);
+    CHECK(std::strcmp(NombreItem::nombreDeItem(AR::nuevo(FAM_AGAVE_AMERICANA, AG::HECHA, 0)), "AGAVE AMERICANA") == 0);
+    CHECK(std::strcmp(NombreItem::nombreDeItem(BLOCK_AGAVE_FOURCROYDES_PENCA), "PENCA DE AGAVE FOURCROYDES") == 0);
+    CHECK(std::strcmp(NombreItem::nombreDeItem(BLOCK_AGAVE_AMERICANA_PENCA), "PENCA DE AGAVE AMERICANA") == 0);
+    CHECK(tamanoDePenca(BLOCK_AGAVE_AMERICANA_PENCA) > tamanoDePenca(BLOCK_MAGUEY_ESPADIN_PENCA));
+    CHECK(tamanoDePenca(BLOCK_AGAVE_FOURCROYDES_PENCA) > tamanoDePenca(BLOCK_MAGUEY_ESPADIN_PENCA));
+    for (const char* img : { "Agave fourcroydes.png", "Agave Americana.png" }) {
+        std::ifstream t(raizM() + "resourcepacks/Textures/Blocks/" + img, std::ios::binary);
+        CHECK(t.good());
+    }
+    std::ifstream fsrc(raizM() + "src/main.cpp", std::ios::binary);
+    const std::string src((std::istreambuf_iterator<char>(fsrc)), std::istreambuf_iterator<char>());
+    REQUIRE_FALSE(src.empty());
+    CHECK(src.find("case BLOCK_AGAVE_FOURCROYDES_PENCA: return getTexture(\"Agave fourcroydes.png\");") != std::string::npos);
+    CHECK(src.find("case BLOCK_AGAVE_AMERICANA_PENCA:   return getTexture(\"Agave Americana.png\");") != std::string::npos);
+    CHECK(src.find("{ Compuesto::FAM_AGAVE_FOURCROYDES,   32, 4u, 0xcbbb9d5du") != std::string::npos);
+    CHECK(src.find("{ Compuesto::FAM_AGAVE_AMERICANA,     30, 3u, 0x629a292au") != std::string::npos);
+    CHECK(src.find("ponerEnCreativo(BLOCK_AGAVE_FOURCROYDES_PENCA);") != std::string::npos);
+    CHECK(src.find("ponerEnCreativo(BLOCK_AGAVE_AMERICANA_PENCA);") != std::string::npos);
 }

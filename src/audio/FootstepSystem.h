@@ -112,7 +112,7 @@ public:
 
     // Compone una pisada unica con las capas del material. uerza 0..1:
     // agachado ~0.3, andando ~0.6, corriendo ~0.85, aterrizando hasta 1.
-    const SoundBuffer* componer(StepMaterial material, float fuerza) {
+    const SoundBuffer* componer(StepMaterial material, float fuerza, float brilloBloque = 1.0f) {
         const std::vector<FootstepSynth::Capa>& banco = capas[(int)material];
         if (banco.empty()) return nullptr;
         const int sr = AudioMixer::SAMPLE_RATE;
@@ -152,6 +152,12 @@ public:
             case StepMaterial::Stone: case StepMaterial::Gravel: corte = 0.75f; break;
             default: break;
         }
+        // ⭐ EL BRILLO DEL BLOQUE QUE SE PISA (ver SonidoBloque.h: vozDeBloque).
+        // Cada bloque abre o apaga un poco el agudo de la pisada: dos bloques
+        // del mismo material ya no se pisan igual.
+        corte *= brilloBloque;
+        if (corte > 0.95f) corte = 0.95f;
+        if (corte < 0.15f) corte = 0.15f;
         float y = 0.0f, pico = 1e-6f;
         size_t ultimo = 0;
         for (size_t i = 0; i < mezcla.size(); ++i) {
@@ -187,7 +193,8 @@ public:
     // isSprinting: acelera la cadencia y sube el volumen
     // isCrouching: pasos mas suaves y espaciados
     void update(float dx, float dz, bool onGround,
-                StepMaterial material, bool isSprinting, bool isCrouching) {
+                StepMaterial material, bool isSprinting, bool isCrouching,
+                float tonoBloque = 1.0f, float brilloBloque = 1.0f) {
         if (!isReady()) return;
 
         if (!onGround) {
@@ -231,19 +238,19 @@ public:
         if (isCrouching) pitch *= 0.94f;  // mas grave al agacharse
 
         const float fuerza = isCrouching ? 0.3f : (isSprinting ? 0.85f : 0.6f);
-        if (const SoundBuffer* b = componer(material, fuerza)) mixer->play(b, vol, pitch);
+        if (const SoundBuffer* b = componer(material, fuerza, brilloBloque)) mixer->play(b, vol, pitch * tonoBloque);
         ++stepCounter;
     }
 
     // Sonido de aterrizaje: mas fuerte y grave que una pisada normal.
-    void playLanding(StepMaterial material, float fallSpeed) {
+    void playLanding(StepMaterial material, float fallSpeed, float tonoBloque = 1.0f, float brilloBloque = 1.0f) {
         if (!isReady()) return;
         if (fallSpeed < 3.0f) return;   // caidas leves no suenan
 
         float vol = 0.5f + fallSpeed * 0.045f;
         if (vol > 1.0f) vol = 1.0f;
 
-        if (const SoundBuffer* b = componer(material, 1.0f)) mixer->play(b, vol, rndRange(0.80f, 0.88f));
+        if (const SoundBuffer* b = componer(material, 1.0f, brilloBloque)) mixer->play(b, vol, rndRange(0.80f, 0.88f) * tonoBloque);
         distanceAccum = 0.0f;
     }
 

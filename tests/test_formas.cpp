@@ -233,7 +233,7 @@ TEST_CASE("Mesa de refineria: el motor la fabrica, la abre, dibuja sus piezas y 
     for (size_t p = src.find("Formas::cajasDePieza("); p != std::string::npos;
          p = src.find("Formas::cajasDePieza(", p + 1)) ++veces;
     CHECK(veces >= 2);
-    CHECK(src.find("Formas::conGiro(blockToPlace, Formas::giroDeYaw(state->player.yaw))") != std::string::npos);
+    CHECK(src.find("Formas::alColocar(blockToPlace, direction.x, direction.z, result.normal.y, alturaApuntada)") != std::string::npos);
     CHECK(src.find("state->spawnItem(pos, Formas::conGiro(blockType, 0));") != std::string::npos);
 }
 
@@ -299,4 +299,159 @@ TEST_CASE("Piezas: toda forma se puede tocar con un rayo, y la pared solo donde 
     CHECK(pared.c[0].z0 == 12);
     CHECK(pared.c[0].y1 == 16);
     CHECK(pared.c[0].x1 - pared.c[0].x0 == 16);
+}
+
+// BUG: "cuando estoy ya en las ultimas dos filas de inventario, todo se pone
+// oscuro, el inventario y la zona de crafteo". El icono de una pieza encendia
+// la textura y no la apagaba al salir.
+TEST_CASE("Formas: el icono de una pieza apaga la textura al terminar") {
+    std::string r;
+#ifdef RAIZ_PROYECTO
+    r = RAIZ_PROYECTO;
+    if (!r.empty() && r.back() != '/' && r.back() != '\\') r += '/';
+#endif
+    std::ifstream f(r + "src/main.cpp", std::ios::binary);
+    const std::string src((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    REQUIRE_FALSE(src.empty());
+    const size_t ini = src.rfind("void dibujarIconoDePieza(BlockType");
+    REQUIRE(ini != std::string::npos);
+    const size_t fin = src.find("void drawItemIcon(BlockType blockType, float cx, float cy, float size) {", ini);
+    REQUIRE(fin != std::string::npos);
+    const std::string cuerpo = src.substr(ini, fin - ini);
+    const size_t enciende = cuerpo.find("glEnable(GL_TEXTURE_2D);");
+    const size_t apaga = cuerpo.rfind("glDisable(GL_TEXTURE_2D);");
+    REQUIRE(enciende != std::string::npos);
+    REQUIRE(apaga != std::string::npos);
+    CHECK(apaga > enciende);
+}
+
+// PEDIDO: "arregla todos los bugs de los bloques modificados en la mesa de
+// refineria y anade que todos los bloques, no items, tengan la capacidad de ser
+// modificados, y ademas que dependiendo de donde vea el jugador se colocara
+// frente el bloque modificado, y arregla que donde un bloque modificado tenga
+// vacio no contara como bloque completo y el jugador puede pasar libre".
+TEST_CASE("Formas: todos los bloques enteros se pueden modificar, y los items no") {
+    using namespace Formas;
+    // Los troncos, tablones y hojas de todos los arboles, los techos, la
+    // nieve, el vidrio y el mineral, ademas de los de siempre.
+    for (BlockType b : { BLOCK_WOOD_OCOTE_CHINO, BLOCK_WOOD_PATULA, BLOCK_WOOD_PINONERO, BLOCK_WOOD_ALTURAS,
+                         BLOCK_WOOD_PSEUDOSTROBUS, BLOCK_PLANKS_ALTURAS,
+                         BLOCK_LEAVES, BLOCK_LEAVES_ENCINO, BLOCK_LEAVES_OYAMEL, BLOCK_LEAVES_OCOTE,
+                         BLOCK_LEAVES_OCOTE_CHINO, BLOCK_LEAVES_PATULA, BLOCK_LEAVES_PINONERO,
+                         BLOCK_LEAVES_ALTURAS, BLOCK_LEAVES_PSEUDOSTROBUS,
+                         BLOCK_TECHO_HOJAS, BLOCK_TECHO_SUELO, BLOCK_SNOW, BLOCK_GLASS, BLOCK_IRON_ORE }) {
+        INFO("bloque " << (int)b);
+        const int m = materialDe(b);
+        REQUIRE(m >= 0);
+        // La pieza hecha con el vuelve a el: sus texturas, su dureza y su sonido.
+        CHECK(materialBloque(pieza(m, 0, 0)) == b);
+        CHECK(materialBloque(pieza(m, NUM - 1, 3)) == b);
+    }
+    // Los items y lo que no es un bloque entero, no.
+    for (BlockType b : { BLOCK_STICK, BLOCK_HILO_IXTLE, BLOCK_HACHA_PIEDRA, BLOCK_PALA_PIEDRA, BLOCK_PEDAZO_PIEDRA,
+                         BLOCK_PEDAZO_OBSIDIANA, BLOCK_OBSIDIANA_AFILADA, BLOCK_TAZON_PINO, BLOCK_TALLGRASS,
+                         BLOCK_FLOR_DALIA, BLOCK_PENCA_AGAVE_AZUL, BLOCK_WATER, BLOCK_LAVA })
+        CHECK(materialDe(b) < 0);
+    // Los 22 de antes siguen en su numero: las piezas ya puestas no cambian.
+    CHECK(materialDe(BLOCK_PLANKS) == 0);
+    CHECK(materialDe(BLOCK_WOOD) == 7);
+    CHECK(materialDe(BLOCK_STONE) == 17);
+    CHECK(materialDe(BLOCK_GRASS) == 21);
+    // Y ninguno repetido.
+    for (int m = 0; m < NUM_MATERIALES; ++m)
+        for (int k = m + 1; k < NUM_MATERIALES; ++k)
+            CHECK(bloqueDeMaterial(m) != bloqueDeMaterial(k));
+}
+
+TEST_CASE("Formas: la pieza se coloca de frente a donde mira el jugador") {
+    using namespace Formas;
+    // Una PARED tiene su tablero al fondo (+Z). Mirando a cada lado, el
+    // tablero tiene que quedar al fondo de ESE lado.
+    const int mat = materialDe(BLOCK_PLANKS);
+    const int PARED = 1 * POR_CLASE;
+    struct Caso { float dx, dz; int eje; bool alto; };       // eje 0 = X, 2 = Z; alto = pegada al 16
+    const Caso CASOS[4] = {
+        { 0.0f, -1.0f, 2, false },      // mira a -Z: el tablero en z 0..4
+        { 0.0f,  1.0f, 2, true  },      // mira a +Z: en z 12..16
+        { -1.0f, 0.0f, 0, false },      // mira a -X: en x 0..4
+        { 1.0f,  0.0f, 0, true  },      // mira a +X: en x 12..16
+    };
+    for (const Caso& c : CASOS) {
+        INFO("mirando a " << c.dx << ", " << c.dz);
+        float cajas[4][6];
+        const int n = cajasDePieza(pieza(mat, PARED, giroDeMirada(c.dx, c.dz)), cajas);
+        REQUIRE(n == 1);
+        const float lo = cajas[0][c.eje], hi = cajas[0][c.eje + 3];
+        if (c.alto) { CHECK(hi == doctest::Approx(1.0f)); CHECK(lo > 0.5f); }
+        else        { CHECK(lo == doctest::Approx(0.0f)); CHECK(hi < 0.5f); }
+    }
+    // En diagonal manda el lado hacia el que mas se mira.
+    CHECK(giroDeMirada(0.9f, 0.3f) == giroDeMirada(1.0f, 0.0f));
+    CHECK(giroDeMirada(-0.2f, -0.8f) == giroDeMirada(0.0f, -1.0f));
+    // Coincide con el giro por angulo de antes (0 grados = mirando a -Z).
+    CHECK(giroDeMirada(0.0f, -1.0f) == giroDeYaw(0.0f));
+    CHECK(giroDeMirada(-1.0f, 0.0f) == giroDeYaw(90.0f));
+    CHECK(giroDeMirada(0.0f, 1.0f) == giroDeYaw(180.0f));
+    CHECK(giroDeMirada(1.0f, 0.0f) == giroDeYaw(270.0f));
+    // La escalera sube alejandose: mirando a +Z, el peldano alto esta en +Z.
+    float esc[4][6];
+    REQUIRE(cajasDePieza(pieza(mat, 0, giroDeMirada(0.0f, 1.0f)), esc) == 2);
+    CHECK(esc[1][1] > 0.4f);                // el segundo peldano es el alto...
+    CHECK(esc[1][2] > 0.4f);                // ...y esta en la mitad de +Z
+}
+
+TEST_CASE("Formas: lo que mide de alto cada pieza") {
+    using namespace Formas;
+    const int mat = materialDe(BLOCK_STONE);
+    CHECK(altoDePieza(pieza(mat, 2 * POR_CLASE + 0, 0)) == doctest::Approx(4.0f / 16.0f));     // piso
+    CHECK(altoDePieza(pieza(mat, 2 * POR_CLASE + 1, 0)) == doctest::Approx(2.0f / 16.0f));     // piso fino
+    CHECK(altoDePieza(pieza(mat, 1 * POR_CLASE + 0, 0)) == doctest::Approx(1.0f));             // pared
+    CHECK(altoDePieza(pieza(mat, 3 * POR_CLASE + 0, 0)) == doctest::Approx(1.0f));             // techo: arriba del todo
+    for (int f = 0; f < NUM; ++f) {
+        const float h = altoDePieza(pieza(mat, f, 0));
+        CHECK(h > 0.0f);
+        CHECK(h <= 1.0f);
+    }
+}
+
+TEST_CASE("Formas: se choca caja a caja; por donde la pieza esta vacia, se pasa") {
+    std::string r;
+#ifdef RAIZ_PROYECTO
+    r = RAIZ_PROYECTO;
+    if (!r.empty() && r.back() != '/' && r.back() != '\\') r += '/';
+#endif
+    auto leer = [&](const char* rel) {
+        std::ifstream f(r + rel, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    };
+    // El choque recorre TODAS las cajas del bloque, no la que las envuelve.
+    const std::string col = leer("src/player/CollisionSystem.h");
+    REQUIRE_FALSE(col.empty());
+    CHECK(col.find("world->getBlockBoxes(x, y, z, cajas, IWorldQuery::MAX_CAJAS_POR_BLOQUE);") != std::string::npos);
+    CHECK(col.find("for (int c = 0; c < n; ++c) {") != std::string::npos);
+    CHECK(col.find("if (!world->getBlockBox(x, y, z, bx0, by0, bz0,") == std::string::npos);
+    // El motor da las cajas de la pieza, una a una.
+    const std::string src = leer("src/main.cpp");
+    REQUIRE_FALSE(src.empty());
+    CHECK(src.find("g_worldQuery->setBlockBoxesProvider(&cajasDeCeldaMundo);") != std::string::npos);
+    const size_t fn = src.find("int cajasDeCeldaMundo(BlockType type, int x, int y, int z, float cajas[][6], int maximo) {");
+    REQUIRE(fn != std::string::npos);
+    const std::string cuerpo = src.substr(fn, 1400);
+    CHECK(cuerpo.find("const int k = Formas::cajasDeChoque(t, [&](int dx, int dy, int dz) {") != std::string::npos);
+    CHECK(cuerpo.find("g_celdasJuntas.de(x, y, z)") != std::string::npos);       // y lo juntado a la casilla
+    // Las piezas que tienen hueco: se comprueba que el hueco existe de verdad
+    // (que sus cajas no llenan el bloque), que es por donde se pasa.
+    using namespace Formas;
+    for (int f = 0; f < NUM; ++f) {
+        INFO(forma(f).nombre);
+        CHECK(volumen(f) < 4096);           // ninguna es el cubo entero
+    }
+    // La puerta: entre sus dos jambas queda libre de 4 a 12, del suelo a 12.
+    const Forma& puerta = forma(1 * POR_CLASE + 8);
+    REQUIRE(std::string(puerta.nombre) == "PARED CON PUERTA");
+    for (int i = 0; i < puerta.n; ++i) {
+        const Caja& c = puerta.c[i];
+        const bool tapaElVano = c.x0 < 12 && c.x1 > 4 && c.y0 < 12 && c.y1 > 0;
+        CHECK_FALSE(tapaElVano);
+    }
 }

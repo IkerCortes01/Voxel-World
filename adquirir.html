@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Adquirir Voxel World</title>
-    <link rel="stylesheet" href="estilo.css?v=8">
+    <link rel="stylesheet" href="estilo.css?v=9">
 </head>
 <body>
     <!-- La cuenta: antes de adquirir. Mientras este abierta, la pagina de
@@ -52,6 +52,7 @@
                 <label>Tu archivo de cuenta de Ludora <small>(cuenta.dat, en la carpeta de Ludora)</small>
                     <input id="l-archivo" type="file" accept=".dat,text/plain">
                 </label>
+                <p class="intro">Es el archivo que guarda tu cuenta de Ludora en tu equipo: tu nombre, tu cuenta y una huella de tu contraseña, nunca la contraseña. Suele estar en <code>%APPDATA%\Ludora</code> o en Descargas. <a href="ludora.html#cuenta-dat" target="_blank" rel="noopener">¿Qué es cuenta.dat?</a></p>
                 <div class="fila">
                     <button type="button" id="l-volver" class="plano">Volver</button>
                     <button type="submit" class="boton"><span>Comprobar por c&oacute;digo</span></button>
@@ -147,6 +148,8 @@
         </ul>
         <p>El código fuente de todas las versiones está en <a href="https://github.com/IkerCortes01/Voxel-World">github.com/IkerCortes01/Voxel-World</a>.</p>
     </section>
+    <footer id="pie">© 2026 Iker Cortés. Todos los derechos reservados. Voxel World y Ludora son obras protegidas: no se permite copiarlas ni distribuirlas sin permiso.</footer>
+
     <script>
         // El navegador no puede escribir en %APPDATA%: descarga el instalador, y
         // es este quien instala. La barra mide la descarga de verdad, y desde

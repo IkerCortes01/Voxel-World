@@ -69,3 +69,18 @@ cuenta_foto.*
 
 # Cache de Python de las herramientas
 __pycache__/
+
+# Secretos: el repositorio es publico. Contrasenas, llaves de firma y archivos
+# de entorno viven solo en el equipo o en el servidor, nunca aqui.
+.env
+.env.*
+*.env
+api.env
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+clave.txt
+id_rsa*
+id_ed25519*

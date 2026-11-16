@@ -2,7 +2,7 @@
 FROM python:3.12-alpine
 
 RUN adduser -D -H -u 10001 app && mkdir /datos && chown app /datos
-COPY servidor.py /app/servidor.py
+COPY servidor.py correo.py /app/
 WORKDIR /app
 USER app
 

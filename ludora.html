@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Instalar Ludora</title>
-    <link rel="stylesheet" href="estilo.css?v=8">
+    <link rel="stylesheet" href="estilo.css?v=9">
 </head>
 <body>
     <!-- La cuenta va primero: mientras este abierta, la pagina de detras queda
@@ -116,7 +116,7 @@
 
     <section id="criticas" class="panel seccion">
         <h2>Críticas y comentarios</h2>
-        <p>¿Lo has probado? Cuenta qué tal. Se abre tu correo con el mensaje ya escrito; tú decides si lo envías.</p>
+        <p>¿Lo has probado? Cuenta qué tal. Se abre Gmail con el mensaje ya escrito; tú decides si lo envías.</p>
 
         <form id="opinion" novalidate>
             <div class="campo">
@@ -158,6 +158,19 @@
         </ul>
         <p>¿Encontraste un fallo, un robo de contenido o algo que no debería estar ahí? Cuéntanoslo en <a href="ludora-seguridad.html">Soporte técnico</a>.</p>
     </section>
+
+    <section id="cuenta-dat" class="panel seccion">
+        <h2>¿Qué es cuenta.dat?</h2>
+        <p>Es tu cuenta de Ludora guardada en un archivo. Ludora no tiene un servidor de cuentas: tu cuenta vive en tu propio equipo, y ese archivo es la prueba de que es tuya.</p>
+        <ul>
+            <li><span class="etiqueta">Cómo se crea:</span> al crear tu cuenta en esta página se descarga <code>cuenta.dat</code> en tu carpeta de Descargas. Al instalar Ludora en el PC, el instalador lo copia junto a <code>Ludora.exe</code>, en <code>%APPDATA%\Ludora</code>.</li>
+            <li><span class="etiqueta">Qué guarda:</span> tu nombre, tu cuenta (<code>tu-nombre@ludora.engine</code>), un número al azar llamado «sal» y una huella de tu contraseña calculada con esa sal. <strong>Tu contraseña no se guarda</strong>: de la huella no se puede sacar.</li>
+            <li><span class="etiqueta">Para qué sirve:</span> Ludora lo lee para dejarte entrar con tu contraseña. Voxel World lo usa para crear tu cuenta del juego con la de Ludora, y la app de Android lo importa con «Tengo cuenta.dat».</li>
+            <li><span class="etiqueta">Cuídalo:</span> no lo compartas ni lo subas a internet. Si lo pierdes, tendrás que crear otra cuenta: no hay un servidor que pueda recuperarla.</li>
+        </ul>
+    </section>
+
+    <footer id="pie">© 2026 Iker Cortés. Todos los derechos reservados. Voxel World y Ludora son obras protegidas: no se permite copiarlas ni distribuirlas sin permiso.</footer>
 
     <script>
         // --- descarga del instalador, con barra de progreso real ---
@@ -237,6 +250,24 @@
         const aviso = document.getElementById("aviso-opinion");
         const SOPORTE = "armando.cortes@scram.com.mx";
 
+        // Gmail web primero (con mailto: no pasa nada si la PC no tiene una app
+        // de correo configurada, que es lo normal con Gmail), y debajo un enlace
+        // mailto para quien use otra. Nada se envia sin que la persona lo vea.
+        function abrirCorreo(asunto, cuerpo, aviso, mensaje) {
+            const e = encodeURIComponent;
+            const gmail = "https://mail.google.com/mail/?view=cm&fs=1&to=" + e(SOPORTE) +
+                "&su=" + e(asunto) + "&body=" + e(cuerpo);
+            const otro = "mailto:" + SOPORTE + "?subject=" + e(asunto) + "&body=" + e(cuerpo);
+            const ventana = window.open(gmail, "_blank");
+            if (ventana) ventana.opener = null; else location.href = gmail;
+            aviso.textContent = mensaje + " ";
+            const enlace = document.createElement("a");
+            enlace.href = otro;
+            enlace.textContent = "¿No usas Gmail? Ábrelo en tu app de correo.";
+            aviso.append(enlace);
+            aviso.className = "ok";
+        }
+
         comentario.addEventListener("input", () => {
             cuenta.textContent = comentario.value.length;
         });
@@ -261,12 +292,8 @@
                 "Puntuación: " + estrellas + "\n\n" +
                 texto + "\n";
 
-            location.href = "mailto:" + SOPORTE +
-                "?subject=" + encodeURIComponent("Comentario sobre Ludora — " + nombre) +
-                "&body=" + encodeURIComponent(cuerpo);
-
-            aviso.textContent = "Se abrió tu correo con el comentario escrito. Revísalo y envíalo.";
-            aviso.className = "ok";
+            abrirCorreo("Comentario sobre Ludora — " + nombre, cuerpo, aviso,
+                "Se abrió Gmail con el comentario escrito. Revísalo y envíalo.");
         });
     </script>
     <script>

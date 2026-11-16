@@ -39,6 +39,12 @@ services:
     image: ghcr.io/ikercortes01/voxel-world-api:${IMAGE_TAG:-latest}
     container_name: voxel-world-api
     restart: unless-stopped
+    # La cuenta de Gmail y su contrasena de aplicacion viven SOLO en el
+    # servidor (/srv/voxel-world/api.env, permisos 600). Sin el archivo la API
+    # funciona igual, pero no envia correos (ver deploy/api/correo.py).
+    env_file:
+      - path: ./api.env
+        required: false
     volumes:
       - ./datos:/datos
     networks:

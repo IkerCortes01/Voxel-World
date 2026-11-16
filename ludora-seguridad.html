@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Soporte técnico de Ludora</title>
-    <link rel="stylesheet" href="estilo.css?v=8">
+    <link rel="stylesheet" href="estilo.css?v=9">
 </head>
 <body>
     <header id="barra">
@@ -92,6 +92,8 @@
         <p>El código está abierto en <a href="https://github.com/IkerCortes01/Ludora-Engine">github.com/IkerCortes01/Ludora-Engine</a>: puedes revisar tú mismo cómo funciona todo esto.</p>
     </section>
 
+    <footer id="pie">© 2026 Iker Cortés. Todos los derechos reservados. Voxel World y Ludora son obras protegidas: no se permite copiarlas ni distribuirlas sin permiso.</footer>
+
     <script>
         // No hay servidor que reciba formularios: esta pagina es HTML estatico
         // servido por nginx. Se compone un mailto, que funciona sin backend y
@@ -101,6 +103,24 @@
         const aviso = document.getElementById("aviso");
         const descripcion = document.getElementById("descripcion");
         const SOPORTE = "armando.cortes@scram.com.mx";
+
+        // Gmail web primero (con mailto: no pasa nada si la PC no tiene una app
+        // de correo configurada, que es lo normal con Gmail), y debajo un enlace
+        // mailto para quien use otra. Nada se envia sin que la persona lo vea.
+        function abrirCorreo(asunto, cuerpo, aviso, mensaje) {
+            const e = encodeURIComponent;
+            const gmail = "https://mail.google.com/mail/?view=cm&fs=1&to=" + e(SOPORTE) +
+                "&su=" + e(asunto) + "&body=" + e(cuerpo);
+            const otro = "mailto:" + SOPORTE + "?subject=" + e(asunto) + "&body=" + e(cuerpo);
+            const ventana = window.open(gmail, "_blank");
+            if (ventana) ventana.opener = null; else location.href = gmail;
+            aviso.textContent = mensaje + " ";
+            const enlace = document.createElement("a");
+            enlace.href = otro;
+            enlace.textContent = "¿No usas Gmail? Ábrelo en tu app de correo.";
+            aviso.append(enlace);
+            aviso.className = "ok";
+        }
 
         const valor = id => document.getElementById(id).value.trim();
 
@@ -140,12 +160,8 @@
             cuerpo += "\nQué pasó:\n" + texto + "\n";
             if (pasos) cuerpo += "\nCómo repetirlo:\n" + pasos + "\n";
 
-            location.href = "mailto:" + SOPORTE +
-                "?subject=" + encodeURIComponent("[Seguridad Ludora] " + tipo + " (" + gravedad + ")") +
-                "&body=" + encodeURIComponent(cuerpo);
-
-            aviso.textContent = "Se abrió tu correo con el reporte escrito. Revísalo y envíalo para que llegue al soporte.";
-            aviso.className = "ok";
+            abrirCorreo("[Seguridad Ludora] " + tipo + " (" + gravedad + ")", cuerpo, aviso,
+                "Se abrió Gmail con el reporte escrito. Revísalo y envíalo para que llegue al soporte.");
         });
     </script>
 </body>

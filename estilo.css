@@ -666,3 +666,14 @@ html.sin-scroll { overflow: hidden; }
 #volver-app p { margin: 1em auto 1.4em; max-width: 46ch; overflow-wrap: anywhere; }
 #volver-app .boton { display: block; max-width: 420px; margin: 0 auto; }
 .a-la-app { display: block; margin-top: 14px; text-align: center; color: var(--tenue); }
+
+/* --- Pie con los derechos --- */
+#pie {
+    box-sizing: border-box;
+    width: calc(100% - 32px);
+    max-width: 1100px;
+    margin: 0 auto 40px;
+    text-align: center;
+    font: 400 14px/1.5 var(--mono);
+    color: var(--tenue);
+}

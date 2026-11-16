@@ -1,0 +1,50 @@
+Voxel World
+Copyright (c) 2026 Iker Cortés. Todos los derechos reservados.
+
+LICENCIA DE CONSULTA. ESTO NO ES SOFTWARE LIBRE NI DE CÓDIGO ABIERTO.
+
+1. Titularidad. El código fuente, los gráficos, las texturas, los modelos, los
+   sonidos, la música, los textos, el diseño del juego y el nombre «Voxel
+   World» (en adelante, «la Obra») son propiedad de Iker Cortés.
+
+2. Qué se permite. El código se publica para que pueda verse. Se permite:
+   a) leer la Obra en este repositorio;
+   b) descargar el instalador oficial desde https://voxelworld.scram.com.mx y
+      jugar al juego para uso personal y no comercial.
+
+3. Qué NO se permite sin autorización previa y por escrito del titular:
+   a) copiar, reproducir o redistribuir la Obra, entera o en parte;
+   b) modificarla o crear obras derivadas, incluidos otros juegos, motores o
+      productos basados en su código, sus recursos o su diseño;
+   c) venderla, alquilarla, sublicenciarla o usarla con fines comerciales;
+   d) publicar versiones propias, compilaciones o instaladores de la Obra;
+   e) usar el nombre «Voxel World», «Ludora» o sus logotipos para identificar
+      otro producto;
+   f) usar la Obra para entrenar o evaluar modelos de inteligencia artificial.
+
+4. GitHub. Por las condiciones de uso de GitHub, cualquier usuario puede ver
+   este repositorio y crear una bifurcación («fork») dentro de GitHub. Eso no
+   concede ningún otro derecho de los descritos en el punto 3.
+
+5. Componentes de terceros. Las bibliotecas de la carpeta external/ (GLFW,
+   doctest, stb) conservan sus propias licencias, que se respetan y no cambian
+   por este archivo.
+
+6. Contribuciones. Quien envíe cambios a este repositorio acepta que el
+   titular pueda usarlos, modificarlos y distribuirlos como parte de la Obra.
+
+7. Sin garantías. La Obra se ofrece «tal cual», sin garantía de ningún tipo.
+
+Para pedir permisos: armando.cortes@scram.com.mx
+
+---------------------------------------------------------------------------
+
+English summary (the Spanish text above prevails):
+
+Copyright (c) 2026 Iker Cortés. All rights reserved. This is NOT open source.
+The source is published for viewing only. You may read it and play the
+official build for personal, non-commercial use. You may not copy,
+redistribute, modify, create derivative works, sell, publish your own builds,
+use the "Voxel World" or "Ludora" names, or use this work to train AI models
+without prior written permission. Third-party libraries in external/ keep their
+own licenses.

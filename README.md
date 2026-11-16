@@ -2,6 +2,11 @@
 
 Es un juego independiente, hecho en su propio motor y con sistemas propios.
 
+> **© 2026 Iker Cortés. Todos los derechos reservados.** El código se publica
+> solo para consulta: no es software libre. No se permite copiarlo,
+> redistribuirlo, modificarlo ni usarlo en otros proyectos sin permiso por
+> escrito. Ver [LICENSE](LICENSE).
+
 Motor voxel en C++20 con OpenGL, tipo sandbox de bloques.
 
 ---

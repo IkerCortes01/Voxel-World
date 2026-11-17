@@ -5,7 +5,8 @@ sale de /srv/voxel-world/api.env (NUNCA del repositorio, que es publico):
 
     SMTP_USUARIO   la cuenta de Gmail que envia
     SMTP_CLAVE     su contrasena de aplicacion (16 letras, sin espacios)
-    NOTIFICAR_A    a quien llegan los avisos (por defecto, SMTP_USUARIO)
+    NOTIFICAR_A    a quien llegan los avisos, separados por coma (por defecto,
+                   SMTP_USUARIO); el primero recibe las respuestas
     SITIO          https://voxelworld.scram.com.mx
 
 Sin SMTP_USUARIO o SMTP_CLAVE no se envia nada y la API sigue funcionando:
@@ -25,6 +26,8 @@ CLAVE = os.environ.get("SMTP_CLAVE", "").replace(" ", "")
 SERVIDOR = os.environ.get("SMTP_SERVIDOR", "smtp.gmail.com")
 PUERTO = int(os.environ.get("SMTP_PUERTO", "465"))
 NOTIFICAR_A = os.environ.get("NOTIFICAR_A", "") or USUARIO
+# Las respuestas de testers y clientes van a una sola persona: la primera.
+RESPONDER_A = NOTIFICAR_A.split(",")[0].strip()
 SITIO = os.environ.get("SITIO", "https://voxelworld.scram.com.mx").rstrip("/")
 # Tope de correos automaticos al dia (avisos y bienvenidas): si alguien abusa
 # del formulario, el servidor no se convierte en una fuente de spam ni quema
@@ -145,7 +148,7 @@ def avisar_tester(correo, bienvenida):
             responder_a=correo, con_pie=False)
     if bienvenida:
         encolar(correo, "Gracias por probar Voxel World",
-                BIENVENIDA.format(sitio=SITIO), responder_a=NOTIFICAR_A)
+                BIENVENIDA.format(sitio=SITIO), responder_a=RESPONDER_A)
 
 
 def avisar_registro(tipo, nombre, cuenta):
@@ -160,4 +163,4 @@ def avisar_registro(tipo, nombre, cuenta):
 def invitacion(correo):
     """Para el comando invitar: sincrono, para saber si salio cada una."""
     return enviar(correo, "Te invitamos a probar Voxel World",
-                  INVITACION.format(sitio=SITIO), responder_a=NOTIFICAR_A)
+                  INVITACION.format(sitio=SITIO), responder_a=RESPONDER_A)

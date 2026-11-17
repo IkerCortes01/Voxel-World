@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Voxel World</title>
-    <link rel="stylesheet" href="estilo.css?v=12">
+    <link rel="stylesheet" href="estilo.css?v=13">
     <script src="cuenta.js?v=2"></script>
 </head>
 <body id="inicio">
@@ -15,6 +15,8 @@
         <span id="insignia-texto"><strong id="insignia-nombre"></strong><small id="insignia-cuenta"></small></span>
         <button type="button" id="insignia-cambiar" class="plano">Editar</button>
     </aside>
+
+    <button type="button" id="sonido" class="plano" aria-pressed="true">Sonido: sí</button>
 
     <video id="titulo" src="titulo.mp4" autoplay muted loop playsinline aria-label="Voxel World"></video>
 
@@ -83,9 +85,27 @@
     <script>
         // El navegador no deja arrancar con sonido hasta que el visitante hace
         // algo. El video empieza en silencio para verse siempre, intenta sonar,
-        // y si no le dejan, suena con el primer clic o tecla.
+        // y si no le dejan, suena con el primer clic o tecla. El boton de arriba
+        // a la derecha lo silencia, y la eleccion se recuerda en el navegador.
         const titulo = document.getElementById("titulo");
+        const botonSonido = document.getElementById("sonido");
+        let conSonido = true;
+        try { conSonido = localStorage.getItem("vw-sonido") !== "no"; } catch (e) {}
+        const pintarBoton = () => {
+            botonSonido.textContent = conSonido ? "Sonido: sí" : "Sonido: no";
+            botonSonido.setAttribute("aria-pressed", String(conSonido));
+            botonSonido.title = conSonido ? "Silenciar el sonido" : "Activar el sonido";
+        };
+        botonSonido.addEventListener("click", () => {
+            conSonido = !conSonido;
+            try { localStorage.setItem("vw-sonido", conSonido ? "si" : "no"); } catch (e) {}
+            pintarBoton();
+            titulo.muted = !conSonido;
+            if (conSonido) titulo.play().catch(() => {});
+        });
+        pintarBoton();
         const activarSonido = () => {
+            if (!conSonido) return;      // silenciado por el visitante
             titulo.muted = false;
             titulo.play().then(() => {
                 removeEventListener("pointerdown", activarSonido);

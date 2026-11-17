@@ -91,7 +91,7 @@ body::before {
 .panel::before { top: -3px; left: -3px; border-right: 0; border-bottom: 0; }
 .panel::after { right: -3px; bottom: -3px; border-left: 0; border-top: 0; }
 
-#bienvenida { min-height: 160vh; }
+#bienvenida { min-height: 0; }
 #bienvenida h1 {
     margin: 0 0 1em;
     text-align: center;
@@ -139,7 +139,7 @@ body::before {
     box-sizing: border-box;
     width: calc(100% - 32px);
     max-width: 1100px;
-    margin: 70vh auto 120px;   /* este margen es lo que alarga el scroll */
+    margin: 56px auto 72px;    /* antes 70vh: tanto hueco hacia creer que la pagina acababa */
 }
 /* Las esquinas cortadas recortarian un box-shadow: el brillo va en filter. */
 .boton {
@@ -169,7 +169,7 @@ body::before {
 .boton:hover span, .boton:focus-visible span { background: var(--neon); }
 
 /* --- Secciones --- */
-.seccion { min-height: 70vh; }
+.seccion { min-height: 0; padding-bottom: calc(clamp(28px, 5vw, 60px) + 34px); }   /* sitio para «^ volver» */
 .seccion p, .seccion li {
     max-width: 70ch;
     font-size: clamp(16px, 2vw, 19px);
@@ -677,3 +677,83 @@ html.sin-scroll { overflow: hidden; }
     font: 400 14px/1.5 var(--mono);
     color: var(--tenue);
 }
+
+/* --- La cuenta del portal (cuenta.js): menu de la insignia y dialogos --- */
+#cuenta-menu {
+    position: fixed;
+    right: 16px;
+    bottom: 86px;
+    z-index: 45;
+    display: grid;
+    min-width: 270px;
+    max-width: calc(100vw - 32px);
+    padding: 6px;
+    background: #0a0c16;
+    border: 1px solid var(--neon);
+    box-shadow: 0 0 22px -6px var(--neon);
+}
+#cuenta-menu[hidden] { display: none; }
+#cuenta-menu button {
+    padding: 12px 14px;
+    text-align: left;
+    font: 700 14px/1.35 var(--mono);
+    color: var(--texto);
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+#cuenta-menu button:hover, #cuenta-menu button:focus-visible { background: #161b2e; color: #fff; outline: none; }
+#cuenta-menu .peligro { margin-top: 4px; border-top: 1px solid #262b40; color: #ff8e8e; }
+
+.dialogo-cuenta {
+    box-sizing: border-box;
+    width: min(100% - 32px, 520px);
+    max-height: calc(100vh - 32px);
+    padding: 28px clamp(18px, 5vw, 34px) 24px;
+    color: var(--texto);
+    background: #0a0c16;
+    border: 1px solid var(--neon);
+    box-shadow: 0 0 28px -6px var(--neon);
+}
+.dialogo-cuenta::backdrop { background: rgba(5, 6, 12, .74); }
+.dialogo-cuenta h2 { margin: 0 0 8px; font: 700 clamp(21px, 3vw, 26px)/1.2 var(--mono); color: #fff; }
+.dialogo-cuenta .intro { margin: 0 0 18px; color: var(--tenue); font-size: 15px; line-height: 1.5; }
+.dialogo-cuenta .intro strong { color: #fff; }
+.dialogo-cuenta label { display: block; margin: 0 0 15px; font: 700 14px var(--mono); color: var(--texto); }
+.dialogo-cuenta label small { font-weight: 400; color: var(--tenue); }
+.dialogo-cuenta input[type="text"], .dialogo-cuenta input[type="password"],
+.dialogo-cuenta textarea, .dialogo-cuenta select {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    margin-top: 7px;
+    padding: 11px 12px;
+    font: 400 16px var(--sans);
+    color: #fff;
+    background: #05060c;
+    border: 1px solid #39405a;
+    border-radius: 0;
+}
+.dialogo-cuenta textarea { resize: vertical; }
+.dialogo-cuenta input:focus-visible, .dialogo-cuenta textarea:focus-visible,
+.dialogo-cuenta select:focus-visible { outline: 2px solid var(--neon); outline-offset: 1px; }
+.dialogo-cuenta input[type="file"] { display: block; margin-top: 7px; max-width: 100%; color: var(--tenue); font: 400 14px var(--sans); }
+.dialogo-cuenta input[type="color"] { display: block; margin-top: 7px; width: 72px; height: 36px; padding: 2px; background: #05060c; border: 1px solid #39405a; cursor: pointer; }
+.dialogo-cuenta .vista {
+    flex: 0 0 72px; width: 72px; height: 72px; border-radius: 50%; border: 2px solid #fff;
+    display: grid; place-items: center; background: #2a3260 center / cover no-repeat;
+    font: 700 28px var(--mono); color: #fff;
+}
+.dialogo-cuenta .fila { display: flex; gap: 12px; align-items: stretch; margin-top: 6px; }
+.dialogo-cuenta .fila .plano { flex: 0 0 auto; padding: 0 18px; }
+.dialogo-cuenta .boton { flex: 1 1 auto; display: block; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; }
+.dialogo-cuenta .boton span { padding: 15px 16px; font-size: clamp(16px, 2.1vw, 19px); }
+.dialogo-cuenta .aviso { margin: 14px 0 0; min-height: 1.4em; font: 400 15px/1.4 var(--mono); }
+.dialogo-cuenta .aviso.ok { color: #7dffa8; }
+.dialogo-cuenta .aviso.error { color: #ff8e8e; }
+/* Un formulario con hidden se oculta de verdad: display:grid le ganaba al
+   atributo y el paso del correo se veia antes de pulsar Descargar. */
+.formulario[hidden] { display: none; }
+.dialogo-cuenta .perfil-foto .plano { padding: 9px 14px; }
+/* Con la insignia fija abajo, el final de la pagina (el pie) no queda tapado. */
+body:has(#cuenta-insignia:not([hidden])) { padding-bottom: 96px; }

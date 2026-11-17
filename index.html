@@ -5,9 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Voxel World</title>
-    <link rel="stylesheet" href="estilo.css?v=9">
+    <link rel="stylesheet" href="estilo.css?v=12">
+    <script src="cuenta.js?v=2"></script>
 </head>
 <body id="inicio">
+    <!-- Abajo a la derecha: la cuenta del portal, si hay sesion (cuenta.js). -->
+    <aside id="cuenta-insignia" hidden>
+        <span id="insignia-foto" aria-hidden="true"></span>
+        <span id="insignia-texto"><strong id="insignia-nombre"></strong><small id="insignia-cuenta"></small></span>
+        <button type="button" id="insignia-cambiar" class="plano">Editar</button>
+    </aside>
+
     <video id="titulo" src="titulo.mp4" autoplay muted loop playsinline aria-label="Voxel World"></video>
 
     <main id="bienvenida" class="panel">

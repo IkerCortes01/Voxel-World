@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Adquirir Voxel World</title>
-    <link rel="stylesheet" href="estilo.css?v=9">
+    <link rel="stylesheet" href="estilo.css?v=12">
+    <script src="cuenta.js?v=2"></script>
 </head>
 <body>
     <!-- La cuenta: antes de adquirir. Mientras este abierta, la pagina de
@@ -29,63 +30,18 @@
                     <input id="c-foto" type="file" accept="image/png,image/jpeg,image/bmp">
                 </label>
                 <button type="submit" class="boton"><span>Crear cuenta</span></button>
-                <button type="button" id="c-ludora" class="plano ancho">&iquest;Tienes cuenta de Ludora Engine?</button>
+                <button type="button" id="c-entrar" class="plano ancho">&iquest;Ya tienes cuenta de Ludora o de Voxel World? Inicia sesi&oacute;n</button>
             </div>
 
             <p id="cuenta-aviso" role="alert"></p>
         </form>
-
-        <!-- Entrar con la cuenta de Ludora Engine: se pone ENCIMA del formulario. -->
-        <form id="ludora-caja" role="dialog" aria-modal="true" aria-labelledby="ludora-titulo" novalidate hidden>
-            <h2 id="ludora-titulo">Tu cuenta de Ludora Engine</h2>
-            <p class="intro">Si ya tienes cuenta en Ludora, &uacute;sala aqu&iacute;: se comprueba en tu navegador y con ella se prepara tu cuenta de Voxel World.</p>
-            <div id="ludora-paso1">
-                <label>Tu nombre
-                    <input id="l-nombre" type="text" maxlength="24" autocomplete="name" required>
-                </label>
-                <label>Cuenta <small>(tu nombre m&aacute;s @ludora.engine)</small>
-                    <span class="con-sufijo"><input id="l-cuenta" type="text" maxlength="64" autocomplete="username" autocapitalize="none" spellcheck="false" required><span>@ludora.engine</span></span>
-                </label>
-                <label>Contrase&ntilde;a
-                    <input id="l-clave" type="password" maxlength="128" autocomplete="current-password" required>
-                </label>
-                <label>Tu archivo de cuenta de Ludora <small>(cuenta.dat, en la carpeta de Ludora)</small>
-                    <input id="l-archivo" type="file" accept=".dat,text/plain">
-                </label>
-                <p class="intro">Es el archivo que guarda tu cuenta de Ludora en tu equipo: tu nombre, tu cuenta y una huella de tu contraseña, nunca la contraseña. Suele estar en <code>%APPDATA%\Ludora</code> o en Descargas. <a href="ludora.html#cuenta-dat" target="_blank" rel="noopener">¿Qué es cuenta.dat?</a></p>
-                <div class="fila">
-                    <button type="button" id="l-volver" class="plano">Volver</button>
-                    <button type="submit" class="boton"><span>Comprobar por c&oacute;digo</span></button>
-                </div>
-            </div>
-            <div id="ludora-paso2" hidden>
-                <p class="intro">Te hemos mandado un c&oacute;digo de 6 n&uacute;meros a las <strong>notificaciones</strong> de esta p&aacute;gina (arriba a la derecha). Escr&iacute;belo aqu&iacute;.</p>
-                <label>C&oacute;digo
-                    <input id="l-codigo" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
-                </label>
-                <div class="fila">
-                    <button type="button" id="l-otro" class="plano">Mandar otro</button>
-                    <button type="submit" class="boton"><span>Confirmar</span></button>
-                </div>
-            </div>
-            <p id="ludora-aviso" role="alert"></p>
-        </form>
     </div>
-
-    <!-- Las notificaciones de la pagina: aqui llega el codigo de comprobacion. -->
-    <aside id="notificaciones" aria-live="polite">
-        <button type="button" id="noti-campana" class="plano" aria-expanded="false" aria-controls="noti-lista">Notificaciones <span id="noti-cuenta">0</span></button>
-        <div id="noti-lista" hidden>
-            <p id="noti-vacio">No tienes notificaciones.</p>
-            <ul id="noti-items"></ul>
-        </div>
-    </aside>
 
     <!-- Abajo a la derecha: la cuenta registrada. -->
     <aside id="cuenta-insignia" hidden>
         <span id="insignia-foto" aria-hidden="true"></span>
-        <span id="insignia-texto"><strong id="insignia-nombre"></strong><small>Cuenta registrada</small></span>
-        <button type="button" id="insignia-cambiar" class="plano" title="Crear otra cuenta">Cambiar</button>
+        <span id="insignia-texto"><strong id="insignia-nombre"></strong><small id="insignia-cuenta"></small></span>
+        <button type="button" id="insignia-cambiar" class="plano">Editar</button>
     </aside>
 
     <header id="barra">
@@ -253,52 +209,15 @@
         // ====================================================================
         // LA CUENTA, ANTES DE ADQUIRIR
         // ====================================================================
-        // Esta pagina no guarda cuentas en ningun servidor. La cuenta se CREA
-        // AQUI, en el navegador, y sale como un archivo (cuenta.vwcuenta) que
-        // el juego importa. Es el mismo archivo que crea el propio juego, con
-        // las mismas cuentas (ver src/Cuenta.h):
-        //
-        //   hash = PBKDF2-HMAC-SHA-256(contrasena, sal, 120000 vueltas)
-        //
-        // Se crea libremente: nombre, cuenta (nombre@ludora.engine) y
-        // contrasena. Sin codigos ni autenticador.
-        //
-        // La contrasena no se envia a ningun sitio ni se guarda: solo se usa
-        // para calcular el hash. En el navegador se recuerdan el nombre, la
-        // cuenta y la foto, para ensenar la insignia la proxima vez.
-        const VUELTAS = 120000;
-
-        // Aviso de cuenta nueva: SOLO el nombre y la cuenta, para saber quien se
-        // registra. La contrasena y su hash no salen del navegador. Si la API no
-        // responde no pasa nada: la cuenta ya esta creada en el archivo.
-        function avisarRegistro(tipo, nombre, cuenta) {
-            fetch("api/registros", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tipo, nombre, cuenta }),
-                keepalive: true,
-            }).catch(() => {});
-        }
-        const DOMINIO = "@ludora.engine";
+        // La cuenta es la misma del portal (cuenta.js): se crea aqui, en el
+        // navegador, y sale como un archivo (cuenta.vwcuenta) que el juego
+        // importa, con las mismas cuentas que el juego (ver src/Cuenta.h). Con
+        // la misma contrasena se prepara tambien la de Ludora.
         const velo = document.getElementById("cuenta-velo");
         const caja = document.getElementById("cuenta-caja");
         const avisoCuenta = document.getElementById("cuenta-aviso");
-        const insignia = document.getElementById("cuenta-insignia");
-        // (Las notificaciones no son "lo de detras": tienen que verse y poder abrirse
-        // con el formulario delante, porque ahi llega el codigo de Ludora.)
-        const fondoDeLaPagina = [...document.body.children].filter(
-            e => e !== velo && e.tagName !== "SCRIPT" && e.id !== "notificaciones");
+        const fondoDeLaPagina = [...document.body.children].filter(e => e !== velo && e.tagName !== "SCRIPT");
         const el = id => document.getElementById(id);
-        const hex = b => [...new Uint8Array(b)].map(v => v.toString(16).padStart(2, "0")).join("");
-        const azar = n => crypto.getRandomValues(new Uint8Array(n));
-        const texto = t => new TextEncoder().encode(t);
-
-        async function pbkdf2(clave, sal, largo) {
-            const k = await crypto.subtle.importKey("raw", texto(clave), "PBKDF2", false, ["deriveBits"]);
-            return new Uint8Array(await crypto.subtle.deriveBits(
-                { name: "PBKDF2", hash: "SHA-256", salt: sal, iterations: VUELTAS }, k, largo * 8));
-        }
-
         let fotoData = "";
 
         function bloquear(si) {
@@ -311,21 +230,13 @@
             avisoCuenta.textContent = t;
             avisoCuenta.className = bueno ? "ok" : "error";
         }
-        function ensenarInsignia(nombre, foto) {
-            el("insignia-nombre").textContent = nombre;
-            const f = el("insignia-foto");
-            f.textContent = foto ? "" : (nombre[0] || "?").toUpperCase();
-            f.style.backgroundImage = foto ? "url(" + foto + ")" : "";
-            insignia.hidden = false;
-        }
 
-        el("c-foto").addEventListener("change", (ev) => {
+        el("c-foto").addEventListener("change", async (ev) => {
             const f = ev.target.files[0];
             fotoData = "";
             if (!f) return;
-            const lector = new FileReader();
-            lector.onload = () => { fotoData = String(lector.result); };
-            lector.readAsDataURL(f);
+            try { fotoData = await Portal.reducirFoto(f); }
+            catch (e) { avisar(e.message, false); }
         });
 
         caja.addEventListener("submit", async (ev) => {
@@ -335,11 +246,10 @@
                 return;
             }
             try {
-                const nombre = el("c-nombre").value.trim();
+                const nombre = el("c-nombre").value.replace(/ +/g, " ").trim();
                 const usuario = el("c-cuenta").value.trim().toLowerCase().replace(/@.*$/, "");
                 const clave = el("c-clave").value;
-                // Las mismas reglas que el juego (Cuenta.h). Todo el teclado:
-                // minusculas, acentos, enie y signos (ASCII y Latin-1).
+                // Las mismas reglas que el juego (Cuenta.h).
                 if (!/^[\x20-\x7e\xa1-\xff]{1,24}$/.test(nombre))
                     return avisar("Tu nombre: hasta 24 caracteres.", false);
                 if (!/^[a-z0-9._-]{3,24}$/.test(usuario))
@@ -348,222 +258,26 @@
                     return avisar("La contraseña: de 6 a 64 caracteres.", false);
 
                 avisar("Creando la cuenta...", true);
-                const sal = azar(16);
-                const hash = await pbkdf2(clave, sal, 32);
-                const archivo =
-                    "# Cuenta de Voxel World. La contrasena NO esta aqui: solo su hash\n" +
-                    "# (PBKDF2-HMAC-SHA256).\n" +
-                    "version=2\n" +
-                    "nombre=" + nombre + "\n" +
-                    "cuenta=" + usuario + DOMINIO + "\n" +
-                    "vueltas=" + VUELTAS + "\n" +
-                    "sal=" + hex(sal) + "\n" +
-                    "hash=" + hex(hash) + "\n";
-                const enlace = document.createElement("a");
-                enlace.href = URL.createObjectURL(new Blob([archivo], { type: "text/plain" }));
-                enlace.download = "cuenta.vwcuenta";
-                enlace.click();
-                setTimeout(() => URL.revokeObjectURL(enlace.href), 60000);
-
-                // En el navegador solo quedan el nombre, la cuenta y la foto.
-                try {
-                    localStorage.setItem("vw-cuenta", JSON.stringify({ nombre, cuenta: usuario + DOMINIO }));
-                    if (fotoData && fotoData.length < 400000) localStorage.setItem("vw-foto", fotoData);
-                    else localStorage.removeItem("vw-foto");
-                } catch (e) { /* sin almacenamiento: la insignia vale para esta visita */ }
-                ensenarInsignia(nombre, fotoData);
-                avisarRegistro("voxelworld", nombre, usuario + DOMINIO);
+                const s = await Portal.crear({ nombre, local: usuario, clave, foto: fotoData, origen: "voxelworld" });
+                Portal.descargar("cuenta.vwcuenta", Portal.archivoVW(s));
                 el("c-clave").value = "";
                 avisar("", true);
                 bloquear(false);
-                const nota = document.getElementById("estado");
                 document.getElementById("progreso").hidden = false;
                 document.getElementById("barra-descarga").hidden = true;
-                nota.textContent = "Cuenta registrada. Se ha descargado cuenta.vwcuenta: al abrir el juego, pulsa IMPORTAR CUENTA y elígela. Ya puedes adquirir el juego.";
+                document.getElementById("estado").textContent =
+                    "Cuenta creada. Se descargó cuenta.vwcuenta: al abrir el juego, pulsa IMPORTAR CUENTA y elígela. Ya puedes descargar el juego.";
             } catch (e) {
                 avisar("No se pudo crear la cuenta: " + e.message, false);
             }
         });
-        el("insignia-cambiar").addEventListener("click", () => {
-            avisar("", true);
-            bloquear(true);
-        });
+        el("c-entrar").addEventListener("click", () => Portal.abrirInicio());
+        // Al entrar con otra cuenta se quita el formulario; al cerrar sesion vuelve.
+        Portal.alCambiar(s => { avisar("", true); bloquear(!s); });
 
-        // Al entrar: con cuenta ya registrada en este navegador, la insignia;
-        // sin ella, el formulario por delante de todo.
-        (function () {
-            let guardada = null, foto = "";
-            try {
-                guardada = JSON.parse(localStorage.getItem("vw-cuenta") || "null");
-                foto = localStorage.getItem("vw-foto") || "";
-            } catch (e) { guardada = null; }
-            if (guardada && guardada.nombre && guardada.cuenta) ensenarInsignia(guardada.nombre, foto);
-            else bloquear(true);
-        })();
-    </script>
-    <script>
-        // ====================================================================
-        // ENTRAR CON LA CUENTA DE LUDORA ENGINE, Y LAS NOTIFICACIONES
-        // ====================================================================
-        // La cuenta de Ludora vive en el equipo de cada uno (su cuenta.dat): no
-        // hay servidor de Ludora al que preguntar. Para comprobar la contrasena
-        // de verdad la pagina necesita ese archivo, y hace la misma cuenta que
-        // Ludora: SHA-256(salt + contrasena) comparado con el hash guardado. El
-        // archivo se lee en el navegador y no se envia a ningun sitio.
-        //
-        // Luego viene la comprobacion por codigo: 6 numeros al azar que llegan
-        // a las notificaciones de ESTA pagina. Sin servidor no hay otro canal
-        // (ni correo ni telefono): el codigo confirma que quien escribe es quien
-        // tiene la pagina delante, no sustituye a la contrasena.
-        //
-        // Con las dos cosas bien, se rellena el formulario de Voxel World con
-        // esos datos y se crea la cuenta.
-        (function () {
-            const DOMINIO_LUDORA = "@ludora.engine";
-            const CADUCA_MS = 5 * 60 * 1000, INTENTOS = 5;
-            const cajaLudora = el("ludora-caja");
-            const lPaso1 = el("ludora-paso1"), lPaso2 = el("ludora-paso2");
-            const avisoL = el("ludora-aviso");
-            const avisarL = (t, bueno) => { avisoL.textContent = t; avisoL.className = bueno ? "ok" : "error"; };
-            let reto = null;       // { codigo, hasta, intentos, datos }
-
-            // ---- Las notificaciones ----
-            const campana = el("noti-campana"), lista = el("noti-lista");
-            function abrirNotificaciones(si) {
-                lista.hidden = !si;
-                campana.setAttribute("aria-expanded", String(si));
-            }
-            campana.addEventListener("click", () => {
-                abrirNotificaciones(lista.hidden);
-                campana.classList.remove("nueva");       // ya se han mirado
-            });
-            function notificar(titulo, cuerpo) {
-                const li = document.createElement("li");
-                const h = document.createElement("strong");
-                h.textContent = titulo;
-                const p = document.createElement("span");
-                p.textContent = cuerpo;
-                const t = document.createElement("time");
-                t.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                li.append(h, p, t);
-                el("noti-items").prepend(li);
-                el("noti-vacio").hidden = true;
-                el("noti-cuenta").textContent = String(el("noti-items").children.length);
-                campana.classList.add("nueva");
-                abrirNotificaciones(true);       // que se vea llegar
-            }
-            window.notificarEnLaPagina = notificar;
-
-            // ---- La seccion de Ludora ----
-            function abrirLudora(si) {
-                cajaLudora.hidden = !si;
-                caja.inert = si;
-                caja.classList.toggle("debajo", si);
-                if (si) {
-                    lPaso1.hidden = false;
-                    lPaso2.hidden = true;
-                    avisarL("", true);
-                    el("l-nombre").value = el("c-nombre").value;
-                    el("l-nombre").focus();
-                }
-            }
-            el("c-ludora").addEventListener("click", () => abrirLudora(true));
-            el("l-volver").addEventListener("click", () => abrirLudora(false));
-
-            async function sha256Hex(t) {
-                return hex(await crypto.subtle.digest("SHA-256", texto(t)));
-            }
-            // Lee el cuenta.dat de Ludora: lineas clave=valor.
-            function leerCuentaLudora(contenido) {
-                const r = {};
-                for (const linea of contenido.split(/\r?\n/)) {
-                    if (!linea || linea[0] === "#") continue;
-                    const i = linea.indexOf("=");
-                    if (i > 0) r[linea.slice(0, i).trim()] = linea.slice(i + 1).trim();
-                }
-                return r.email && r.salt && r.hash ? r : null;
-            }
-            function mandarCodigo() {
-                const n = new Uint32Array(1);
-                // Sin sesgo: se descarta lo que no reparte parejo entre 0 y 999999.
-                do { crypto.getRandomValues(n); } while (n[0] >= 4294000000);
-                const codigo = String(n[0] % 1000000).padStart(6, "0");
-                reto.codigo = codigo;
-                reto.hasta = Date.now() + CADUCA_MS;
-                reto.intentos = 0;
-                notificar("Ludora Engine", "Tu código de comprobación es " + codigo.slice(0, 3) + " " + codigo.slice(3) +
-                                           ". Caduca en 5 minutos. Si no lo has pedido tú, no lo escribas en ningún sitio.");
-            }
-
-            cajaLudora.addEventListener("submit", async (ev) => {
-                ev.preventDefault();
-                if (!window.crypto || !crypto.subtle)
-                    return avisarL("Este navegador no deja comprobar la cuenta aquí (hace falta abrir la página por https).", false);
-                try {
-                    if (!lPaso1.hidden) {
-                        const nombre = el("l-nombre").value.trim();
-                        const local = el("l-cuenta").value.trim().replace(/@.*$/, "");
-                        const clave = el("l-clave").value;
-                        const archivo = el("l-archivo").files[0];
-                        if (!nombre) return avisarL("Escribe tu nombre.", false);
-                        if (!local) return avisarL("Escribe tu cuenta: tu nombre, y la página pone @ludora.engine.", false);
-                        if (clave.length < 6) return avisarL("La contraseña de Ludora tiene al menos 6 caracteres.", false);
-                        if (!archivo)
-                            return avisarL("Elige tu archivo cuenta.dat de Ludora (está en su carpeta). La página no tiene servidor: sin él no puede comprobar tu contraseña.", false);
-                        const cuenta = leerCuentaLudora(await archivo.text());
-                        if (!cuenta) return avisarL("Ese archivo no es una cuenta de Ludora Engine.", false);
-                        // La misma cuenta que hace Ludora, y el mismo aviso generico.
-                        const calculado = await sha256Hex(cuenta.salt + clave);
-                        let distinto = calculado.length ^ cuenta.hash.length;
-                        for (let i = 0; i < calculado.length; ++i) distinto |= calculado.charCodeAt(i) ^ cuenta.hash.charCodeAt(i % cuenta.hash.length);
-                        if (cuenta.email !== local + DOMINIO_LUDORA || distinto !== 0)
-                            return avisarL("Correo o contraseña incorrectos.", false);
-                        reto = { datos: { nombre, local, clave } };
-                        mandarCodigo();
-                        lPaso1.hidden = true;
-                        lPaso2.hidden = false;
-                        el("l-codigo").value = "";
-                        el("l-codigo").focus();
-                        return avisarL("Contraseña correcta. Falta el código.", true);
-                    }
-                    // Paso 2: el codigo de las notificaciones.
-                    const escrito = el("l-codigo").value.trim();
-                    if (!reto || !reto.codigo) return avisarL("Pide un código primero.", false);
-                    if (Date.now() > reto.hasta) { reto.codigo = ""; return avisarL("Ese código ha caducado. Pulsa «Mandar otro».", false); }
-                    reto.intentos += 1;
-                    if (escrito !== reto.codigo) {
-                        if (reto.intentos >= INTENTOS) { reto.codigo = ""; return avisarL("Demasiados intentos. Pulsa «Mandar otro».", false); }
-                        return avisarL("Ese no es el código. Míralo en las notificaciones.", false);
-                    }
-                    // Es el: sus datos pasan al formulario de Voxel World.
-                    const d = reto.datos;
-                    reto = null;
-                    notificar("Ludora Engine", "Cuenta comprobada: " + d.local + DOMINIO_LUDORA + ".");
-                    abrirLudora(false);
-                    const nombreVW = d.nombre.normalize("NFC").replace(/[^\x20-\x7e\xa1-\xff]/g, "").replace(/ +/g, " ").trim().slice(0, 24);
-                    const usuarioVW = d.local.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 24);
-                    el("c-nombre").value = nombreVW;
-                    el("c-cuenta").value = usuarioVW;
-                    const sirve = /^[\x20-\x7e\xa1-\xff]{6,64}$/.test(d.clave);
-                    el("c-clave").value = sirve ? d.clave : "";
-                    el("l-clave").value = "";
-                    if (sirve && nombreVW && usuarioVW.length >= 3) {
-                        caja.requestSubmit();        // se crea con esos datos
-                    } else {
-                        avisar("Eres tú: cuenta de Ludora comprobada. Revisa los datos y pon una contraseña de 6 o más caracteres.", true);
-                    }
-                } catch (e) {
-                    avisarL("No se pudo comprobar la cuenta: " + e.message, false);
-                }
-            });
-            el("l-otro").addEventListener("click", () => {
-                if (!reto) return;
-                mandarCodigo();
-                avisarL("Te hemos mandado otro código.", true);
-                el("l-codigo").value = "";
-                el("l-codigo").focus();
-            });
-        })();
+        // Al llegar: con sesion, la insignia; sin ella, el formulario delante.
+        if (Portal.sesion()) Portal.pintarInsignia();
+        else bloquear(true);
     </script>
 </body>
 </html>

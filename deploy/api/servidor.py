@@ -15,6 +15,10 @@ Rutas:
     GET  /health
     POST /api/comentarios   {"nombre"?, "correo"?, "comentario", "sitio"}
     POST /api/descargas     {"correo", "acepta": true, "sitio"}
+    POST /api/registros     {"tipo": "voxelworld"|"ludora", "nombre", "cuenta"}
+                            aviso de cuenta creada en la pagina: SOLO nombre y
+                            cuenta; la contrasena y su hash nunca salen del
+                            navegador.
 "sitio" es un campo trampa: el formulario lo deja vacio y los bots lo llenan.
 """
 import csv
@@ -32,6 +36,7 @@ import correo as correos
 
 DB = os.environ.get("VOXEL_DB", "/datos/voxelworld.db")
 MAX_CUERPO = 8 * 1024
+CUENTA = re.compile(r"^[A-Za-z0-9._-]{1,24}@[a-z.]{3,20}$")
 CORREO = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 # Por IP: 10 envios cada 10 minutos. La IP solo se usa aqui, no se guarda.
 LIMITE, VENTANA = 10, 600
@@ -48,6 +53,9 @@ def conectar():
         id INTEGER PRIMARY KEY, fecha TEXT NOT NULL, correo TEXT NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS invitaciones (
         id INTEGER PRIMARY KEY, fecha TEXT NOT NULL, correo TEXT NOT NULL)""")
+    con.execute("""CREATE TABLE IF NOT EXISTS registros (
+        id INTEGER PRIMARY KEY, fecha TEXT NOT NULL, tipo TEXT NOT NULL,
+        nombre TEXT NOT NULL, cuenta TEXT NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS bajas (
         correo TEXT PRIMARY KEY, fecha TEXT NOT NULL)""")
     return con
@@ -117,7 +125,7 @@ class Manejador(BaseHTTPRequestHandler):
         self.responder(404, {"error": "no existe"})
 
     def do_POST(self):
-        if self.path not in ("/api/comentarios", "/api/descargas"):
+        if self.path not in ("/api/comentarios", "/api/descargas", "/api/registros"):
             return self.responder(404, {"error": "no existe"})
         ip = (self.headers.get("CF-Connecting-IP")
               or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
@@ -148,6 +156,18 @@ class Manejador(BaseHTTPRequestHandler):
                 fila = ("INSERT INTO comentarios (fecha, nombre, correo, comentario) VALUES (?,?,?,?)",
                         (fecha, nombre, correo, comentario))
                 aviso = lambda con: correos.avisar_comentario(nombre, correo, comentario)
+            elif self.path == "/api/registros":
+                tipo = texto(datos, "tipo", 20)
+                nombre = texto(datos, "nombre", 24)
+                cuenta = texto(datos, "cuenta", 64)
+                # Las dos usan cuentas @ludora.engine (las viejas de Voxel
+                # World terminaban en @voxelworld).
+                if (tipo not in ("voxelworld", "ludora") or not nombre or not CUENTA.match(cuenta)
+                        or not cuenta.endswith(("@ludora.engine", "@voxelworld"))):
+                    return self.responder(400, {"error": "Registro no valido."})
+                fila = ("INSERT INTO registros (fecha, tipo, nombre, cuenta) VALUES (?,?,?,?)",
+                        (fecha, tipo, nombre, cuenta))
+                aviso = lambda con: correos.avisar_registro(tipo, nombre, cuenta)
             else:
                 correo = texto(datos, "correo", 254)
                 if not correo_valido(correo):
@@ -180,7 +200,7 @@ class Manejador(BaseHTTPRequestHandler):
 def exportar():
     con = conectar()
     salida = csv.writer(sys.stdout)
-    for tabla in ("comentarios", "descargas", "invitaciones", "bajas"):
+    for tabla in ("registros", "comentarios", "descargas", "invitaciones", "bajas"):
         cur = con.execute(f"SELECT * FROM {tabla} ORDER BY 1")
         salida.writerow([f"# {tabla}"])
         salida.writerow([c[0] for c in cur.description])

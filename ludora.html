@@ -15,7 +15,7 @@
             <!-- Sin cuenta: crearla. -->
             <div id="ludora-crear">
                 <h2 id="ludora-titulo">Crea tu cuenta de Ludora</h2>
-                <p class="intro">Antes de instalar hace falta una cuenta. Se crea aqu&iacute;, en tu navegador: la contrase&ntilde;a no se env&iacute;a a ning&uacute;n sitio.</p>
+                <p class="intro">Antes de instalar hace falta una cuenta. Se crea aqu&iacute;, en tu navegador: la contrase&ntilde;a no se env&iacute;a a ning&uacute;n sitio. Solo tu nombre y tu cuenta se registran en nuestro servidor.</p>
                 <label>Tu nombre
                     <input id="l-nombre" type="text" maxlength="24" autocomplete="name" required>
                 </label>
@@ -309,6 +309,17 @@
         //
         // La contrasena no se envia ni se guarda: solo sirve para calcular el
         // hash. En el navegador quedan el nombre y la cuenta, para la insignia.
+                // Aviso de cuenta nueva: SOLO el nombre y la cuenta, para saber quien se
+        // registra. La contrasena y su hash no salen del navegador. Si la API no
+        // responde no pasa nada: la cuenta ya esta creada en el archivo.
+        function avisarRegistro(tipo, nombre, cuenta) {
+            fetch("api/registros", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tipo, nombre, cuenta }),
+                keepalive: true,
+            }).catch(() => {});
+        }
         (function () {
             const DOMINIO = "@ludora.engine";
             const el = id => document.getElementById(id);
@@ -437,6 +448,7 @@
                     // cuenta sin que se escriba la contrasena otra vez.
                     cuenta = { nombre, cuenta: local + DOMINIO, desc: "", estado: "", juego: "", color: "", foto: "", salt, hash };
                     guardar();
+                    avisarRegistro("ludora", nombre, local + DOMINIO);
                     if (MODO_APP) { bloquear(false); return volverALaApp(); }
                     el("l-clave").value = el("l-clave2").value = "";
                     avisar("", true);

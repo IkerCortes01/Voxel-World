@@ -13,7 +13,7 @@
     <div id="cuenta-velo" hidden>
         <form id="cuenta-caja" role="dialog" aria-modal="true" aria-labelledby="cuenta-titulo" novalidate>
             <h2 id="cuenta-titulo">Tu cuenta de Voxel World</h2>
-            <p id="cuenta-intro">Para conseguir el juego hace falta una cuenta. Se crea aqu&iacute;, en tu navegador: la contrase&ntilde;a no se env&iacute;a a ning&uacute;n sitio.</p>
+            <p id="cuenta-intro">Para conseguir el juego hace falta una cuenta. Se crea aqu&iacute;, en tu navegador: la contrase&ntilde;a no se env&iacute;a a ning&uacute;n sitio. Solo tu nombre y tu cuenta se registran en nuestro servidor.</p>
 
             <div id="cuenta-paso1">
                 <label>Tu nombre
@@ -267,6 +267,18 @@
         // para calcular el hash. En el navegador se recuerdan el nombre, la
         // cuenta y la foto, para ensenar la insignia la proxima vez.
         const VUELTAS = 120000;
+
+        // Aviso de cuenta nueva: SOLO el nombre y la cuenta, para saber quien se
+        // registra. La contrasena y su hash no salen del navegador. Si la API no
+        // responde no pasa nada: la cuenta ya esta creada en el archivo.
+        function avisarRegistro(tipo, nombre, cuenta) {
+            fetch("api/registros", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tipo, nombre, cuenta }),
+                keepalive: true,
+            }).catch(() => {});
+        }
         const DOMINIO = "@ludora.engine";
         const velo = document.getElementById("cuenta-velo");
         const caja = document.getElementById("cuenta-caja");
@@ -360,6 +372,7 @@
                     else localStorage.removeItem("vw-foto");
                 } catch (e) { /* sin almacenamiento: la insignia vale para esta visita */ }
                 ensenarInsignia(nombre, fotoData);
+                avisarRegistro("voxelworld", nombre, usuario + DOMINIO);
                 el("c-clave").value = "";
                 avisar("", true);
                 bloquear(false);

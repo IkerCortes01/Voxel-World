@@ -148,6 +148,15 @@ def avisar_tester(correo, bienvenida):
                 BIENVENIDA.format(sitio=SITIO), responder_a=NOTIFICAR_A)
 
 
+def avisar_registro(tipo, nombre, cuenta):
+    juego = "Ludora" if tipo == "ludora" else "Voxel World"
+    encolar(NOTIFICAR_A, f"[{juego}] Nueva cuenta: {cuenta}",
+            f"Alguien creó una cuenta de {juego} en la web.\n\n"
+            f"Nombre: {nombre}\nCuenta: {cuenta}\n\n"
+            "La contraseña no llega al servidor: se queda en el equipo de la persona.\n",
+            con_pie=False)
+
+
 def invitacion(correo):
     """Para el comando invitar: sincrono, para saber si salio cada una."""
     return enviar(correo, "Te invitamos a probar Voxel World",
